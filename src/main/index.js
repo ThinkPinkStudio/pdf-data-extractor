@@ -1,9 +1,15 @@
-import { app, shell, BrowserWindow, protocol } from 'electron'
+import { app, shell, BrowserWindow, protocol, nativeImage } from 'electron'
 import { join } from 'path'
 import { ipcMain } from 'electron'
 import { registerHandlers } from './ipc/handlers.js'
 
+function getIconPath() {
+  if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
+  return join(__dirname, '../../../assets/icon.png')
+}
+
 function createWindow() {
+  const icon = nativeImage.createFromPath(getIconPath())
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -12,6 +18,7 @@ function createWindow() {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: '#13141f',
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

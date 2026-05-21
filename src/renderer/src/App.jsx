@@ -29,7 +29,6 @@ export default function App() {
   return (
     <>
       <a href="#main-content" className="skip-nav">
-        {/* accessible skip link */}
         Skip to main content
       </a>
       <div className="app-shell">
@@ -48,16 +47,21 @@ export default function App() {
           aria-label={page}
           tabIndex={-1}
         >
-          {page === 'extractor' && <Extractor />}
-          {page === 'settings' && (
+          {/* Always mounted — CSS hides inactive pages to preserve state */}
+          <div style={{ display: page === 'extractor' ? 'contents' : 'none' }}>
+            <Extractor />
+          </div>
+          <div style={{ display: page === 'settings' ? 'contents' : 'none' }}>
             <Settings
               onThemeChange={handleThemeChange}
               onLangChange={handleLangChange}
               currentTheme={theme}
               currentLang={i18n.language}
             />
-          )}
-          {page === 'contacts' && <Contacts />}
+          </div>
+          <div style={{ display: page === 'contacts' ? 'contents' : 'none' }}>
+            <Contacts />
+          </div>
         </main>
       </div>
     </>

@@ -1,4 +1,5 @@
-import { dialog } from 'electron'
+import { dialog, app } from 'electron'
+import { writeFile } from 'fs/promises'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import { getOllamaStatus, extractData, streamChat } from '../services/llmService.js'
@@ -123,4 +124,46 @@ ${context}
     clearDocument()
     return { success: true }
   })
+
+  ipcMain.handle('pdf:export', async (_, { format, data, fileName }) => {
+    const baseName = (fileName || 'export').replace(/\.pdf$/i, '')
+    const extMap = { json: 'json', csv: 'csv', xlsx: 'xlsx' }
+    const nameMap = { json: 'JSON', csv: 'CSV', xlsx: 'Excel' }
+    const ext = extMap[format] || 'json'
+
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Esporta dati estratti',
+      defaultPath: `${baseName}_dati.${ext}`,
+      filters: [{ name: nameMap[format] || 'File', extensions: [ext] }]
+    })
+
+    if (canceled || !filePath) return { success: false, canceled: true }
+
+    try {
+      if (format === 'json') {
+        await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
+      } else if (format === 'csv') {
+        const esc = v => {
+          const s = String(v ?? '')
+          return /[,"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+        }
+        const keys = Object.keys(data)
+        const vals = Object.values(data)
+        const csv = `${keys.map(esc).join(',')}\n${vals.map(esc).join(',')}`
+        await writeFile(filePath, csv, 'utf-8')
+      } else if (format === 'xlsx') {
+        const XLSX = await import('xlsx')
+        const ws = XLSX.utils.json_to_sheet([data])
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, 'Dati Estratti')
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+        await writeFile(filePath, buf)
+      }
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('app:version', () => app.getVersion())
 }

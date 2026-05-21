@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
+/* global __APP_VERSION__ */
+
 const IconPDF = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -21,19 +23,6 @@ const IconUser = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
     <circle cx="12" cy="7" r="4"/>
-  </svg>
-)
-
-const IconLogo = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" fill="url(#logoGrad)"/>
-    <circle cx="12" cy="12" r="4" fill="rgba(255,255,255,0.9)"/>
-    <defs>
-      <radialGradient id="logoGrad" cx="30%" cy="30%">
-        <stop offset="0%" stopColor="#f472b6"/>
-        <stop offset="100%" stopColor="#9c27b0"/>
-      </radialGradient>
-    </defs>
   </svg>
 )
 
@@ -59,6 +48,8 @@ const navItems = [
   { id: 'contacts', icon: <IconUser />, labelKey: 'nav.contacts' }
 ]
 
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''
+
 export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, onLangChange }) {
   const { t } = useTranslation()
 
@@ -81,9 +72,12 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
     <aside className="sidebar" role="navigation" aria-label={t('nav.extractor')}>
       <div className="sidebar-header">
         <div className="logo-row" role="banner">
-          <div className="logo-icon" aria-hidden="true">
-            <IconLogo />
-          </div>
+          <img
+            src="/icon.png"
+            alt=""
+            aria-hidden="true"
+            className="logo-img"
+          />
           <div className="logo-text">
             <span className="logo-name">{t('brand.name')}</span>
             <span className="logo-sub">{t('brand.subtitle')}</span>
@@ -106,9 +100,14 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
       </nav>
 
       <div className="sidebar-footer">
-        <span className="footer-brand" aria-label={t('brand.company')}>
-          {t('brand.company')}
-        </span>
+        <div className="footer-brand-block">
+          <span className="footer-brand" aria-label={t('brand.company')}>
+            {t('brand.company')}
+          </span>
+          {appVersion && (
+            <span className="footer-version">v{appVersion}</span>
+          )}
+        </div>
         <div className="footer-actions">
           <button
             className={`lang-btn${lang === 'it' ? ' active' : ''}`}

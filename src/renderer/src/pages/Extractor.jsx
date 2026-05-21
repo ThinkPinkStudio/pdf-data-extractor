@@ -47,10 +47,19 @@ const IconTrash = () => (
   </svg>
 )
 
+const IconDownload = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="7 10 12 15 17 10"/>
+    <line x1="12" y1="15" x2="12" y2="3"/>
+  </svg>
+)
+
 /* ─── PDF Preview ───────────────────────────────────────────── */
 function PDFPreview({ buffer, fileName, numPages }) {
   const { t } = useTranslation()
   const canvasRef = useRef(null)
+  const wrapRef = useRef(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pdfDoc, setPdfDoc] = useState(null)
   const renderRef = useRef(null)
@@ -74,21 +83,33 @@ function PDFPreview({ buffer, fileName, numPages }) {
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current) return
     let cancelled = false
+
     if (renderRef.current) {
-      try { renderRef.current.cancel() } catch {}
+      try { renderRef.current.cancel() } catch (_) {}
+      renderRef.current = null
     }
+
     ;(async () => {
       const page = await pdfDoc.getPage(currentPage)
-      if (cancelled) return
+      if (cancelled || !canvasRef.current) return
+
       const canvas = canvasRef.current
-      if (!canvas) return
       const ctx = canvas.getContext('2d')
-      const dpr = window.devicePixelRatio || 1
-      const viewport = page.getViewport({ scale: 1.4 * dpr })
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      canvas.style.width = `${viewport.width / dpr}px`
-      canvas.style.height = `${viewport.height / dpr}px`
+
+      // Scale PDF to fit available container width
+      const wrap = wrapRef.current
+      const availW = wrap ? Math.max(wrap.clientWidth - 24, 200) : 500
+      const naturalVp = page.getViewport({ scale: 1 })
+      const scale = Math.min(availW / naturalVp.width, 2.0)
+      const viewport = page.getViewport({ scale })
+
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      canvas.style.width = `${canvas.width}px`
+      canvas.style.height = `${canvas.height}px`
+
+      if (cancelled) return
+
       const task = page.render({ canvasContext: ctx, viewport })
       renderRef.current = task
       try {
@@ -97,6 +118,7 @@ function PDFPreview({ buffer, fileName, numPages }) {
         if (e?.name !== 'RenderingCancelledException') console.error(e)
       }
     })()
+
     return () => { cancelled = true }
   }, [pdfDoc, currentPage])
 
@@ -124,7 +146,12 @@ function PDFPreview({ buffer, fileName, numPages }) {
           ><IconChevRight /></button>
         </div>
       </div>
-      <div className="pdf-canvas-wrap" role="img" aria-label={`${t('extractor.loadedFile')}: ${fileName}, ${t('extractor.page')} ${currentPage} ${t('extractor.pageOf')} ${numPages}`}>
+      <div
+        ref={wrapRef}
+        className="pdf-canvas-wrap"
+        role="img"
+        aria-label={`${t('extractor.loadedFile')}: ${fileName}, ${t('extractor.page')} ${currentPage} ${t('extractor.pageOf')} ${numPages}`}
+      >
         <canvas ref={canvasRef} />
       </div>
     </div>
@@ -151,7 +178,6 @@ function ChatPanel({ hasDoc }) {
   }, [messages])
 
   useEffect(() => {
-    const off = () => {}
     window.electronAPI.onLLMChunk(({ chunk, done, error }) => {
       if (error) {
         setMessages(prev => {
@@ -281,6 +307,7 @@ export default function Extractor() {
   const [extracted, setExtracted] = useState(null)
   const [extractError, setExtractError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [drag, setDrag] = useState(false)
   const [activeTab, setActiveTab] = useState('extract')
   const dropRef = useRef(null)
@@ -349,6 +376,16 @@ export default function Extractor() {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleExport = async (format) => {
+    if (!extracted || exporting) return
+    setExporting(true)
+    const res = await window.electronAPI.exportData(format, extracted, fileName)
+    setExporting(false)
+    if (!res.success && !res.canceled && res.error) {
+      setExtractError(res.error)
+    }
   }
 
   return (
@@ -446,15 +483,33 @@ export default function Extractor() {
                 <div className="results-header">
                   <h3>{t('extractor.extractedTitle')}</h3>
                   {extracted && (
-                    <button
-                      className="btn btn-ghost"
-                      onClick={copyResults}
-                      aria-label={t('extractor.copyResults')}
-                      style={{ padding: '5px 10px', fontSize: 12 }}
-                    >
-                      <IconCopy />
-                      {copied ? t('extractor.copied') : t('extractor.copyResults')}
-                    </button>
+                    <div className="results-actions">
+                      <button
+                        className="btn btn-ghost"
+                        onClick={copyResults}
+                        aria-label={t('extractor.copyResults')}
+                        style={{ padding: '5px 10px', fontSize: 12 }}
+                      >
+                        <IconCopy />
+                        {copied ? t('extractor.copied') : t('extractor.copyResults')}
+                      </button>
+                      <div className="export-group" aria-label={t('extractor.exportLabel')}>
+                        <span className="export-label">{t('extractor.exportLabel')}:</span>
+                        {['json', 'csv', 'xlsx'].map(fmt => (
+                          <button
+                            key={fmt}
+                            className="btn btn-ghost export-fmt-btn"
+                            onClick={() => handleExport(fmt)}
+                            disabled={exporting}
+                            aria-label={`${t('extractor.exportLabel')} ${fmt.toUpperCase()}`}
+                            title={`${t('extractor.exportLabel')} ${fmt.toUpperCase()}`}
+                          >
+                            <IconDownload />
+                            {fmt.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="results-body">

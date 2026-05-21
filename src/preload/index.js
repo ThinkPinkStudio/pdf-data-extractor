@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   extractData: () => ipcRenderer.invoke('pdf:extract'),
   chatWithPDF: (message, history) => ipcRenderer.invoke('pdf:chat', { message, history }),
   clearPDF: () => ipcRenderer.invoke('pdf:clear'),
+  exportData: (format, data, fileName) => ipcRenderer.invoke('pdf:export', { format, data, fileName }),
 
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
