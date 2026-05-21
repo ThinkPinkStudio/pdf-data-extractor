@@ -5,7 +5,7 @@ import { app } from 'electron'
 const defaultSettings = {
   theme: 'dark',
   language: 'it',
-  ollamaUrl: 'http://localhost:11434',
+  ollamaUrl: 'http://127.0.0.1:11434',
   ollamaModel: '',
   extractions: [
     {
@@ -45,7 +45,12 @@ export function getSettings() {
   try {
     const raw = readFileSync(getSettingsPath(), 'utf-8')
     const saved = JSON.parse(raw)
-    return { ...defaultSettings, ...saved }
+    const merged = { ...defaultSettings, ...saved }
+    // Migrate legacy localhost URLs to 127.0.0.1 to avoid IPv6 resolution failures
+    if (merged.ollamaUrl === 'http://localhost:11434') {
+      merged.ollamaUrl = 'http://127.0.0.1:11434'
+    }
+    return merged
   } catch {
     return { ...defaultSettings }
   }
