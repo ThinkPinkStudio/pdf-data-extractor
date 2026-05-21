@@ -54,7 +54,7 @@
     "sectionLLM": "LLM Model (Ollama)",
     "sectionLLMDesc": "Configure the connection to the local Ollama server",
     "ollamaUrl": "Ollama Server URL",
-    "ollamaUrlPlaceholder": "http://localhost:11434",
+    "ollamaUrlPlaceholder": "http://127.0.0.1:11434",
     "ollamaModel": "Model",
     "ollamaModelNone": "Select a model…",
     "ollamaStatus": "Connection status",
