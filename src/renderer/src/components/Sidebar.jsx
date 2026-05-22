@@ -42,8 +42,29 @@ const IconMoon = () => (
   </svg>
 )
 
+const IconBatch = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="2" y="3" width="6" height="6" rx="1"/>
+    <rect x="9" y="3" width="6" height="6" rx="1"/>
+    <rect x="16" y="3" width="6" height="6" rx="1"/>
+    <rect x="2" y="12" width="6" height="6" rx="1"/>
+    <rect x="9" y="12" width="6" height="6" rx="1"/>
+    <rect x="16" y="12" width="6" height="6" rx="1"/>
+  </svg>
+)
+
+const IconHistory = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="1 4 1 10 7 10"/>
+    <path d="M3.51 15a9 9 0 1 0 .49-4.95"/>
+    <polyline points="12 7 12 12 15 15"/>
+  </svg>
+)
+
 const navItems = [
   { id: 'extractor', icon: <IconPDF />, labelKey: 'nav.extractor' },
+  { id: 'batch', icon: <IconBatch />, labelKey: 'nav.batch' },
+  { id: 'history', icon: <IconHistory />, labelKey: 'nav.history' },
   { id: 'settings', icon: <IconSettings />, labelKey: 'nav.settings' },
   { id: 'contacts', icon: <IconUser />, labelKey: 'nav.contacts' }
 ]

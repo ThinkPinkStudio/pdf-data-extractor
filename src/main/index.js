@@ -2,6 +2,8 @@ import { app, shell, BrowserWindow, protocol, nativeImage } from 'electron'
 import { join } from 'path'
 import { ipcMain } from 'electron'
 import { registerHandlers } from './ipc/handlers.js'
+import { startWebhook, stopWebhook } from './services/webhookService.js'
+import { getSettings } from './services/settingsService.js'
 
 function getIconPath() {
   if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
@@ -50,11 +52,31 @@ app.whenReady().then(() => {
   const mainWindow = createWindow()
   registerHandlers(ipcMain, mainWindow)
 
+  // Init webhook if enabled
+  try {
+    const settings = getSettings()
+    if (settings.webhookEnabled) {
+      startWebhook(settings.webhookPort || 3847)
+    }
+  } catch (_) {}
+
+  // Restart webhook when settings change
+  ipcMain.on('settings:changed', () => {
+    try {
+      const settings = getSettings()
+      stopWebhook()
+      if (settings.webhookEnabled) {
+        startWebhook(settings.webhookPort || 3847)
+      }
+    } catch (_) {}
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
+  stopWebhook()
   if (process.platform !== 'darwin') app.quit()
 })

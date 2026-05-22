@@ -62,6 +62,19 @@ const IconPackage = () => (
     <line x1="12" y1="22.08" x2="12" y2="12"/>
   </svg>
 )
+const IconPlus = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <line x1="12" y1="5" x2="12" y2="19"/>
+    <line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+)
+const IconFiles = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/>
+    <polyline points="15 2 15 8 21 8"/>
+    <path d="M9 13h6M9 17h3"/>
+  </svg>
+)
 
 /* ─── Save menu (PDF copy + export all) ─────────────────────── */
 function SaveMenu({ fileName, chatHistory, extracted }) {
