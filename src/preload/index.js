@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadPDF: (filePath) => ipcRenderer.invoke('pdf:load', filePath),
   removePDF: (id) => ipcRenderer.invoke('pdf:remove', id),
   getDocuments: () => ipcRenderer.invoke('pdf:getDocuments'),
-  extractData: (docId) => ipcRenderer.invoke('pdf:extract', docId),
+  extractData: (docId, fields) => ipcRenderer.invoke('pdf:extract', docId, fields),
   chatWithPDF: (message, history, docId) => ipcRenderer.invoke('pdf:chat', { message, history, docId }),
   clearPDF: () => ipcRenderer.invoke('pdf:clear'),
   exportData: (format, data, fileName) => ipcRenderer.invoke('pdf:export', { format, data, fileName }),

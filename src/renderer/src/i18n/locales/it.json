@@ -30,6 +30,8 @@
     "noExtracted": "Premi «Estrai Dati» per analizzare il documento",
     "chatTitle": "Chat sul Documento",
     "chatPlaceholder": "Fai una domanda sul documento…",
+    "chatPlaceholderMulti": "Fai una domanda su uno o più documenti…",
+    "chatMultiDocMode": "Modalità multi-documento: {{count}} documenti caricati — puoi chiedere confronti e differenze",
     "chatSend": "Invia",
     "chatThinking": "Sto elaborando…",
     "chatNoDoc": "Carica un PDF per iniziare la chat",
@@ -58,7 +60,7 @@
   },
   "batch": {
     "title": "Elaborazione Batch",
-    "subtitle": "Elabora più PDF in sequenza",
+    "subtitle": "Estrai dati da più PDF uno per uno — per caricare più PDF in chat usa l'Estrattore",
     "selectFiles": "Seleziona PDF",
     "selectFolder": "Seleziona Cartella",
     "noFiles": "Nessun file selezionato",

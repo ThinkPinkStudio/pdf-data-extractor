@@ -30,6 +30,8 @@
     "noExtracted": "Press «Extract Data» to analyse the document",
     "chatTitle": "Document Chat",
     "chatPlaceholder": "Ask a question about the document…",
+    "chatPlaceholderMulti": "Ask a question about one or more documents…",
+    "chatMultiDocMode": "Multi-document mode: {{count}} documents loaded — you can ask for comparisons and differences",
     "chatSend": "Send",
     "chatThinking": "Thinking…",
     "chatNoDoc": "Load a PDF to start chatting",
@@ -58,7 +60,7 @@
   },
   "batch": {
     "title": "Batch Processing",
-    "subtitle": "Process multiple PDFs in sequence",
+    "subtitle": "Extract data from multiple PDFs one by one — to load PDFs for cross-document Q&A, use the Extractor",
     "selectFiles": "Select PDFs",
     "selectFolder": "Select Folder",
     "noFiles": "No files selected",

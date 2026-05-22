@@ -1088,6 +1088,297 @@ a.contact-info:hover { opacity: 0.8; }
   flex-shrink: 0;
 }
 
+/* ─── Document Tabs (multi-doc) ─────────────────────────────── */
+.doc-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 10px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.doc-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-card);
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+  white-space: nowrap;
+  max-width: 180px;
+  flex-shrink: 0;
+}
+
+.doc-tab:hover {
+  background: var(--c-bg-hover);
+  color: var(--c-text-primary);
+}
+
+.doc-tab.active {
+  background: var(--c-bg-active);
+  border-color: var(--c-accent-dim);
+  color: var(--c-accent);
+}
+
+.doc-tab svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.7; }
+
+.doc-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+
+.doc-tab-remove {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-sm);
+  color: var(--c-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-fast), color var(--t-fast);
+  padding: 0;
+  margin-left: 2px;
+}
+
+.doc-tab-remove:hover { background: rgba(239,68,68,0.15); color: var(--c-error); }
+
+.doc-tab-add {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--c-accent);
+  border: 1px dashed var(--c-accent-dim);
+  background: var(--c-accent-faint);
+  border-radius: var(--r-md);
+}
+.doc-tab-add:hover:not(:disabled) { background: var(--c-accent-dim); }
+
+/* ─── Multi-doc chat banner ─────────────────────────────────── */
+.chat-multidoc-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: var(--c-accent-faint);
+  border-bottom: 1px solid var(--c-accent-dim);
+  font-size: 12px;
+  color: var(--c-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.chat-multidoc-banner svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* ─── Batch Page ────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.badge-neutral  { background: var(--c-bg-card-alt); color: var(--c-text-muted); border: 1px solid var(--c-border); }
+.badge-info     { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
+.badge-success  { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+.badge-error    { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+
+.batch-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.batch-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--c-bg-card-alt);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  font-size: 13px;
+}
+
+.batch-file-index {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  min-width: 18px;
+  text-align: right;
+}
+
+.batch-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-text-primary);
+  font-size: 13px;
+}
+
+.batch-file-name-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-file-error {
+  color: var(--c-error);
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-danger-icon {
+  color: var(--c-text-muted);
+  transition: color var(--t-fast);
+}
+.btn-danger-icon:hover { color: var(--c-error); }
+
+.progress-bar-wrap {
+  width: 100%;
+  height: 6px;
+  background: var(--c-bg-card-alt);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--gradient-accent);
+  border-radius: var(--r-full);
+  transition: width 0.3s ease;
+}
+
+.batch-results-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+}
+
+.batch-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.batch-results-table th {
+  padding: 8px 12px;
+  background: var(--c-bg-card-alt);
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+  border-bottom: 1px solid var(--c-border);
+  white-space: nowrap;
+}
+
+.batch-results-table td {
+  padding: 8px 12px;
+  color: var(--c-text-primary);
+  border-bottom: 1px solid var(--c-separator);
+  word-break: break-word;
+  max-width: 200px;
+}
+
+.batch-results-table tr:last-child td { border-bottom: none; }
+.batch-results-table tbody tr:hover td { background: var(--c-bg-hover); }
+
+/* ─── History Page ──────────────────────────────────────────── */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.history-item:hover { background: var(--c-bg-hover); border-color: var(--c-accent-dim); }
+
+.history-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  background: var(--c-accent-faint);
+  border: 1px solid var(--c-accent-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+
+.history-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-meta {
+  margin-top: 2px;
+}
+
+.history-item-actions {
+  flex-shrink: 0;
+}
+
+/* ─── Validation badges ─────────────────────────────────────── */
+.valid-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.valid-ok  { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.valid-bad { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
 /* ─── Misc utilities ────────────────────────────────────────── */
 .flex { display: flex; }
 .flex-col { display: flex; flex-direction: column; }

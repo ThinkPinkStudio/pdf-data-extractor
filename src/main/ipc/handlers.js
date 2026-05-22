@@ -92,13 +92,15 @@ export function registerHandlers(ipcMain, mainWindow) {
     return getDocuments().map(d => ({ id: d.id, fileName: d.fileName, numPages: d.numPages }))
   })
 
-  ipcMain.handle('pdf:extract', async (_, docId) => {
+  ipcMain.handle('pdf:extract', async (_, docId, overrideFields) => {
     if (!hasDocument()) return { success: false, error: 'Nessun documento caricato' }
     const settings = getSettings()
 
     try {
       const chunks = getChunks(docId)
-      const enabledFields = settings.extractions.filter(f => f.enabled)
+      const enabledFields = (overrideFields && overrideFields.length > 0)
+        ? overrideFields.filter(f => f.enabled)
+        : settings.extractions.filter(f => f.enabled)
       const fieldQuery = enabledFields.map(f => f.description).join(' ')
       const relevant = searchChunks(fieldQuery, chunks, 6)
 
