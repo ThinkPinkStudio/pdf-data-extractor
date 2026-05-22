@@ -141,10 +141,11 @@ function SaveMenu({ fileName, chatHistory, extracted }) {
   )
 }
 
-/* ─── PDF Preview ───────────────────────────────────────────── */
-function PDFPreview({ buffer, fileName, numPages }) {
+/* ─── PDF Preview with highlight overlay ────────────────────── */
+function PDFPreview({ buffer, fileName, numPages, extracted }) {
   const { t } = useTranslation()
   const canvasRef = useRef(null)
+  const overlayRef = useRef(null)
   const wrapRef = useRef(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pdfDoc, setPdfDoc] = useState(null)
@@ -187,6 +188,15 @@ function PDFPreview({ buffer, fileName, numPages }) {
       canvas.height = Math.floor(viewport.height)
       canvas.style.width = `${canvas.width}px`
       canvas.style.height = `${canvas.height}px`
+
+      // Resize overlay to match
+      if (overlayRef.current) {
+        overlayRef.current.width = canvas.width
+        overlayRef.current.height = canvas.height
+        overlayRef.current.style.width = `${canvas.width}px`
+        overlayRef.current.style.height = `${canvas.height}px`
+      }
+
       if (cancelled) return
       const task = page.render({ canvasContext: ctx, viewport })
       renderRef.current = task
@@ -194,10 +204,57 @@ function PDFPreview({ buffer, fileName, numPages }) {
         await task.promise
       } catch (e) {
         if (e?.name !== 'RenderingCancelledException') console.error(e)
+        return
+      }
+
+      // Draw highlights after render
+      if (overlayRef.current && !cancelled) {
+        if (extracted) {
+          try { await drawHighlights(page, viewport, overlayRef.current, extracted) } catch (_) {}
+        } else {
+          const oc = overlayRef.current.getContext('2d')
+          oc.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height)
+        }
       }
     })()
     return () => { cancelled = true }
-  }, [pdfDoc, currentPage])
+  }, [pdfDoc, currentPage, extracted])
+
+  async function drawHighlights(page, viewport, overlayCanvas, extractedData) {
+    const oc = overlayCanvas.getContext('2d')
+    oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+    if (!extractedData) return
+
+    const values = Object.values(extractedData)
+      .filter(v => v != null && String(v).trim().length > 2)
+      .map(v => String(v).trim().toLowerCase())
+
+    if (values.length === 0) return
+
+    const textContent = await page.getTextContent()
+    const colors = [
+      'rgba(233,30,140,0.28)', 'rgba(30,120,233,0.28)',
+      'rgba(30,200,80,0.28)', 'rgba(200,150,30,0.28)'
+    ]
+    let colorIdx = 0
+
+    for (const item of textContent.items) {
+      if (!item.str || !item.str.trim()) continue
+      const itemText = item.str.toLowerCase()
+      for (const val of values) {
+        if (itemText.includes(val) || (val.length > 3 && val.includes(itemText) && itemText.length > 3)) {
+          const tx = item.transform
+          const [x, y] = viewport.convertToViewportPoint(tx[4], tx[5])
+          const w = (item.width || 60) * viewport.scale
+          const h = (item.height || 12) * viewport.scale
+          oc.fillStyle = colors[colorIdx % colors.length]
+          oc.fillRect(x, y - h, w, h + 2)
+          colorIdx++
+          break
+        }
+      }
+    }
+  }
 
   if (!buffer) return null
 
@@ -228,8 +285,15 @@ function PDFPreview({ buffer, fileName, numPages }) {
         className="pdf-canvas-wrap"
         role="img"
         aria-label={`${t('extractor.loadedFile')}: ${fileName}, ${t('extractor.page')} ${currentPage} ${t('extractor.pageOf')} ${numPages}`}
+        style={{ position: 'relative' }}
       >
         <canvas ref={canvasRef} />
+        {extracted && (
+          <canvas
+            ref={overlayRef}
+            style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 2 }}
+          />
+        )}
       </div>
     </div>
   )
@@ -565,6 +629,24 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
     chatHistoryRef.current = []
   }
 
+  const sessionIdRef = useRef(null)
+
+  const autoSaveSession = async (data) => {
+    if (!activeDoc) return
+    try {
+      const session = {
+        id: sessionIdRef.current || undefined,
+        fileName: activeDoc.fileName,
+        numPages: activeDoc.numPages,
+        extracted: data,
+        messages: chatHistoryRef.current,
+        createdAt: new Date().toISOString()
+      }
+      const res = await window.electronAPI.saveHistory(session)
+      if (res.success) sessionIdRef.current = res.id
+    } catch (_) {}
+  }
+
   const handleExtract = async () => {
     if (!activeDoc) return
     setExtracting(true)
@@ -573,8 +655,13 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
     const overrideFields = profile ? profile.fields : undefined
     const res = await window.electronAPI.extractData(activeDocId, overrideFields)
     setExtracting(false)
-    if (res.success) { setExtracted(res.data); setActiveTab('extract') }
-    else setExtractError(res.error)
+    if (res.success) {
+      setExtracted(res.data)
+      setActiveTab('extract')
+      autoSaveSession(res.data)
+    } else {
+      setExtractError(res.error)
+    }
   }
 
   const copyResults = () => {
@@ -664,6 +751,7 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
                 buffer={activeDoc?.buffer}
                 fileName={activeDoc?.fileName}
                 numPages={activeDoc?.numPages}
+                extracted={extracted}
               />
             )}
 
