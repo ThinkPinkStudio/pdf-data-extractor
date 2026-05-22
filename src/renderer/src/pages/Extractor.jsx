@@ -9,44 +9,37 @@ const IconUpload = () => (
     <line x1="12" y1="3" x2="12" y2="15"/>
   </svg>
 )
-
 const IconFile = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
     <polyline points="14 2 14 8 20 8"/>
   </svg>
 )
-
 const IconSend = () => (
   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
   </svg>
 )
-
 const IconChevLeft = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
     <polyline points="15 18 9 12 15 6"/>
   </svg>
 )
-
 const IconChevRight = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
     <polyline points="9 18 15 12 9 6"/>
   </svg>
 )
-
 const IconCopy = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
     <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
   </svg>
 )
-
 const IconTrash = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
   </svg>
 )
-
 const IconDownload = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -54,6 +47,81 @@ const IconDownload = () => (
     <line x1="12" y1="15" x2="12" y2="3"/>
   </svg>
 )
+const IconSave = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+    <polyline points="17 21 17 13 7 13 7 21"/>
+    <polyline points="7 3 7 8 15 8"/>
+  </svg>
+)
+const IconPackage = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/>
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+    <line x1="12" y1="22.08" x2="12" y2="12"/>
+  </svg>
+)
+
+/* ─── Save menu (PDF copy + export all) ─────────────────────── */
+function SaveMenu({ fileName, chatHistory, extracted }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const run = async (fn) => {
+    setOpen(false)
+    setBusy(true)
+    try { await fn() } finally { setBusy(false) }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        className="btn btn-secondary"
+        onClick={() => setOpen(o => !o)}
+        disabled={busy}
+        aria-label={t('extractor.saveMenu')}
+        title={t('extractor.saveMenu')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {busy
+          ? <div className="spinner spinner-sm" aria-hidden="true" />
+          : <IconSave />}
+      </button>
+      {open && (
+        <div className="save-menu-popup" role="menu">
+          <button
+            className="save-menu-item"
+            role="menuitem"
+            onClick={() => run(() => window.electronAPI.savePDFCopy())}
+          >
+            <IconFile />
+            {t('extractor.savePDFCopy')}
+          </button>
+          <div className="save-menu-sep" />
+          <button
+            className="save-menu-item"
+            role="menuitem"
+            onClick={() => run(() => window.electronAPI.exportAll(chatHistory, extracted, fileName))}
+          >
+            <IconPackage />
+            {t('extractor.exportAll')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* ─── PDF Preview ───────────────────────────────────────────── */
 function PDFPreview({ buffer, fileName, numPages }) {
@@ -83,33 +151,25 @@ function PDFPreview({ buffer, fileName, numPages }) {
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current) return
     let cancelled = false
-
     if (renderRef.current) {
       try { renderRef.current.cancel() } catch (_) {}
       renderRef.current = null
     }
-
     ;(async () => {
       const page = await pdfDoc.getPage(currentPage)
       if (cancelled || !canvasRef.current) return
-
       const canvas = canvasRef.current
       const ctx = canvas.getContext('2d')
-
-      // Scale PDF to fit available container width
       const wrap = wrapRef.current
       const availW = wrap ? Math.max(wrap.clientWidth - 24, 200) : 500
       const naturalVp = page.getViewport({ scale: 1 })
       const scale = Math.min(availW / naturalVp.width, 2.0)
       const viewport = page.getViewport({ scale })
-
       canvas.width = Math.floor(viewport.width)
       canvas.height = Math.floor(viewport.height)
       canvas.style.width = `${canvas.width}px`
       canvas.style.height = `${canvas.height}px`
-
       if (cancelled) return
-
       const task = page.render({ canvasContext: ctx, viewport })
       renderRef.current = task
       try {
@@ -118,7 +178,6 @@ function PDFPreview({ buffer, fileName, numPages }) {
         if (e?.name !== 'RenderingCancelledException') console.error(e)
       }
     })()
-
     return () => { cancelled = true }
   }, [pdfDoc, currentPage])
 
@@ -159,19 +218,11 @@ function PDFPreview({ buffer, fileName, numPages }) {
 }
 
 /* ─── Chat ──────────────────────────────────────────────────── */
-function ChatPanel({ hasDoc }) {
+function ChatPanel({ hasDoc, messages, setMessages, historyRef, streaming, setStreaming, onExportChat }) {
   const { t } = useTranslation()
-  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [settings, setSettings] = useState(null)
   const endRef = useRef(null)
   const inputRef = useRef(null)
-  const historyRef = useRef([])
-
-  useEffect(() => {
-    window.electronAPI.getSettings().then(setSettings)
-  }, [])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -221,27 +272,33 @@ function ChatPanel({ hasDoc }) {
     const msg = input.trim()
     setInput('')
     setStreaming(true)
-
     historyRef.current.push({ role: 'user', content: msg })
     setMessages(prev => [
       ...prev,
       { role: 'user', content: msg },
       { role: 'assistant', content: '', streaming: true }
     ])
-
     const history = historyRef.current.slice(0, -1)
     await window.electronAPI.chatWithPDF(msg, history)
   }
 
   const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
   return (
     <div className="chat-panel" role="region" aria-label={t('extractor.chatTitle')}>
+      {messages.length > 0 && (
+        <div className="chat-export-bar">
+          <span className="export-label">{t('extractor.exportChat')}:</span>
+          <button className="btn btn-ghost export-fmt-btn" onClick={() => onExportChat('txt')} title="TXT">
+            <IconDownload />TXT
+          </button>
+          <button className="btn btn-ghost export-fmt-btn" onClick={() => onExportChat('json')} title="JSON">
+            <IconDownload />JSON
+          </button>
+        </div>
+      )}
       <div
         className="chat-messages"
         aria-live="polite"
@@ -260,10 +317,9 @@ function ChatPanel({ hasDoc }) {
             key={i}
             className={`msg msg-${m.role}`}
             role={m.role === 'assistant' ? 'article' : undefined}
-            aria-label={m.role === 'assistant' ? 'Risposta assistente' : 'Tua domanda'}
           >
             <div className={`msg-bubble${m.streaming ? ' streaming' : ''}`}>
-              {m.content || (m.streaming ? '' : '')}
+              {m.content}
             </div>
           </div>
         ))}
@@ -298,19 +354,28 @@ function ChatPanel({ hasDoc }) {
 /* ─── Main Extractor Page ───────────────────────────────────── */
 export default function Extractor() {
   const { t } = useTranslation()
+
+  // PDF state
   const [pdfBuffer, setPdfBuffer] = useState(null)
   const [fileName, setFileName] = useState('')
   const [numPages, setNumPages] = useState(0)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
+
+  // Extraction state
   const [extracting, setExtracting] = useState(false)
   const [extracted, setExtracted] = useState(null)
   const [extractError, setExtractError] = useState('')
   const [copied, setCopied] = useState(false)
   const [exporting, setExporting] = useState(false)
+
+  // Chat state — lifted here so export-all can access it
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatStreaming, setChatStreaming] = useState(false)
+  const chatHistoryRef = useRef([])
+
   const [drag, setDrag] = useState(false)
   const [activeTab, setActiveTab] = useState('extract')
-  const dropRef = useRef(null)
 
   const loadFile = async (filePath) => {
     setLoading(true)
@@ -336,9 +401,7 @@ export default function Extractor() {
     e.preventDefault()
     setDrag(false)
     const file = e.dataTransfer.files[0]
-    if (file && file.type === 'application/pdf') {
-      loadFile(file.path)
-    }
+    if (file && file.type === 'application/pdf') loadFile(file.path)
   }, [])
 
   const handleDragOver = (e) => { e.preventDefault(); setDrag(true) }
@@ -350,12 +413,8 @@ export default function Extractor() {
     setExtractError('')
     const res = await window.electronAPI.extractData()
     setExtracting(false)
-    if (res.success) {
-      setExtracted(res.data)
-      setActiveTab('extract')
-    } else {
-      setExtractError(res.error)
-    }
+    if (res.success) { setExtracted(res.data); setActiveTab('extract') }
+    else setExtractError(res.error)
   }
 
   const clearDoc = async () => {
@@ -366,14 +425,15 @@ export default function Extractor() {
     setExtracted(null)
     setExtractError('')
     setLoadError('')
+    setChatMessages([])
+    chatHistoryRef.current = []
   }
 
   const copyResults = () => {
     if (!extracted) return
-    const text = Object.entries(extracted)
-      .map(([k, v]) => `${k}: ${v ?? '—'}`)
-      .join('\n')
-    navigator.clipboard.writeText(text)
+    navigator.clipboard.writeText(
+      Object.entries(extracted).map(([k, v]) => `${k}: ${v ?? '—'}`).join('\n')
+    )
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -383,9 +443,12 @@ export default function Extractor() {
     setExporting(true)
     const res = await window.electronAPI.exportData(format, extracted, fileName)
     setExporting(false)
-    if (!res.success && !res.canceled && res.error) {
-      setExtractError(res.error)
-    }
+    if (!res.success && !res.canceled && res.error) setExtractError(res.error)
+  }
+
+  const handleExportChat = async (format) => {
+    if (!chatHistoryRef.current.length) return
+    await window.electronAPI.exportChat(format, chatHistoryRef.current, fileName)
   }
 
   return (
@@ -401,11 +464,11 @@ export default function Extractor() {
           </div>
         )}
         <div className="extractor-layout" style={{ flex: 1, minHeight: 0, height: 'calc(100vh - 130px)' }}>
+
           {/* Left: PDF panel */}
           <div className="pdf-panel">
             {!pdfBuffer ? (
               <div
-                ref={dropRef}
                 className={`dropzone${drag ? ' drag-over' : ''}`}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -439,11 +502,22 @@ export default function Extractor() {
 
             {pdfBuffer && (
               <div className="flex gap-2" style={{ flexShrink: 0 }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleExtract} disabled={extracting} aria-busy={extracting}>
-                  {extracting ? (
-                    <><div className="spinner spinner-sm" aria-hidden="true" />{t('extractor.extracting')}</>
-                  ) : t('extractor.extractButton')}
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={handleExtract}
+                  disabled={extracting}
+                  aria-busy={extracting}
+                >
+                  {extracting
+                    ? <><div className="spinner spinner-sm" aria-hidden="true" />{t('extractor.extracting')}</>
+                    : t('extractor.extractButton')}
                 </button>
+                <SaveMenu
+                  fileName={fileName}
+                  chatHistory={chatHistoryRef.current}
+                  extracted={extracted}
+                />
                 <button className="btn btn-secondary" onClick={clearDoc} aria-label={t('extractor.clearDoc')}>
                   <IconTrash />
                 </button>
@@ -501,7 +575,6 @@ export default function Extractor() {
                             className="btn btn-ghost export-fmt-btn"
                             onClick={() => handleExport(fmt)}
                             disabled={exporting}
-                            aria-label={`${t('extractor.exportLabel')} ${fmt.toUpperCase()}`}
                             title={`${t('extractor.exportLabel')} ${fmt.toUpperCase()}`}
                           >
                             <IconDownload />
@@ -546,9 +619,18 @@ export default function Extractor() {
               aria-labelledby="tab-chat"
               className={`tab-panel${activeTab === 'chat' ? ' visible' : ''}`}
             >
-              <ChatPanel hasDoc={!!pdfBuffer} />
+              <ChatPanel
+                hasDoc={!!pdfBuffer}
+                messages={chatMessages}
+                setMessages={setChatMessages}
+                historyRef={chatHistoryRef}
+                streaming={chatStreaming}
+                setStreaming={setChatStreaming}
+                onExportChat={handleExportChat}
+              />
             </div>
           </div>
+
         </div>
       </div>
     </>

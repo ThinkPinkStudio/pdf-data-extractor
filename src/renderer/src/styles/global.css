@@ -1037,6 +1037,57 @@ a.contact-info:hover { opacity: 0.8; }
 .theme-btn:hover { background: var(--c-bg-hover); color: var(--c-text-primary); }
 .theme-btn svg { width: 15px; height: 15px; }
 
+/* ─── Save menu popup ───────────────────────────────────────── */
+.save-menu-popup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  min-width: 210px;
+  z-index: 100;
+}
+
+.save-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--c-text-primary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast);
+}
+.save-menu-item:hover { background: var(--c-bg-hover); }
+.save-menu-item svg { color: var(--c-accent); flex-shrink: 0; }
+
+.save-menu-sep {
+  height: 1px;
+  background: var(--c-separator);
+  margin: 3px 8px;
+}
+
+/* ─── Chat export bar ───────────────────────────────────────── */
+.chat-export-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-card-alt);
+  flex-shrink: 0;
+}
+
 /* ─── Misc utilities ────────────────────────────────────────── */
 .flex { display: flex; }
 .flex-col { display: flex; flex-direction: column; }

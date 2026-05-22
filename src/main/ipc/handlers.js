@@ -1,5 +1,6 @@
 import { dialog, app } from 'electron'
-import { writeFile } from 'fs/promises'
+import { writeFile, copyFile } from 'fs/promises'
+import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import { getOllamaStatus, extractData, streamChat } from '../services/llmService.js'
@@ -160,6 +161,90 @@ ${context}
         await writeFile(filePath, buf)
       }
       return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('session:savePDFCopy', async () => {
+    if (!hasDocument()) return { success: false, error: 'Nessun documento caricato' }
+    const doc = getDocument()
+    const { filePath: canceled, canceled: isCanceled } = {}
+    const result = await dialog.showSaveDialog({
+      title: 'Salva copia PDF',
+      defaultPath: doc.fileName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    try {
+      await copyFile(doc.filePath, result.filePath)
+      return { success: true, filePath: result.filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('session:exportChat', async (_, { format, messages, fileName }) => {
+    const baseName = (fileName || 'chat').replace(/\.pdf$/i, '')
+    const isJson = format === 'json'
+    const result = await dialog.showSaveDialog({
+      title: 'Salva conversazione',
+      defaultPath: `${baseName}_conversazione.${isJson ? 'json' : 'txt'}`,
+      filters: isJson
+        ? [{ name: 'JSON', extensions: ['json'] }]
+        : [{ name: 'Testo', extensions: ['txt'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    try {
+      let content
+      if (isJson) {
+        content = JSON.stringify(messages, null, 2)
+      } else {
+        content = messages.map(m => {
+          const label = m.role === 'user' ? 'Utente' : 'Assistente'
+          return `[${label}]\n${m.content}`
+        }).join('\n\n---\n\n')
+      }
+      await writeFile(result.filePath, content, 'utf-8')
+      return { success: true, filePath: result.filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('session:exportAll', async (_, { messages, extracted, fileName }) => {
+    const baseName = (fileName || 'sessione').replace(/\.pdf$/i, '')
+    const folderResult = await dialog.showOpenDialog({
+      title: 'Scegli cartella di destinazione',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (folderResult.canceled || !folderResult.filePaths.length) {
+      return { success: false, canceled: true }
+    }
+    const destDir = folderResult.filePaths[0]
+    const saved = []
+    try {
+      if (hasDocument()) {
+        const doc = getDocument()
+        const pdfDest = join(destDir, `${baseName}.pdf`)
+        await copyFile(doc.filePath, pdfDest)
+        saved.push(pdfDest)
+      }
+      if (messages && messages.length > 0) {
+        const chatContent = messages.map(m => {
+          const label = m.role === 'user' ? 'Utente' : 'Assistente'
+          return `[${label}]\n${m.content}`
+        }).join('\n\n---\n\n')
+        const chatDest = join(destDir, `${baseName}_conversazione.txt`)
+        await writeFile(chatDest, chatContent, 'utf-8')
+        saved.push(chatDest)
+      }
+      if (extracted && Object.keys(extracted).length > 0) {
+        const dataDest = join(destDir, `${baseName}_dati.json`)
+        await writeFile(dataDest, JSON.stringify(extracted, null, 2), 'utf-8')
+        saved.push(dataDest)
+      }
+      return { success: true, files: saved, folder: destDir }
     } catch (err) {
       return { success: false, error: err.message }
     }
