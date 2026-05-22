@@ -1,3 +1,5 @@
+// ─── Ollama ──────────────────────────────────────────────────────────────────
+
 export async function getOllamaStatus(baseUrl) {
   try {
     const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
@@ -18,23 +20,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
 
   const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
 
-  const prompt = `Sei un assistente specializzato nell'estrazione di dati strutturati da documenti.
-
-Estrai le seguenti informazioni dal testo del documento fornito.
-Restituisci SOLO un oggetto JSON valido, senza testo aggiuntivo, markdown o spiegazioni.
-
-Campi da estrarre:
-${fieldsList}
-
-Se un campo non è presente nel documento, usa null come valore.
-
-Testo del documento:
----
-${contextText}
----
-
-Rispondi con un JSON del tipo:
-{"Campo1": "valore1", "Campo2": null, ...}`
+  const prompt = buildExtractionPrompt(fieldsList, contextText)
 
   const res = await fetch(`${baseUrl}/api/generate`, {
     method: 'POST',
@@ -48,10 +34,7 @@ Rispondi con un JSON del tipo:
   const data = await res.json()
   const raw = (data.response || '').trim()
 
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('Risposta non valida dal modello LLM')
-
-  return JSON.parse(jsonMatch[0])
+  return parseJsonResponse(raw)
 }
 
 export async function* streamChat(baseUrl, model, messages) {
@@ -80,4 +63,255 @@ export async function* streamChat(baseUrl, model, messages) {
       } catch {}
     }
   }
+}
+
+// ─── OpenAI ──────────────────────────────────────────────────────────────────
+
+async function extractDataOpenAI(apiKey, model, fields, contextChunks) {
+  const fieldsList = fields
+    .filter(f => f.enabled)
+    .map(f => `  - "${f.label}": ${f.description}`)
+    .join('\n')
+  const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
+  const prompt = buildExtractionPrompt(fieldsList, contextText)
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0
+    }),
+    signal: AbortSignal.timeout(60000)
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`OpenAI error: ${res.status} ${err?.error?.message || ''}`)
+  }
+
+  const data = await res.json()
+  const raw = (data.choices?.[0]?.message?.content || '').trim()
+  return parseJsonResponse(raw)
+}
+
+async function* streamChatOpenAI(apiKey, model, messages) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({ model, messages, stream: true }),
+    signal: AbortSignal.timeout(120000)
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`OpenAI error: ${res.status} ${err?.error?.message || ''}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      if (payload === '[DONE]') return
+      try {
+        const obj = JSON.parse(payload)
+        const content = obj.choices?.[0]?.delta?.content
+        if (content) yield content
+      } catch {}
+    }
+  }
+}
+
+export async function testOpenAI(apiKey, model) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5000)
+    })
+    return { connected: res.ok }
+  } catch {
+    return { connected: false }
+  }
+}
+
+// ─── Anthropic ───────────────────────────────────────────────────────────────
+
+async function extractDataAnthropic(apiKey, model, fields, contextChunks) {
+  const fieldsList = fields
+    .filter(f => f.enabled)
+    .map(f => `  - "${f.label}": ${f.description}`)
+    .join('\n')
+  const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
+  const prompt = buildExtractionPrompt(fieldsList, contextText)
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }]
+    }),
+    signal: AbortSignal.timeout(60000)
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Anthropic error: ${res.status} ${err?.error?.message || ''}`)
+  }
+
+  const data = await res.json()
+  const raw = (data.content?.[0]?.text || '').trim()
+  return parseJsonResponse(raw)
+}
+
+async function* streamChatAnthropic(apiKey, model, messages) {
+  // Separate system message from user/assistant messages
+  const systemMsg = messages.find(m => m.role === 'system')
+  const chatMsgs = messages.filter(m => m.role !== 'system')
+
+  const body = {
+    model,
+    max_tokens: 2048,
+    stream: true,
+    messages: chatMsgs
+  }
+  if (systemMsg) body.system = systemMsg.content
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000)
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Anthropic error: ${res.status} ${err?.error?.message || ''}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      try {
+        const obj = JSON.parse(payload)
+        if (obj.type === 'content_block_delta' && obj.delta?.text) {
+          yield obj.delta.text
+        }
+        if (obj.type === 'message_stop') return
+      } catch {}
+    }
+  }
+}
+
+export async function testAnthropic(apiKey, model) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'ping' }]
+      }),
+      signal: AbortSignal.timeout(5000)
+    })
+    return { connected: res.ok || res.status === 400 } // 400 is "invalid request" but API key is valid
+  } catch {
+    return { connected: false }
+  }
+}
+
+// ─── Unified provider dispatch ────────────────────────────────────────────────
+
+export async function extractDataWithProvider(settings, fields, chunks) {
+  const provider = settings.llmProvider || 'ollama'
+  switch (provider) {
+    case 'openai':
+      return extractDataOpenAI(settings.openaiApiKey, settings.openaiModel || 'gpt-4o-mini', fields, chunks)
+    case 'anthropic':
+      return extractDataAnthropic(settings.anthropicApiKey, settings.anthropicModel || 'claude-haiku-4-5-20251001', fields, chunks)
+    default:
+      return extractData(settings.ollamaUrl, settings.ollamaModel, fields, chunks)
+  }
+}
+
+export async function* streamChatWithProvider(settings, messages) {
+  const provider = settings.llmProvider || 'ollama'
+  switch (provider) {
+    case 'openai':
+      yield* streamChatOpenAI(settings.openaiApiKey, settings.openaiModel || 'gpt-4o-mini', messages)
+      break
+    case 'anthropic':
+      yield* streamChatAnthropic(settings.anthropicApiKey, settings.anthropicModel || 'claude-haiku-4-5-20251001', messages)
+      break
+    default:
+      yield* streamChat(settings.ollamaUrl, settings.ollamaModel, messages)
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function buildExtractionPrompt(fieldsList, contextText) {
+  return `Sei un assistente specializzato nell'estrazione di dati strutturati da documenti.
+
+Estrai le seguenti informazioni dal testo del documento fornito.
+Restituisci SOLO un oggetto JSON valido, senza testo aggiuntivo, markdown o spiegazioni.
+
+Campi da estrarre:
+${fieldsList}
+
+Se un campo non è presente nel documento, usa null come valore.
+
+Testo del documento:
+---
+${contextText}
+---
+
+Rispondi con un JSON del tipo:
+{"Campo1": "valore1", "Campo2": null, ...}`
+}
+
+function parseJsonResponse(raw) {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Risposta non valida dal modello LLM')
+  return JSON.parse(jsonMatch[0])
 }
