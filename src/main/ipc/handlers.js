@@ -1,11 +1,37 @@
-import { dialog } from 'electron'
+import { dialog, app, Notification, BrowserWindow } from 'electron'
+import { writeFile, copyFile } from 'fs/promises'
+import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
-import { getOllamaStatus, extractData, streamChat } from '../services/llmService.js'
-import { setDocument, getDocument, clearDocument, hasDocument, getChunks } from '../services/vectorStore.js'
+import {
+  getOllamaStatus,
+  extractDataWithProvider,
+  streamChatWithProvider,
+  testOpenAI,
+  testAnthropic
+} from '../services/llmService.js'
+import {
+  addDocument,
+  getDocument,
+  getDocuments,
+  removeDocument,
+  clearDocuments,
+  hasDocument,
+  getChunks,
+  getAllChunks
+} from '../services/vectorStore.js'
+import {
+  listSessions,
+  saveSession,
+  loadSession,
+  deleteSession,
+  clearAllSessions
+} from '../services/historyService.js'
 import { basename } from 'path'
 
 export function registerHandlers(ipcMain, mainWindow) {
+  // ─── PDF ──────────────────────────────────────────────────────────────────
+
   ipcMain.handle('dialog:openPDF', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Seleziona PDF',
@@ -16,10 +42,29 @@ export function registerHandlers(ipcMain, mainWindow) {
     return result.filePaths[0]
   })
 
+  ipcMain.handle('dialog:openMultiplePDFs', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Seleziona PDF',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (result.canceled || !result.filePaths.length) return []
+    return result.filePaths
+  })
+
+  ipcMain.handle('dialog:openFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Seleziona Cartella',
+      properties: ['openDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    return result.filePaths[0]
+  })
+
   ipcMain.handle('pdf:load', async (_, filePath) => {
     try {
       const data = await loadPDF(filePath)
-      setDocument({
+      const id = addDocument({
         filePath,
         fileName: basename(filePath),
         text: data.text,
@@ -28,6 +73,7 @@ export function registerHandlers(ipcMain, mainWindow) {
       })
       return {
         success: true,
+        id,
         fileName: basename(filePath),
         numPages: data.numPages,
         buffer: data.buffer
@@ -37,44 +83,113 @@ export function registerHandlers(ipcMain, mainWindow) {
     }
   })
 
-  ipcMain.handle('pdf:extract', async () => {
+  ipcMain.handle('pdf:remove', async (_, id) => {
+    removeDocument(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('pdf:getDocuments', () => {
+    return getDocuments().map(d => ({ id: d.id, fileName: d.fileName, numPages: d.numPages }))
+  })
+
+  ipcMain.handle('pdf:extract', async (_, docId, overrideFields) => {
     if (!hasDocument()) return { success: false, error: 'Nessun documento caricato' }
     const settings = getSettings()
-    if (!settings.ollamaModel) return { success: false, error: 'Nessun modello LLM selezionato' }
 
     try {
-      const chunks = getChunks()
-      const enabledFields = settings.extractions.filter(f => f.enabled)
+      const chunks = getChunks(docId)
+      const enabledFields = (overrideFields && overrideFields.length > 0)
+        ? overrideFields.filter(f => f.enabled)
+        : settings.extractions.filter(f => f.enabled)
       const fieldQuery = enabledFields.map(f => f.description).join(' ')
       const relevant = searchChunks(fieldQuery, chunks, 6)
 
-      const result = await extractData(
-        settings.ollamaUrl,
-        settings.ollamaModel,
+      const result = await extractDataWithProvider(
+        settings,
         enabledFields,
         relevant.length > 0 ? relevant : chunks.slice(0, 4)
       )
+
+      // Notify if window not focused
+      const focused = mainWindow.isFocused()
+      if (!focused && settings.notificationsEnabled !== false) {
+        const doc = getDocument(docId)
+        try {
+          new Notification({
+            title: 'PDF Extractor',
+            body: `Estrazione completata: ${doc?.fileName || 'documento'}`
+          }).show()
+        } catch (_) {}
+      }
+
       return { success: true, data: result }
     } catch (err) {
       return { success: false, error: err.message }
     }
   })
 
-  ipcMain.handle('pdf:chat', async (event, { message, history }) => {
+  ipcMain.handle('pdf:chat', async (event, { message, history, docId }) => {
     if (!hasDocument()) return { success: false, error: 'Nessun documento caricato' }
     const settings = getSettings()
-    if (!settings.ollamaModel) return { success: false, error: 'Nessun modello LLM selezionato' }
 
     try {
-      const chunks = getChunks()
-      const relevant = searchChunks(message, chunks, 5)
-      const context = (relevant.length > 0 ? relevant : chunks.slice(0, 3))
-        .map(c => c.text)
-        .join('\n\n---\n\n')
+      const docs = getDocuments()
+      const isMultiDoc = docs.length > 1
 
-      const doc = getDocument()
-      const systemPrompt = `Sei un assistente che risponde a domande su un documento PDF.
-Il documento si chiama "${doc.fileName}" e ha ${doc.numPages} pagine.
+      let systemPrompt
+
+      if (isMultiDoc) {
+        // Multi-document mode: search across all chunks, then group results by document
+        const allChunks = getAllChunks()
+        const relevant = searchChunks(message, allChunks, 8)
+        const pool = relevant.length > 0 ? relevant : allChunks.slice(0, 6)
+
+        // Group chunks by document
+        const chunksByDoc = new Map()
+        for (const doc of docs) {
+          chunksByDoc.set(doc.id, [])
+        }
+        for (const chunk of pool) {
+          const id = chunk.docId
+          if (chunksByDoc.has(id)) {
+            chunksByDoc.get(id).push(chunk.text)
+          }
+        }
+
+        // Build labelled context sections
+        const docListLines = docs
+          .map((d, i) => `${i + 1}. "${d.fileName}" (${d.numPages} pagine)`)
+          .join('\n')
+
+        const contextSections = docs
+          .map(d => {
+            const texts = chunksByDoc.get(d.id) || []
+            const content = texts.length > 0 ? texts.join('\n\n') : '(nessuna parte rilevante trovata)'
+            return `[Documento: ${d.fileName}]\n---\n${content}\n---`
+          })
+          .join('\n\n')
+
+        systemPrompt = `Hai accesso a ${docs.length} documenti:
+${docListLines}
+
+Quando rispondi, specifica sempre da quale documento proviene l'informazione.
+Se una domanda riguarda le differenze tra documenti, analizzale confrontandole direttamente.
+Rispondi in modo preciso e conciso, basandoti esclusivamente sul testo fornito.
+Se l'informazione non è presente in nessun documento, dillo chiaramente.
+
+Parti rilevanti dei documenti:
+${contextSections}`
+      } else {
+        // Single-document mode
+        const doc = getDocument(docId)
+        const chunks = docId ? getChunks(docId) : getChunks()
+        const relevant = searchChunks(message, chunks, 5)
+        const context = (relevant.length > 0 ? relevant : chunks.slice(0, 3))
+          .map(c => c.text)
+          .join('\n\n---\n\n')
+
+        systemPrompt = `Sei un assistente che risponde a domande su un documento PDF.
+Il documento si chiama "${doc?.fileName}" e ha ${doc?.numPages} pagine.
 Rispondi in modo preciso e conciso, basandoti esclusivamente sul testo fornito.
 Se l'informazione non è presente nel documento, dillo chiaramente.
 
@@ -82,6 +197,7 @@ Parti rilevanti del documento:
 ---
 ${context}
 ---`
+      }
 
       const messages = [
         { role: 'system', content: systemPrompt },
@@ -90,7 +206,7 @@ ${context}
       ]
 
       let fullResponse = ''
-      for await (const chunk of streamChat(settings.ollamaUrl, settings.ollamaModel, messages)) {
+      for await (const chunk of streamChatWithProvider(settings, messages)) {
         fullResponse += chunk
         event.sender.send('llm:chunk', { chunk, done: false })
       }
@@ -103,12 +219,233 @@ ${context}
     }
   })
 
+  ipcMain.handle('pdf:clear', () => {
+    clearDocuments()
+    return { success: true }
+  })
+
+  ipcMain.handle('pdf:export', async (_, { format, data, fileName }) => {
+    const baseName = (fileName || 'export').replace(/\.pdf$/i, '')
+    const extMap = { json: 'json', csv: 'csv', xlsx: 'xlsx' }
+    const nameMap = { json: 'JSON', csv: 'CSV', xlsx: 'Excel' }
+    const ext = extMap[format] || 'json'
+
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Esporta dati estratti',
+      defaultPath: `${baseName}_dati.${ext}`,
+      filters: [{ name: nameMap[format] || 'File', extensions: [ext] }]
+    })
+
+    if (canceled || !filePath) return { success: false, canceled: true }
+
+    try {
+      if (format === 'json') {
+        await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
+      } else if (format === 'csv') {
+        const esc = v => {
+          const s = String(v ?? '')
+          return /[,"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+        }
+        const keys = Object.keys(data)
+        const vals = Object.values(data)
+        const csv = `${keys.map(esc).join(',')}\n${vals.map(esc).join(',')}`
+        await writeFile(filePath, csv, 'utf-8')
+      } else if (format === 'xlsx') {
+        const XLSX = await import('xlsx')
+        const ws = XLSX.utils.json_to_sheet([data])
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, 'Dati Estratti')
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+        await writeFile(filePath, buf)
+      }
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // ─── Session ──────────────────────────────────────────────────────────────
+
+  ipcMain.handle('session:savePDFCopy', async () => {
+    if (!hasDocument()) return { success: false, error: 'Nessun documento caricato' }
+    const doc = getDocument()
+    const result = await dialog.showSaveDialog({
+      title: 'Salva copia PDF',
+      defaultPath: doc.fileName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    try {
+      await copyFile(doc.filePath, result.filePath)
+      return { success: true, filePath: result.filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('session:exportChat', async (_, { format, messages, fileName }) => {
+    const baseName = (fileName || 'chat').replace(/\.pdf$/i, '')
+    const isJson = format === 'json'
+    const result = await dialog.showSaveDialog({
+      title: 'Salva conversazione',
+      defaultPath: `${baseName}_conversazione.${isJson ? 'json' : 'txt'}`,
+      filters: isJson
+        ? [{ name: 'JSON', extensions: ['json'] }]
+        : [{ name: 'Testo', extensions: ['txt'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    try {
+      let content
+      if (isJson) {
+        content = JSON.stringify(messages, null, 2)
+      } else {
+        content = messages.map(m => {
+          const label = m.role === 'user' ? 'Utente' : 'Assistente'
+          return `[${label}]\n${m.content}`
+        }).join('\n\n---\n\n')
+      }
+      await writeFile(result.filePath, content, 'utf-8')
+      return { success: true, filePath: result.filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('session:exportAll', async (_, { messages, extracted, fileName }) => {
+    const baseName = (fileName || 'sessione').replace(/\.pdf$/i, '')
+    const folderResult = await dialog.showOpenDialog({
+      title: 'Scegli cartella di destinazione',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (folderResult.canceled || !folderResult.filePaths.length) {
+      return { success: false, canceled: true }
+    }
+    const destDir = folderResult.filePaths[0]
+    const saved = []
+    try {
+      if (hasDocument()) {
+        const doc = getDocument()
+        const pdfDest = join(destDir, `${baseName}.pdf`)
+        await copyFile(doc.filePath, pdfDest)
+        saved.push(pdfDest)
+      }
+      if (messages && messages.length > 0) {
+        const chatContent = messages.map(m => {
+          const label = m.role === 'user' ? 'Utente' : 'Assistente'
+          return `[${label}]\n${m.content}`
+        }).join('\n\n---\n\n')
+        const chatDest = join(destDir, `${baseName}_conversazione.txt`)
+        await writeFile(chatDest, chatContent, 'utf-8')
+        saved.push(chatDest)
+      }
+      if (extracted && Object.keys(extracted).length > 0) {
+        const dataDest = join(destDir, `${baseName}_dati.json`)
+        await writeFile(dataDest, JSON.stringify(extracted, null, 2), 'utf-8')
+        saved.push(dataDest)
+      }
+      return { success: true, files: saved, folder: destDir }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // ─── History ──────────────────────────────────────────────────────────────
+
+  ipcMain.handle('history:list', () => {
+    return listSessions()
+  })
+
+  ipcMain.handle('history:save', (_, session) => {
+    return saveSession(session)
+  })
+
+  ipcMain.handle('history:load', (_, id) => {
+    return loadSession(id)
+  })
+
+  ipcMain.handle('history:delete', (_, id) => {
+    return deleteSession(id)
+  })
+
+  ipcMain.handle('history:clearAll', () => {
+    return clearAllSessions()
+  })
+
+  // ─── Batch ────────────────────────────────────────────────────────────────
+
+  let batchCancelled = false
+
+  ipcMain.handle('batch:start', async (event, { filePaths }) => {
+    batchCancelled = false
+    const settings = getSettings()
+    const total = filePaths.length
+    const results = []
+
+    for (let index = 0; index < total; index++) {
+      if (batchCancelled) {
+        mainWindow.webContents.send('batch:progress', {
+          index, total, fileName: filePaths[index], status: 'cancelled'
+        })
+        break
+      }
+
+      const filePath = filePaths[index]
+      const fileName = basename(filePath)
+
+      mainWindow.webContents.send('batch:progress', {
+        index, total, fileName, status: 'processing'
+      })
+
+      try {
+        const pdfData = await loadPDF(filePath)
+        const enabledFields = settings.extractions.filter(f => f.enabled)
+        const fieldQuery = enabledFields.map(f => f.description).join(' ')
+        const relevant = searchChunks(fieldQuery, pdfData.chunks, 6)
+        const chunks = relevant.length > 0 ? relevant : pdfData.chunks.slice(0, 4)
+
+        const result = await extractDataWithProvider(settings, enabledFields, chunks)
+
+        results.push({ fileName, numPages: pdfData.numPages, data: result })
+
+        mainWindow.webContents.send('batch:progress', {
+          index, total, fileName, status: 'done', result
+        })
+      } catch (err) {
+        results.push({ fileName, error: err.message })
+        mainWindow.webContents.send('batch:progress', {
+          index, total, fileName, status: 'error', error: err.message
+        })
+      }
+    }
+
+    // Show notification when batch is complete
+    if (!batchCancelled && settings.notificationsEnabled !== false) {
+      try {
+        new Notification({
+          title: 'PDF Extractor',
+          body: `Elaborazione batch completata: ${results.filter(r => !r.error).length}/${total} file`
+        }).show()
+      } catch (_) {}
+    }
+
+    return { success: true, results }
+  })
+
+  ipcMain.handle('batch:cancel', () => {
+    batchCancelled = true
+    return { success: true }
+  })
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
+
   ipcMain.handle('settings:get', () => getSettings())
 
   ipcMain.handle('settings:save', (_, settings) => {
     saveSettings(settings)
     return { success: true }
   })
+
+  // ─── Ollama / LLM ─────────────────────────────────────────────────────────
 
   ipcMain.handle('ollama:status', async () => {
     const settings = getSettings()
@@ -119,8 +456,15 @@ ${context}
     return getOllamaStatus(url)
   })
 
-  ipcMain.handle('pdf:clear', () => {
-    clearDocument()
-    return { success: true }
+  ipcMain.handle('llm:testOpenAI', async (_, { apiKey, model }) => {
+    return testOpenAI(apiKey, model)
   })
+
+  ipcMain.handle('llm:testAnthropic', async (_, { apiKey, model }) => {
+    return testAnthropic(apiKey, model)
+  })
+
+  // ─── App ──────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('app:version', () => app.getVersion())
 }
