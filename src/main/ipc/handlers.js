@@ -1,7 +1,7 @@
 import { dialog, app, Notification, BrowserWindow } from 'electron'
 import { writeFile, copyFile } from 'fs/promises'
 import { join } from 'path'
-import { loadPDF, searchChunks } from '../services/pdfService.js'
+import { loadPDF, searchChunks, chunkText } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import {
   getOllamaStatus,
@@ -18,7 +18,8 @@ import {
   clearDocuments,
   hasDocument,
   getChunks,
-  getAllChunks
+  getAllChunks,
+  updateDocumentText
 } from '../services/vectorStore.js'
 import {
   listSessions,
@@ -76,6 +77,7 @@ export function registerHandlers(ipcMain, mainWindow) {
         id,
         fileName: basename(filePath),
         numPages: data.numPages,
+        needsOcr: data.needsOcr,
         buffer: data.buffer
       }
     } catch (err) {
@@ -462,6 +464,84 @@ ${context}
 
   ipcMain.handle('llm:testAnthropic', async (_, { apiKey, model }) => {
     return testAnthropic(apiKey, model)
+  })
+
+  // ─── OCR (Tesseract.js – Node process, no CSP issues) ────────────────────
+
+  let ocrWorker = null
+
+  /** Returns the filesystem path where *.traineddata files are stored */
+  function getLangPath() {
+    if (app.isPackaged) {
+      return join(process.resourcesPath, 'tesseract-langdata')
+    }
+    // Dev: project root / src/renderer/public/tesseract/langdata
+    return join(app.getAppPath(), 'src', 'renderer', 'public', 'tesseract', 'langdata')
+  }
+
+  ipcMain.handle('ocr:init', async () => {
+    try {
+      // Terminate any previous worker
+      if (ocrWorker) {
+        try { await ocrWorker.terminate() } catch (_) {}
+        ocrWorker = null
+      }
+      const langPath = getLangPath()
+      const { createWorker } = await import('tesseract.js')
+      ocrWorker = await createWorker(
+        ['ita', 'eng', 'fra', 'deu', 'spa'],
+        1, // OEM.LSTM_ONLY
+        {
+          langPath,
+          cachePath: langPath, // read from same dir → cache hit, no re-download
+          gzip: false,         // files are plain .traineddata (tessdata_fast)
+          logger: () => {},    // silence progress logs
+        }
+      )
+      return { success: true }
+    } catch (err) {
+      return {
+        success: false,
+        error: err.message.includes('ENOENT') || err.message.includes('traineddata')
+          ? 'File OCR non trovati. Esegui: npm run setup-ocr'
+          : err.message
+      }
+    }
+  })
+
+  ipcMain.handle('ocr:page', async (_, { imageBuffer }) => {
+    try {
+      if (!ocrWorker) return { success: false, error: 'Worker OCR non inizializzato' }
+      const buf = Buffer.from(imageBuffer)
+      const { data: { text } } = await ocrWorker.recognize(buf)
+      return { success: true, text }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('ocr:finish', async (_, { docId, fullText }) => {
+    try {
+      if (ocrWorker) {
+        try { await ocrWorker.terminate() } catch (_) {}
+        ocrWorker = null
+      }
+      if (fullText && fullText.trim()) {
+        const chunks = chunkText(fullText)
+        updateDocumentText(docId, fullText, chunks)
+      }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('ocr:abort', async () => {
+    if (ocrWorker) {
+      try { await ocrWorker.terminate() } catch (_) {}
+      ocrWorker = null
+    }
+    return { success: true }
   })
 
   // ─── App ──────────────────────────────────────────────────────────────────

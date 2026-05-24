@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises'
 const CHUNK_SIZE = 800
 const CHUNK_OVERLAP = 100
 
-function chunkText(text) {
+export function chunkText(text) {
   const chunks = []
   let i = 0
   const clean = text.replace(/\s+/g, ' ').trim()
@@ -61,11 +61,16 @@ export async function loadPDF(filePath) {
   const data = await pdfParse(buffer)
   const chunks = chunkText(data.text)
 
+  // Detect scanned PDFs: very little extractable text relative to page count
+  const textLen = data.text.replace(/\s+/g, '').length
+  const needsOcr = textLen < Math.max(80, 60 * data.numpages)
+
   return {
     text: data.text,
     chunks,
     numPages: data.numpages,
     info: data.info,
+    needsOcr,
     buffer: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
   }
 }

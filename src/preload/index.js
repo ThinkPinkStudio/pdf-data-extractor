@@ -53,6 +53,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('llm:chunk')
   },
 
+  // ─── OCR ────────────────────────────────────────────────────────────────
+  ocrInit: () => ipcRenderer.invoke('ocr:init'),
+  ocrPage: (imageBuffer) => ipcRenderer.invoke('ocr:page', { imageBuffer }),
+  ocrFinish: (docId, fullText) => ipcRenderer.invoke('ocr:finish', { docId, fullText }),
+  ocrAbort: () => ipcRenderer.invoke('ocr:abort'),
+
   // ─── App ────────────────────────────────────────────────────────────────
   getAppVersion: () => ipcRenderer.invoke('app:version')
 })

@@ -49,6 +49,13 @@ export function getAllChunks() {
   return all
 }
 
+export function updateDocumentText(id, text, chunks) {
+  const doc = documents.get(id)
+  if (!doc) return false
+  documents.set(id, { ...doc, text, chunks })
+  return true
+}
+
 // Legacy backward compat aliases
 export function setDocument(data) {
   // If there is already exactly one document, replace it

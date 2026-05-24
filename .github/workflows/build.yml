@@ -60,8 +60,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Cache OCR language data
+        uses: actions/cache@v4
+        with:
+          path: src/renderer/public/tesseract/langdata
+          key: ocr-tessdata-fast-ita-eng-fra-deu-spa-v1
+
+      - name: Download OCR language models
+        run: node scripts/download-ocr-assets.mjs
+
       - name: Build renderer + main
-        run: npm run build
+        run: npx electron-vite build
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'

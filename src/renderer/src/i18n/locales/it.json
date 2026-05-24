@@ -56,7 +56,11 @@
     "saveAsProfile": "Salva come profilo",
     "profileNamePrompt": "Nome profilo",
     "validValid": "Valore valido",
-    "validInvalid": "Valore non valido"
+    "validInvalid": "Valore non valido",
+    "ocrRunning": "OCR in corso — estrazione testo dall'immagine…",
+    "ocrPage": "Pagina {{current}} di {{total}}",
+    "ocrDone": "Testo estratto via OCR",
+    "ocrError": "Errore OCR"
   },
   "batch": {
     "title": "Elaborazione Batch",

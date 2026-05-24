@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.js?raw'
+
+// Initialise PDF.js worker once.
+// Creates a blob: URL so it satisfies "worker-src blob:" in the Content-Security-Policy
+// while keeping the worker identical to the bundled pdfjs-dist version.
+GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+  new Blob([pdfWorkerSrc], { type: 'application/javascript' })
+)
 
 /* ─── Icons ─────────────────────────────────────────────────── */
 const IconUpload = () => (
@@ -155,9 +164,8 @@ function PDFPreview({ buffer, fileName, numPages, extracted }) {
     if (!buffer) return
     let cancelled = false
     ;(async () => {
-      const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist')
-      GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.js', window.location.href).href
-      const uint8 = new Uint8Array(buffer)
+      // Use a copy of the buffer so the original state ref is never detached
+      const uint8 = new Uint8Array(buffer.slice(0))
       const doc = await getDocument({ data: uint8 }).promise
       if (!cancelled) {
         setPdfDoc(doc)
@@ -540,6 +548,10 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
   const [drag, setDrag] = useState(false)
   const [activeTab, setActiveTab] = useState('extract')
 
+  // OCR state: null when idle, object with progress when running
+  const [ocrState, setOcrState] = useState(null) // { currentPage, totalPages } | null
+  const ocrRunningRef = useRef(false)
+
   const isMultiDoc = docs.length > 1
   const activeDoc = docs.find(d => d.id === activeDocId) || null
 
@@ -582,6 +594,10 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
       // Clear extraction when switching/adding docs
       setExtracted(null)
       setExtractError('')
+      // PDF appears to be a scan (little/no embedded text) → run OCR automatically
+      if (res.needsOcr) {
+        runOcr(res.id, res.buffer, res.numPages)
+      }
     } else {
       setLoadError(res.error)
     }
@@ -628,6 +644,57 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
     setChatMessages([])
     chatHistoryRef.current = []
   }
+
+  // ─── OCR for scanned PDFs ──────────────────────────────────────────────
+
+  const runOcr = async (docId, buffer, numPages) => {
+    if (ocrRunningRef.current) return
+    ocrRunningRef.current = true
+    setOcrState({ currentPage: 0, totalPages: numPages })
+
+    try {
+      // Initialise the Tesseract worker in the main process (Node context, no CSP issues)
+      const initRes = await window.electronAPI.ocrInit()
+      if (!initRes.success) throw new Error(initRes.error)
+
+      // Render each page to a canvas and send PNG buffers to the main process
+      const pdfDoc = await getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise
+      let fullText = ''
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        setOcrState({ currentPage: pageNum, totalPages: numPages })
+
+        const page = await pdfDoc.getPage(pageNum)
+        // Scale ~2× for adequate OCR resolution (~144 DPI for a standard PDF page)
+        const viewport = page.getViewport({ scale: 2.0 })
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.floor(viewport.width)
+        canvas.height = Math.floor(viewport.height)
+        const ctx = canvas.getContext('2d')
+        await page.render({ canvasContext: ctx, viewport }).promise
+
+        // canvas.toBlob → ArrayBuffer sent via IPC to the Node tesseract worker
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+        const imageBuffer = await blob.arrayBuffer()
+
+        const res = await window.electronAPI.ocrPage(imageBuffer)
+        if (res.success && res.text) fullText += res.text.trim() + '\n\n'
+      }
+
+      pdfDoc.destroy()
+
+      // Re-chunk OCR text and update vectorStore in main
+      await window.electronAPI.ocrFinish(docId, fullText.trim())
+    } catch (err) {
+      setLoadError(`${t('extractor.ocrError')}: ${err.message}`)
+      try { await window.electronAPI.ocrAbort() } catch (_) {}
+    } finally {
+      ocrRunningRef.current = false
+      setOcrState(null)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const sessionIdRef = useRef(null)
 
@@ -757,6 +824,29 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
 
             {hasDoc && (
               <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* OCR progress banner */}
+                {ocrState && (
+                  <div className="alert alert-info" role="status" aria-live="polite" style={{ padding: '8px 12px', gap: 8 }}>
+                    <div className="spinner spinner-sm" aria-hidden="true" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12 }}>{t('extractor.ocrRunning')}</div>
+                      {ocrState.currentPage > 0 && (
+                        <>
+                          <div className="progress-bar-wrap" style={{ marginTop: 5 }}>
+                            <div
+                              className="progress-bar-fill"
+                              style={{ width: `${Math.round((ocrState.currentPage / ocrState.totalPages) * 100)}%` }}
+                            />
+                          </div>
+                          <div style={{ fontSize: 11, marginTop: 3, opacity: 0.75 }}>
+                            {t('extractor.ocrPage', { current: ocrState.currentPage, total: ocrState.totalPages })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {appSettings?.profiles?.length > 0 && (
                   <select
                     className="form-select"
@@ -776,8 +866,9 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
                     className="btn btn-primary"
                     style={{ flex: 1 }}
                     onClick={handleExtract}
-                    disabled={extracting || !activeDoc}
+                    disabled={extracting || !activeDoc || !!ocrState}
                     aria-busy={extracting}
+                    title={ocrState ? t('extractor.ocrRunning') : undefined}
                   >
                     {extracting
                       ? <><div className="spinner spinner-sm" aria-hidden="true" />{t('extractor.extracting')}</>

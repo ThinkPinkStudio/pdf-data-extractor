@@ -4,3 +4,6 @@ dist
 .DS_Store
 *.log
 .claude/
+
+# OCR language models (downloaded at build time via scripts/download-ocr-assets.mjs)
+src/renderer/public/tesseract/langdata/*.traineddata

@@ -56,7 +56,11 @@
     "saveAsProfile": "Save as profile",
     "profileNamePrompt": "Profile name",
     "validValid": "Valid value",
-    "validInvalid": "Invalid value"
+    "validInvalid": "Invalid value",
+    "ocrRunning": "OCR in progress — extracting text from image…",
+    "ocrPage": "Page {{current}} of {{total}}",
+    "ocrDone": "Text extracted via OCR",
+    "ocrError": "OCR error"
   },
   "batch": {
     "title": "Batch Processing",
