@@ -34,6 +34,7 @@ import {
   exportApprovedChanges,
   previewTemplateChanges,
   readExcelStructure,
+  buildMappingFromFields,
   ALL_POLIZZA_FIELDS,
   CSA_MAPPING
 } from '../services/polizzaService.js'
@@ -491,10 +492,17 @@ ${context}
   })
 
   ipcMain.handle('polizza:getFields', () => {
-    return ALL_POLIZZA_FIELDS
+    const settings = getSettings()
+    return (settings.polizzaFields && settings.polizzaFields.length > 0)
+      ? settings.polizzaFields
+      : ALL_POLIZZA_FIELDS
   })
 
   ipcMain.handle('polizza:getDefaultMapping', () => {
+    const settings = getSettings()
+    if (settings.polizzaFields && settings.polizzaFields.length > 0) {
+      return buildMappingFromFields(settings.polizzaFields)
+    }
     return CSA_MAPPING
   })
 
@@ -509,6 +517,7 @@ ${context}
   })
 
   ipcMain.handle('polizza:exportNew', async (_, { data, suggestedName }) => {
+    const settings = getSettings()
     const baseName = suggestedName || 'polizza_rc'
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
       title: 'Salva dati polizza RC',
@@ -517,7 +526,7 @@ ${context}
     })
     if (canceled || !filePath) return { success: false, canceled: true }
     try {
-      await exportToNewExcel(filePath, data)
+      await exportToNewExcel(filePath, data, settings.polizzaFields || null)
       return { success: true, filePath }
     } catch (err) {
       return { success: false, error: err.message }
@@ -534,6 +543,7 @@ ${context}
   })
 
   ipcMain.handle('polizza:exportToTemplate', async (_, { templatePath, data, mapping }) => {
+    const settings = getSettings()
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
       title: 'Salva gestionale aggiornato',
       defaultPath: basename(templatePath).replace(/\.xlsx?$/, '_aggiornato.xlsx'),
@@ -541,7 +551,7 @@ ${context}
     })
     if (canceled || !filePath) return { success: false, canceled: true }
     try {
-      await exportToTemplateExcel(templatePath, filePath, data, mapping)
+      await exportToTemplateExcel(templatePath, filePath, data, mapping, settings.polizzaFields || null)
       return { success: true, filePath }
     } catch (err) {
       return { success: false, error: err.message }
@@ -550,8 +560,9 @@ ${context}
 
   // Preview delle modifiche: legge i valori attuali dal template e mostra il diff
   ipcMain.handle('polizza:previewChanges', async (_, { templatePath, data, mapping }) => {
+    const settings = getSettings()
     try {
-      const changes = await previewTemplateChanges(templatePath, data, mapping)
+      const changes = await previewTemplateChanges(templatePath, data, mapping, settings.polizzaFields || null)
       return { success: true, changes }
     } catch (err) {
       return { success: false, error: err.message }

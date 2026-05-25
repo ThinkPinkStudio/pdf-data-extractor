@@ -392,7 +392,10 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
   console.log(`[polizza] Regex: ${regexFound.length} campi trovati:`, regexFound)
 
   // 4. Chiedi al LLM i campi ancora mancanti
-  const allFields = ALL_POLIZZA_FIELDS.map(f => ({ ...f, enabled: true }))
+  const configuredFields = (settings.polizzaFields && settings.polizzaFields.length > 0)
+    ? settings.polizzaFields
+    : ALL_POLIZZA_FIELDS
+  const allFields = configuredFields.filter(f => f.enabled !== false)
   const missingFields = allFields.filter(f => !regexResult[f.id])
 
   let llmResult = {}
@@ -592,33 +595,17 @@ function parseJsonResponse(raw) {
  * Crea un nuovo file Excel con due fogli: RCT_O e RCP.
  * @param {string} filePath - percorso di destinazione
  * @param {object} data - dati estratti (chiavi = id campi)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale (default: RCT_FIELDS + RCP_FIELDS)
  */
-export async function exportToNewExcel(filePath, data) {
+export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
   const XLSX = await import('xlsx')
 
-  // Foglio RCT_O
-  const rctRows = RCT_FIELDS.map(f => ({
-    'Campo': f.label,
-    'Valore': data[f.id] ?? ''
-  }))
+  const fields = fieldsConfig || [...RCT_FIELDS, ...RCP_FIELDS]
+  const rctRows = fields.filter(f => f.sheet === 'RCT_O').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
+  const rcpRows = fields.filter(f => f.sheet === 'RCP').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
 
-  // Foglio RCP
-  const rcpRows = RCP_FIELDS.map(f => ({
-    'Campo': f.label,
-    'Valore': data[f.id] ?? ''
-  }))
-
-  // Dati comuni nell'header di entrambi i fogli
-  const commonHeader = [
-    { 'Campo': 'N° Polizza', 'Valore': data.polizza_numero ?? '' },
-    { 'Campo': 'Contraente',  'Valore': data.contraente ?? '' },
-    { 'Campo': 'Decorrenza',  'Valore': data.decorrenza ?? '' },
-    { 'Campo': 'Scadenza',    'Valore': data.scadenza ?? '' },
-    { 'Campo': '',            'Valore': '' }
-  ]
-
-  const wsRCT = XLSX.utils.json_to_sheet([...commonHeader, ...rctRows])
-  const wsRCP = XLSX.utils.json_to_sheet([...commonHeader, ...rcpRows])
+  const wsRCT = XLSX.utils.json_to_sheet(rctRows)
+  const wsRCP = XLSX.utils.json_to_sheet(rcpRows)
 
   // Larghezze colonne
   const colWidths = [{ wch: 45 }, { wch: 55 }]
@@ -643,8 +630,9 @@ export async function exportToNewExcel(filePath, data) {
  * @param {string} outputPath   - percorso del file Excel da salvare
  * @param {object} data         - dati estratti (chiavi = field id)
  * @param {object} [userMapping] - { fieldId: { sheet, cell } } — mapping personalizzato (opzionale)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  */
-export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}) {
+export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}, fieldsConfig = null) {
   const XLSX = await import('xlsx')
 
   const templateBuf = readFileSync(templatePath)
@@ -664,8 +652,9 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
       ws[target.cell] = { t: 's', v: String(value) }
     }
   } else {
-    // Mapping predefinito CSA (multi-cella per campo)
-    for (const [fieldId, targets] of Object.entries(CSA_MAPPING)) {
+    // Mapping predefinito (CSA o da fieldsConfig) — multi-cella per campo
+    const mapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
+    for (const [fieldId, targets] of Object.entries(mapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const value = data[fieldId]
       if (value == null || value === '') continue
@@ -753,9 +742,10 @@ export async function readExcelStructure(templatePath) {
  * @param {string} templatePath
  * @param {object} data          - dati estratti { fieldId: newValue }
  * @param {object} userMapping   - mapping personalizzato (vuoto = usa CSA predefinito)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  * @returns {Array<{fieldId, label, sheet, cell, oldValue, newValue, type}>}
  */
-export async function previewTemplateChanges(templatePath, data, userMapping = {}) {
+export async function previewTemplateChanges(templatePath, data, userMapping = {}, fieldsConfig = null) {
   const XLSX = await import('xlsx')
   const buf = readFileSync(templatePath)
   const wb = XLSX.read(buf, { type: 'buffer' })
@@ -764,10 +754,11 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
   const changes = []
   const seen = new Set() // evita duplicati (stesso field → stessa cella)
 
+  const allFields = fieldsConfig || ALL_POLIZZA_FIELDS
   const fieldMeta = {}
-  for (const f of ALL_POLIZZA_FIELDS) {
-    fieldMeta[f.id] = f
-  }
+  for (const f of allFields) { fieldMeta[f.id] = f }
+
+  const defaultMapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
 
   if (hasUserMapping) {
     for (const [fieldId, target] of Object.entries(userMapping)) {
@@ -790,8 +781,8 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
       })
     }
   } else {
-    // CSA mapping predefinito
-    for (const [fieldId, targets] of Object.entries(CSA_MAPPING)) {
+    // Mapping predefinito (CSA o da fieldsConfig)
+    for (const [fieldId, targets] of Object.entries(defaultMapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const newValue = data[fieldId]
       if (newValue == null || newValue === '') continue
@@ -830,6 +821,20 @@ function formatCellValue(cell) {
     return s === '……….' ? '' : s
   }
   return String(cell.v)
+}
+
+// ─── Mapping dinamico da configurazione campi ─────────────────────────────────
+
+/**
+ * Costruisce il mapping fieldId → [{sheet, cell}] a partire dall'array di fields configurato.
+ * Equivalente dinamico di CSA_MAPPING.
+ */
+export function buildMappingFromFields(fields) {
+  const mapping = {}
+  for (const f of fields) {
+    mapping[f.id] = Array.isArray(f.cells) ? f.cells : []
+  }
+  return mapping
 }
 
 // ─── Export selettivo (solo campi approvati) ──────────────────────────────────
