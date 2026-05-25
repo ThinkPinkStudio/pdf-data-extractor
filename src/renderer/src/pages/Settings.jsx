@@ -660,6 +660,26 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 </div>
               )}
             </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="ollama-vision-model">
+                Modello vision (per PDF scansionati)
+              </label>
+              <input
+                id="ollama-vision-model"
+                className="form-input"
+                type="text"
+                value={settings.ollamaVisionModel || ''}
+                onChange={e => setSettings(s => ({ ...s, ollamaVisionModel: e.target.value }))}
+                placeholder="es. llava, minicpm-v, llama3.2-vision"
+                aria-label="Modello Ollama vision"
+                style={{ maxWidth: 280 }}
+              />
+              <p className="text-muted text-sm" style={{ marginTop: 4 }}>
+                Necessario solo per PDF scansionati. Vuoto = usa lo stesso modello testo.
+                OpenAI e Anthropic supportano già vision con il modello configurato.
+              </p>
+            </div>
           </div>
         </section>
 

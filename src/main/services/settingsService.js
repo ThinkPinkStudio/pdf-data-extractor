@@ -7,6 +7,7 @@ const defaultSettings = {
   language: 'it',
   ollamaUrl: 'http://127.0.0.1:11434',
   ollamaModel: '',
+  ollamaVisionModel: '',  // modello Ollama con supporto vision (es. llava, minicpm-v, llama3.2-vision)
   // Cloud LLM providers
   llmProvider: 'ollama',
   openaiApiKey: '',

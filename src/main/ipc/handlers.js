@@ -1,5 +1,6 @@
 import { dialog, app, Notification, BrowserWindow } from 'electron'
 import { writeFile, copyFile } from 'fs/promises'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
@@ -29,6 +30,7 @@ import {
 } from '../services/historyService.js'
 import {
   extractPolizzaFromPDFs,
+  extractPolizzaFromImages,
   exportToNewExcel,
   exportToTemplateExcel,
   exportApprovedChanges,
@@ -509,7 +511,29 @@ ${context}
   ipcMain.handle('polizza:extract', async (_, { filePaths }) => {
     const settings = getSettings()
     try {
-      const data = await extractPolizzaFromPDFs(filePaths, settings)
+      const { data, scannedFiles } = await extractPolizzaFromPDFs(filePaths, settings)
+      return { success: true, data, scannedFiles }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Legge un file come buffer (per il rendering PDF lato renderer)
+  ipcMain.handle('polizza:getFileBuffer', async (_, { filePath }) => {
+    try {
+      const buf = readFileSync(filePath)
+      // Trasferisce come ArrayBuffer
+      return { success: true, buffer: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Estrazione vision da immagini già renderizzate
+  ipcMain.handle('polizza:visionExtract', async (_, { imageFiles }) => {
+    const settings = getSettings()
+    try {
+      const data = await extractPolizzaFromImages(imageFiles, settings)
       return { success: true, data }
     } catch (err) {
       return { success: false, error: err.message }

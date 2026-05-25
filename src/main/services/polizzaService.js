@@ -406,11 +406,15 @@ export async function extractPolizzaFromPDFs(files, settings) {
     }
   }
 
+  // Traccia i file senza testo estratto (potenzialmente scansionati)
+  const scannedFiles = normalizedFiles
+    .filter(f => !allTexts.find(t => t.path === f.path))
+    .map(f => ({ path: f.path, type: f.type || 'polizza' }))
+
   if (allTexts.length === 0) {
-    throw new Error(
-      'Nessun testo estratto dai PDF. ' +
-      'Verifica che i file siano PDF con testo selezionabile (non immagini scansionate).'
-    )
+    // Invece di lanciare un errore, restituisci dati vuoti con scannedFiles
+    // Il renderer triggererà la vision extraction
+    return { data: {}, scannedFiles }
   }
 
   // 2. Ordina per importanza: polizza principale prima, CGA ultima
@@ -462,7 +466,7 @@ export async function extractPolizzaFromPDFs(files, settings) {
   }
 
   // 5. Merge: regex ha priorità, LLM completa il resto
-  return { ...llmResult, ...regexResult }
+  return { data: { ...llmResult, ...regexResult }, scannedFiles }
 }
 
 // ─── Prompt specializzato per polizze RC ─────────────────────────────────────
@@ -633,6 +637,159 @@ function parseJsonResponse(raw) {
       throw new Error(`JSON malformato dal LLM: ${e2.message}`)
     }
   }
+}
+
+// ─── Estrazione vision (PDF scansionati) ─────────────────────────────────────
+
+/**
+ * Estrae dati da polizza tramite Vision LLM su pagine rese come immagini.
+ * Usato quando i PDF sono scansionati e non contengono testo selezionabile.
+ *
+ * @param {Array<{name:string, type:string, pages:string[]}>} imageFiles
+ * @param {object} settings
+ */
+export async function extractPolizzaFromImages(imageFiles, settings) {
+  const configuredFields = (settings.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const allFields = configuredFields.filter(f => f.enabled !== false)
+
+  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
+  const sorted = [...imageFiles].sort((a, b) => {
+    const ai = TYPE_ORDER.indexOf(a.type); const bi = TYPE_ORDER.indexOf(b.type)
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+  })
+
+  // Budget pagine per tipo (troppo tante pagine = LLM lento o errore)
+  const PAGE_BUDGET = { polizza: 5, appendice: 3, allegato: 2, cga: 1 }
+  const pages = []
+  for (const { type, pages: docPages } of sorted) {
+    const budget = PAGE_BUDGET[type] || 2
+    pages.push(...docPages.slice(0, budget))
+    if (pages.length >= 10) break
+  }
+
+  console.log(`[polizza] Vision: ${pages.length} pagine da ${imageFiles.length} file, ${allFields.length} campi`)
+
+  const result = await callVisionProvider(settings, allFields, pages)
+  const found = Object.keys(result).filter(k => result[k])
+  console.log(`[polizza] Vision: ${found.length} campi trovati:`, found)
+  return result
+}
+
+async function callVisionProvider(settings, fields, pages) {
+  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+
+  const systemPrompt =
+    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
+    'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
+
+  const userPrompt =
+`Queste sono pagine di una polizza assicurativa RC italiana.
+Leggi il testo nelle immagini ed estrai i valori nel JSON.
+Sostituisci null con il valore trovato, lascia null se non presente.
+Importi formato italiano (es. 3.000.000,00). Date: GG/MM/AAAA.
+Rispondi SOLO con il JSON:
+
+${jsonTemplate}`
+
+  const provider = settings.llmProvider || 'ollama'
+  let raw
+  if (provider === 'openai') raw = await callOpenAIVision(settings, systemPrompt, userPrompt, pages)
+  else if (provider === 'anthropic') raw = await callAnthropicVision(settings, systemPrompt, userPrompt, pages)
+  else raw = await callOllamaVision(settings, systemPrompt, userPrompt, pages)
+
+  return parseJsonResponse(raw)
+}
+
+async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const model = settings.ollamaVisionModel || settings.ollamaModel
+  if (!model) throw new Error('Nessun modello Ollama configurato. Imposta un modello vision (es. llava, minicpm-v) nelle impostazioni.')
+
+  // Ollama: immagini come base64 senza il prefisso data:image/...
+  const images = pages.map(p => p.replace(/^data:image\/[^;]+;base64,/, ''))
+
+  const res = await fetch(`${url}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt, images }
+      ],
+      stream: false,
+      format: 'json',
+      options: { temperature: 0, num_ctx: 8192, num_predict: 3000 }
+    }),
+    signal: AbortSignal.timeout(300000)  // 5 min — vision è più lento
+  })
+  if (!res.ok) throw new Error(`Ollama vision error: ${res.status}`)
+  const data = await res.json()
+  return (data.message?.content || '').trim()
+}
+
+async function callOpenAIVision(settings, systemPrompt, userPrompt, pages) {
+  const imageContent = pages.map(p => ({
+    type: 'image_url',
+    image_url: { url: p, detail: 'high' }
+  }))
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${settings.openaiApiKey}`
+    },
+    body: JSON.stringify({
+      model: settings.openaiModel || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContent] }
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      max_tokens: 4096
+    }),
+    signal: AbortSignal.timeout(120000)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`OpenAI vision error: ${res.status} ${err?.error?.message || ''}`)
+  }
+  const data = await res.json()
+  return (data.choices?.[0]?.message?.content || '').trim()
+}
+
+async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
+  const imageContent = pages.map(p => {
+    const mediaType = p.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+    const base64 = p.replace(/^data:image\/[^;]+;base64,/, '')
+    return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }
+  })
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.anthropicApiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: [...imageContent, { type: 'text', text: userPrompt }] }]
+    }),
+    signal: AbortSignal.timeout(120000)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Anthropic vision error: ${res.status} ${err?.error?.message || ''}`)
+  }
+  const data = await res.json()
+  return (data.content?.[0]?.text || '').trim()
 }
 
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
