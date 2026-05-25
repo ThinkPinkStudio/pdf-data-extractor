@@ -6,7 +6,8 @@
  */
 
 import { readFileSync, writeFileSync } from 'fs'
-import { loadPDF, searchChunks } from './pdfService.js'
+import { execSync } from 'child_process'
+import { loadPDF } from './pdfService.js'
 // Note: llmService.js is called directly (not via extractDataWithProvider) to use a custom prompt
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
@@ -107,89 +108,253 @@ export const RCP_FIELDS = [
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
 
+// ─── Estrazione testo via pdftotext (poppler-utils) ──────────────────────────
+
+/**
+ * Estrae il testo da un PDF con pdftotext -layout.
+ * Produce output molto più leggibile di pdf-parse per i PDF modulo/form.
+ * @returns {string|null} testo estratto, null se pdftotext non disponibile
+ */
+function extractTextWithPdftotext(filePath) {
+  try {
+    const escaped = filePath.replace(/'/g, "'\\''")
+    const text = execSync(`pdftotext -layout '${escaped}' -`, {
+      encoding: 'utf8',
+      timeout: 30000,
+      maxBuffer: 20 * 1024 * 1024
+    })
+    return text && text.trim().length > 10 ? text : null
+  } catch (err) {
+    console.warn(`[polizza] pdftotext fallito per "${filePath}":`, err.message)
+    return null
+  }
+}
+
+/**
+ * Filtra le sezioni più rilevanti del testo per limitare i token inviati al LLM.
+ * Con pdftotext il testo è già leggibile — manteniamo più contesto per ogni match.
+ */
+function extractRelevantSections(text, maxChars = 18000) {
+  if (text.length <= maxChars) return text
+
+  const KEYWORDS = [
+    'POLIZZA N', 'CONTRAENTE', 'ASSICURATO', 'P. IVA', 'COD. FISC',
+    'DECORRENZA', 'SCADENZA', 'DOMICILIO', 'INDIRIZZO',
+    'MASSIMALE', 'PER SINISTRO', 'PER PERSONA', 'PER ANIMALI',
+    'GARANZIA', 'SEZIONE R.C', 'R.C. VS', 'R.C. PRODOTTI',
+    'RESPONSABILIT', 'TERZI', 'PRODOTTI', 'PRESTATORI',
+    'PREMIO', 'IMPONIBILE', 'IMPOSTA', 'ANTICIPO DI SEZIONE',
+    'TASSO', 'PARAMETRO', 'RETRIBUZION', 'SALARI', 'FATTURATO',
+    'SCOPERTO', 'FRANCHIGIA', 'AGENZIA', 'PRODUTTORE',
+    'ELEMENTI PER IL CONTEGGIO', 'REGOLAZIONE DEL PREMIO',
+    'DESCRIZIONE DELL', 'ATTIVIT',
+    'GENERALI', 'ALLIANZ', 'ZURICH', 'AXA', 'SARA', 'UNIPOL', 'CATTOLICA',
+    'GENERAIMPRESA', 'GENERACOMMERCI'
+  ]
+
+  const lines = text.split('\n')
+  const included = new Set()
+
+  for (let i = 0; i < lines.length; i++) {
+    const upper = lines[i].toUpperCase()
+    if (KEYWORDS.some(kw => upper.includes(kw))) {
+      // 4 righe di contesto prima e dopo (pdftotext produce testo più denso di informazioni)
+      for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + 6); j++) {
+        included.add(j)
+      }
+    }
+  }
+
+  const selected = [...included].sort((a, b) => a - b).map(i => lines[i]).join('\n')
+  return (selected.length > 0 ? selected : text).slice(0, maxChars)
+}
+
+// ─── Estrazione regex per campi strutturati ───────────────────────────────────
+
+/**
+ * Estrae con regex SOLO i campi ultra-strutturati che cambiano raramente tra documenti:
+ * N° polizza, P.IVA, date di decorrenza e scadenza.
+ * Tutto il resto viene gestito dal modello LLM che riceve il testo pulito.
+ */
+function extractFieldsWithRegex(text) {
+  const found = {}
+
+  // ── N° Polizza: numero lungo dopo "POLIZZA N°", "POLIZZA No." ecc.
+  const polMatch = text.match(/POLIZZA\s+N[°oO.]\s*(\d[\d\s]{4,15})/i)
+  if (polMatch) {
+    found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
+  }
+
+  // ── P. IVA / Codice Fiscale: prima sequenza di 10+ cifre consecutive dopo il label
+  const pivaLine = text.match(/P\.?\s*IVA[^\n]{0,80}/i)
+  if (pivaLine) {
+    const numRun = pivaLine[0].match(/\d{10,16}/)
+    if (numRun) found.codice_fiscale_iva = numRun[0]
+  }
+
+  // ── Date decorrenza e scadenza (gestisce artefatti OCR "31 112 I 2021" → "31/12/2021")
+  const decDate = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (decDate) found.decorrenza = decDate
+
+  const scadDate = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scadDate) found.scadenza = scadDate
+
+  return found
+}
+
+/**
+ * Cerca una data in una riga di testo corrispondente al pattern.
+ * Gestisce sia il formato standard "GG/MM/AAAA" sia gli artefatti pdftotext
+ * tipo "31 112 I 2021" (→ "31/12/2021").
+ */
+function parseDateFromContextLine(fullText, linePattern) {
+  const lineMatch = fullText.match(linePattern)
+  if (!lineMatch) return null
+  const line = lineMatch[0]
+
+  // Formato standard
+  const std = line.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{4})/)
+  if (std) {
+    return `${std[1].padStart(2, '0')}/${std[2].padStart(2, '0')}/${std[3]}`
+  }
+
+  // Formato con artefatti OCR: cerca l'anno (20XX) e lavora all'indietro
+  const yearMatch = line.match(/(20\d{2})/)
+  if (!yearMatch) return null
+  const year = yearMatch[1]
+  const beforeYear = line.slice(0, line.indexOf(year))
+
+  // Estrai numeri prima dell'anno; se un numero > 31, prendi le ultime 2 cifre
+  const nums = [...beforeYear.matchAll(/\d+/g)].map(m => {
+    const n = parseInt(m[0])
+    if (n > 31 && m[0].length > 2) return parseInt(m[0].slice(-2))
+    return n
+  }).filter(n => n >= 1 && n <= 31)
+
+  // Cerca mese (≤ 12) da destra, poi il giorno
+  let month = null, day = null
+  for (let i = nums.length - 1; i >= 0; i--) {
+    if (month === null && nums[i] >= 1 && nums[i] <= 12) {
+      month = nums[i]
+    } else if (month !== null) {
+      day = nums[i]
+      break
+    }
+  }
+
+  if (day && month) {
+    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
+  }
+  return null
+}
+
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
- * Combina il testo di tutti i documenti in un unico contesto arricchito.
+ * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
  */
 export async function extractPolizzaFromPDFs(filePaths, settings) {
-  // 1. Carica e combina il testo di tutti i PDF
-  const allChunks = []
-  const docTexts = []
+  // 1. Estrai testo da tutti i PDF con pdftotext, fallback pdf-parse
+  const allTexts = []
 
   for (const fp of filePaths) {
-    try {
-      const pdfData = await loadPDF(fp)
-      // Aggiungi metadati ai chunks per indicare da quale documento provengono
-      const namedChunks = pdfData.chunks.map(c => ({
-        ...c,
-        text: c.text
-      }))
-      allChunks.push(...namedChunks)
-      docTexts.push(pdfData.text)
-    } catch (err) {
-      console.warn(`Impossibile caricare ${fp}:`, err.message)
+    let text = extractTextWithPdftotext(fp)
+
+    if (!text) {
+      try {
+        const pdfData = await loadPDF(fp)
+        text = pdfData.text || ''
+        if (text.trim().length > 5) {
+          console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
+        }
+      } catch (err) {
+        console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
+      }
+    } else {
+      console.log(`[polizza] pdftotext OK: ${fp.split('/').pop()} (${text.length} chars)`)
+    }
+
+    if (text && text.trim().length > 5) {
+      allTexts.push({ path: fp, text })
     }
   }
 
-  if (allChunks.length === 0) {
-    throw new Error('Nessun PDF caricato correttamente')
+  if (allTexts.length === 0) {
+    throw new Error(
+      'Nessun testo estratto dai PDF. ' +
+      'Verifica che i file siano PDF con testo selezionabile (non immagini scansionate).'
+    )
   }
 
-  // 2. Cerca le sezioni più rilevanti per i campi da estrarre
-  const allFields = ALL_POLIZZA_FIELDS.map(f => ({ ...f, enabled: true }))
-  const query = allFields.map(f => f.description).join(' ')
-  const relevant = searchChunks(query, allChunks, 12)
-  const contextChunks = relevant.length > 0 ? relevant : allChunks.slice(0, 8)
+  // 2. Combina tutti i testi
+  const combinedText = allTexts
+    .map(({ path, text }) => `=== ${path.split('/').pop()} ===\n${text}`)
+    .join('\n\n')
 
-  // 3. Estrai con prompt specializzato per polizze RC
-  const result = await extractPolizzaWithProvider(settings, allFields, contextChunks)
-  return result
+  // 3. Estrazione rapida con regex (alta affidabilità)
+  const regexResult = extractFieldsWithRegex(combinedText)
+  const regexFound = Object.keys(regexResult).filter(k => regexResult[k])
+  console.log(`[polizza] Regex: ${regexFound.length} campi trovati:`, regexFound)
+
+  // 4. Chiedi al LLM i campi ancora mancanti
+  const allFields = ALL_POLIZZA_FIELDS.map(f => ({ ...f, enabled: true }))
+  const missingFields = allFields.filter(f => !regexResult[f.id])
+
+  let llmResult = {}
+  if (missingFields.length > 0 && settings.llmProvider !== 'none') {
+    // Aumenta il limite per sfruttare la qualità del testo pdftotext
+    const relevantText = extractRelevantSections(combinedText, 18000)
+    console.log(
+      `[polizza] LLM: ${missingFields.length} campi da estrarre, ` +
+      `${relevantText.length} chars testo rilevante`
+    )
+    try {
+      llmResult = await extractPolizzaWithProvider(settings, missingFields, relevantText)
+      const llmFound = Object.keys(llmResult).filter(k => llmResult[k])
+      console.log(`[polizza] LLM: ${llmFound.length} campi trovati:`, llmFound)
+    } catch (err) {
+      console.warn('[polizza] Errore LLM (non fatale):', err.message)
+    }
+  }
+
+  // 5. Merge: regex ha priorità, LLM completa il resto
+  return { ...llmResult, ...regexResult }
 }
 
 // ─── Prompt specializzato per polizze RC ─────────────────────────────────────
 
-async function extractPolizzaWithProvider(settings, fields, contextChunks) {
+async function extractPolizzaWithProvider(settings, fields, contextText) {
+  if (fields.length === 0) return {}
 
-  // Usa un prompt arricchito rispetto a quello generico
   const fieldsList = fields
     .map(f => `  - "${f.label}" (id: ${f.id}): ${f.description}`)
     .join('\n')
 
-  const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
+  const prompt = `Sei un esperto di polizze assicurative italiane RC (Responsabilità Civile).
+Analizza il testo seguente ed estrai SOLO i campi elencati.
 
-  const prompt = `Sei un esperto di polizze assicurative italiane di Responsabilità Civile (RC Terzi/Operai e RC Prodotti).
-Analizza il testo dei documenti di polizza forniti e estrai con precisione le seguenti informazioni.
+REGOLE FONDAMENTALI:
+- Restituisci ESCLUSIVAMENTE un oggetto JSON valido, senza markdown, backtick o testo aggiuntivo
+- Usa l'id del campo come chiave JSON esatta
+- Valore null se il dato non è presente o non sei sicuro
+- Importi in formato italiano: "3.000.000,00" (punto migliaia, virgola decimale)
+- Date in formato GG/MM/AAAA
+- Sezione RCT = "RC verso Terzi e Prestatori di Lavoro" o "R.C. VS. TERZI"
+- Sezione RCP = "RC Prodotti" o "Responsabilità Civile Prodotti"
+- Premio "totale" include l'imposta; "imponibile" è al netto dell'imposta
+- Tasso espresso per mille (‰), es. "2,450"
 
-IMPORTANTE:
-- Restituisci SOLO un oggetto JSON valido, senza testo aggiuntivo, markdown o spiegazioni
-- Usa gli ID dei campi come chiavi JSON
-- Se un valore non è presente, usa null
-- Per gli importi, mantieni il formato italiano (es. "3.000.000,00" o "1.227,00")
-- Per le date, usa il formato GG/MM/AAAA
-- La sezione "RC verso Terzi e verso Prestatori di Lavoro" fornisce i dati RCT
-- La sezione "RC Prodotti" / "Responsabilità Civile Prodotti" fornisce i dati RCP
-- Il massimale "per sinistro" nella sezione RCT è il limite principale per ogni evento
-- Il premio "anticipo di sezione annuo totale" include imposta; il "premio imponibile" è al netto
-- Il tasso è espresso "per mille" (‰)
-
-Campi da estrarre (usa l'id come chiave JSON):
+CAMPI DA ESTRARRE:
 ${fieldsList}
 
-Testo dei documenti di polizza:
+TESTO POLIZZA:
 ---
 ${contextText}
 ---
 
-Rispondi con un oggetto JSON del tipo:
-{"polizza_numero": "...", "compagnia": "...", ...}`
+JSON:`
 
-  // Inietta il prompt direttamente nel provider scelto
-  const fakeFields = [{ id: '__prompt__', label: '__prompt__', description: prompt, enabled: true }]
-  const fakeChunks = [{ text: '' }]
-
-  // Costruiamo il prompt manualmente per tutti i provider
   const provider = settings.llmProvider || 'ollama'
   let raw
 
@@ -250,15 +415,21 @@ async function callAnthropic(settings, prompt) {
 }
 
 async function callOllama(settings, prompt) {
-  const res = await fetch(`${settings.ollamaUrl || 'http://127.0.0.1:11434'}/api/generate`, {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const res = await fetch(`${url}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: settings.ollamaModel,
       prompt,
-      stream: false
+      stream: false,
+      options: {
+        num_ctx: 32768,   // finestra di contesto ampliata per testi lunghi
+        temperature: 0,   // output deterministico
+        num_predict: 2048 // max token risposta
+      }
     }),
-    signal: AbortSignal.timeout(120000)
+    signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
   })
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
   const data = await res.json()
@@ -266,9 +437,29 @@ async function callOllama(settings, prompt) {
 }
 
 function parseJsonResponse(raw) {
+  if (!raw) throw new Error('Risposta vuota dal modello LLM')
+
+  // Cerca il blocco JSON anche se il modello aggiunge testo prima/dopo
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('Risposta non valida dal modello LLM')
-  return JSON.parse(jsonMatch[0])
+  if (!jsonMatch) {
+    console.warn('[polizza] Risposta LLM senza JSON:', raw.slice(0, 300))
+    throw new Error('Il modello LLM non ha restituito un JSON valido')
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0])
+  } catch (_e) {
+    // Prova a riparare il JSON (trailing commas, commenti)
+    const cleaned = jsonMatch[0]
+      .replace(/\/\/[^\n]*/g, '')   // rimuovi commenti //
+      .replace(/,(\s*[}\]])/g, '$1') // rimuovi trailing commas
+    try {
+      return JSON.parse(cleaned)
+    } catch (e2) {
+      console.warn('[polizza] JSON non parsabile:', cleaned.slice(0, 400))
+      throw new Error(`JSON malformato dal LLM: ${e2.message}`)
+    }
+  }
 }
 
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
