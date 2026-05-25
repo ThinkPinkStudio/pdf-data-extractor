@@ -3,11 +3,16 @@
  * Supporta la struttura GENERAIMPRESA (Generali Italia) e formati similari.
  *
  * Fogli Excel target: RCT_O e RCP
+ *
+ * Strategia di estrazione (in ordine di qualità):
+ * 1. pdftotext (poppler-utils)  – migliore, ma richiede installazione esterna
+ * 2. pdfjs-dist con ricostruzione spaziale – puro JS, funziona su Win/Mac/Linux
+ * 3. pdf-parse – ultimo fallback generico
  */
 
 import { readFileSync, writeFileSync } from 'fs'
-import { loadPDF, searchChunks } from './pdfService.js'
-// Note: llmService.js is called directly (not via extractDataWithProvider) to use a custom prompt
+import { execSync } from 'child_process'
+import { loadPDF } from './pdfService.js'
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
 // Struttura rilevata dal file Gestionale_Clienti_CSA.xlsx
@@ -91,8 +96,8 @@ export const RCP_FIELDS = [
   { id: 'rcp_qualifica',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
   { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro (RCP)',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text' },
   { id: 'rcp_massimale_annuo',      label: 'Massimale annuo (RCP)',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali (RCP)',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00', type: 'text' },
-  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività (RCP)', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali (RCP)',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività (RCP)', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_mondo',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text' },
   { id: 'rcp_scoperto_max_mondo',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_usa',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text' },
@@ -107,104 +112,422 @@ export const RCP_FIELDS = [
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
 
+// ─── Estrazione testo via pdftotext (poppler-utils) ──────────────────────────
+
+/**
+ * Estrae il testo da un PDF con pdftotext -layout (poppler-utils).
+ * Produce output eccellente per PDF-form. Cerca il binario in PATH e in
+ * percorsi comuni su macOS (Homebrew Intel/ARM) e Linux.
+ * @returns {string|null} testo estratto, null se poppler non installato
+ */
+function extractTextWithPdftotext(filePath) {
+  const EXTRA_DIRS = [
+    '/opt/homebrew/bin',    // macOS Homebrew ARM (Apple Silicon)
+    '/usr/local/bin',       // macOS Homebrew Intel + Linux vari
+    '/opt/local/bin',       // macOS MacPorts
+    '/usr/bin'              // Linux standard
+  ]
+  const escaped = filePath.replace(/'/g, "'\\''")
+
+  const candidates = [
+    `pdftotext -layout '${escaped}' -`,
+    ...EXTRA_DIRS.map(d => `'${d}/pdftotext' -layout '${escaped}' -`)
+  ]
+
+  for (const cmd of candidates) {
+    try {
+      const text = execSync(cmd, { encoding: 'utf8', timeout: 30000, maxBuffer: 20 * 1024 * 1024 })
+      if (text && text.trim().length > 10) return text
+    } catch {
+      // Prova il prossimo
+    }
+  }
+  return null  // non disponibile — il chiamante usa il fallback pdfjs
+}
+
+// ─── Estrazione con pdfjs-dist (puro JS, cross-platform) ─────────────────────
+
+/**
+ * Estrae testo da PDF usando pdfjs-dist direttamente.
+ * Funziona su Windows/Mac/Linux senza dipendenze native.
+ * Usa l'ordine naturale del content stream (che per la maggior parte dei PDF
+ * coincide con l'ordine di lettura) + marcatori hasEOL per le righe.
+ * @returns {string|null}
+ */
+async function extractTextWithPdfjsSpatial(filePath) {
+  try {
+    const fileBuffer = readFileSync(filePath)
+
+    // pdfjs-dist/legacy è la build Node.js-compatibile (nessun Web Worker)
+    const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
+    const pdfjs = pdfjsMod.default || pdfjsMod
+    if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
+
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(fileBuffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true,
+      disableFontFace: true
+    }).promise
+
+    const pageTexts = []
+    for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+      const page = await doc.getPage(pageNum)
+      const content = await page.getTextContent({ includeMarkedContent: false })
+
+      let pageText = ''
+      let prevX = null, prevY = null
+
+      for (const item of content.items) {
+        if (!('str' in item)) continue  // salta TextMarkedContent
+
+        const x = item.transform[4], y = item.transform[5]
+
+        // Nuova riga se Y cambia significativamente, o se hasEOL è true
+        if (prevY !== null) {
+          const dy = Math.abs(y - prevY)
+          const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
+          if (item.hasEOL || dy > fontSize * 0.4) {
+            pageText += '\n'
+            prevX = null
+          } else if (prevX !== null) {
+            // Aggiunge spazio se c'è un gap orizzontale tra item consecutivi
+            const gap = x - prevX
+            const charW = (item.width > 0 && item.str.length > 0)
+              ? item.width / item.str.length
+              : fontSize * 0.5
+            if (gap > charW * 0.3) pageText += ' '
+          }
+        }
+
+        pageText += item.str
+        prevX = x + (item.width || item.str.length * ((Math.abs(item.transform[0]) || 10) * 0.5))
+        prevY = y
+      }
+
+      if (pageText.trim()) pageTexts.push(pageText.trim())
+    }
+
+    const fullText = pageTexts.join('\n\n').trim()
+    return fullText.length > 20 ? fullText : null
+  } catch (err) {
+    console.warn('[polizza] pdfjs extraction failed:', err.message)
+    return null
+  }
+}
+
+/**
+ * Riduce il testo di un documento CGA al minimo necessario.
+ * Per tutti gli altri tipi, il testo viene inviato integro al LLM.
+ *
+ * Il CGA è l'unico caso filtrato perché:
+ * - È boilerplate puro (200K+ chars) che monopolizzerebbe il contesto
+ * - Contiene valori generici di ESEMPIO (massimali, importi) che potrebbero
+ *   confondere il LLM portandolo ad estrarre dati sbagliati
+ */
+function filterCGA(text, maxChars = 600) {
+  if (text.length <= maxChars) return text
+  // Per il CGA bastano pochissimi char: vogliamo solo confermare nome compagnia/prodotto
+  return text.slice(0, maxChars)
+}
+
+// ─── Estrazione regex per campi strutturati ───────────────────────────────────
+
+/**
+ * Estrae con regex SOLO i campi ultra-strutturati che cambiano raramente tra documenti:
+ * N° polizza, P.IVA, date di decorrenza e scadenza.
+ * Tutto il resto viene gestito dal modello LLM che riceve il testo pulito.
+ */
+function extractFieldsWithRegex(text) {
+  const found = {}
+
+  // ── N° Polizza: numero lungo dopo "POLIZZA N°", "POLIZZA No." ecc.
+  const polMatch = text.match(/POLIZZA\s+N[°oO.]\s*(\d[\d\s]{4,15})/i)
+  if (polMatch) {
+    found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
+  }
+
+  // ── P. IVA / Codice Fiscale: prima sequenza di 10+ cifre consecutive dopo il label
+  const pivaLine = text.match(/P\.?\s*IVA[^\n]{0,80}/i)
+  if (pivaLine) {
+    const numRun = pivaLine[0].match(/\d{10,16}/)
+    if (numRun) found.codice_fiscale_iva = numRun[0]
+  }
+
+  // ── Date decorrenza e scadenza (gestisce artefatti OCR "31 112 I 2021" → "31/12/2021")
+  const decDate = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (decDate) found.decorrenza = decDate
+
+  const scadDate = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scadDate) found.scadenza = scadDate
+
+  return found
+}
+
+/**
+ * Cerca una data in una riga di testo corrispondente al pattern.
+ * Gestisce sia il formato standard "GG/MM/AAAA" sia gli artefatti pdftotext
+ * tipo "31 112 I 2021" (→ "31/12/2021").
+ */
+function parseDateFromContextLine(fullText, linePattern) {
+  const lineMatch = fullText.match(linePattern)
+  if (!lineMatch) return null
+  const line = lineMatch[0]
+
+  // Formato standard
+  const std = line.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{4})/)
+  if (std) {
+    return `${std[1].padStart(2, '0')}/${std[2].padStart(2, '0')}/${std[3]}`
+  }
+
+  // Formato con artefatti OCR: cerca l'anno (20XX) e lavora all'indietro
+  const yearMatch = line.match(/(20\d{2})/)
+  if (!yearMatch) return null
+  const year = yearMatch[1]
+  const beforeYear = line.slice(0, line.indexOf(year))
+
+  // Estrai numeri prima dell'anno; se un numero > 31, prendi le ultime 2 cifre
+  const nums = [...beforeYear.matchAll(/\d+/g)].map(m => {
+    const n = parseInt(m[0])
+    if (n > 31 && m[0].length > 2) return parseInt(m[0].slice(-2))
+    return n
+  }).filter(n => n >= 1 && n <= 31)
+
+  // Cerca mese (≤ 12) da destra, poi il giorno
+  let month = null, day = null
+  for (let i = nums.length - 1; i >= 0; i--) {
+    if (month === null && nums[i] >= 1 && nums[i] <= 12) {
+      month = nums[i]
+    } else if (month !== null) {
+      day = nums[i]
+      break
+    }
+  }
+
+  if (day && month) {
+    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
+  }
+  return null
+}
+
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
- * Combina il testo di tutti i documenti in un unico contesto arricchito.
+ * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
+ *
+ * @param {Array<string|{path:string,type:string}>} files
+ *   Può essere un array di path (string) oppure oggetti { path, type }.
+ *   type: 'polizza' | 'appendice' | 'allegato' | 'cga'
  */
-export async function extractPolizzaFromPDFs(filePaths, settings) {
-  // 1. Carica e combina il testo di tutti i PDF
-  const allChunks = []
-  const docTexts = []
+export async function extractPolizzaFromPDFs(files, settings) {
+  // Normalizza input: string → { path, type:'polizza' }
+  const normalizedFiles = (files || []).map(f =>
+    typeof f === 'string' ? { path: f, type: 'polizza' } : f
+  )
 
-  for (const fp of filePaths) {
-    try {
-      const pdfData = await loadPDF(fp)
-      // Aggiungi metadati ai chunks per indicare da quale documento provengono
-      const namedChunks = pdfData.chunks.map(c => ({
-        ...c,
-        text: c.text
-      }))
-      allChunks.push(...namedChunks)
-      docTexts.push(pdfData.text)
-    } catch (err) {
-      console.warn(`Impossibile caricare ${fp}:`, err.message)
+  // Budget TOTALE di contesto (chars) per tutti i documenti non-CGA combinati.
+  // Ogni provider LLM ha una finestra di contesto diversa:
+  //   Anthropic Claude: ~200K token context → 180K chars
+  //   OpenAI GPT-4o/mini: ~128K token context → 100K chars
+  //   Ollama (locale): configurabile, spesso 32K-128K token → usiamo 60K chars conservativi
+  //                    (num_ctx viene impostato a 65536 nella chiamata Ollama)
+  //
+  // I documenti non-CGA vengono inviati INTERI nell'ordine di priorità finché
+  // c'è budget. Il LLM trova i dati indipendentemente da: lingua, formato numeri,
+  // ordine delle pagine, terminologia. Il CGA è sempre limitato a 600 chars.
+  const provider = settings.llmProvider || 'ollama'
+  const TOTAL_BUDGET = provider === 'anthropic' ? 180000
+                     : provider === 'openai'    ? 100000
+                     :                             60000   // ollama e altri
+  const CGA_MAX    = 600
+
+  // Ordine di priorità per il consumo del budget (polizza prima, cga alla fine)
+  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
+
+  // 1. Estrai testo da tutti i PDF
+  const allTexts = []
+
+  for (const { path: fp, type = 'polizza' } of normalizedFiles) {
+    let text = extractTextWithPdftotext(fp)
+
+    if (text) {
+      console.log(`[polizza] pdftotext OK: ${fp.split('/').pop()} (${text.length} chars)`)
+    } else {
+      text = await extractTextWithPdfjsSpatial(fp)
+      if (text) {
+        console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
+      } else {
+        try {
+          const pdfData = await loadPDF(fp)
+          text = pdfData.text || ''
+          if (text.trim().length > 5) {
+            console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
+          }
+        } catch (err) {
+          console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
+        }
+      }
+    }
+
+    if (text && text.trim().length > 5) {
+      allTexts.push({ path: fp, type: type || 'polizza', text })
     }
   }
 
-  if (allChunks.length === 0) {
-    throw new Error('Nessun PDF caricato correttamente')
+  // Traccia i file senza testo estratto (PDF scansionati = solo immagini, nessun layer testo)
+  const scannedFiles = normalizedFiles
+    .filter(f => !allTexts.find(t => t.path === f.path))
+    .map(f => ({ path: f.path, type: f.type || 'polizza' }))
+
+  if (scannedFiles.length > 0) {
+    console.log(
+      `[polizza] ${scannedFiles.length} file scansionati (nessun testo estraibile → vision OCR):`,
+      scannedFiles.map(f => f.path.split('/').pop())
+    )
   }
 
-  // 2. Cerca le sezioni più rilevanti per i campi da estrarre
-  const allFields = ALL_POLIZZA_FIELDS.map(f => ({ ...f, enabled: true }))
-  const query = allFields.map(f => f.description).join(' ')
-  const relevant = searchChunks(query, allChunks, 12)
-  const contextChunks = relevant.length > 0 ? relevant : allChunks.slice(0, 8)
+  if (allTexts.length === 0) {
+    // Tutti i file sono scansionati → restituisci dati vuoti con scannedFiles
+    // Il renderer triggererà la vision extraction
+    return { data: {}, scannedFiles }
+  }
 
-  // 3. Estrai con prompt specializzato per polizze RC
-  const result = await extractPolizzaWithProvider(settings, allFields, contextChunks)
-  return result
+  // 2. Ordina per importanza: polizza principale prima, CGA ultima
+  allTexts.sort((a, b) => {
+    const ai = TYPE_ORDER.indexOf(a.type)
+    const bi = TYPE_ORDER.indexOf(b.type)
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+  })
+
+  // 3. Tronca al budget per tipo. Per polizza/appendice/allegato il testo viene
+  //    inviato grezzo al LLM (nessun filtro keyword). Il CGA viene filtrato perché
+  //    è boilerplate puro (>200K chars) che monopolizzerebbe il contesto.
+  // 3. Costruisci il testo da inviare al LLM.
+  //    - Documenti non-CGA: testo integro, nell'ordine di priorità, fino a TOTAL_BUDGET
+  //    - CGA: sempre limitato a CGA_MAX chars (boilerplate con valori generici)
+  const excerpts = []
+  let remainingBudget = TOTAL_BUDGET
+
+  for (const { path: fp, type, text } of allTexts) {
+    let excerpt
+    if (type === 'cga') {
+      excerpt = filterCGA(text, CGA_MAX)
+    } else {
+      // Testo integro, ma non sforare il budget residuo
+      if (remainingBudget <= 0) {
+        console.log(`[polizza] skip [${type}] ${fp.split('/').pop()}: budget esaurito`)
+        continue
+      }
+      excerpt = text.length <= remainingBudget ? text : text.slice(0, remainingBudget)
+      remainingBudget -= excerpt.length
+    }
+    console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length} chars${type === 'cga' ? '' : ` (budget residuo: ${remainingBudget})`}`)
+    excerpts.push(`=== ${fp.split('/').pop()} [${type}] ===\n${excerpt}`)
+  }
+
+  const combinedText = excerpts.join('\n\n')
+
+  // 4. Estrazione rapida con regex (alta affidabilità)
+  const regexResult = extractFieldsWithRegex(combinedText)
+  const regexFound = Object.keys(regexResult).filter(k => regexResult[k])
+  console.log(`[polizza] Regex: ${regexFound.length} campi trovati:`, regexFound)
+
+  // 5. Chiedi al LLM i campi ancora mancanti
+  const configuredFields = (settings.polizzaFields && settings.polizzaFields.length > 0)
+    ? settings.polizzaFields
+    : ALL_POLIZZA_FIELDS
+  const allFields = configuredFields.filter(f => f.enabled !== false)
+  const missingFields = allFields.filter(f => !regexResult[f.id])
+
+  let llmResult = {}
+  if (missingFields.length > 0 && settings.llmProvider !== 'none') {
+    // combinedText è già filtrato per budget — nessun secondo filtraggio necessario
+    console.log(
+      `[polizza] LLM: ${missingFields.length} campi da estrarre, ` +
+      `${combinedText.length} chars testo rilevante`
+    )
+    try {
+      llmResult = await extractPolizzaWithProvider(settings, missingFields, combinedText)
+      const llmFound = Object.keys(llmResult).filter(k => llmResult[k])
+      console.log(`[polizza] LLM: ${llmFound.length} campi trovati:`, llmFound)
+    } catch (err) {
+      console.warn('[polizza] Errore LLM (non fatale):', err.message)
+    }
+  }
+
+  // 5. Merge: regex ha priorità, LLM completa il resto
+  return { data: { ...llmResult, ...regexResult }, scannedFiles }
 }
 
 // ─── Prompt specializzato per polizze RC ─────────────────────────────────────
 
-async function extractPolizzaWithProvider(settings, fields, contextChunks) {
+async function extractPolizzaWithProvider(settings, fields, contextText) {
+  if (fields.length === 0) return {}
 
-  // Usa un prompt arricchito rispetto a quello generico
-  const fieldsList = fields
-    .map(f => `  - "${f.label}" (id: ${f.id}): ${f.description}`)
+  const provider = settings.llmProvider || 'ollama'
+
+  // Template JSON vuoto che il modello deve riempire
+  // Molto più semplice per i modelli locali rispetto a liste descrittive
+  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+
+  // Guida concisa ai campi (usata solo nei prompt cloud dove c'è più contesto)
+  const fieldGuide = fields
+    .map(f => `${f.id}: ${f.label} (es. ${f.description.match(/es\.\s*[^)]+/)?.[0] || f.description.slice(0, 60)})`)
     .join('\n')
 
-  const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
+  const systemPrompt =
+    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
+    'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
-  const prompt = `Sei un esperto di polizze assicurative italiane di Responsabilità Civile (RC Terzi/Operai e RC Prodotti).
-Analizza il testo dei documenti di polizza forniti e estrai con precisione le seguenti informazioni.
-
-IMPORTANTE:
-- Restituisci SOLO un oggetto JSON valido, senza testo aggiuntivo, markdown o spiegazioni
-- Usa gli ID dei campi come chiavi JSON
-- Se un valore non è presente, usa null
-- Per gli importi, mantieni il formato italiano (es. "3.000.000,00" o "1.227,00")
-- Per le date, usa il formato GG/MM/AAAA
-- La sezione "RC verso Terzi e verso Prestatori di Lavoro" fornisce i dati RCT
-- La sezione "RC Prodotti" / "Responsabilità Civile Prodotti" fornisce i dati RCP
-- Il massimale "per sinistro" nella sezione RCT è il limite principale per ogni evento
-- Il premio "anticipo di sezione annuo totale" include imposta; il "premio imponibile" è al netto
-- Il tasso è espresso "per mille" (‰)
-
-Campi da estrarre (usa l'id come chiave JSON):
-${fieldsList}
-
-Testo dei documenti di polizza:
----
+  // Prompt ottimizzato per Ollama: testo prima, template JSON dopo
+  // Il modello deve solo sostituire i "null" con i valori trovati
+  const ollamaPrompt =
+`DOCUMENTO ASSICURATIVO:
 ${contextText}
----
 
-Rispondi con un oggetto JSON del tipo:
-{"polizza_numero": "...", "compagnia": "...", ...}`
+Leggi il documento e compila il JSON seguente.
+Sostituisci null con il valore trovato nel documento, lascia null se non presente.
+Rispondi SOLO con il JSON compilato:
 
-  // Inietta il prompt direttamente nel provider scelto
-  const fakeFields = [{ id: '__prompt__', label: '__prompt__', description: prompt, enabled: true }]
-  const fakeChunks = [{ text: '' }]
+${jsonTemplate}`
 
-  // Costruiamo il prompt manualmente per tutti i provider
-  const provider = settings.llmProvider || 'ollama'
+  // Prompt più ricco per i provider cloud (maggiore capacità)
+  const cloudPrompt =
+`Estrai i dati dal documento assicurativo italiano e compila il JSON.
+
+DOCUMENTO:
+${contextText}
+
+GUIDA AI CAMPI:
+${fieldGuide}
+
+Regole:
+- Importi: formato italiano "3.000.000,00" (punto = migliaia, virgola = decimale)
+- Date: formato GG/MM/AAAA
+- RCT = sezione "RC verso Terzi e Prestatori di Lavoro"
+- RCP = sezione "RC Prodotti"
+- null se il campo non è nel documento
+
+Compila e restituisci SOLO questo JSON:
+${jsonTemplate}`
+
   let raw
 
   if (provider === 'openai') {
-    raw = await callOpenAI(settings, prompt)
+    raw = await callOpenAI(settings, systemPrompt, cloudPrompt)
   } else if (provider === 'anthropic') {
-    raw = await callAnthropic(settings, prompt)
+    raw = await callAnthropic(settings, systemPrompt, cloudPrompt)
   } else {
-    raw = await callOllama(settings, prompt)
+    raw = await callOllama(settings, systemPrompt, ollamaPrompt)
   }
 
   return parseJsonResponse(raw)
 }
 
-async function callOpenAI(settings, prompt) {
+async function callOpenAI(settings, systemPrompt, userPrompt) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -213,8 +536,12 @@ async function callOpenAI(settings, prompt) {
     },
     body: JSON.stringify({
       model: settings.openaiModel || 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' }  // JSON mode nativo
     }),
     signal: AbortSignal.timeout(90000)
   })
@@ -226,7 +553,7 @@ async function callOpenAI(settings, prompt) {
   return (data.choices?.[0]?.message?.content || '').trim()
 }
 
-async function callAnthropic(settings, prompt) {
+async function callAnthropic(settings, systemPrompt, userPrompt) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -237,7 +564,8 @@ async function callAnthropic(settings, prompt) {
     body: JSON.stringify({
       model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }]
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }]
     }),
     signal: AbortSignal.timeout(90000)
   })
@@ -249,26 +577,211 @@ async function callAnthropic(settings, prompt) {
   return (data.content?.[0]?.text || '').trim()
 }
 
-async function callOllama(settings, prompt) {
-  const res = await fetch(`${settings.ollamaUrl || 'http://127.0.0.1:11434'}/api/generate`, {
+async function callOllama(settings, systemPrompt, userPrompt) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  // Usiamo /api/chat (non /api/generate) + format:"json" che forza JSON
+  // a livello grammaticale — il modello non può rispondere con testo libero
+  const res = await fetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: settings.ollamaModel,
-      prompt,
-      stream: false
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   }
+      ],
+      stream: false,
+      format: 'json',          // ← grammar-constrained JSON output
+      options: {
+        num_ctx:     65536,    // 64K token context → gestisce ~60K chars di testo polizza
+        temperature: 0,        // output deterministico
+        num_predict: 2048      // max token risposta
+      }
     }),
-    signal: AbortSignal.timeout(120000)
+    signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
   })
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
   const data = await res.json()
-  return (data.response || '').trim()
+  return (data.message?.content || '').trim()
 }
 
 function parseJsonResponse(raw) {
+  if (!raw) throw new Error('Risposta vuota dal modello LLM')
+
+  // Cerca il blocco JSON anche se il modello aggiunge testo prima/dopo
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('Risposta non valida dal modello LLM')
-  return JSON.parse(jsonMatch[0])
+  if (!jsonMatch) {
+    console.warn('[polizza] Risposta LLM senza JSON:', raw.slice(0, 300))
+    throw new Error('Il modello LLM non ha restituito un JSON valido')
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0])
+  } catch (_e) {
+    // Prova a riparare il JSON (trailing commas, commenti)
+    const cleaned = jsonMatch[0]
+      .replace(/\/\/[^\n]*/g, '')   // rimuovi commenti //
+      .replace(/,(\s*[}\]])/g, '$1') // rimuovi trailing commas
+    try {
+      return JSON.parse(cleaned)
+    } catch (e2) {
+      console.warn('[polizza] JSON non parsabile:', cleaned.slice(0, 400))
+      throw new Error(`JSON malformato dal LLM: ${e2.message}`)
+    }
+  }
+}
+
+// ─── Estrazione vision (PDF scansionati) ─────────────────────────────────────
+
+/**
+ * Estrae dati da polizza tramite Vision LLM su pagine rese come immagini.
+ * Usato quando i PDF sono scansionati e non contengono testo selezionabile.
+ *
+ * @param {Array<{name:string, type:string, pages:string[]}>} imageFiles
+ * @param {object} settings
+ */
+export async function extractPolizzaFromImages(imageFiles, settings) {
+  const configuredFields = (settings.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const allFields = configuredFields.filter(f => f.enabled !== false)
+
+  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
+  const sorted = [...imageFiles].sort((a, b) => {
+    const ai = TYPE_ORDER.indexOf(a.type); const bi = TYPE_ORDER.indexOf(b.type)
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+  })
+
+  // Budget pagine per tipo (troppo tante pagine = LLM lento o errore)
+  const PAGE_BUDGET = { polizza: 5, appendice: 3, allegato: 2, cga: 1 }
+  const pages = []
+  for (const { type, pages: docPages } of sorted) {
+    const budget = PAGE_BUDGET[type] || 2
+    pages.push(...docPages.slice(0, budget))
+    if (pages.length >= 10) break
+  }
+
+  console.log(`[polizza] Vision: ${pages.length} pagine da ${imageFiles.length} file, ${allFields.length} campi`)
+
+  const result = await callVisionProvider(settings, allFields, pages)
+  const found = Object.keys(result).filter(k => result[k])
+  console.log(`[polizza] Vision: ${found.length} campi trovati:`, found)
+  return result
+}
+
+async function callVisionProvider(settings, fields, pages) {
+  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+
+  const systemPrompt =
+    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
+    'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
+
+  const userPrompt =
+`Queste sono pagine di una polizza assicurativa RC italiana.
+Leggi il testo nelle immagini ed estrai i valori nel JSON.
+Sostituisci null con il valore trovato, lascia null se non presente.
+Importi formato italiano (es. 3.000.000,00). Date: GG/MM/AAAA.
+Rispondi SOLO con il JSON:
+
+${jsonTemplate}`
+
+  const provider = settings.llmProvider || 'ollama'
+  let raw
+  if (provider === 'openai') raw = await callOpenAIVision(settings, systemPrompt, userPrompt, pages)
+  else if (provider === 'anthropic') raw = await callAnthropicVision(settings, systemPrompt, userPrompt, pages)
+  else raw = await callOllamaVision(settings, systemPrompt, userPrompt, pages)
+
+  return parseJsonResponse(raw)
+}
+
+async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const model = settings.ollamaVisionModel || settings.ollamaModel
+  if (!model) throw new Error('Nessun modello Ollama configurato. Imposta un modello vision (es. llava, minicpm-v) nelle impostazioni.')
+
+  // Ollama: immagini come base64 senza il prefisso data:image/...
+  const images = pages.map(p => p.replace(/^data:image\/[^;]+;base64,/, ''))
+
+  const res = await fetch(`${url}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt, images }
+      ],
+      stream: false,
+      format: 'json',
+      options: { temperature: 0, num_ctx: 8192, num_predict: 3000 }
+    }),
+    signal: AbortSignal.timeout(300000)  // 5 min — vision è più lento
+  })
+  if (!res.ok) throw new Error(`Ollama vision error: ${res.status}`)
+  const data = await res.json()
+  return (data.message?.content || '').trim()
+}
+
+async function callOpenAIVision(settings, systemPrompt, userPrompt, pages) {
+  const imageContent = pages.map(p => ({
+    type: 'image_url',
+    image_url: { url: p, detail: 'high' }
+  }))
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${settings.openaiApiKey}`
+    },
+    body: JSON.stringify({
+      model: settings.openaiModel || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContent] }
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      max_tokens: 4096
+    }),
+    signal: AbortSignal.timeout(120000)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`OpenAI vision error: ${res.status} ${err?.error?.message || ''}`)
+  }
+  const data = await res.json()
+  return (data.choices?.[0]?.message?.content || '').trim()
+}
+
+async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
+  const imageContent = pages.map(p => {
+    const mediaType = p.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+    const base64 = p.replace(/^data:image\/[^;]+;base64,/, '')
+    return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }
+  })
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.anthropicApiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: [...imageContent, { type: 'text', text: userPrompt }] }]
+    }),
+    signal: AbortSignal.timeout(120000)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Anthropic vision error: ${res.status} ${err?.error?.message || ''}`)
+  }
+  const data = await res.json()
+  return (data.content?.[0]?.text || '').trim()
 }
 
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
@@ -277,33 +790,17 @@ function parseJsonResponse(raw) {
  * Crea un nuovo file Excel con due fogli: RCT_O e RCP.
  * @param {string} filePath - percorso di destinazione
  * @param {object} data - dati estratti (chiavi = id campi)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale (default: RCT_FIELDS + RCP_FIELDS)
  */
-export async function exportToNewExcel(filePath, data) {
+export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
   const XLSX = await import('xlsx')
 
-  // Foglio RCT_O
-  const rctRows = RCT_FIELDS.map(f => ({
-    'Campo': f.label,
-    'Valore': data[f.id] ?? ''
-  }))
+  const fields = fieldsConfig || [...RCT_FIELDS, ...RCP_FIELDS]
+  const rctRows = fields.filter(f => f.sheet === 'RCT_O').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
+  const rcpRows = fields.filter(f => f.sheet === 'RCP').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
 
-  // Foglio RCP
-  const rcpRows = RCP_FIELDS.map(f => ({
-    'Campo': f.label,
-    'Valore': data[f.id] ?? ''
-  }))
-
-  // Dati comuni nell'header di entrambi i fogli
-  const commonHeader = [
-    { 'Campo': 'N° Polizza', 'Valore': data.polizza_numero ?? '' },
-    { 'Campo': 'Contraente',  'Valore': data.contraente ?? '' },
-    { 'Campo': 'Decorrenza',  'Valore': data.decorrenza ?? '' },
-    { 'Campo': 'Scadenza',    'Valore': data.scadenza ?? '' },
-    { 'Campo': '',            'Valore': '' }
-  ]
-
-  const wsRCT = XLSX.utils.json_to_sheet([...commonHeader, ...rctRows])
-  const wsRCP = XLSX.utils.json_to_sheet([...commonHeader, ...rcpRows])
+  const wsRCT = XLSX.utils.json_to_sheet(rctRows)
+  const wsRCP = XLSX.utils.json_to_sheet(rcpRows)
 
   // Larghezze colonne
   const colWidths = [{ wch: 45 }, { wch: 55 }]
@@ -328,8 +825,9 @@ export async function exportToNewExcel(filePath, data) {
  * @param {string} outputPath   - percorso del file Excel da salvare
  * @param {object} data         - dati estratti (chiavi = field id)
  * @param {object} [userMapping] - { fieldId: { sheet, cell } } — mapping personalizzato (opzionale)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  */
-export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}) {
+export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}, fieldsConfig = null) {
   const XLSX = await import('xlsx')
 
   const templateBuf = readFileSync(templatePath)
@@ -349,8 +847,9 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
       ws[target.cell] = { t: 's', v: String(value) }
     }
   } else {
-    // Mapping predefinito CSA (multi-cella per campo)
-    for (const [fieldId, targets] of Object.entries(CSA_MAPPING)) {
+    // Mapping predefinito (CSA o da fieldsConfig) — multi-cella per campo
+    const mapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
+    for (const [fieldId, targets] of Object.entries(mapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const value = data[fieldId]
       if (value == null || value === '') continue
@@ -438,9 +937,10 @@ export async function readExcelStructure(templatePath) {
  * @param {string} templatePath
  * @param {object} data          - dati estratti { fieldId: newValue }
  * @param {object} userMapping   - mapping personalizzato (vuoto = usa CSA predefinito)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  * @returns {Array<{fieldId, label, sheet, cell, oldValue, newValue, type}>}
  */
-export async function previewTemplateChanges(templatePath, data, userMapping = {}) {
+export async function previewTemplateChanges(templatePath, data, userMapping = {}, fieldsConfig = null) {
   const XLSX = await import('xlsx')
   const buf = readFileSync(templatePath)
   const wb = XLSX.read(buf, { type: 'buffer' })
@@ -449,10 +949,11 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
   const changes = []
   const seen = new Set() // evita duplicati (stesso field → stessa cella)
 
+  const allFields = fieldsConfig || ALL_POLIZZA_FIELDS
   const fieldMeta = {}
-  for (const f of ALL_POLIZZA_FIELDS) {
-    fieldMeta[f.id] = f
-  }
+  for (const f of allFields) { fieldMeta[f.id] = f }
+
+  const defaultMapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
 
   if (hasUserMapping) {
     for (const [fieldId, target] of Object.entries(userMapping)) {
@@ -475,8 +976,8 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
       })
     }
   } else {
-    // CSA mapping predefinito
-    for (const [fieldId, targets] of Object.entries(CSA_MAPPING)) {
+    // Mapping predefinito (CSA o da fieldsConfig)
+    for (const [fieldId, targets] of Object.entries(defaultMapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const newValue = data[fieldId]
       if (newValue == null || newValue === '') continue
@@ -515,6 +1016,20 @@ function formatCellValue(cell) {
     return s === '……….' ? '' : s
   }
   return String(cell.v)
+}
+
+// ─── Mapping dinamico da configurazione campi ─────────────────────────────────
+
+/**
+ * Costruisce il mapping fieldId → [{sheet, cell}] a partire dall'array di fields configurato.
+ * Equivalente dinamico di CSA_MAPPING.
+ */
+export function buildMappingFromFields(fields) {
+  const mapping = {}
+  for (const f of fields) {
+    mapping[f.id] = Array.isArray(f.cells) ? f.cells : []
+  }
+  return mapping
 }
 
 // ─── Export selettivo (solo campi approvati) ──────────────────────────────────

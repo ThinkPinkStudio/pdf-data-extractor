@@ -80,6 +80,11 @@ export default function Polizza() {
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState(null)
 
+  // Vision OCR (PDF scansionati)
+  const [visionExtracting, setVisionExtracting] = useState(false)
+  const [visionMsg, setVisionMsg] = useState(null)  // null | 'extracting' | 'done' | 'error'
+  const [scannedFiles, setScannedFiles] = useState([])
+
   // Template
   const [templatePath, setTemplatePath] = useState(null)
   const [templateName, setTemplateName] = useState(null)
@@ -145,15 +150,114 @@ export default function Polizza() {
     setError(null)
     setExtracted(null)
     setExportMsg(null)
+    setVisionMsg(null)
+    setScannedFiles([])
     try {
-      const paths = files.map(f => f.path)
-      const res = await window.electronAPI.polizzaExtract(paths)
+      const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
+      const res = await window.electronAPI.polizzaExtract(filesWithTypes)
       if (!res.success) throw new Error(res.error)
       setExtracted(res.data)
+
+      // Se ci sono file scansionati, auto-trigger vision
+      if (res.scannedFiles?.length > 0) {
+        setScannedFiles(res.scannedFiles)
+        await handleVisionExtract(res.scannedFiles, res.data)
+      }
     } catch (err) {
       setError(err.message)
     } finally {
       setExtracting(false)
+    }
+  }
+
+  // ─── Rendering PDF come immagini (vision OCR) ────────────────────────────────
+
+  // Renderizza le pagine di un PDF come immagini JPEG base64
+  // Si esegue nel renderer (che ha Canvas nativo) — nessuna dipendenza nativa
+  const renderPdfPages = async (filePath, maxPages = 5) => {
+    const bufResult = await window.electronAPI.polizzaGetFileBuffer(filePath)
+    if (!bufResult.success) {
+      console.warn(`[vision] Impossibile leggere ${filePath}:`, bufResult.error)
+      return []
+    }
+
+    try {
+      // Importa la build browser di pdfjs (non la legacy Node)
+      const pdfjsLib = await import('pdfjs-dist')
+      const pdfjs = pdfjsLib.default || pdfjsLib
+
+      // Usa il worker già presente in public/
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+      }
+
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer) }).promise
+      const pageImages = []
+
+      for (let pageNum = 1; pageNum <= Math.min(doc.numPages, maxPages); pageNum++) {
+        const page = await doc.getPage(pageNum)
+        const viewport = page.getViewport({ scale: 2.0 })  // 2x per qualità OCR
+
+        const canvas = document.createElement('canvas')
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+
+        await page.render({
+          canvasContext: canvas.getContext('2d'),
+          viewport
+        }).promise
+
+        pageImages.push(canvas.toDataURL('image/jpeg', 0.85))
+      }
+
+      return pageImages
+    } catch (err) {
+      console.warn(`[vision] Rendering fallito per ${filePath}:`, err.message)
+      return []
+    }
+  }
+
+  // Estrae dati da file scansionati usando vision LLM
+  const handleVisionExtract = async (scannedFilesList, existingData) => {
+    if (!scannedFilesList?.length) return
+
+    setVisionExtracting(true)
+    setVisionMsg('extracting')
+
+    try {
+      // Renderizza le pagine di ogni file scansionato
+      const imageFiles = []
+      for (const sf of scannedFilesList) {
+        const pages = await renderPdfPages(sf.path, 5)
+        if (pages.length > 0) {
+          imageFiles.push({
+            name: sf.path.split(/[\\/]/).pop(),
+            type: sf.type || 'polizza',
+            pages
+          })
+        }
+      }
+
+      if (imageFiles.length === 0) {
+        setVisionMsg('error')
+        return
+      }
+
+      // Chiama vision extraction nel main process
+      const res = await window.electronAPI.polizzaVisionExtract(imageFiles)
+      if (!res.success) throw new Error(res.error)
+
+      // Merge: i dati già trovati da text extraction hanno priorità
+      // (il testo estratto è più affidabile della vision OCR)
+      const merged = { ...res.data, ...existingData }
+      setExtracted(merged)
+      setVisionMsg('done')
+    } catch (err) {
+      console.error('[vision] Errore:', err.message)
+      setVisionMsg('error')
+      setError('Vision OCR: ' + err.message)
+    } finally {
+      setVisionExtracting(false)
     }
   }
 
@@ -810,6 +914,33 @@ export default function Polizza() {
               {extracting ? <IconSpinner /> : '⚡'}
               {extracting ? 'Estrazione in corso…' : 'Estrai dati polizza'}
             </button>
+
+            {/* Indicatore vision OCR */}
+            {(visionExtracting || visionMsg) && (
+              <div style={{
+                fontSize: '11px',
+                padding: '6px 10px',
+                borderRadius: 'var(--r-sm)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: visionMsg === 'done' ? 'rgba(34,197,94,0.08)' :
+                            visionMsg === 'error' ? 'rgba(239,68,68,0.08)' :
+                            'rgba(59,130,246,0.08)',
+                border: '1px solid',
+                borderColor: visionMsg === 'done' ? 'rgba(34,197,94,0.25)' :
+                             visionMsg === 'error' ? 'rgba(239,68,68,0.25)' :
+                             'rgba(59,130,246,0.25)',
+                color: visionMsg === 'done' ? 'var(--c-success)' :
+                       visionMsg === 'error' ? 'var(--c-error)' :
+                       'var(--c-info)'
+              }}>
+                {visionExtracting && <IconSpinner />}
+                {visionMsg === 'extracting' && 'OCR visivo in corso…'}
+                {visionMsg === 'done' && '✓ OCR visivo completato'}
+                {visionMsg === 'error' && '⚠ OCR visivo non disponibile'}
+              </div>
+            )}
 
             {extracted && (
               <>
