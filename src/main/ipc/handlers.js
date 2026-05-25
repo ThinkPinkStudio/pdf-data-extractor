@@ -31,6 +31,8 @@ import {
   extractPolizzaFromPDFs,
   exportToNewExcel,
   exportToTemplateExcel,
+  exportApprovedChanges,
+  previewTemplateChanges,
   readExcelStructure,
   ALL_POLIZZA_FIELDS,
   CSA_MAPPING
@@ -540,6 +542,32 @@ ${context}
     if (canceled || !filePath) return { success: false, canceled: true }
     try {
       await exportToTemplateExcel(templatePath, filePath, data, mapping)
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Preview delle modifiche: legge i valori attuali dal template e mostra il diff
+  ipcMain.handle('polizza:previewChanges', async (_, { templatePath, data, mapping }) => {
+    try {
+      const changes = await previewTemplateChanges(templatePath, data, mapping)
+      return { success: true, changes }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Scrive nel template solo i campi approvati dall'utente
+  ipcMain.handle('polizza:exportApproved', async (_, { templatePath, approvedChanges }) => {
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salva gestionale aggiornato',
+      defaultPath: basename(templatePath).replace(/\.xlsx?$/, '_aggiornato.xlsx'),
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await exportApprovedChanges(templatePath, filePath, approvedChanges)
       return { success: true, filePath }
     } catch (err) {
       return { success: false, error: err.message }

@@ -89,6 +89,11 @@ export default function Polizza() {
   const [showMapping, setShowMapping] = useState(false)
   const [useAutoMapping, setUseAutoMapping] = useState(true)  // usa il mapping CSA predefinito
 
+  // Preview modifiche
+  const [previewChanges, setPreviewChanges] = useState(null)  // Array<change> | null
+  const [showPreview, setShowPreview] = useState(false)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+
   const inputRef = useRef(null)
 
   // Carica i campi disponibili e il mapping predefinito CSA
@@ -193,16 +198,39 @@ export default function Polizza() {
     }
   }
 
-  const handleExportToTemplate = async () => {
+  // Step 1: carica il diff vecchio→nuovo e apre il modal di review
+  const handlePreviewChanges = async () => {
     if (!extracted || !templatePath) return
+    setLoadingPreview(true)
+    setExportMsg(null)
+    setError(null)
+    try {
+      const effectiveMapping = useAutoMapping ? {} : mapping
+      const res = await window.electronAPI.polizzaPreviewChanges(templatePath, extracted, effectiveMapping)
+      if (!res.success) throw new Error(res.error)
+      // Inizializza tutte le modifiche come approvate
+      const withApproval = res.changes.map(c => ({ ...c, approved: true }))
+      setPreviewChanges(withApproval)
+      setShowPreview(true)
+    } catch (err) {
+      setError('Errore preview: ' + err.message)
+    } finally {
+      setLoadingPreview(false)
+    }
+  }
+
+  // Step 2: scrivi solo i campi approvati
+  const handleExportApproved = async (approvedChanges) => {
+    if (!templatePath) return
     setExporting(true)
     setExportMsg(null)
     try {
-      // Se useAutoMapping è true, passa mapping vuoto → il backend usa il mapping CSA predefinito
-      const effectiveMapping = useAutoMapping ? {} : mapping
-      const res = await window.electronAPI.polizzaExportToTemplate(templatePath, extracted, effectiveMapping)
-      if (res.success) setExportMsg('✓ Gestionale aggiornato: ' + res.filePath.split(/[\\/]/).pop())
-      else if (!res.canceled) throw new Error(res.error)
+      const res = await window.electronAPI.polizzaExportApproved(templatePath, approvedChanges)
+      if (res.success) {
+        setExportMsg('✓ Gestionale aggiornato: ' + res.filePath.split(/[\\/]/).pop())
+        setShowPreview(false)
+        setPreviewChanges(null)
+      } else if (!res.canceled) throw new Error(res.error)
     } catch (err) {
       setExportMsg('✗ ' + err.message)
     } finally {
@@ -796,12 +824,13 @@ export default function Polizza() {
                 {templateName && (
                   <button
                     className="btn-secondary"
-                    onClick={handleExportToTemplate}
-                    disabled={exporting}
+                    onClick={handlePreviewChanges}
+                    disabled={exporting || loadingPreview}
                     style={{ borderColor: 'var(--c-info)', color: 'var(--c-info)' }}
+                    aria-busy={loadingPreview}
                   >
-                    <IconExcel />
-                    Popola gestionale template
+                    {loadingPreview ? <IconSpinner /> : <IconExcel />}
+                    {loadingPreview ? 'Lettura template…' : 'Rivedi e popola gestionale…'}
                   </button>
                 )}
               </>
@@ -870,6 +899,17 @@ export default function Polizza() {
           onUpdate={updateMapping}
           onToggleAuto={() => setUseAutoMapping(v => !v)}
           onClose={() => setShowMapping(false)}
+        />
+      )}
+
+      {/* ── Modal preview modifiche ────────────────────────────────────────── */}
+      {showPreview && previewChanges && (
+        <ChangePreviewModal
+          changes={previewChanges}
+          exporting={exporting}
+          onChange={setPreviewChanges}
+          onConfirm={handleExportApproved}
+          onClose={() => { setShowPreview(false); setPreviewChanges(null) }}
         />
       )}
     </div>
@@ -1041,6 +1081,214 @@ function MappingModal({ fields, mapping, defaultMapping, useAutoMapping, templat
 
         <div className="mapping-footer">
           <button className="btn-secondary" onClick={onClose}>Chiudi e conferma</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal preview modifiche vecchio→nuovo ────────────────────────────────────
+
+function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }) {
+  const approved = changes.filter(c => c.approved)
+  const allChecked = approved.length === changes.length
+  const noneChecked = approved.length === 0
+
+  const toggle = (idx) =>
+    onChange(prev => prev.map((c, i) => i === idx ? { ...c, approved: !c.approved } : c))
+
+  const toggleAll = () =>
+    onChange(prev => prev.map(c => ({ ...c, approved: !allChecked })))
+
+  // raggruppa per foglio per leggibilità
+  const bySheet = {}
+  changes.forEach((c, idx) => {
+    if (!bySheet[c.sheet]) bySheet[c.sheet] = []
+    bySheet[c.sheet].push({ ...c, _idx: idx })
+  })
+
+  const hasChanges = changes.some(c => c.oldValue !== c.newValue && c.newValue !== '')
+  const totalChanged = changes.filter(c => c.oldValue !== c.newValue && c.newValue !== '').length
+
+  return (
+    <div className="mapping-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div
+        className="mapping-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Anteprima modifiche gestionale"
+        style={{ width: 'min(900px, 95vw)', maxHeight: '85vh' }}
+      >
+        {/* Header */}
+        <div className="mapping-header">
+          <div>
+            <h2>Rivedi le modifiche al gestionale</h2>
+            <p>
+              {approved.length} di {changes.length} campi selezionati ·{' '}
+              <span style={{ color: 'var(--c-warning)' }}>{totalChanged} con valore precedente</span>
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '5px 10px' }}
+              onClick={toggleAll}
+            >
+              {allChecked ? 'Deseleziona tutto' : 'Approva tutto'}
+            </button>
+            <button
+              className="btn-secondary"
+              style={{ padding: '6px 12px', fontSize: '12px' }}
+              onClick={onClose}
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="mapping-body" style={{ padding: '0' }}>
+          {Object.entries(bySheet).map(([sheetName, rows]) => (
+            <div key={sheetName}>
+              {/* Intestazione sezione */}
+              <div style={{
+                padding: '8px 20px',
+                background: 'var(--c-bg-card-alt)',
+                borderBottom: '1px solid var(--c-separator)',
+                borderTop: '1px solid var(--c-separator)',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: 'var(--c-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span style={{
+                  padding: '2px 8px',
+                  background: sheetName === 'RCT_O' ? 'rgba(59,130,246,0.15)' : 'rgba(34,197,94,0.15)',
+                  color: sheetName === 'RCT_O' ? 'var(--c-info)' : 'var(--c-success)',
+                  borderRadius: 'var(--r-full)',
+                  fontFamily: 'var(--font-mono)'
+                }}>{sheetName}</span>
+                {rows.filter(r => r.approved).length} / {rows.length} selezionati
+              </div>
+
+              {/* Righe */}
+              {rows.map((row) => {
+                const hasOldValue = row.oldValue !== '' && row.oldValue !== '0'
+                const isChanged = row.oldValue !== row.newValue
+                return (
+                  <div
+                    key={row._idx}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '28px 1fr 80px 1fr 1fr',
+                      alignItems: 'center',
+                      gap: '0',
+                      padding: '0',
+                      borderBottom: '1px solid var(--c-separator)',
+                      background: row.approved ? 'transparent' : 'rgba(0,0,0,0.06)',
+                      opacity: row.approved ? 1 : 0.55,
+                      transition: 'background 0.12s, opacity 0.12s',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => toggle(row._idx)}
+                    role="row"
+                  >
+                    {/* Checkbox */}
+                    <div style={{ padding: '10px 0 10px 14px', display: 'flex', alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={row.approved}
+                        onChange={() => toggle(row._idx)}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: 'var(--c-accent)' }}
+                        aria-label={`Approva ${row.label}`}
+                      />
+                    </div>
+
+                    {/* Campo */}
+                    <div style={{ padding: '10px 8px', fontSize: '11px', color: 'var(--c-text-secondary)', fontWeight: 500 }}>
+                      <div>{row.label}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        cella {row.cell}
+                      </div>
+                    </div>
+
+                    {/* Badge cambiato/invariato */}
+                    <div style={{ padding: '10px 4px', textAlign: 'center' }}>
+                      {isChanged
+                        ? <span style={{ fontSize: '9px', padding: '2px 5px', background: 'rgba(245,158,11,0.15)', color: 'var(--c-warning)', borderRadius: 'var(--r-full)', fontWeight: 700 }}>
+                            AGGIORNA
+                          </span>
+                        : <span style={{ fontSize: '9px', padding: '2px 5px', background: 'rgba(107,114,128,0.12)', color: 'var(--c-text-muted)', borderRadius: 'var(--r-full)' }}>
+                            invariato
+                          </span>
+                      }
+                    </div>
+
+                    {/* Valore attuale */}
+                    <div style={{ padding: '10px 8px', fontSize: '11px', borderLeft: '1px solid var(--c-separator)' }}>
+                      <div style={{ fontSize: '9px', color: 'var(--c-text-muted)', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Attuale</div>
+                      <div style={{
+                        color: hasOldValue ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
+                        fontStyle: hasOldValue ? 'normal' : 'italic',
+                        fontFamily: hasOldValue ? 'var(--font-mono)' : 'inherit',
+                        fontSize: hasOldValue ? '11px' : '10px',
+                        wordBreak: 'break-word'
+                      }}>
+                        {hasOldValue ? row.oldValue : '—'}
+                      </div>
+                    </div>
+
+                    {/* Nuovo valore */}
+                    <div style={{ padding: '10px 8px', fontSize: '11px', borderLeft: '1px solid var(--c-separator)' }}>
+                      <div style={{ fontSize: '9px', color: 'var(--c-text-muted)', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Nuovo</div>
+                      <div style={{
+                        color: isChanged ? 'var(--c-success)' : 'var(--c-text-secondary)',
+                        fontWeight: isChanged ? 600 : 400,
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '11px',
+                        wordBreak: 'break-word'
+                      }}>
+                        {row.newValue || '—'}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="mapping-footer" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: '11px', color: 'var(--c-text-muted)' }}>
+            {noneChecked
+              ? 'Seleziona almeno un campo per procedere'
+              : `Verranno scritti ${approved.length} campi nel gestionale`
+            }
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn-secondary" onClick={onClose} disabled={exporting}>
+              Annulla
+            </button>
+            <button
+              className="btn-success"
+              onClick={() => onConfirm(approved)}
+              disabled={noneChecked || exporting}
+              style={{ minWidth: '160px' }}
+              aria-busy={exporting}
+            >
+              {exporting ? <IconSpinner /> : <IconCheck />}
+              {exporting
+                ? 'Scrittura in corso…'
+                : `Conferma ${approved.length} ${approved.length === 1 ? 'modifica' : 'modifiche'}`
+              }
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -428,3 +428,120 @@ export async function readExcelStructure(templatePath) {
   }
   return structure
 }
+
+// ─── Preview modifiche (vecchio → nuovo) prima dell'export ───────────────────
+
+/**
+ * Legge i valori correnti del template nelle celle target e li confronta con
+ * i nuovi valori estratti. Restituisce un array di diff per la review.
+ *
+ * @param {string} templatePath
+ * @param {object} data          - dati estratti { fieldId: newValue }
+ * @param {object} userMapping   - mapping personalizzato (vuoto = usa CSA predefinito)
+ * @returns {Array<{fieldId, label, sheet, cell, oldValue, newValue, type}>}
+ */
+export async function previewTemplateChanges(templatePath, data, userMapping = {}) {
+  const XLSX = await import('xlsx')
+  const buf = readFileSync(templatePath)
+  const wb = XLSX.read(buf, { type: 'buffer' })
+
+  const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
+  const changes = []
+  const seen = new Set() // evita duplicati (stesso field → stessa cella)
+
+  const fieldMeta = {}
+  for (const f of ALL_POLIZZA_FIELDS) {
+    fieldMeta[f.id] = f
+  }
+
+  if (hasUserMapping) {
+    for (const [fieldId, target] of Object.entries(userMapping)) {
+      if (!target?.sheet || !target?.cell) continue
+      const newValue = data[fieldId]
+      if (newValue == null || newValue === '') continue
+      const ws = wb.Sheets[target.sheet]
+      const cell = ws?.[target.cell]
+      const oldValue = cell ? String(cell.v ?? '') : ''
+      const key = `${target.sheet}!${target.cell}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      changes.push({
+        fieldId,
+        label: fieldMeta[fieldId]?.label ?? fieldId,
+        sheet: target.sheet,
+        cell: target.cell,
+        oldValue,
+        newValue: String(newValue)
+      })
+    }
+  } else {
+    // CSA mapping predefinito
+    for (const [fieldId, targets] of Object.entries(CSA_MAPPING)) {
+      if (!Array.isArray(targets) || targets.length === 0) continue
+      const newValue = data[fieldId]
+      if (newValue == null || newValue === '') continue
+      for (const target of targets) {
+        const key = `${target.sheet}!${target.cell}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const ws = wb.Sheets[target.sheet]
+        const cell = ws?.[target.cell]
+        const oldValue = cell ? formatCellValue(cell) : ''
+        changes.push({
+          fieldId,
+          label: fieldMeta[fieldId]?.label ?? fieldId,
+          sheet: target.sheet,
+          cell: target.cell,
+          oldValue,
+          newValue: String(newValue)
+        })
+      }
+    }
+  }
+
+  return changes
+}
+
+/** Formatta il valore di una cella per la visualizzazione (numeri → stringa leggibile) */
+function formatCellValue(cell) {
+  if (!cell || cell.v === undefined || cell.v === null) return ''
+  if (cell.t === 'n') {
+    // Riconverti i numeri placeholder (0) come stringa vuota
+    if (cell.v === 0) return ''
+    return String(cell.v)
+  }
+  if (cell.t === 's') {
+    const s = String(cell.v).trim()
+    return s === '……….' ? '' : s
+  }
+  return String(cell.v)
+}
+
+// ─── Export selettivo (solo campi approvati) ──────────────────────────────────
+
+/**
+ * Scrive nel template solo le modifiche approvate dall'utente.
+ *
+ * @param {string} templatePath
+ * @param {string} outputPath
+ * @param {Array<{sheet, cell, newValue}>} approvedChanges
+ */
+export async function exportApprovedChanges(templatePath, outputPath, approvedChanges) {
+  const XLSX = await import('xlsx')
+  const templateBuf = readFileSync(templatePath)
+  const wb = XLSX.read(templateBuf, { type: 'buffer' })
+
+  for (const change of approvedChanges) {
+    const ws = wb.Sheets[change.sheet]
+    if (!ws) continue
+    const numVal = parseItalianNumber(change.newValue)
+    if (numVal !== null) {
+      ws[change.cell] = { t: 'n', v: numVal }
+    } else {
+      ws[change.cell] = { t: 's', v: String(change.newValue) }
+    }
+  }
+
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  writeFileSync(outputPath, buf)
+}
