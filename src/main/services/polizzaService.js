@@ -421,49 +421,68 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
 async function extractPolizzaWithProvider(settings, fields, contextText) {
   if (fields.length === 0) return {}
 
-  const fieldsList = fields
-    .map(f => `  - "${f.label}" (id: ${f.id}): ${f.description}`)
+  const provider = settings.llmProvider || 'ollama'
+
+  // Template JSON vuoto che il modello deve riempire
+  // Molto più semplice per i modelli locali rispetto a liste descrittive
+  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+
+  // Guida concisa ai campi (usata solo nei prompt cloud dove c'è più contesto)
+  const fieldGuide = fields
+    .map(f => `${f.id}: ${f.label} (es. ${f.description.match(/es\.\s*[^)]+/)?.[0] || f.description.slice(0, 60)})`)
     .join('\n')
 
-  const prompt = `Sei un esperto di polizze assicurative italiane RC (Responsabilità Civile).
-Analizza il testo seguente ed estrai SOLO i campi elencati.
+  const systemPrompt =
+    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
+    'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
-REGOLE FONDAMENTALI:
-- Restituisci ESCLUSIVAMENTE un oggetto JSON valido, senza markdown, backtick o testo aggiuntivo
-- Usa l'id del campo come chiave JSON esatta
-- Valore null se il dato non è presente o non sei sicuro
-- Importi in formato italiano: "3.000.000,00" (punto migliaia, virgola decimale)
-- Date in formato GG/MM/AAAA
-- Sezione RCT = "RC verso Terzi e Prestatori di Lavoro" o "R.C. VS. TERZI"
-- Sezione RCP = "RC Prodotti" o "Responsabilità Civile Prodotti"
-- Premio "totale" include l'imposta; "imponibile" è al netto dell'imposta
-- Tasso espresso per mille (‰), es. "2,450"
-
-CAMPI DA ESTRARRE:
-${fieldsList}
-
-TESTO POLIZZA:
----
+  // Prompt ottimizzato per Ollama: testo prima, template JSON dopo
+  // Il modello deve solo sostituire i "null" con i valori trovati
+  const ollamaPrompt =
+`DOCUMENTO ASSICURATIVO:
 ${contextText}
----
 
-JSON:`
+Leggi il documento e compila il JSON seguente.
+Sostituisci null con il valore trovato nel documento, lascia null se non presente.
+Rispondi SOLO con il JSON compilato:
 
-  const provider = settings.llmProvider || 'ollama'
+${jsonTemplate}`
+
+  // Prompt più ricco per i provider cloud (maggiore capacità)
+  const cloudPrompt =
+`Estrai i dati dal documento assicurativo italiano e compila il JSON.
+
+DOCUMENTO:
+${contextText}
+
+GUIDA AI CAMPI:
+${fieldGuide}
+
+Regole:
+- Importi: formato italiano "3.000.000,00" (punto = migliaia, virgola = decimale)
+- Date: formato GG/MM/AAAA
+- RCT = sezione "RC verso Terzi e Prestatori di Lavoro"
+- RCP = sezione "RC Prodotti"
+- null se il campo non è nel documento
+
+Compila e restituisci SOLO questo JSON:
+${jsonTemplate}`
+
   let raw
 
   if (provider === 'openai') {
-    raw = await callOpenAI(settings, prompt)
+    raw = await callOpenAI(settings, systemPrompt, cloudPrompt)
   } else if (provider === 'anthropic') {
-    raw = await callAnthropic(settings, prompt)
+    raw = await callAnthropic(settings, systemPrompt, cloudPrompt)
   } else {
-    raw = await callOllama(settings, prompt)
+    raw = await callOllama(settings, systemPrompt, ollamaPrompt)
   }
 
   return parseJsonResponse(raw)
 }
 
-async function callOpenAI(settings, prompt) {
+async function callOpenAI(settings, systemPrompt, userPrompt) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -472,8 +491,12 @@ async function callOpenAI(settings, prompt) {
     },
     body: JSON.stringify({
       model: settings.openaiModel || 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' }  // JSON mode nativo
     }),
     signal: AbortSignal.timeout(90000)
   })
@@ -485,7 +508,7 @@ async function callOpenAI(settings, prompt) {
   return (data.choices?.[0]?.message?.content || '').trim()
 }
 
-async function callAnthropic(settings, prompt) {
+async function callAnthropic(settings, systemPrompt, userPrompt) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -496,7 +519,8 @@ async function callAnthropic(settings, prompt) {
     body: JSON.stringify({
       model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }]
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }]
     }),
     signal: AbortSignal.timeout(90000)
   })
@@ -508,26 +532,32 @@ async function callAnthropic(settings, prompt) {
   return (data.content?.[0]?.text || '').trim()
 }
 
-async function callOllama(settings, prompt) {
+async function callOllama(settings, systemPrompt, userPrompt) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
-  const res = await fetch(`${url}/api/generate`, {
+  // Usiamo /api/chat (non /api/generate) + format:"json" che forza JSON
+  // a livello grammaticale — il modello non può rispondere con testo libero
+  const res = await fetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: settings.ollamaModel,
-      prompt,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   }
+      ],
       stream: false,
+      format: 'json',          // ← grammar-constrained JSON output
       options: {
-        num_ctx: 32768,   // finestra di contesto ampliata per testi lunghi
-        temperature: 0,   // output deterministico
-        num_predict: 2048 // max token risposta
+        num_ctx:     32768,    // finestra di contesto ampliata
+        temperature: 0,        // output deterministico
+        num_predict: 2048      // max token risposta
       }
     }),
     signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
   })
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
   const data = await res.json()
-  return (data.response || '').trim()
+  return (data.message?.content || '').trim()
 }
 
 function parseJsonResponse(raw) {
