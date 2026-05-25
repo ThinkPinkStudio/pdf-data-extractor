@@ -218,60 +218,46 @@ async function extractTextWithPdfjsSpatial(filePath) {
 }
 
 /**
- * Filtra le sezioni più rilevanti del testo per limitare i token inviati al LLM.
+ * Riduce il testo di un documento al budget massimo di caratteri.
+ *
+ * Strategia per tipo:
+ * - polizza / appendice / allegato: si invia il testo RAW (senza filtrare per keyword),
+ *   troncato al budget. Il LLM è il motore di ricerca semantica: trova i valori
+ *   indipendentemente dalla terminologia usata ("SOMME ASSICURATE", "LIMITI DI
+ *   COPERTURA", "MASSIMALI GARANTITI", "500 000", "EUR 500.000,00", ecc.).
+ *   I documenti assicurativi italiani mettono i dati rilevanti (massimali, premi,
+ *   dati contraente) nelle prime pagine → il troncamento iniziale è sufficiente.
+ *
+ * - cga: il CGA è boilerplate puro (>200K chars). Qui si applica un filtro
+ *   a keyword limitatissimo per evitare che monopolizzi il contesto.
  */
-function extractRelevantSections(text, maxChars = 18000) {
+function extractRelevantSections(text, maxChars = 25000, docType = 'polizza') {
   if (text.length <= maxChars) return text
 
-  const KEYWORDS = [
-    'POLIZZA N', 'CONTRAENTE', 'ASSICURATO', 'P. IVA', 'COD. FISC',
-    'DECORRENZA', 'SCADENZA', 'DOMICILIO', 'INDIRIZZO',
-    'MASSIMALE', 'LIMITE DI INDENNIZZO', 'PER SINISTRO', 'PER PERSONA', 'PER ANIMALI',
-    'GARANZIA', 'SEZIONE R.C', 'R.C. VS', 'R.C. PRODOTTI',
-    'RESPONSABILIT', 'TERZI', 'PRODOTTI', 'PRESTATORI',
-    'PREMIO', 'IMPONIBILE', 'IMPOSTA', 'ANTICIPO DI SEZIONE',
-    'TASSO', 'PARAMETRO', 'RETRIBUZION', 'SALARI', 'FATTURATO',
-    'SCOPERTO', 'FRANCHIGIA', 'AGENZIA', 'PRODUTTORE',
-    'ELEMENTI PER IL CONTEGGIO', 'REGOLAZIONE DEL PREMIO',
-    'DESCRIZIONE DELL', 'ATTIVIT',
-    'GENERALI', 'ALLIANZ', 'ZURICH', 'AXA', 'SARA', 'UNIPOL', 'CATTOLICA',
-    'GENERAIMPRESA', 'GENERACOMMERCI'
-  ]
-
-  // Keywords che introducono tabelle multi-riga (massimali, scoperti, ecc.)
-  // → finestra più ampia per catturare tutte le righe della tabella
-  const TABLE_KEYWORDS = [
-    // header diretto della tabella massimali nelle appendici PMIALL
-    'SOMME ASSICURATE',
-    // header delle schede PMIALL (RCT e RCP) — apre l'intera sezione con massimali + elementi
-    'SCHEDA DI POLIZZA',
-    'APPENDICE MOD. PMIALL',
-    // keywords originali
-    'MASSIMALE', 'LIMITE DI INDENNIZZO', 'SCOPERTO', 'FRANCHIGIA',
-    'ELEMENTI PER IL CONTEGGIO', 'REGOLAZIONE DEL PREMIO',
-    'SEZIONE R.C', 'GARANZIA'
-  ]
-
-  const lines = text.split('\n')
-  const included = new Set()
-
-  for (let i = 0; i < lines.length; i++) {
-    const upper = lines[i].toUpperCase()
-    if (KEYWORDS.some(kw => upper.includes(kw))) {
-      // Per keyword che aprono tabelle, cattura fino a 20 righe dopo e 6 prima
-      // Per ELEMENTI PER IL CONTEGGIO usa finestra "prima" più ampia: i massimali
-      // appaiono circa 8-10 righe prima di questo keyword nella struttura PMIALL
-      const isTable = TABLE_KEYWORDS.some(kw => upper.includes(kw))
-      const after = isTable ? 20 : 6
-      const before = upper.includes('ELEMENTI PER IL CONTEGGIO') ? 12 : (isTable ? 4 : 4)
-      for (let j = Math.max(0, i - before); j <= Math.min(lines.length - 1, i + after); j++) {
-        included.add(j)
+  // ── CGA: unico caso in cui filtriamo — è boilerplate, non valori reali ──
+  if (docType === 'cga') {
+    const CGA_KEYWORDS = [
+      'POLIZZA N', 'CONTRAENTE', 'DECORRENZA', 'SCADENZA',
+      'MASSIMALE', 'PREMIO', 'SEZIONE R.C'
+    ]
+    const lines = text.split('\n')
+    const included = new Set()
+    for (let i = 0; i < lines.length; i++) {
+      const upper = lines[i].toUpperCase()
+      if (CGA_KEYWORDS.some(kw => upper.includes(kw))) {
+        for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 4); j++) {
+          included.add(j)
+        }
       }
     }
+    const selected = [...included].sort((a, b) => a - b).map(i => lines[i]).join('\n')
+    return (selected.length > 0 ? selected : text).slice(0, maxChars)
   }
 
-  const selected = [...included].sort((a, b) => a - b).map(i => lines[i]).join('\n')
-  return (selected.length > 0 ? selected : text).slice(0, maxChars)
+  // ── Tutti gli altri tipi: testo grezzo, troncato al budget ───────────────
+  // Il LLM riceve il testo così com'è e cerca i valori semanticamente.
+  // Nessun filtro keyword/regex → nessuna dipendenza dal formato del documento.
+  return text.slice(0, maxChars)
 }
 
 // ─── Estrazione regex per campi strutturati ───────────────────────────────────
@@ -374,8 +360,8 @@ export async function extractPolizzaFromPDFs(files, settings) {
   // Senza questo limite, il CGA (spesso >200K chars) monopolizza il contesto LLM
   // e l'AI non vede quasi nulla dei valori effettivi della polizza.
   const CONTEXT_BUDGET = {
-    polizza:   18000,   // doc principale: massimali, premi, dati identificativi
-    appendice:  4000,   // appendici/rinnovi: possibili aggiornamenti di valori
+    polizza:   25000,   // doc principale: massimali, premi, dati identificativi (aumentato per monetary detection)
+    appendice:  8000,   // appendici/rinnovi: possibili aggiornamenti di valori
     allegato:   2000,   // allegati: raramente contengono dati numerici nuovi
     cga:         600    // condizioni generali: puro boilerplate, quasi nessun valore utile
   }
@@ -439,13 +425,13 @@ export async function extractPolizzaFromPDFs(files, settings) {
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
   })
 
-  // 3. Estrai sezioni rilevanti rispettando il budget per tipo.
-  //    Questo è il fix critico: senza budget tipizzato, il CGA (~200K chars) monopolizza
-  //    il contesto LLM e l'AI non vede quasi nessun valore reale della polizza.
+  // 3. Tronca al budget per tipo. Per polizza/appendice/allegato il testo viene
+  //    inviato grezzo al LLM (nessun filtro keyword). Il CGA viene filtrato perché
+  //    è boilerplate puro (>200K chars) che monopolizzerebbe il contesto.
   const excerpts = []
   for (const { path: fp, type, text } of allTexts) {
     const budget = CONTEXT_BUDGET[type] || DEFAULT_BUDGET
-    const excerpt = extractRelevantSections(text, budget)
+    const excerpt = extractRelevantSections(text, budget, type)
     console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length}/${budget} chars`)
     excerpts.push(`=== ${fp.split('/').pop()} [${type}] ===\n${excerpt}`)
   }
