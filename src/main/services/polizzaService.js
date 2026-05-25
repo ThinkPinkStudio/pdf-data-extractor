@@ -218,45 +218,17 @@ async function extractTextWithPdfjsSpatial(filePath) {
 }
 
 /**
- * Riduce il testo di un documento al budget massimo di caratteri.
+ * Riduce il testo di un documento CGA al minimo necessario.
+ * Per tutti gli altri tipi, il testo viene inviato integro al LLM.
  *
- * Strategia per tipo:
- * - polizza / appendice / allegato: si invia il testo RAW (senza filtrare per keyword),
- *   troncato al budget. Il LLM è il motore di ricerca semantica: trova i valori
- *   indipendentemente dalla terminologia usata ("SOMME ASSICURATE", "LIMITI DI
- *   COPERTURA", "MASSIMALI GARANTITI", "500 000", "EUR 500.000,00", ecc.).
- *   I documenti assicurativi italiani mettono i dati rilevanti (massimali, premi,
- *   dati contraente) nelle prime pagine → il troncamento iniziale è sufficiente.
- *
- * - cga: il CGA è boilerplate puro (>200K chars). Qui si applica un filtro
- *   a keyword limitatissimo per evitare che monopolizzi il contesto.
+ * Il CGA è l'unico caso filtrato perché:
+ * - È boilerplate puro (200K+ chars) che monopolizzerebbe il contesto
+ * - Contiene valori generici di ESEMPIO (massimali, importi) che potrebbero
+ *   confondere il LLM portandolo ad estrarre dati sbagliati
  */
-function extractRelevantSections(text, maxChars = 25000, docType = 'polizza') {
+function filterCGA(text, maxChars = 600) {
   if (text.length <= maxChars) return text
-
-  // ── CGA: unico caso in cui filtriamo — è boilerplate, non valori reali ──
-  if (docType === 'cga') {
-    const CGA_KEYWORDS = [
-      'POLIZZA N', 'CONTRAENTE', 'DECORRENZA', 'SCADENZA',
-      'MASSIMALE', 'PREMIO', 'SEZIONE R.C'
-    ]
-    const lines = text.split('\n')
-    const included = new Set()
-    for (let i = 0; i < lines.length; i++) {
-      const upper = lines[i].toUpperCase()
-      if (CGA_KEYWORDS.some(kw => upper.includes(kw))) {
-        for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 4); j++) {
-          included.add(j)
-        }
-      }
-    }
-    const selected = [...included].sort((a, b) => a - b).map(i => lines[i]).join('\n')
-    return (selected.length > 0 ? selected : text).slice(0, maxChars)
-  }
-
-  // ── Tutti gli altri tipi: testo grezzo, troncato al budget ───────────────
-  // Il LLM riceve il testo così com'è e cerca i valori semanticamente.
-  // Nessun filtro keyword/regex → nessuna dipendenza dal formato del documento.
+  // Per il CGA bastano pochissimi char: vogliamo solo confermare nome compagnia/prodotto
   return text.slice(0, maxChars)
 }
 
@@ -355,19 +327,23 @@ export async function extractPolizzaFromPDFs(files, settings) {
     typeof f === 'string' ? { path: f, type: 'polizza' } : f
   )
 
-  // Budget di contesto (chars) per tipo di documento.
-  // La polizza principale contiene i valori numerici reali; il CGA è solo boilerplate.
-  // Senza questo limite, il CGA (spesso >200K chars) monopolizza il contesto LLM
-  // e l'AI non vede quasi nulla dei valori effettivi della polizza.
-  const CONTEXT_BUDGET = {
-    polizza:   25000,   // doc principale: massimali, premi, dati identificativi (aumentato per monetary detection)
-    appendice:  8000,   // appendici/rinnovi: possibili aggiornamenti di valori
-    allegato:   2000,   // allegati: raramente contengono dati numerici nuovi
-    cga:         600    // condizioni generali: puro boilerplate, quasi nessun valore utile
-  }
-  const DEFAULT_BUDGET = 2000
+  // Budget TOTALE di contesto (chars) per tutti i documenti non-CGA combinati.
+  // Ogni provider LLM ha una finestra di contesto diversa:
+  //   Anthropic Claude: ~200K token context → 180K chars
+  //   OpenAI GPT-4o/mini: ~128K token context → 100K chars
+  //   Ollama (locale): configurabile, spesso 32K-128K token → usiamo 60K chars conservativi
+  //                    (num_ctx viene impostato a 65536 nella chiamata Ollama)
+  //
+  // I documenti non-CGA vengono inviati INTERI nell'ordine di priorità finché
+  // c'è budget. Il LLM trova i dati indipendentemente da: lingua, formato numeri,
+  // ordine delle pagine, terminologia. Il CGA è sempre limitato a 600 chars.
+  const provider = settings.llmProvider || 'ollama'
+  const TOTAL_BUDGET = provider === 'anthropic' ? 180000
+                     : provider === 'openai'    ? 100000
+                     :                             60000   // ollama e altri
+  const CGA_MAX    = 600
 
-  // Ordine di importanza per il sort (polizza prima, cga ultima)
+  // Ordine di priorità per il consumo del budget (polizza prima, cga alla fine)
   const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
 
   // 1. Estrai testo da tutti i PDF
@@ -428,11 +404,26 @@ export async function extractPolizzaFromPDFs(files, settings) {
   // 3. Tronca al budget per tipo. Per polizza/appendice/allegato il testo viene
   //    inviato grezzo al LLM (nessun filtro keyword). Il CGA viene filtrato perché
   //    è boilerplate puro (>200K chars) che monopolizzerebbe il contesto.
+  // 3. Costruisci il testo da inviare al LLM.
+  //    - Documenti non-CGA: testo integro, nell'ordine di priorità, fino a TOTAL_BUDGET
+  //    - CGA: sempre limitato a CGA_MAX chars (boilerplate con valori generici)
   const excerpts = []
+  let remainingBudget = TOTAL_BUDGET
+
   for (const { path: fp, type, text } of allTexts) {
-    const budget = CONTEXT_BUDGET[type] || DEFAULT_BUDGET
-    const excerpt = extractRelevantSections(text, budget, type)
-    console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length}/${budget} chars`)
+    let excerpt
+    if (type === 'cga') {
+      excerpt = filterCGA(text, CGA_MAX)
+    } else {
+      // Testo integro, ma non sforare il budget residuo
+      if (remainingBudget <= 0) {
+        console.log(`[polizza] skip [${type}] ${fp.split('/').pop()}: budget esaurito`)
+        continue
+      }
+      excerpt = text.length <= remainingBudget ? text : text.slice(0, remainingBudget)
+      remainingBudget -= excerpt.length
+    }
+    console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length} chars${type === 'cga' ? '' : ` (budget residuo: ${remainingBudget})`}`)
     excerpts.push(`=== ${fp.split('/').pop()} [${type}] ===\n${excerpt}`)
   }
 
@@ -602,7 +593,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       stream: false,
       format: 'json',          // ← grammar-constrained JSON output
       options: {
-        num_ctx:     32768,    // finestra di contesto ampliata
+        num_ctx:     65536,    // 64K token context → gestisce ~60K chars di testo polizza
         temperature: 0,        // output deterministico
         num_predict: 2048      // max token risposta
       }
