@@ -3,12 +3,16 @@
  * Supporta la struttura GENERAIMPRESA (Generali Italia) e formati similari.
  *
  * Fogli Excel target: RCT_O e RCP
+ *
+ * Strategia di estrazione (in ordine di qualità):
+ * 1. pdftotext (poppler-utils)  – migliore, ma richiede installazione esterna
+ * 2. pdfjs-dist con ricostruzione spaziale – puro JS, funziona su Win/Mac/Linux
+ * 3. pdf-parse – ultimo fallback generico
  */
 
 import { readFileSync, writeFileSync } from 'fs'
 import { execSync } from 'child_process'
 import { loadPDF } from './pdfService.js'
-// Note: llmService.js is called directly (not via extractDataWithProvider) to use a custom prompt
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
 // Struttura rilevata dal file Gestionale_Clienti_CSA.xlsx
@@ -111,21 +115,104 @@ export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
 // ─── Estrazione testo via pdftotext (poppler-utils) ──────────────────────────
 
 /**
- * Estrae il testo da un PDF con pdftotext -layout.
- * Produce output molto più leggibile di pdf-parse per i PDF modulo/form.
- * @returns {string|null} testo estratto, null se pdftotext non disponibile
+ * Estrae il testo da un PDF con pdftotext -layout (poppler-utils).
+ * Produce output eccellente per PDF-form. Cerca il binario in PATH e in
+ * percorsi comuni su macOS (Homebrew Intel/ARM) e Linux.
+ * @returns {string|null} testo estratto, null se poppler non installato
  */
 function extractTextWithPdftotext(filePath) {
+  const EXTRA_DIRS = [
+    '/opt/homebrew/bin',    // macOS Homebrew ARM (Apple Silicon)
+    '/usr/local/bin',       // macOS Homebrew Intel + Linux vari
+    '/opt/local/bin',       // macOS MacPorts
+    '/usr/bin'              // Linux standard
+  ]
+  const escaped = filePath.replace(/'/g, "'\\''")
+
+  const candidates = [
+    `pdftotext -layout '${escaped}' -`,
+    ...EXTRA_DIRS.map(d => `'${d}/pdftotext' -layout '${escaped}' -`)
+  ]
+
+  for (const cmd of candidates) {
+    try {
+      const text = execSync(cmd, { encoding: 'utf8', timeout: 30000, maxBuffer: 20 * 1024 * 1024 })
+      if (text && text.trim().length > 10) return text
+    } catch {
+      // Prova il prossimo
+    }
+  }
+  return null  // non disponibile — il chiamante usa il fallback pdfjs
+}
+
+// ─── Estrazione con pdfjs-dist (puro JS, cross-platform) ─────────────────────
+
+/**
+ * Estrae testo da PDF usando pdfjs-dist direttamente.
+ * Funziona su Windows/Mac/Linux senza dipendenze native.
+ * Usa l'ordine naturale del content stream (che per la maggior parte dei PDF
+ * coincide con l'ordine di lettura) + marcatori hasEOL per le righe.
+ * @returns {string|null}
+ */
+async function extractTextWithPdfjsSpatial(filePath) {
   try {
-    const escaped = filePath.replace(/'/g, "'\\''")
-    const text = execSync(`pdftotext -layout '${escaped}' -`, {
-      encoding: 'utf8',
-      timeout: 30000,
-      maxBuffer: 20 * 1024 * 1024
-    })
-    return text && text.trim().length > 10 ? text : null
+    const fileBuffer = readFileSync(filePath)
+
+    // pdfjs-dist/legacy è la build Node.js-compatibile (nessun Web Worker)
+    const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
+    const pdfjs = pdfjsMod.default || pdfjsMod
+    if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
+
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(fileBuffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true,
+      disableFontFace: true
+    }).promise
+
+    const pageTexts = []
+    for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+      const page = await doc.getPage(pageNum)
+      const content = await page.getTextContent({ includeMarkedContent: false })
+
+      let pageText = ''
+      let prevX = null, prevY = null
+
+      for (const item of content.items) {
+        if (!('str' in item)) continue  // salta TextMarkedContent
+
+        const x = item.transform[4], y = item.transform[5]
+
+        // Nuova riga se Y cambia significativamente, o se hasEOL è true
+        if (prevY !== null) {
+          const dy = Math.abs(y - prevY)
+          const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
+          if (item.hasEOL || dy > fontSize * 0.4) {
+            pageText += '\n'
+            prevX = null
+          } else if (prevX !== null) {
+            // Aggiunge spazio se c'è un gap orizzontale tra item consecutivi
+            const gap = x - prevX
+            const charW = (item.width > 0 && item.str.length > 0)
+              ? item.width / item.str.length
+              : fontSize * 0.5
+            if (gap > charW * 0.3) pageText += ' '
+          }
+        }
+
+        pageText += item.str
+        prevX = x + (item.width || item.str.length * ((Math.abs(item.transform[0]) || 10) * 0.5))
+        prevY = y
+      }
+
+      if (pageText.trim()) pageTexts.push(pageText.trim())
+    }
+
+    const fullText = pageTexts.join('\n\n').trim()
+    return fullText.length > 20 ? fullText : null
   } catch (err) {
-    console.warn(`[polizza] pdftotext fallito per "${filePath}":`, err.message)
+    console.warn('[polizza] pdfjs extraction failed:', err.message)
     return null
   }
 }
@@ -261,18 +348,25 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
   for (const fp of filePaths) {
     let text = extractTextWithPdftotext(fp)
 
-    if (!text) {
-      try {
-        const pdfData = await loadPDF(fp)
-        text = pdfData.text || ''
-        if (text.trim().length > 5) {
-          console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
-        }
-      } catch (err) {
-        console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
-      }
-    } else {
+    if (text) {
       console.log(`[polizza] pdftotext OK: ${fp.split('/').pop()} (${text.length} chars)`)
+    } else {
+      // Fallback 1: pdfjs spatial reconstruction (puro JS, nessuna dipendenza nativa)
+      text = await extractTextWithPdfjsSpatial(fp)
+      if (text) {
+        console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
+      } else {
+        // Fallback 2: pdf-parse generico
+        try {
+          const pdfData = await loadPDF(fp)
+          text = pdfData.text || ''
+          if (text.trim().length > 5) {
+            console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
+          }
+        } catch (err) {
+          console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
+        }
+      }
     }
 
     if (text && text.trim().length > 5) {
