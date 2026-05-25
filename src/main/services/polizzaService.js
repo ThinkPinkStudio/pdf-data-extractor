@@ -96,8 +96,8 @@ export const RCP_FIELDS = [
   { id: 'rcp_qualifica',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
   { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro (RCP)',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text' },
   { id: 'rcp_massimale_annuo',      label: 'Massimale annuo (RCP)',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali (RCP)',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00', type: 'text' },
-  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività (RCP)', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali (RCP)',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività (RCP)', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_mondo',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text' },
   { id: 'rcp_scoperto_max_mondo',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_usa',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text' },
@@ -241,6 +241,12 @@ function extractRelevantSections(text, maxChars = 18000) {
   // Keywords che introducono tabelle multi-riga (massimali, scoperti, ecc.)
   // → finestra più ampia per catturare tutte le righe della tabella
   const TABLE_KEYWORDS = [
+    // header diretto della tabella massimali nelle appendici PMIALL
+    'SOMME ASSICURATE',
+    // header delle schede PMIALL (RCT e RCP) — apre l'intera sezione con massimali + elementi
+    'SCHEDA DI POLIZZA',
+    'APPENDICE MOD. PMIALL',
+    // keywords originali
     'MASSIMALE', 'LIMITE DI INDENNIZZO', 'SCOPERTO', 'FRANCHIGIA',
     'ELEMENTI PER IL CONTEGGIO', 'REGOLAZIONE DEL PREMIO',
     'SEZIONE R.C', 'GARANZIA'
@@ -252,11 +258,13 @@ function extractRelevantSections(text, maxChars = 18000) {
   for (let i = 0; i < lines.length; i++) {
     const upper = lines[i].toUpperCase()
     if (KEYWORDS.some(kw => upper.includes(kw))) {
-      // Per keyword che aprono tabelle, cattura fino a 16 righe dopo
-      // Per keyword a riga singola (date, IVA, ecc.) bastano 6 righe
+      // Per keyword che aprono tabelle, cattura fino a 20 righe dopo e 6 prima
+      // Per ELEMENTI PER IL CONTEGGIO usa finestra "prima" più ampia: i massimali
+      // appaiono circa 8-10 righe prima di questo keyword nella struttura PMIALL
       const isTable = TABLE_KEYWORDS.some(kw => upper.includes(kw))
-      const after = isTable ? 16 : 6
-      for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + after); j++) {
+      const after = isTable ? 20 : 6
+      const before = upper.includes('ELEMENTI PER IL CONTEGGIO') ? 12 : (isTable ? 4 : 4)
+      for (let j = Math.max(0, i - before); j <= Math.min(lines.length - 1, i + after); j++) {
         included.add(j)
       }
     }
@@ -406,13 +414,20 @@ export async function extractPolizzaFromPDFs(files, settings) {
     }
   }
 
-  // Traccia i file senza testo estratto (potenzialmente scansionati)
+  // Traccia i file senza testo estratto (PDF scansionati = solo immagini, nessun layer testo)
   const scannedFiles = normalizedFiles
     .filter(f => !allTexts.find(t => t.path === f.path))
     .map(f => ({ path: f.path, type: f.type || 'polizza' }))
 
+  if (scannedFiles.length > 0) {
+    console.log(
+      `[polizza] ${scannedFiles.length} file scansionati (nessun testo estraibile → vision OCR):`,
+      scannedFiles.map(f => f.path.split('/').pop())
+    )
+  }
+
   if (allTexts.length === 0) {
-    // Invece di lanciare un errore, restituisci dati vuoti con scannedFiles
+    // Tutti i file sono scansionati → restituisci dati vuoti con scannedFiles
     // Il renderer triggererà la vision extraction
     return { data: {}, scannedFiles }
   }

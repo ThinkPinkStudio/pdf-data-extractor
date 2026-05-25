@@ -97,9 +97,9 @@ const defaultSettings = {
       cells: [{ sheet: 'RCP', cell: 'D14' }] },
     { id: 'rcp_massimale_annuo', label: 'Massimale annuo (RCP)', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'E14' }] },
-    { id: 'rcp_massimale_mat', label: 'Massimale danni materiali (RCP)', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_massimale_mat', label: 'Massimale danni materiali (RCP)', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F14' }] },
-    { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività (RCP)', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
+    { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività (RCP)', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_min_mondo', label: 'Scoperto minimo - Resto del mondo', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_max_mondo', label: 'Scoperto massimo - Resto del mondo', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_min_usa', label: 'Scoperto minimo - USA/Canada/Messico', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
@@ -140,6 +140,16 @@ export function getSettings() {
     // Migrate: populate polizzaFields if missing or empty
     if (!merged.polizzaFields || merged.polizzaFields.length === 0) {
       merged.polizzaFields = defaultSettings.polizzaFields
+    }
+    // Migrate: fix swapped example values in rcp_massimale_mat / rcp_massimale_interr
+    if (Array.isArray(merged.polizzaFields)) {
+      const FIELD_DESC_FIXES = {
+        'rcp_massimale_mat':   'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00',
+        'rcp_massimale_interr':'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00'
+      }
+      merged.polizzaFields = merged.polizzaFields.map(f =>
+        FIELD_DESC_FIXES[f.id] ? { ...f, description: FIELD_DESC_FIXES[f.id] } : f
+      )
     }
     return merged
   } catch {
