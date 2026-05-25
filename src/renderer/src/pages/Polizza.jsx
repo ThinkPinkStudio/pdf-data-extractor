@@ -146,8 +146,8 @@ export default function Polizza() {
     setExtracted(null)
     setExportMsg(null)
     try {
-      const paths = files.map(f => f.path)
-      const res = await window.electronAPI.polizzaExtract(paths)
+      const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
+      const res = await window.electronAPI.polizzaExtract(filesWithTypes)
       if (!res.success) throw new Error(res.error)
       setExtracted(res.data)
     } catch (err) {

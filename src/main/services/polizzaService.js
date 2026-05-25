@@ -340,23 +340,45 @@ function parseDateFromContextLine(fullText, linePattern) {
 /**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
  * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
+ *
+ * @param {Array<string|{path:string,type:string}>} files
+ *   Può essere un array di path (string) oppure oggetti { path, type }.
+ *   type: 'polizza' | 'appendice' | 'allegato' | 'cga'
  */
-export async function extractPolizzaFromPDFs(filePaths, settings) {
-  // 1. Estrai testo da tutti i PDF con pdftotext, fallback pdf-parse
+export async function extractPolizzaFromPDFs(files, settings) {
+  // Normalizza input: string → { path, type:'polizza' }
+  const normalizedFiles = (files || []).map(f =>
+    typeof f === 'string' ? { path: f, type: 'polizza' } : f
+  )
+
+  // Budget di contesto (chars) per tipo di documento.
+  // La polizza principale contiene i valori numerici reali; il CGA è solo boilerplate.
+  // Senza questo limite, il CGA (spesso >200K chars) monopolizza il contesto LLM
+  // e l'AI non vede quasi nulla dei valori effettivi della polizza.
+  const CONTEXT_BUDGET = {
+    polizza:   14000,   // doc principale: massimali, premi, dati identificativi
+    appendice:  3000,   // appendici/rinnovi: possibili aggiornamenti di valori
+    allegato:   1500,   // allegati: raramente contengono dati numerici nuovi
+    cga:         600    // condizioni generali: puro boilerplate, quasi nessun valore utile
+  }
+  const DEFAULT_BUDGET = 2000
+
+  // Ordine di importanza per il sort (polizza prima, cga ultima)
+  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
+
+  // 1. Estrai testo da tutti i PDF
   const allTexts = []
 
-  for (const fp of filePaths) {
+  for (const { path: fp, type = 'polizza' } of normalizedFiles) {
     let text = extractTextWithPdftotext(fp)
 
     if (text) {
       console.log(`[polizza] pdftotext OK: ${fp.split('/').pop()} (${text.length} chars)`)
     } else {
-      // Fallback 1: pdfjs spatial reconstruction (puro JS, nessuna dipendenza nativa)
       text = await extractTextWithPdfjsSpatial(fp)
       if (text) {
         console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
       } else {
-        // Fallback 2: pdf-parse generico
         try {
           const pdfData = await loadPDF(fp)
           text = pdfData.text || ''
@@ -370,7 +392,7 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
     }
 
     if (text && text.trim().length > 5) {
-      allTexts.push({ path: fp, text })
+      allTexts.push({ path: fp, type: type || 'polizza', text })
     }
   }
 
@@ -381,17 +403,32 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
     )
   }
 
-  // 2. Combina tutti i testi
-  const combinedText = allTexts
-    .map(({ path, text }) => `=== ${path.split('/').pop()} ===\n${text}`)
-    .join('\n\n')
+  // 2. Ordina per importanza: polizza principale prima, CGA ultima
+  allTexts.sort((a, b) => {
+    const ai = TYPE_ORDER.indexOf(a.type)
+    const bi = TYPE_ORDER.indexOf(b.type)
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+  })
 
-  // 3. Estrazione rapida con regex (alta affidabilità)
+  // 3. Estrai sezioni rilevanti rispettando il budget per tipo.
+  //    Questo è il fix critico: senza budget tipizzato, il CGA (~200K chars) monopolizza
+  //    il contesto LLM e l'AI non vede quasi nessun valore reale della polizza.
+  const excerpts = []
+  for (const { path: fp, type, text } of allTexts) {
+    const budget = CONTEXT_BUDGET[type] || DEFAULT_BUDGET
+    const excerpt = extractRelevantSections(text, budget)
+    console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length}/${budget} chars`)
+    excerpts.push(`=== ${fp.split('/').pop()} [${type}] ===\n${excerpt}`)
+  }
+
+  const combinedText = excerpts.join('\n\n')
+
+  // 4. Estrazione rapida con regex (alta affidabilità)
   const regexResult = extractFieldsWithRegex(combinedText)
   const regexFound = Object.keys(regexResult).filter(k => regexResult[k])
   console.log(`[polizza] Regex: ${regexFound.length} campi trovati:`, regexFound)
 
-  // 4. Chiedi al LLM i campi ancora mancanti
+  // 5. Chiedi al LLM i campi ancora mancanti
   const configuredFields = (settings.polizzaFields && settings.polizzaFields.length > 0)
     ? settings.polizzaFields
     : ALL_POLIZZA_FIELDS
@@ -400,14 +437,13 @@ export async function extractPolizzaFromPDFs(filePaths, settings) {
 
   let llmResult = {}
   if (missingFields.length > 0 && settings.llmProvider !== 'none') {
-    // Aumenta il limite per sfruttare la qualità del testo pdftotext
-    const relevantText = extractRelevantSections(combinedText, 18000)
+    // combinedText è già filtrato per budget — nessun secondo filtraggio necessario
     console.log(
       `[polizza] LLM: ${missingFields.length} campi da estrarre, ` +
-      `${relevantText.length} chars testo rilevante`
+      `${combinedText.length} chars testo rilevante`
     )
     try {
-      llmResult = await extractPolizzaWithProvider(settings, missingFields, relevantText)
+      llmResult = await extractPolizzaWithProvider(settings, missingFields, combinedText)
       const llmFound = Object.keys(llmResult).filter(k => llmResult[k])
       console.log(`[polizza] LLM: ${llmFound.length} campi trovati:`, llmFound)
     } catch (err) {
