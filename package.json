@@ -25,13 +25,13 @@
     "electron-vite": "^2.0.0",
     "vite": "^5.0.12"
   },
+  "overrides": {
+    "canvas": "file:./stubs/canvas"
+  },
   "build": {
     "appId": "it.thinkpinkstudio.pdf-extractor",
     "productName": "PDF Data Extractor",
     "icon": "assets/icon.png",
-    "electronRebuildConfig": {
-      "onlyModules": []
-    },
     "directories": {
       "output": "dist"
     },
