@@ -219,7 +219,6 @@ async function extractTextWithPdfjsSpatial(filePath) {
 
 /**
  * Filtra le sezioni più rilevanti del testo per limitare i token inviati al LLM.
- * Con pdftotext il testo è già leggibile — manteniamo più contesto per ogni match.
  */
 function extractRelevantSections(text, maxChars = 18000) {
   if (text.length <= maxChars) return text
@@ -227,7 +226,7 @@ function extractRelevantSections(text, maxChars = 18000) {
   const KEYWORDS = [
     'POLIZZA N', 'CONTRAENTE', 'ASSICURATO', 'P. IVA', 'COD. FISC',
     'DECORRENZA', 'SCADENZA', 'DOMICILIO', 'INDIRIZZO',
-    'MASSIMALE', 'PER SINISTRO', 'PER PERSONA', 'PER ANIMALI',
+    'MASSIMALE', 'LIMITE DI INDENNIZZO', 'PER SINISTRO', 'PER PERSONA', 'PER ANIMALI',
     'GARANZIA', 'SEZIONE R.C', 'R.C. VS', 'R.C. PRODOTTI',
     'RESPONSABILIT', 'TERZI', 'PRODOTTI', 'PRESTATORI',
     'PREMIO', 'IMPONIBILE', 'IMPOSTA', 'ANTICIPO DI SEZIONE',
@@ -239,14 +238,25 @@ function extractRelevantSections(text, maxChars = 18000) {
     'GENERAIMPRESA', 'GENERACOMMERCI'
   ]
 
+  // Keywords che introducono tabelle multi-riga (massimali, scoperti, ecc.)
+  // → finestra più ampia per catturare tutte le righe della tabella
+  const TABLE_KEYWORDS = [
+    'MASSIMALE', 'LIMITE DI INDENNIZZO', 'SCOPERTO', 'FRANCHIGIA',
+    'ELEMENTI PER IL CONTEGGIO', 'REGOLAZIONE DEL PREMIO',
+    'SEZIONE R.C', 'GARANZIA'
+  ]
+
   const lines = text.split('\n')
   const included = new Set()
 
   for (let i = 0; i < lines.length; i++) {
     const upper = lines[i].toUpperCase()
     if (KEYWORDS.some(kw => upper.includes(kw))) {
-      // 4 righe di contesto prima e dopo (pdftotext produce testo più denso di informazioni)
-      for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + 6); j++) {
+      // Per keyword che aprono tabelle, cattura fino a 16 righe dopo
+      // Per keyword a riga singola (date, IVA, ecc.) bastano 6 righe
+      const isTable = TABLE_KEYWORDS.some(kw => upper.includes(kw))
+      const after = isTable ? 16 : 6
+      for (let j = Math.max(0, i - 4); j <= Math.min(lines.length - 1, i + after); j++) {
         included.add(j)
       }
     }
@@ -356,9 +366,9 @@ export async function extractPolizzaFromPDFs(files, settings) {
   // Senza questo limite, il CGA (spesso >200K chars) monopolizza il contesto LLM
   // e l'AI non vede quasi nulla dei valori effettivi della polizza.
   const CONTEXT_BUDGET = {
-    polizza:   14000,   // doc principale: massimali, premi, dati identificativi
-    appendice:  3000,   // appendici/rinnovi: possibili aggiornamenti di valori
-    allegato:   1500,   // allegati: raramente contengono dati numerici nuovi
+    polizza:   18000,   // doc principale: massimali, premi, dati identificativi
+    appendice:  4000,   // appendici/rinnovi: possibili aggiornamenti di valori
+    allegato:   2000,   // allegati: raramente contengono dati numerici nuovi
     cga:         600    // condizioni generali: puro boilerplate, quasi nessun valore utile
   }
   const DEFAULT_BUDGET = 2000
