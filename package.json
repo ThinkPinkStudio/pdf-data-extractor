@@ -1,6 +1,6 @@
 {
   "name": "pdf-data-extractor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "PDF Data Extractor by ThinkPink Studio",
   "main": "./out/main/index.js",
   "scripts": {
@@ -29,6 +29,9 @@
     "appId": "it.thinkpinkstudio.pdf-extractor",
     "productName": "PDF Data Extractor",
     "icon": "assets/icon.png",
+    "electronRebuildConfig": {
+      "onlyModules": []
+    },
     "directories": {
       "output": "dist"
     },
