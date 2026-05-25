@@ -29,6 +29,9 @@
     "appId": "it.thinkpinkstudio.pdf-extractor",
     "productName": "PDF Data Extractor",
     "icon": "assets/icon.png",
+    "electronRebuildConfig": {
+      "onlyModules": []
+    },
     "directories": {
       "output": "dist"
     },
