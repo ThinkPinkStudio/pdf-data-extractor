@@ -2,7 +2,10 @@
   "name": "pdf-data-extractor",
   "version": "1.0.7",
   "description": "PDF Data Extractor by ThinkPink Studio",
-  "author": "ThinkPink Studio",
+  "author": {
+    "name": "ThinkPink Studio",
+    "email": "info@thinkpinkstudio.it"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
