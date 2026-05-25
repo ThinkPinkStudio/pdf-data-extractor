@@ -27,6 +27,14 @@ import {
   deleteSession,
   clearAllSessions
 } from '../services/historyService.js'
+import {
+  extractPolizzaFromPDFs,
+  exportToNewExcel,
+  exportToTemplateExcel,
+  readExcelStructure,
+  ALL_POLIZZA_FIELDS,
+  CSA_MAPPING
+} from '../services/polizzaService.js'
 import { basename } from 'path'
 
 export function registerHandlers(ipcMain, mainWindow) {
@@ -467,4 +475,74 @@ ${context}
   // ─── App ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('app:version', () => app.getVersion())
+
+  // ─── Polizza RC ───────────────────────────────────────────────────────────
+
+  ipcMain.handle('dialog:openExcel', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Seleziona file Excel (template gestionale)',
+      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle('polizza:getFields', () => {
+    return ALL_POLIZZA_FIELDS
+  })
+
+  ipcMain.handle('polizza:getDefaultMapping', () => {
+    return CSA_MAPPING
+  })
+
+  ipcMain.handle('polizza:extract', async (_, { filePaths }) => {
+    const settings = getSettings()
+    try {
+      const data = await extractPolizzaFromPDFs(filePaths, settings)
+      return { success: true, data }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('polizza:exportNew', async (_, { data, suggestedName }) => {
+    const baseName = suggestedName || 'polizza_rc'
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salva dati polizza RC',
+      defaultPath: `${baseName}.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await exportToNewExcel(filePath, data)
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('polizza:readTemplateStructure', async (_, { templatePath }) => {
+    try {
+      const structure = await readExcelStructure(templatePath)
+      return { success: true, structure }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('polizza:exportToTemplate', async (_, { templatePath, data, mapping }) => {
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salva gestionale aggiornato',
+      defaultPath: basename(templatePath).replace(/\.xlsx?$/, '_aggiornato.xlsx'),
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await exportToTemplateExcel(templatePath, filePath, data, mapping)
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
 }

@@ -6,6 +6,7 @@ import Settings from './pages/Settings.jsx'
 import Contacts from './pages/Contacts.jsx'
 import Batch from './pages/Batch.jsx'
 import History from './pages/History.jsx'
+import Polizza from './pages/Polizza.jsx'
 
 const DEFAULT_ACCENT = '#e91e8c'
 
@@ -86,6 +87,9 @@ export default function App() {
               restoredSession={restoredSession}
               onSessionRestored={() => setRestoredSession(null)}
             />
+          </div>
+          <div style={{ display: page === 'polizza' ? 'contents' : 'none' }}>
+            <Polizza />
           </div>
           <div style={{ display: page === 'batch' ? 'contents' : 'none' }}>
             <Batch />
