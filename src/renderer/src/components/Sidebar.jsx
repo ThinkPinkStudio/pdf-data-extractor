@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import iconUrl from '../assets/icon.png'
 
 /* global __APP_VERSION__ */
 
@@ -101,7 +102,7 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
       <div className="sidebar-header">
         <div className="logo-row" role="banner">
           <img
-            src="/icon.png"
+            src={iconUrl}
             alt=""
             aria-hidden="true"
             className="logo-img"

@@ -1,17 +1,5 @@
 import { useTranslation } from 'react-i18next'
-
-const IconLogo = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" fill="url(#cLogoGrad)"/>
-    <circle cx="12" cy="12" r="4" fill="rgba(255,255,255,0.9)"/>
-    <defs>
-      <radialGradient id="cLogoGrad" cx="30%" cy="30%">
-        <stop offset="0%" stopColor="#f472b6"/>
-        <stop offset="100%" stopColor="#9c27b0"/>
-      </radialGradient>
-    </defs>
-  </svg>
-)
+import iconUrl from '../assets/icon.png'
 
 const IconPin = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,7 +72,7 @@ export default function Contacts() {
           {/* Brand row */}
           <div className="contact-brand-row">
             <div className="contact-logo" aria-hidden="true">
-              <IconLogo />
+              <img src={iconUrl} alt="" />
             </div>
             <div>
               <p className="contact-company">{t('brand.company')}</p>
