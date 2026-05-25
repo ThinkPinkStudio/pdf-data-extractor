@@ -61,12 +61,19 @@ const IconHistory = () => (
   </svg>
 )
 
+const IconShield = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+)
+
 const navItems = [
-  { id: 'extractor', icon: <IconPDF />, labelKey: 'nav.extractor' },
-  { id: 'batch', icon: <IconBatch />, labelKey: 'nav.batch' },
-  { id: 'history', icon: <IconHistory />, labelKey: 'nav.history' },
-  { id: 'settings', icon: <IconSettings />, labelKey: 'nav.settings' },
-  { id: 'contacts', icon: <IconUser />, labelKey: 'nav.contacts' }
+  { id: 'extractor', icon: <IconPDF />,     labelKey: 'nav.extractor' },
+  { id: 'polizza',   icon: <IconShield />,  labelKey: 'nav.polizza'   },
+  { id: 'batch',     icon: <IconBatch />,   labelKey: 'nav.batch'     },
+  { id: 'history',   icon: <IconHistory />, labelKey: 'nav.history'   },
+  { id: 'settings',  icon: <IconSettings />,labelKey: 'nav.settings'  },
+  { id: 'contacts',  icon: <IconUser />,    labelKey: 'nav.contacts'  }
 ]
 
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''

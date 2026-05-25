@@ -54,5 +54,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ─── App ────────────────────────────────────────────────────────────────
-  getAppVersion: () => ipcRenderer.invoke('app:version')
+  getAppVersion: () => ipcRenderer.invoke('app:version'),
+
+  // ─── Polizza RC ─────────────────────────────────────────────────────────
+  openExcelDialog: () => ipcRenderer.invoke('dialog:openExcel'),
+  polizzaGetFields: () => ipcRenderer.invoke('polizza:getFields'),
+  polizzaGetDefaultMapping: () => ipcRenderer.invoke('polizza:getDefaultMapping'),
+  polizzaExtract: (filePaths) => ipcRenderer.invoke('polizza:extract', { filePaths }),
+  polizzaExportNew: (data, suggestedName) => ipcRenderer.invoke('polizza:exportNew', { data, suggestedName }),
+  polizzaReadTemplateStructure: (templatePath) => ipcRenderer.invoke('polizza:readTemplateStructure', { templatePath }),
+  polizzaExportToTemplate: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:exportToTemplate', { templatePath, data, mapping }),
+  polizzaPreviewChanges: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:previewChanges', { templatePath, data, mapping }),
+  polizzaExportApproved: (templatePath, approvedChanges) => ipcRenderer.invoke('polizza:exportApproved', { templatePath, approvedChanges })
 })
