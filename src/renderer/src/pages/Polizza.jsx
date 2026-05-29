@@ -69,7 +69,7 @@ const SHEET_LABELS = {
 
 // ─── Componente principale ────────────────────────────────────────────────────
 
-export default function Polizza() {
+export default function Polizza({ visible }) {
   const [files, setFiles] = useState([])           // { path, name, type }
   const [dragging, setDragging] = useState(false)
   const [extracting, setExtracting] = useState(false)
@@ -101,11 +101,12 @@ export default function Polizza() {
 
   const inputRef = useRef(null)
 
-  // Carica i campi disponibili e il mapping predefinito CSA
+  // Carica (o ricarica) i campi ogni volta che la pagina diventa visibile
   useEffect(() => {
+    if (visible === false) return
     window.electronAPI.polizzaGetFields().then(setFields).catch(() => {})
     window.electronAPI.polizzaGetDefaultMapping().then(setDefaultMapping).catch(() => {})
-  }, [])
+  }, [visible])
 
   // ─── Drag & drop ────────────────────────────────────────────────────────────
 
