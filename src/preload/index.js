@@ -55,6 +55,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── App ────────────────────────────────────────────────────────────────
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+  platform: process.platform,
+
+  // ─── Window controls ────────────────────────────────────────────────────
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window:maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  onWindowMaximizeChange: (callback) => {
+    ipcRenderer.on('window:maximizeChange', (_event, val) => callback(val))
+  },
+  removeWindowMaximizeListeners: () => {
+    ipcRenderer.removeAllListeners('window:maximizeChange')
+  },
 
   // ─── Polizza RC ─────────────────────────────────────────────────────────
   openExcelDialog: () => ipcRenderer.invoke('dialog:openExcel'),

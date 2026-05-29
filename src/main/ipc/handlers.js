@@ -593,6 +593,15 @@ ${context}
     }
   })
 
+  // ─── Window controls ────────────────────────────────────────────────────────
+  ipcMain.handle('window:minimize', () => mainWindow.minimize())
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+  })
+  ipcMain.handle('window:close', () => mainWindow.close())
+  ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized())
+
   // Scrive nel template solo i campi approvati dall'utente
   ipcMain.handle('polizza:exportApproved', async (_, { templatePath, approvedChanges }) => {
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {

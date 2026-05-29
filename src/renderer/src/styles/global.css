@@ -135,6 +135,31 @@ body {
   -webkit-app-region: drag;
 }
 
+.win-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: -8px -8px 8px;
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn:hover { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.win-btn-close:hover { background: #c42b1c; color: #fff; }
+
 .logo-row {
   display: flex;
   align-items: center;
