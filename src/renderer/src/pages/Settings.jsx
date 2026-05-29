@@ -1,4 +1,4 @@
-import { useState, useEffect, useId } from 'react'
+import { useState, useEffect, useId, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const IconPlus = () => (
@@ -100,6 +100,20 @@ function parseCells(str) {
 }
 
 function PolizzaFieldRow({ field, onChange, onDelete }) {
+  const [cellsRaw, setCellsRaw] = useState(formatCells(field.cells))
+  const lastFieldId = useRef(field.id)
+
+  // Reset local raw value if the field identity changes (e.g. after reset-to-defaults)
+  if (field.id !== lastFieldId.current) {
+    lastFieldId.current = field.id
+    // will be corrected on next render naturally via the useState initializer
+  }
+
+  // Sync from outside only when the field id changes (not on every parent re-render)
+  useEffect(() => {
+    setCellsRaw(formatCells(field.cells))
+  }, [field.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{
       display: 'grid',
@@ -153,8 +167,19 @@ function PolizzaFieldRow({ field, onChange, onDelete }) {
       <input
         className="field-input-sm"
         type="text"
-        value={formatCells(field.cells)}
-        onChange={e => onChange({ ...field, cells: parseCells(e.target.value) })}
+        value={cellsRaw}
+        onChange={e => {
+          setCellsRaw(e.target.value)
+          const parsed = parseCells(e.target.value)
+          if (parsed.length > 0 || e.target.value.trim() === '') {
+            onChange({ ...field, cells: parsed })
+          }
+        }}
+        onBlur={e => {
+          const parsed = parseCells(e.target.value)
+          onChange({ ...field, cells: parsed })
+          setCellsRaw(formatCells(parsed))
+        }}
         placeholder="es. RCT_O:C3 RCP:C3"
         aria-label="Celle Excel"
         style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 11 }}

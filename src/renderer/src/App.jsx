@@ -89,7 +89,7 @@ export default function App() {
             />
           </div>
           <div style={{ display: page === 'polizza' ? 'contents' : 'none' }}>
-            <Polizza />
+            <Polizza visible={page === 'polizza'} />
           </div>
           <div style={{ display: page === 'batch' ? 'contents' : 'none' }}>
             <Batch />
