@@ -831,7 +831,7 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
   const XLSX = await import('xlsx')
 
   const templateBuf = readFileSync(templatePath)
-  const wb = XLSX.read(templateBuf, { type: 'buffer' })
+  const wb = XLSX.read(templateBuf, { type: 'buffer', cellStyles: true })
 
   // Decide se usare il mapping CSA predefinito o quello custom dell'utente
   const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
@@ -844,7 +844,8 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
       if (value == null) continue
       const ws = wb.Sheets[target.sheet]
       if (!ws) continue
-      ws[target.cell] = { t: 's', v: String(value) }
+      const existing = ws[target.cell] || {}
+      ws[target.cell] = { ...existing, t: 's', v: String(value) }
     }
   } else {
     // Mapping predefinito (CSA o da fieldsConfig) — multi-cella per campo
@@ -858,16 +859,17 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
         if (!ws) continue
         // Determina il tipo di cella: numeri se possibile (per le formule)
         const numVal = parseItalianNumber(value)
+        const existing = ws[target.cell] || {}
         if (numVal !== null) {
-          ws[target.cell] = { t: 'n', v: numVal }
+          ws[target.cell] = { ...existing, t: 'n', v: numVal }
         } else {
-          ws[target.cell] = { t: 's', v: String(value) }
+          ws[target.cell] = { ...existing, t: 's', v: String(value) }
         }
       }
     }
   }
 
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellStyles: true })
   writeFileSync(outputPath, buf)
 }
 
@@ -1044,19 +1046,20 @@ export function buildMappingFromFields(fields) {
 export async function exportApprovedChanges(templatePath, outputPath, approvedChanges) {
   const XLSX = await import('xlsx')
   const templateBuf = readFileSync(templatePath)
-  const wb = XLSX.read(templateBuf, { type: 'buffer' })
+  const wb = XLSX.read(templateBuf, { type: 'buffer', cellStyles: true })
 
   for (const change of approvedChanges) {
     const ws = wb.Sheets[change.sheet]
     if (!ws) continue
     const numVal = parseItalianNumber(change.newValue)
+    const existing = ws[change.cell] || {}
     if (numVal !== null) {
-      ws[change.cell] = { t: 'n', v: numVal }
+      ws[change.cell] = { ...existing, t: 'n', v: numVal }
     } else {
-      ws[change.cell] = { t: 's', v: String(change.newValue) }
+      ws[change.cell] = { ...existing, t: 's', v: String(change.newValue) }
     }
   }
 
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellStyles: true })
   writeFileSync(outputPath, buf)
 }
