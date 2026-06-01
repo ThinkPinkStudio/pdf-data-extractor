@@ -1,6 +1,6 @@
 {
   "name": "pdf-data-extractor",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "PDF Data Extractor by ThinkPink Studio",
   "author": {
     "name": "ThinkPink Studio",
@@ -14,6 +14,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "i18next": "^23.7.6",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^3.11.174",

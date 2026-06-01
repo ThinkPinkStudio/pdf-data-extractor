@@ -784,6 +784,29 @@ async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
   return (data.content?.[0]?.text || '').trim()
 }
 
+// ─── Utilità ExcelJS ──────────────────────────────────────────────────────────
+
+/**
+ * Restituisce il valore display di una cella ExcelJS come stringa leggibile.
+ * Gestisce numeri, date, formule con risultato, richText e placeholder vuoti.
+ */
+function getCellDisplayValue(cell) {
+  if (!cell) return ''
+  const v = cell.value
+  if (v == null) return ''
+  if (v instanceof Date) {
+    const d = v.getDate(), m = v.getMonth() + 1, y = v.getFullYear()
+    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+  }
+  if (typeof v === 'object') {
+    if (v.formula !== undefined || v.sharedFormula !== undefined) return v.result != null ? String(v.result) : ''
+    if (Array.isArray(v.richText)) return v.richText.map(rt => rt.text || '').join('')
+  }
+  if (typeof v === 'number' && v === 0) return ''
+  if (typeof v === 'string' && v.trim() === '……….') return ''
+  return String(v)
+}
+
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
 
 /**
@@ -793,25 +816,23 @@ async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
  * @param {Array|null} [fieldsConfig] - configurazione campi opzionale (default: RCT_FIELDS + RCP_FIELDS)
  */
 export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJS } = await import('exceljs')
 
   const fields = fieldsConfig || [...RCT_FIELDS, ...RCP_FIELDS]
-  const rctRows = fields.filter(f => f.sheet === 'RCT_O').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
-  const rcpRows = fields.filter(f => f.sheet === 'RCP').map(f => ({ 'Campo': f.label, 'Valore': data[f.id] ?? '' }))
+  const wb = new ExcelJS.Workbook()
 
-  const wsRCT = XLSX.utils.json_to_sheet(rctRows)
-  const wsRCP = XLSX.utils.json_to_sheet(rcpRows)
+  for (const sheetName of ['RCT_O', 'RCP']) {
+    const ws = wb.addWorksheet(sheetName)
+    ws.columns = [
+      { header: 'Campo',  key: 'campo',  width: 45 },
+      { header: 'Valore', key: 'valore', width: 55 }
+    ]
+    for (const f of fields.filter(f => f.sheet === sheetName)) {
+      ws.addRow({ campo: f.label, valore: data[f.id] ?? '' })
+    }
+  }
 
-  // Larghezze colonne
-  const colWidths = [{ wch: 45 }, { wch: 55 }]
-  wsRCT['!cols'] = colWidths
-  wsRCP['!cols'] = colWidths
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, wsRCT, 'RCT_O')
-  XLSX.utils.book_append_sheet(wb, wsRCP, 'RCP')
-
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const buf = await wb.xlsx.writeBuffer()
   writeFileSync(filePath, buf)
 }
 
@@ -828,48 +849,40 @@ export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
  * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  */
 export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}, fieldsConfig = null) {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJS } = await import('exceljs')
 
   const templateBuf = readFileSync(templatePath)
-  const wb = XLSX.read(templateBuf, { type: 'buffer', cellStyles: true })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(templateBuf)
 
-  // Decide se usare il mapping CSA predefinito o quello custom dell'utente
   const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
 
   if (hasUserMapping) {
-    // Mapping manuale (cella singola per campo)
     for (const [fieldId, target] of Object.entries(userMapping)) {
       if (!target?.sheet || !target?.cell) continue
       const value = data[fieldId]
       if (value == null) continue
-      const ws = wb.Sheets[target.sheet]
+      const ws = wb.getWorksheet(target.sheet)
       if (!ws) continue
-      const existing = ws[target.cell] || {}
-      ws[target.cell] = { ...existing, t: 's', v: String(value) }
+      const numVal = parseItalianNumber(String(value))
+      ws.getCell(target.cell).value = numVal !== null ? numVal : String(value)
     }
   } else {
-    // Mapping predefinito (CSA o da fieldsConfig) — multi-cella per campo
     const mapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
     for (const [fieldId, targets] of Object.entries(mapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const value = data[fieldId]
       if (value == null || value === '') continue
+      const numVal = parseItalianNumber(String(value))
       for (const target of targets) {
-        const ws = wb.Sheets[target.sheet]
+        const ws = wb.getWorksheet(target.sheet)
         if (!ws) continue
-        // Determina il tipo di cella: numeri se possibile (per le formule)
-        const numVal = parseItalianNumber(value)
-        const existing = ws[target.cell] || {}
-        if (numVal !== null) {
-          ws[target.cell] = { ...existing, t: 'n', v: numVal }
-        } else {
-          ws[target.cell] = { ...existing, t: 's', v: String(value) }
-        }
+        ws.getCell(target.cell).value = numVal !== null ? numVal : String(value)
       }
     }
   }
 
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellStyles: true })
+  const buf = await wb.xlsx.writeBuffer()
   writeFileSync(outputPath, buf)
 }
 
@@ -905,27 +918,25 @@ function parseItalianNumber(val) {
  * all'utente dove mappare i campi.
  */
 export async function readExcelStructure(templatePath) {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJS } = await import('exceljs')
+
   const buf = readFileSync(templatePath)
-  const wb = XLSX.read(buf, { type: 'buffer' })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buf)
 
   const structure = {}
-  for (const sheetName of wb.SheetNames) {
-    const ws = wb.Sheets[sheetName]
-    const ref = ws['!ref']
-    if (!ref) continue
-    const range = XLSX.utils.decode_range(ref)
+  for (const ws of wb.worksheets) {
     const cells = []
-    for (let r = range.s.r; r <= Math.min(range.e.r, 49); r++) {
-      for (let c = range.s.c; c <= Math.min(range.e.c, 25); c++) {
-        const addr = XLSX.utils.encode_cell({ r, c })
-        const cell = ws[addr]
-        if (cell && cell.v !== undefined && cell.v !== '') {
-          cells.push({ addr, value: String(cell.v).slice(0, 60) })
-        }
+    const rowLimit = Math.min(ws.rowCount, 50)
+    const colLimit = Math.min(ws.columnCount, 26)
+    for (let r = 1; r <= rowLimit; r++) {
+      for (let c = 1; c <= colLimit; c++) {
+        const cell = ws.getCell(r, c)
+        const v = getCellDisplayValue(cell)
+        if (v) cells.push({ addr: cell.address, value: v.slice(0, 60) })
       }
     }
-    structure[sheetName] = cells
+    structure[ws.name] = cells
   }
   return structure
 }
@@ -943,13 +954,15 @@ export async function readExcelStructure(templatePath) {
  * @returns {Array<{fieldId, label, sheet, cell, oldValue, newValue, type}>}
  */
 export async function previewTemplateChanges(templatePath, data, userMapping = {}, fieldsConfig = null) {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJS } = await import('exceljs')
+
   const buf = readFileSync(templatePath)
-  const wb = XLSX.read(buf, { type: 'buffer' })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buf)
 
   const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
   const changes = []
-  const seen = new Set() // evita duplicati (stesso field → stessa cella)
+  const seen = new Set()
 
   const allFields = fieldsConfig || ALL_POLIZZA_FIELDS
   const fieldMeta = {}
@@ -962,9 +975,8 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
       if (!target?.sheet || !target?.cell) continue
       const newValue = data[fieldId]
       if (newValue == null || newValue === '') continue
-      const ws = wb.Sheets[target.sheet]
-      const cell = ws?.[target.cell]
-      const oldValue = cell ? String(cell.v ?? '') : ''
+      const ws = wb.getWorksheet(target.sheet)
+      const oldValue = ws ? getCellDisplayValue(ws.getCell(target.cell)) : ''
       const key = `${target.sheet}!${target.cell}`
       if (seen.has(key)) continue
       seen.add(key)
@@ -978,7 +990,6 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
       })
     }
   } else {
-    // Mapping predefinito (CSA o da fieldsConfig)
     for (const [fieldId, targets] of Object.entries(defaultMapping)) {
       if (!Array.isArray(targets) || targets.length === 0) continue
       const newValue = data[fieldId]
@@ -987,9 +998,8 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
         const key = `${target.sheet}!${target.cell}`
         if (seen.has(key)) continue
         seen.add(key)
-        const ws = wb.Sheets[target.sheet]
-        const cell = ws?.[target.cell]
-        const oldValue = cell ? formatCellValue(cell) : ''
+        const ws = wb.getWorksheet(target.sheet)
+        const oldValue = ws ? getCellDisplayValue(ws.getCell(target.cell)) : ''
         changes.push({
           fieldId,
           label: fieldMeta[fieldId]?.label ?? fieldId,
@@ -1003,21 +1013,6 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
   }
 
   return changes
-}
-
-/** Formatta il valore di una cella per la visualizzazione (numeri → stringa leggibile) */
-function formatCellValue(cell) {
-  if (!cell || cell.v === undefined || cell.v === null) return ''
-  if (cell.t === 'n') {
-    // Riconverti i numeri placeholder (0) come stringa vuota
-    if (cell.v === 0) return ''
-    return String(cell.v)
-  }
-  if (cell.t === 's') {
-    const s = String(cell.v).trim()
-    return s === '……….' ? '' : s
-  }
-  return String(cell.v)
 }
 
 // ─── Mapping dinamico da configurazione campi ─────────────────────────────────
@@ -1044,22 +1039,19 @@ export function buildMappingFromFields(fields) {
  * @param {Array<{sheet, cell, newValue}>} approvedChanges
  */
 export async function exportApprovedChanges(templatePath, outputPath, approvedChanges) {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJS } = await import('exceljs')
+
   const templateBuf = readFileSync(templatePath)
-  const wb = XLSX.read(templateBuf, { type: 'buffer', cellStyles: true })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(templateBuf)
 
   for (const change of approvedChanges) {
-    const ws = wb.Sheets[change.sheet]
+    const ws = wb.getWorksheet(change.sheet)
     if (!ws) continue
     const numVal = parseItalianNumber(change.newValue)
-    const existing = ws[change.cell] || {}
-    if (numVal !== null) {
-      ws[change.cell] = { ...existing, t: 'n', v: numVal }
-    } else {
-      ws[change.cell] = { ...existing, t: 's', v: String(change.newValue) }
-    }
+    ws.getCell(change.cell).value = numVal !== null ? numVal : String(change.newValue)
   }
 
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellStyles: true })
+  const buf = await wb.xlsx.writeBuffer()
   writeFileSync(outputPath, buf)
 }
