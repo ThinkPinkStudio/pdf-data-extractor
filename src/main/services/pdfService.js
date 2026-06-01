@@ -54,8 +54,12 @@ export async function loadPDF(filePath) {
     const mod = await import('pdf-parse/lib/pdf-parse.js')
     pdfParse = mod.default
   } catch {
-    const mod = await import('pdf-parse')
-    pdfParse = mod.default
+    try {
+      const mod = await import('pdf-parse')
+      pdfParse = mod.default
+    } catch {
+      throw new Error('Libreria pdf-parse non disponibile. Reinstalla le dipendenze.')
+    }
   }
 
   const data = await pdfParse(buffer)
