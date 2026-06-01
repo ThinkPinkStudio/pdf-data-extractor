@@ -46,6 +46,15 @@ function createWindow() {
   return mainWindow
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[main] uncaughtException:', err)
+  dialog.showErrorBox('Errore imprevisto', `Si è verificato un errore:\n${err.message}`)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason)
+})
+
 app.whenReady().then(() => {
   protocol.registerFileProtocol('local-pdf', (request, callback) => {
     const url = decodeURIComponent(request.url.replace('local-pdf://', ''))

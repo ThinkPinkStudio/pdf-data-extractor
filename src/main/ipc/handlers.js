@@ -218,16 +218,20 @@ ${context}
         { role: 'user', content: message }
       ]
 
+      const send = (payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send('llm:chunk', payload)
+      }
+
       let fullResponse = ''
       for await (const chunk of streamChatWithProvider(settings, messages)) {
         fullResponse += chunk
-        event.sender.send('llm:chunk', { chunk, done: false })
+        send({ chunk, done: false })
       }
-      event.sender.send('llm:chunk', { chunk: '', done: true })
+      send({ chunk: '', done: true })
 
       return { success: true, response: fullResponse }
     } catch (err) {
-      event.sender.send('llm:chunk', { chunk: '', done: true, error: err.message })
+      if (!event.sender.isDestroyed()) event.sender.send('llm:chunk', { chunk: '', done: true, error: err.message })
       return { success: false, error: err.message }
     }
   })

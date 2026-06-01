@@ -85,7 +85,12 @@ async function handleRequest(req, res) {
 
 export function startWebhook(port) {
   stopWebhook()
-  server = createServer(handleRequest)
+  server = createServer((req, res) => {
+    handleRequest(req, res).catch(err => {
+      console.error('[webhook] Unhandled error:', err.message)
+      if (!res.headersSent) sendJSON(res, 500, { error: 'Internal server error' })
+    })
+  })
   server.listen(port, '127.0.0.1', () => {
     console.log(`[webhook] Listening on http://127.0.0.1:${port}`)
   })
