@@ -53,6 +53,8 @@ const defaultSettings = {
       type: 'text'
     }
   ],
+  // Polizza RC: extra prompt instructions appended to the LLM extraction prompt
+  polizzaPromptExtra: '',
   // Polizza RC fields configuration
   polizzaFields: [
     { id: 'polizza_numero', label: 'N° Polizza', description: 'Numero di polizza (es. 410000880)', type: 'text', sheet: 'RCT_O', enabled: true,
