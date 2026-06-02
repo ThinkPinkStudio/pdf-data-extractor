@@ -10,7 +10,7 @@
  * 3. pdf-parse – ultimo fallback generico
  */
 
-import { readFileSync, writeFileSync, statSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { execSync } from 'child_process'
 import { loadPDF } from './pdfService.js'
 
@@ -316,11 +316,41 @@ function parseDateFromContextLine(fullText, linePattern) {
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
+ * Restituisce la data più recente trovata nel testo del documento come timestamp
+ * numerico (ms). Cerca nell'ordine: scadenza → decorrenza → prima data GG/MM/AAAA.
+ * Usata per stabilire quale documento è il più recente quando ci sono più file.
+ */
+function extractDocumentDate(text) {
+  const toTimestamp = (dateStr) => {
+    if (!dateStr) return 0
+    const [dd, mm, yyyy] = dateStr.split('/')
+    if (!dd || !mm || !yyyy) return 0
+    return new Date(+yyyy, +mm - 1, +dd).getTime()
+  }
+
+  // 1. Data di scadenza (es. "SCADENZA 31/12/2025") — la più indicativa
+  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scad) return toTimestamp(scad)
+
+  // 2. Data di decorrenza (es. "DECORRENZA 01/01/2024")
+  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (dec) return toTimestamp(dec)
+
+  // 3. Prima data GG/MM/AAAA trovata nel testo
+  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
+  if (any) {
+    return toTimestamp(`${any[1].padStart(2,'0')}/${any[2].padStart(2,'0')}/${any[3]}`)
+  }
+
+  return 0
+}
+
+/**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
  * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
  *
  * Regola "file più recente vince": quando un campo è presente in più file,
- * viene usato il valore del file con la data di modifica più recente.
+ * viene usato il valore del file con la data interna più recente (scadenza/decorrenza).
  *
  * @param {Array<string|{path:string,type:string}>} files
  *   Può essere un array di path (string) oppure oggetti { path, type }.
@@ -339,7 +369,7 @@ export async function extractPolizzaFromPDFs(files, settings) {
   const CGA_MAX    = 600
   const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
 
-  // 1. Estrai testo da tutti i PDF, cattura anche la data di modifica (mtime)
+  // 1. Estrai testo da tutti i PDF, leggi la data interna del documento
   const allTexts = []
 
   for (const { path: fp, type = 'polizza' } of normalizedFiles) {
@@ -365,9 +395,10 @@ export async function extractPolizzaFromPDFs(files, settings) {
     }
 
     if (text && text.trim().length > 5) {
-      let mtime = 0
-      try { mtime = statSync(fp).mtime.getTime() } catch { /* ignora */ }
-      allTexts.push({ path: fp, type: type || 'polizza', text, mtime })
+      // Usa la data trovata nel contenuto del documento come indicatore di "recenza"
+      // (es. la data di scadenza/decorrenza), non la data di modifica del file.
+      const docDate = extractDocumentDate(text)
+      allTexts.push({ path: fp, type: type || 'polizza', text, docDate })
     }
   }
 
@@ -387,15 +418,15 @@ export async function extractPolizzaFromPDFs(files, settings) {
     return { data: {}, scannedFiles, sources: {} }
   }
 
-  // 2. Ordina per tipo (priorità), poi per mtime crescente (più vecchio prima → più recente alla fine)
-  //    Così il testo combinato presenta il documento più recente per ultimo,
-  //    e il LLM tende a privilegiarne i valori in caso di conflitto.
+  // 2. Ordina per tipo (priorità), poi per data interna crescente (documento più vecchio
+  //    prima → documento più recente alla fine). Il LLM vede l'aggiornamento più recente
+  //    per ultimo e tende a privilegiarlo in caso di valori contrastanti.
   allTexts.sort((a, b) => {
     const ai = TYPE_ORDER.indexOf(a.type)
     const bi = TYPE_ORDER.indexOf(b.type)
     const typeDiff = (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
     if (typeDiff !== 0) return typeDiff
-    return (a.mtime || 0) - (b.mtime || 0)  // stesso tipo: più vecchio prima
+    return (a.docDate || 0) - (b.docDate || 0)  // stesso tipo: data doc più vecchia prima
   })
 
   // 3. Costruisci il testo da inviare al LLM
