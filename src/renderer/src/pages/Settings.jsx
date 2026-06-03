@@ -198,7 +198,7 @@ function PolizzaFieldRow({ field, onChange, onDelete }) {
   )
 }
 
-function PolizzaFieldsSection({ fields, onChange }) {
+function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange }) {
   const updateField = (updated) => {
     onChange(fields.map(f => f.id === updated.id ? updated : f))
   }
@@ -230,6 +230,25 @@ function PolizzaFieldsSection({ fields, onChange }) {
     <section className="card-section" aria-labelledby="section-polizza-fields">
       <h2 className="section-title" id="section-polizza-fields">Polizze RC — Campi e mappatura Excel</h2>
       <p className="section-desc">Configura i campi da estrarre e le celle del Gestionale Excel dove scriverli.</p>
+
+      <div className="form-group" style={{ marginBottom: 16 }}>
+        <label className="form-label" htmlFor="polizza-prompt-extra">
+          Istruzioni aggiuntive per il prompt di estrazione
+        </label>
+        <textarea
+          id="polizza-prompt-extra"
+          className="form-input"
+          rows={3}
+          value={promptExtra || ''}
+          onChange={e => onPromptExtraChange(e.target.value)}
+          placeholder="Istruzioni extra da includere nel prompt AI (es. 'Ignora la sezione CGA per i massimali', 'La compagnia si chiama sempre Generali')…"
+          style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+          aria-label="Istruzioni aggiuntive per il prompt di estrazione"
+        />
+        <p className="text-muted text-sm" style={{ marginTop: 4 }}>
+          Questo testo viene aggiunto al prompt inviato all'AI durante l'estrazione dei dati.
+        </p>
+      </div>
 
       <div style={{ overflowX: 'auto' }}>
         <div style={{
@@ -944,6 +963,8 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
         <PolizzaFieldsSection
           fields={settings.polizzaFields || []}
           onChange={fields => setSettings(s => ({ ...s, polizzaFields: fields }))}
+          promptExtra={settings.polizzaPromptExtra || ''}
+          onPromptExtraChange={val => setSettings(s => ({ ...s, polizzaPromptExtra: val }))}
         />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 8 }}>

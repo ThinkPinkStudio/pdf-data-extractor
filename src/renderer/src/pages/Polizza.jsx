@@ -74,6 +74,7 @@ export default function Polizza({ visible }) {
   const [dragging, setDragging] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [extracted, setExtracted] = useState(null)  // { fieldId: value }
+  const [sources, setSources] = useState({})         // { fieldId: { file, page } }
   const [fields, setFields] = useState([])           // ALL_POLIZZA_FIELDS
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('RCT_O')
@@ -150,6 +151,7 @@ export default function Polizza({ visible }) {
     setExtracting(true)
     setError(null)
     setExtracted(null)
+    setSources({})
     setExportMsg(null)
     setVisionMsg(null)
     setScannedFiles([])
@@ -158,6 +160,7 @@ export default function Polizza({ visible }) {
       const res = await window.electronAPI.polizzaExtract(filesWithTypes)
       if (!res.success) throw new Error(res.error)
       setExtracted(res.data)
+      setSources(res.sources || {})
 
       // Se ci sono file scansionati, auto-trigger vision
       if (res.scannedFiles?.length > 0) {
@@ -1013,6 +1016,7 @@ export default function Polizza({ visible }) {
               <ExtractedTable
                 fields={sheetFields}
                 data={extracted}
+                sources={sources}
                 onUpdate={(id, val) => setExtracted(prev => ({ ...prev, [id]: val }))}
               />
             )}
@@ -1050,19 +1054,21 @@ export default function Polizza({ visible }) {
 
 // ─── Tabella risultati modificabile ───────────────────────────────────────────
 
-function ExtractedTable({ fields, data, onUpdate }) {
+function ExtractedTable({ fields, data, sources, onUpdate }) {
   return (
     <table className="polizza-table">
       <thead>
         <tr>
-          <th>Campo</th>
+          <th style={{ width: '32%' }}>Campo</th>
           <th>Valore estratto (modificabile)</th>
+          <th style={{ width: '22%', whiteSpace: 'nowrap' }}>Sorgente</th>
         </tr>
       </thead>
       <tbody>
         {fields.map(f => {
           const val = data[f.id]
           const isEmpty = val === null || val === undefined || val === ''
+          const src = sources?.[f.id]
           return (
             <tr key={f.id}>
               <td title={f.description}>{f.label}</td>
@@ -1076,6 +1082,21 @@ function ExtractedTable({ fields, data, onUpdate }) {
                       aria-label={f.label}
                     />
                 }
+              </td>
+              <td style={{
+                fontSize: 11,
+                color: src ? 'var(--c-text-secondary)' : 'var(--c-text-muted)',
+                fontFamily: 'var(--font-mono)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 180
+              }} title={src ? `${src.file} · pag. ${src.page}` : ''}>
+                {src ? (
+                  <span>{src.file}<br /><span style={{ color: 'var(--c-text-muted)' }}>pag. {src.page}</span></span>
+                ) : (
+                  <span style={{ fontStyle: 'italic' }}>—</span>
+                )}
               </td>
             </tr>
           )

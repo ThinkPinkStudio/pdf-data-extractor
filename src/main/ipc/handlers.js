@@ -515,8 +515,8 @@ ${context}
   ipcMain.handle('polizza:extract', async (_, { filePaths }) => {
     const settings = getSettings()
     try {
-      const { data, scannedFiles } = await extractPolizzaFromPDFs(filePaths, settings)
-      return { success: true, data, scannedFiles }
+      const { data, scannedFiles, sources } = await extractPolizzaFromPDFs(filePaths, settings)
+      return { success: true, data, scannedFiles, sources: sources || {} }
     } catch (err) {
       return { success: false, error: err.message }
     }

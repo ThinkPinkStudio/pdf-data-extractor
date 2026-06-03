@@ -209,7 +209,9 @@ async function extractTextWithPdfjsSpatial(filePath) {
       if (pageText.trim()) pageTexts.push(pageText.trim())
     }
 
-    const fullText = pageTexts.join('\n\n').trim()
+    // Use \f (form feed) as page separator — same as pdftotext — so page numbers
+    // can be reconstructed later by counting \f chars before a value's position.
+    const fullText = pageTexts.join('\f').trim()
     return fullText.length > 20 ? fullText : null
   } catch (err) {
     console.warn('[polizza] pdfjs extraction failed:', err.message)
@@ -314,8 +316,41 @@ function parseDateFromContextLine(fullText, linePattern) {
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
+ * Restituisce la data più recente trovata nel testo del documento come timestamp
+ * numerico (ms). Cerca nell'ordine: scadenza → decorrenza → prima data GG/MM/AAAA.
+ * Usata per stabilire quale documento è il più recente quando ci sono più file.
+ */
+function extractDocumentDate(text) {
+  const toTimestamp = (dateStr) => {
+    if (!dateStr) return 0
+    const [dd, mm, yyyy] = dateStr.split('/')
+    if (!dd || !mm || !yyyy) return 0
+    return new Date(+yyyy, +mm - 1, +dd).getTime()
+  }
+
+  // 1. Data di scadenza (es. "SCADENZA 31/12/2025") — la più indicativa
+  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scad) return toTimestamp(scad)
+
+  // 2. Data di decorrenza (es. "DECORRENZA 01/01/2024")
+  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (dec) return toTimestamp(dec)
+
+  // 3. Prima data GG/MM/AAAA trovata nel testo
+  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
+  if (any) {
+    return toTimestamp(`${any[1].padStart(2,'0')}/${any[2].padStart(2,'0')}/${any[3]}`)
+  }
+
+  return 0
+}
+
+/**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
  * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
+ *
+ * Regola "file più recente vince": quando un campo è presente in più file,
+ * viene usato il valore del file con la data interna più recente (scadenza/decorrenza).
  *
  * @param {Array<string|{path:string,type:string}>} files
  *   Può essere un array di path (string) oppure oggetti { path, type }.
@@ -327,26 +362,14 @@ export async function extractPolizzaFromPDFs(files, settings) {
     typeof f === 'string' ? { path: f, type: 'polizza' } : f
   )
 
-  // Budget TOTALE di contesto (chars) per tutti i documenti non-CGA combinati.
-  // Ogni provider LLM ha una finestra di contesto diversa:
-  //   Anthropic Claude: ~200K token context → 180K chars
-  //   OpenAI GPT-4o/mini: ~128K token context → 100K chars
-  //   Ollama (locale): configurabile, spesso 32K-128K token → usiamo 60K chars conservativi
-  //                    (num_ctx viene impostato a 65536 nella chiamata Ollama)
-  //
-  // I documenti non-CGA vengono inviati INTERI nell'ordine di priorità finché
-  // c'è budget. Il LLM trova i dati indipendentemente da: lingua, formato numeri,
-  // ordine delle pagine, terminologia. Il CGA è sempre limitato a 600 chars.
   const provider = settings.llmProvider || 'ollama'
   const TOTAL_BUDGET = provider === 'anthropic' ? 180000
                      : provider === 'openai'    ? 100000
-                     :                             60000   // ollama e altri
+                     :                             60000
   const CGA_MAX    = 600
-
-  // Ordine di priorità per il consumo del budget (polizza prima, cga alla fine)
   const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
 
-  // 1. Estrai testo da tutti i PDF
+  // 1. Estrai testo da tutti i PDF, leggi la data interna del documento
   const allTexts = []
 
   for (const { path: fp, type = 'polizza' } of normalizedFiles) {
@@ -372,11 +395,14 @@ export async function extractPolizzaFromPDFs(files, settings) {
     }
 
     if (text && text.trim().length > 5) {
-      allTexts.push({ path: fp, type: type || 'polizza', text })
+      // Usa la data trovata nel contenuto del documento come indicatore di "recenza"
+      // (es. la data di scadenza/decorrenza), non la data di modifica del file.
+      const docDate = extractDocumentDate(text)
+      allTexts.push({ path: fp, type: type || 'polizza', text, docDate })
     }
   }
 
-  // Traccia i file senza testo estratto (PDF scansionati = solo immagini, nessun layer testo)
+  // Traccia i file senza testo estratto (PDF scansionati = solo immagini)
   const scannedFiles = normalizedFiles
     .filter(f => !allTexts.find(t => t.path === f.path))
     .map(f => ({ path: f.path, type: f.type || 'polizza' }))
@@ -389,24 +415,21 @@ export async function extractPolizzaFromPDFs(files, settings) {
   }
 
   if (allTexts.length === 0) {
-    // Tutti i file sono scansionati → restituisci dati vuoti con scannedFiles
-    // Il renderer triggererà la vision extraction
-    return { data: {}, scannedFiles }
+    return { data: {}, scannedFiles, sources: {} }
   }
 
-  // 2. Ordina per importanza: polizza principale prima, CGA ultima
+  // 2. Ordina per tipo (priorità), poi per data interna crescente (documento più vecchio
+  //    prima → documento più recente alla fine). Il LLM vede l'aggiornamento più recente
+  //    per ultimo e tende a privilegiarlo in caso di valori contrastanti.
   allTexts.sort((a, b) => {
     const ai = TYPE_ORDER.indexOf(a.type)
     const bi = TYPE_ORDER.indexOf(b.type)
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+    const typeDiff = (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+    if (typeDiff !== 0) return typeDiff
+    return (a.docDate || 0) - (b.docDate || 0)  // stesso tipo: data doc più vecchia prima
   })
 
-  // 3. Tronca al budget per tipo. Per polizza/appendice/allegato il testo viene
-  //    inviato grezzo al LLM (nessun filtro keyword). Il CGA viene filtrato perché
-  //    è boilerplate puro (>200K chars) che monopolizzerebbe il contesto.
-  // 3. Costruisci il testo da inviare al LLM.
-  //    - Documenti non-CGA: testo integro, nell'ordine di priorità, fino a TOTAL_BUDGET
-  //    - CGA: sempre limitato a CGA_MAX chars (boilerplate con valori generici)
+  // 3. Costruisci il testo da inviare al LLM
   const excerpts = []
   let remainingBudget = TOTAL_BUDGET
 
@@ -415,7 +438,6 @@ export async function extractPolizzaFromPDFs(files, settings) {
     if (type === 'cga') {
       excerpt = filterCGA(text, CGA_MAX)
     } else {
-      // Testo integro, ma non sforare il budget residuo
       if (remainingBudget <= 0) {
         console.log(`[polizza] skip [${type}] ${fp.split('/').pop()}: budget esaurito`)
         continue
@@ -429,12 +451,16 @@ export async function extractPolizzaFromPDFs(files, settings) {
 
   const combinedText = excerpts.join('\n\n')
 
-  // 4. Estrazione rapida con regex (alta affidabilità)
-  const regexResult = extractFieldsWithRegex(combinedText)
+  // 4. Estrazione rapida con regex — eseguita per-file, mtime crescente → file più recente vince
+  const regexResult = {}
+  for (const { text } of allTexts) {
+    const r = extractFieldsWithRegex(text)
+    Object.assign(regexResult, r)  // file più recente (elaborato dopo) sovrascrive il precedente
+  }
   const regexFound = Object.keys(regexResult).filter(k => regexResult[k])
   console.log(`[polizza] Regex: ${regexFound.length} campi trovati:`, regexFound)
 
-  // 5. Chiedi al LLM i campi ancora mancanti
+  // 5. LLM per i campi ancora mancanti
   const configuredFields = (settings.polizzaFields && settings.polizzaFields.length > 0)
     ? settings.polizzaFields
     : ALL_POLIZZA_FIELDS
@@ -443,7 +469,6 @@ export async function extractPolizzaFromPDFs(files, settings) {
 
   let llmResult = {}
   if (missingFields.length > 0 && settings.llmProvider !== 'none') {
-    // combinedText è già filtrato per budget — nessun secondo filtraggio necessario
     console.log(
       `[polizza] LLM: ${missingFields.length} campi da estrarre, ` +
       `${combinedText.length} chars testo rilevante`
@@ -457,8 +482,43 @@ export async function extractPolizzaFromPDFs(files, settings) {
     }
   }
 
-  // 5. Merge: regex ha priorità, LLM completa il resto
-  return { data: { ...llmResult, ...regexResult }, scannedFiles }
+  // 6. Merge: regex ha priorità, LLM completa il resto
+  const data = { ...llmResult, ...regexResult }
+
+  // 7. Calcola sorgente (file + pagina) per ogni campo estratto
+  const sources = {}
+  for (const [fieldId, value] of Object.entries(data)) {
+    if (value === null || value === undefined || value === '') continue
+    const src = findValueSource(String(value), allTexts)
+    if (src) sources[fieldId] = src
+  }
+
+  return { data, scannedFiles, sources }
+}
+
+/**
+ * Cerca il valore estratto nei testi per-file e restituisce { file, page }.
+ * Cerca dal file più recente (ultimo nell'array) verso il più vecchio in modo
+ * che la sorgente riportata sia quella del documento con data più recente.
+ */
+function findValueSource(value, allTexts) {
+  const needle = value.toLowerCase().trim()
+  if (needle.length < 3) return null
+
+  for (let i = allTexts.length - 1; i >= 0; i--) {
+    const { path, text } = allTexts[i]
+    const lower = text.toLowerCase()
+    const pos = lower.indexOf(needle)
+    if (pos === -1) continue
+
+    // Conta i separatori di pagina prima della posizione trovata.
+    // Sia pdftotext (\f) che pdfjs (\f dopo la modifica) usano lo stesso separatore.
+    const before = text.slice(0, pos)
+    const pageNum = (before.match(/\f/g) || []).length + 1
+
+    return { file: path.split(/[\\/]/).pop(), page: pageNum }
+  }
+  return null
 }
 
 // ─── Prompt specializzato per polizze RC ─────────────────────────────────────
@@ -467,12 +527,10 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
   if (fields.length === 0) return {}
 
   const provider = settings.llmProvider || 'ollama'
+  const promptExtra = (settings.polizzaPromptExtra || '').trim()
 
-  // Template JSON vuoto che il modello deve riempire
-  // Molto più semplice per i modelli locali rispetto a liste descrittive
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
 
-  // Guida concisa ai campi (usata solo nei prompt cloud dove c'è più contesto)
   const fieldGuide = fields
     .map(f => `${f.id}: ${f.label} (es. ${f.description.match(/es\.\s*[^)]+/)?.[0] || f.description.slice(0, 60)})`)
     .join('\n')
@@ -482,19 +540,24 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
     'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
-  // Prompt ottimizzato per Ollama: testo prima, template JSON dopo
-  // Il modello deve solo sostituire i "null" con i valori trovati
+  // Istruzione "file più recente vince" aggiunta ai prompt (i documenti sono
+  // ordinati dal più vecchio al più recente nel testo sopra)
+  const newestWinsRule =
+    '- Se un dato appare in più documenti, usa il valore del documento più recente ' +
+    '(quello riportato per ultimo nel testo sopra)\n'
+
+  const extraSection = promptExtra ? `\nISTRUZIONI AGGIUNTIVE:\n${promptExtra}\n` : ''
+
   const ollamaPrompt =
 `DOCUMENTO ASSICURATIVO:
 ${contextText}
 
 Leggi il documento e compila il JSON seguente.
 Sostituisci null con il valore trovato nel documento, lascia null se non presente.
-Rispondi SOLO con il JSON compilato:
+${newestWinsRule}${extraSection}Rispondi SOLO con il JSON compilato:
 
 ${jsonTemplate}`
 
-  // Prompt più ricco per i provider cloud (maggiore capacità)
   const cloudPrompt =
 `Estrai i dati dal documento assicurativo italiano e compila il JSON.
 
@@ -509,8 +572,7 @@ Regole:
 - Date: formato GG/MM/AAAA
 - RCT = sezione "RC verso Terzi e Prestatori di Lavoro"
 - RCP = sezione "RC Prodotti"
-- null se il campo non è nel documento
-
+- ${newestWinsRule}- null se il campo non è nel documento${extraSection}
 Compila e restituisci SOLO questo JSON:
 ${jsonTemplate}`
 
