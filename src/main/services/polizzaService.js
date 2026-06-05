@@ -10,7 +10,7 @@
  * 3. pdf-parse – ultimo fallback generico
  */
 
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync } from 'fs'
 import { execSync } from 'child_process'
 import { loadPDF } from './pdfService.js'
 
@@ -883,7 +883,10 @@ export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
   const fields = fieldsConfig || [...RCT_FIELDS, ...RCP_FIELDS]
   const wb = new ExcelJS.Workbook()
 
-  for (const sheetName of ['RCT_O', 'RCP']) {
+  const sheetNames = [...new Set(fields.map(f => f.sheet).filter(Boolean))]
+  if (sheetNames.length === 0) sheetNames.push('RCT_O', 'RCP')
+
+  for (const sheetName of sheetNames) {
     const ws = wb.addWorksheet(sheetName)
     ws.columns = [
       { header: 'Campo',  key: 'campo',  width: 45 },
@@ -894,8 +897,7 @@ export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
     }
   }
 
-  const buf = await wb.xlsx.writeBuffer()
-  writeFileSync(filePath, buf)
+  await wb.xlsx.writeFile(filePath)
 }
 
 // ─── Export su template Excel esistente ──────────────────────────────────────
@@ -944,8 +946,7 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
     }
   }
 
-  const buf = await wb.xlsx.writeBuffer()
-  writeFileSync(outputPath, buf)
+  await wb.xlsx.writeFile(outputPath)
 }
 
 /**
@@ -1114,6 +1115,5 @@ export async function exportApprovedChanges(templatePath, outputPath, approvedCh
     ws.getCell(change.cell).value = numVal !== null ? numVal : String(change.newValue)
   }
 
-  const buf = await wb.xlsx.writeBuffer()
-  writeFileSync(outputPath, buf)
+  await wb.xlsx.writeFile(outputPath)
 }

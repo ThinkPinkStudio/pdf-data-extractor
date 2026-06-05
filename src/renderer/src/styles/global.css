@@ -237,6 +237,12 @@ body {
   flex-shrink: 0;
 }
 
+.nav-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sidebar-footer {
   padding: 14px 16px;
   border-top: 1px solid var(--c-border);
