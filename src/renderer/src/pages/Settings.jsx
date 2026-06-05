@@ -22,6 +22,116 @@ const IconRefresh = () => (
 
 const FIELD_TYPES = ['text', 'number', 'date', 'email', 'phone', 'iva', 'cf', 'url']
 
+export const DEFAULT_POLIZZA_TYPES = [
+  { id: 'RCT_O', label: 'RC Terzi / Operai' },
+  { id: 'RCP',   label: 'RC Prodotti' }
+]
+
+// ─── Gestione tipi di polizza ─────────────────────────────────────────────────
+
+function PolizzaTypesSection({ types, onChange }) {
+  const [newId, setNewId] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+
+  const addType = () => {
+    const id = newId.trim().toUpperCase().replace(/\s+/g, '_')
+    const label = newLabel.trim()
+    if (!id || !label) return
+    if (types.some(t => t.id === id)) return
+    onChange([...types, { id, label }])
+    setNewId('')
+    setNewLabel('')
+  }
+
+  const deleteType = (id) => {
+    if (types.length <= 1) return
+    onChange(types.filter(t => t.id !== id))
+  }
+
+  const updateLabel = (id, label) => {
+    onChange(types.map(t => t.id === id ? { ...t, label } : t))
+  }
+
+  return (
+    <section className="card-section" aria-labelledby="section-polizza-types">
+      <h2 className="section-title" id="section-polizza-types">Tipi di Polizza (Tab)</h2>
+      <p className="section-desc">Definisci i tipi di copertura — ogni tipo diventa un tab nella pagina Polizze RC.</p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {types.map(t => (
+          <div key={t.id} style={{
+            display: 'grid',
+            gridTemplateColumns: '90px 1fr 28px',
+            gap: 8,
+            alignItems: 'center',
+            padding: '5px 0',
+            borderBottom: '1px solid var(--c-border)'
+          }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              fontWeight: 700,
+              color: 'var(--c-accent)',
+              padding: '3px 6px',
+              background: 'var(--c-accent-faint)',
+              borderRadius: 'var(--r-sm)'
+            }}>{t.id}</span>
+            <input
+              className="field-input-sm"
+              value={t.label}
+              onChange={e => updateLabel(t.id, e.target.value)}
+              placeholder="Etichetta tab"
+              style={{ width: '100%' }}
+            />
+            <button
+              className="btn-danger"
+              onClick={() => deleteType(t.id)}
+              disabled={types.length <= 1}
+              title="Elimina tipo"
+              style={{ padding: '4px 6px' }}
+            >
+              <IconTrash />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 3 }}>ID (es. INCENDIO)</div>
+          <input
+            className="field-input-sm"
+            value={newId}
+            onChange={e => setNewId(e.target.value.toUpperCase())}
+            placeholder="INCENDIO"
+            style={{ width: 110, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}
+            onKeyDown={e => e.key === 'Enter' && addType()}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 3 }}>Etichetta</div>
+          <input
+            className="field-input-sm"
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            placeholder="es. Incendio / Kasko"
+            style={{ width: 200 }}
+            onKeyDown={e => e.key === 'Enter' && addType()}
+          />
+        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={addType}
+          disabled={!newId.trim() || !newLabel.trim()}
+        >
+          <IconPlus />
+          Aggiungi tipo
+        </button>
+      </div>
+    </section>
+  )
+}
+
 // ─── Default Polizza RC fields (CSA preset) ───────────────────────────────────
 const DEFAULT_POLIZZA_FIELDS = [
   { id: 'polizza_numero', label: 'N° Polizza', description: 'Numero di polizza (es. 410000880)', type: 'text', sheet: 'RCT_O', enabled: true,
@@ -99,7 +209,8 @@ function parseCells(str) {
   }).filter(Boolean)
 }
 
-function PolizzaFieldRow({ field, onChange, onDelete }) {
+function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
+  const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
   const [cellsRaw, setCellsRaw] = useState(formatCells(field.cells))
   const lastFieldId = useRef(field.id)
 
@@ -155,13 +266,14 @@ function PolizzaFieldRow({ field, onChange, onDelete }) {
 
       <select
         className="field-input-sm"
-        value={field.sheet || 'RCT_O'}
+        value={field.sheet || (types[0]?.id || 'RCT_O')}
         onChange={e => onChange({ ...field, sheet: e.target.value })}
         aria-label="Tab UI"
         style={{ width: '100%' }}
       >
-        <option value="RCT_O">RCT_O</option>
-        <option value="RCP">RCP</option>
+        {types.map(t => (
+          <option key={t.id} value={t.id}>{t.id}</option>
+        ))}
       </select>
 
       <input
@@ -198,7 +310,9 @@ function PolizzaFieldRow({ field, onChange, onDelete }) {
   )
 }
 
-function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange }) {
+function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange, polizzaTypes }) {
+  const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
+
   const updateField = (updated) => {
     onChange(fields.map(f => f.id === updated.id ? updated : f))
   }
@@ -215,7 +329,7 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
         label: '',
         description: '',
         type: 'text',
-        sheet: 'RCT_O',
+        sheet: types[0]?.id || 'RCT_O',
         enabled: true,
         cells: []
       }
@@ -277,6 +391,7 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
                 field={field}
                 onChange={updateField}
                 onDelete={deleteField}
+                polizzaTypes={types}
               />
             ))}
           </div>
@@ -959,9 +1074,18 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
 
         <div className="sep" />
 
+        {/* Polizza RC: Tipi (Tab) */}
+        <PolizzaTypesSection
+          types={settings.polizzaTypes || DEFAULT_POLIZZA_TYPES}
+          onChange={types => setSettings(s => ({ ...s, polizzaTypes: types }))}
+        />
+
+        <div className="sep" />
+
         {/* Polizza RC Fields */}
         <PolizzaFieldsSection
           fields={settings.polizzaFields || []}
+          polizzaTypes={settings.polizzaTypes || DEFAULT_POLIZZA_TYPES}
           onChange={fields => setSettings(s => ({ ...s, polizzaFields: fields }))}
           promptExtra={settings.polizzaPromptExtra || ''}
           onPromptExtraChange={val => setSettings(s => ({ ...s, polizzaPromptExtra: val }))}

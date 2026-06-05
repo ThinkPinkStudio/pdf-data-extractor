@@ -55,6 +55,11 @@ const defaultSettings = {
   ],
   // Polizza RC: extra prompt instructions appended to the LLM extraction prompt
   polizzaPromptExtra: '',
+  // Polizza RC: tipi di polizza (tab nel pannello risultati)
+  polizzaTypes: [
+    { id: 'RCT_O', label: 'RC Terzi / Operai' },
+    { id: 'RCP',   label: 'RC Prodotti' }
+  ],
   // Polizza RC fields configuration
   polizzaFields: [
     { id: 'polizza_numero', label: 'N° Polizza', description: 'Numero di polizza (es. 410000880)', type: 'text', sheet: 'RCT_O', enabled: true,
@@ -138,6 +143,10 @@ export function getSettings() {
     // Ensure extractions have type field
     if (Array.isArray(merged.extractions)) {
       merged.extractions = merged.extractions.map(f => ({ type: 'text', ...f }))
+    }
+    // Migrate: populate polizzaTypes if missing or empty
+    if (!merged.polizzaTypes || merged.polizzaTypes.length === 0) {
+      merged.polizzaTypes = defaultSettings.polizzaTypes
     }
     // Migrate: populate polizzaFields if missing or empty
     if (!merged.polizzaFields || merged.polizzaFields.length === 0) {
