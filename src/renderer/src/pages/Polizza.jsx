@@ -4,50 +4,50 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 
 const IconUpload = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-    <polyline points="17 8 12 3 7 8"/>
-    <line x1="12" y1="3" x2="12" y2="15"/>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
   </svg>
 )
 
 const IconFile = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-    <polyline points="14 2 14 8 20 8"/>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
   </svg>
 )
 
 const IconX = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14" aria-hidden="true">
-    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 )
 
 const IconExcel = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-    <rect x="3" y="3" width="18" height="18" rx="2"/>
-    <path d="M3 9h18M3 15h18M9 3v18"/>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 9h18M3 15h18M9 3v18" />
   </svg>
 )
 
 const IconCheck = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
-    <polyline points="20 6 9 17 4 12"/>
+    <polyline points="20 6 9 17 4 12" />
   </svg>
 )
 
 const IconSpinner = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }}>
-    <circle cx="12" cy="12" r="10" strokeOpacity="0.25"/>
-    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/>
+    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
   </svg>
 )
 
 const IconMap = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
-    <line x1="8" y1="2" x2="8" y2="18"/>
-    <line x1="16" y1="6" x2="16" y2="22"/>
+    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+    <line x1="8" y1="2" x2="8" y2="18" />
+    <line x1="16" y1="6" x2="16" y2="22" />
   </svg>
 )
 
@@ -57,17 +57,17 @@ const TAB_ICONS = ['🔵', '🟢', '🟠', '🟡', '🟣', '🔴']
 // ─── Etichette dei tipi documento ────────────────────────────────────────────
 
 const DOC_TYPES = [
-  { id: 'polizza',     label: 'Polizza principale',        hint: 'Es. Polizza_RCTOP.pdf — frontespizio con premi e massimali' },
-  { id: 'appendice',  label: 'App. rinnovo / variazione', hint: 'Es. App_rinnovo_2024.pdf, App_R4_per_premio.pdf' },
-  { id: 'allegato',   label: 'App. n.1 / allegati',       hint: 'Es. App.n._1_polizza.pdf — condizioni particolari' },
-  { id: 'cga',        label: 'Condizioni generali (CGA)', hint: 'Es. CGA_PMI_GENERAIMPRESA.pdf (opzionale, migliora contesto)' }
+  { id: 'polizza', label: 'Polizza principale', hint: 'Es. Polizza_RCTOP.pdf — frontespizio con premi e massimali' },
+  { id: 'appendice', label: 'App. rinnovo / variazione', hint: 'Es. App_rinnovo_2024.pdf, App_R4_per_premio.pdf' },
+  { id: 'allegato', label: 'App. n.1 / allegati', hint: 'Es. App.n._1_polizza.pdf — condizioni particolari' },
+  { id: 'cga', label: 'Condizioni generali (CGA)', hint: 'Es. CGA_PMI_GENERAIMPRESA.pdf (opzionale, migliora contesto)' }
 ]
 
 // ─── Campi per i due fogli ────────────────────────────────────────────────────
 
 const SHEET_LABELS = {
   'RCT_O': 'RC verso Terzi e verso Operai (RCT_O)',
-  'RCP':   'RC Prodotti (RCP)'
+  'RCP': 'RC Prodotti (RCP)'
 }
 
 // ─── Componente principale ────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export default function Polizza({ visible }) {
   const [error, setError] = useState(null)
   const [polizzaTypes, setPolizzaTypes] = useState([
     { id: 'RCT_O', label: 'RC Terzi / Operai' },
-    { id: 'RCP',   label: 'RC Prodotti' }
+    { id: 'RCP', label: 'RC Prodotti' }
   ])
   const [activeTab, setActiveTab] = useState('RCT_O')
   const [exporting, setExporting] = useState(false)
@@ -112,14 +112,14 @@ export default function Polizza({ visible }) {
   // Carica (o ricarica) i campi e i tipi ogni volta che la pagina diventa visibile
   useEffect(() => {
     if (visible === false) return
-    window.electronAPI.polizzaGetFields().then(setFields).catch(() => {})
-    window.electronAPI.polizzaGetDefaultMapping().then(setDefaultMapping).catch(() => {})
+    window.electronAPI.polizzaGetFields().then(setFields).catch(() => { })
+    window.electronAPI.polizzaGetDefaultMapping().then(setDefaultMapping).catch(() => { })
     window.electronAPI.polizzaGetTypes().then(types => {
       if (types?.length) {
         setPolizzaTypes(types)
         setActiveTab(prev => types.some(t => t.id === prev) ? prev : types[0].id)
       }
-    }).catch(() => {})
+    }).catch(() => { })
   }, [visible])
 
   // ─── Drag & drop ────────────────────────────────────────────────────────────
@@ -809,7 +809,7 @@ export default function Polizza({ visible }) {
 
       {/* Header */}
       <div className="polizza-header">
-        <h1>🛡️ Polizze RC</h1>
+        <h1>🛡️ Polizze</h1>
         <p>Estrazione automatica dati da polizze Responsabilità Civile (RCT/O/P) · fogli Excel RCT_O e RCP</p>
       </div>
 
@@ -892,13 +892,13 @@ export default function Polizza({ visible }) {
               <div className="polizza-template-label">Gestionale Excel (opzionale)</div>
               {templateName
                 ? <>
-                    <div className="polizza-template-file"><IconExcel /> {templateName}</div>
-                    {templateStructure && polizzaTypes.some(t => Object.keys(templateStructure).includes(t.id)) && (
-                      <div style={{ fontSize: '10px', color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <IconCheck /> Gestionale CSA riconosciuto — mappatura automatica attiva
-                      </div>
-                    )}
-                  </>
+                  <div className="polizza-template-file"><IconExcel /> {templateName}</div>
+                  {templateStructure && polizzaTypes.some(t => Object.keys(templateStructure).includes(t.id)) && (
+                    <div style={{ fontSize: '10px', color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <IconCheck /> Gestionale CSA riconosciuto — mappatura automatica attiva
+                    </div>
+                  )}
+                </>
                 : <div style={{ fontSize: '11px', color: 'var(--c-text-muted)' }}>Nessun template caricato</div>
               }
               <button className="btn-secondary" style={{ fontSize: '11px', padding: '6px 10px' }} onClick={handleLoadTemplate}>
@@ -942,15 +942,15 @@ export default function Polizza({ visible }) {
                 alignItems: 'center',
                 gap: '6px',
                 background: visionMsg === 'done' ? 'rgba(34,197,94,0.08)' :
-                            visionMsg === 'error' ? 'rgba(239,68,68,0.08)' :
-                            'rgba(59,130,246,0.08)',
+                  visionMsg === 'error' ? 'rgba(239,68,68,0.08)' :
+                    'rgba(59,130,246,0.08)',
                 border: '1px solid',
                 borderColor: visionMsg === 'done' ? 'rgba(34,197,94,0.25)' :
-                             visionMsg === 'error' ? 'rgba(239,68,68,0.25)' :
-                             'rgba(59,130,246,0.25)',
+                  visionMsg === 'error' ? 'rgba(239,68,68,0.25)' :
+                    'rgba(59,130,246,0.25)',
                 color: visionMsg === 'done' ? 'var(--c-success)' :
-                       visionMsg === 'error' ? 'var(--c-error)' :
-                       'var(--c-info)'
+                  visionMsg === 'error' ? 'var(--c-error)' :
+                    'var(--c-info)'
               }}>
                 {visionExtracting && <IconSpinner />}
                 {visionMsg === 'extracting' && 'OCR visivo in corso…'}
@@ -1012,7 +1012,7 @@ export default function Polizza({ visible }) {
             {!extracted && !extracting && (
               <div className="polizza-empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="52" height="52">
-                  <path d="M9 12h6M9 16h6M17 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V8l-4-6z"/>
+                  <path d="M9 12h6M9 16h6M17 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V8l-4-6z" />
                 </svg>
                 <h3>Nessun dato estratto</h3>
                 <p>Carica i PDF della polizza e premi «Estrai dati polizza»</p>
@@ -1090,11 +1090,11 @@ function ExtractedTable({ fields, data, sources, onUpdate }) {
                 {isEmpty
                   ? <span style={{ color: 'var(--c-text-muted)', fontStyle: 'italic' }}>—</span>
                   : <input
-                      className="editable-cell"
-                      value={val ?? ''}
-                      onChange={e => onUpdate(f.id, e.target.value)}
-                      aria-label={f.label}
-                    />
+                    className="editable-cell"
+                    value={val ?? ''}
+                    onChange={e => onUpdate(f.id, e.target.value)}
+                    aria-label={f.label}
+                  />
                 }
               </td>
               <td style={{
@@ -1212,12 +1212,12 @@ function MappingModal({ fields, mapping, defaultMapping, useAutoMapping, templat
                     <td>
                       {useAutoMapping
                         ? <span style={{
-                            fontSize: '10px',
-                            color: autoTargets.length > 0 ? 'var(--c-success)' : 'var(--c-text-muted)',
-                            fontFamily: 'var(--font-mono)'
-                          }}>
-                            {autoDesc}
-                          </span>
+                          fontSize: '10px',
+                          color: autoTargets.length > 0 ? 'var(--c-success)' : 'var(--c-text-muted)',
+                          fontFamily: 'var(--font-mono)'
+                        }}>
+                          {autoDesc}
+                        </span>
                         : null
                       }
                       {!useAutoMapping &&
@@ -1389,11 +1389,11 @@ function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }
                     <div style={{ padding: '10px 4px', textAlign: 'center' }}>
                       {isChanged
                         ? <span style={{ fontSize: '9px', padding: '2px 5px', background: 'rgba(245,158,11,0.15)', color: 'var(--c-warning)', borderRadius: 'var(--r-full)', fontWeight: 700 }}>
-                            AGGIORNA
-                          </span>
+                          AGGIORNA
+                        </span>
                         : <span style={{ fontSize: '9px', padding: '2px 5px', background: 'rgba(107,114,128,0.12)', color: 'var(--c-text-muted)', borderRadius: 'var(--r-full)' }}>
-                            invariato
-                          </span>
+                          invariato
+                        </span>
                       }
                     </div>
 
