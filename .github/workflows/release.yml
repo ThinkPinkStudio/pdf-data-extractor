@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   build:
+    if: startsWith(github.event.head_commit.message, 'chore: bump version')
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +65,7 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.zip
+            dist/*.yml
           if-no-files-found: warn
 
   release:
@@ -91,7 +93,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.pkg.outputs.version }}-${{ steps.sha.outputs.short }}
-          name: Portafoglio Compare v${{ steps.pkg.outputs.version }}
+          name: PDF Data Extractor v${{ steps.pkg.outputs.version }}
           body: |
             Build automatica dal commit `${{ steps.sha.outputs.short }}`.
 
