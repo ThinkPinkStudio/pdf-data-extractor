@@ -21,6 +21,9 @@ const defaultSettings = {
   // Webhook
   webhookEnabled: false,
   webhookPort: 3847,
+  webhookToken: '',
+  // Privacy / data retention
+  sessionRetentionDays: 90,
   // Notifications
   notificationsEnabled: true,
   extractions: [

@@ -1,4 +1,4 @@
-import { useState, useEffect, useId, useRef } from 'react'
+import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const IconPlus = () => (
@@ -21,6 +21,41 @@ const IconRefresh = () => (
 )
 
 const FIELD_TYPES = ['text', 'number', 'date', 'email', 'phone', 'iva', 'cf', 'url']
+
+function WebhookTokenField({ token }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(token).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [token])
+
+  return (
+    <div className="form-group" style={{ marginTop: 8 }}>
+      <label className="form-label">{t('compliance.webhookToken')}</label>
+      <div className="flex gap-2">
+        <input
+          className="form-input"
+          type="text"
+          value={token}
+          readOnly
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, flex: 1 }}
+          aria-label={t('compliance.webhookToken')}
+        />
+        <button className="btn btn-secondary" onClick={handleCopy} style={{ flexShrink: 0, fontSize: 12 }}>
+          {copied ? t('compliance.webhookTokenCopied') : t('compliance.webhookTokenCopy')}
+        </button>
+      </div>
+      <p className="text-muted text-sm" style={{ marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+        {t('compliance.webhookTokenHeader')}
+      </p>
+      <p className="text-muted text-sm">{t('compliance.webhookTokenDesc')}</p>
+    </div>
+  )
+}
 
 export const DEFAULT_POLIZZA_TYPES = [
   { id: 'RCT_O', label: 'RC Terzi / Operai' },
@@ -742,6 +777,12 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 <option value="anthropic">{t('settings.providerAnthropic')}</option>
               </select>
             </div>
+            {(settings.llmProvider === 'openai' || settings.llmProvider === 'anthropic') && (
+              <div className="alert alert-warning" role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <strong>{t('compliance.gdprCloudWarningTitle')}</strong>
+                <span>{t('compliance.gdprCloudWarning', { provider: settings.llmProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -987,6 +1028,9 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
             <p className="text-muted text-sm" style={{ fontFamily: 'var(--font-mono)' }}>
               {t('settings.webhookInfo')}
             </p>
+            {settings.webhookEnabled && settings.webhookToken && (
+              <WebhookTokenField token={settings.webhookToken} />
+            )}
           </div>
         </section>
 
@@ -1009,6 +1053,32 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
               <span className="toggle-track"><span className="toggle-thumb" /></span>
             </label>
             <span>{t('settings.notificationsEnabled')}</span>
+          </div>
+        </section>
+
+        <div className="sep" />
+
+        {/* Privacy / Data Retention */}
+        <section className="card-section" aria-labelledby="section-privacy">
+          <h2 className="section-title" id="section-privacy">{t('compliance.sectionPrivacy')}</h2>
+          <p className="section-desc">{t('compliance.sectionPrivacyDesc')}</p>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="retention-days">{t('compliance.retentionDays')}</label>
+            <input
+              id="retention-days"
+              className="form-input"
+              type="number"
+              min="0"
+              max="365"
+              value={settings.sessionRetentionDays ?? 90}
+              onChange={e => setSettings(s => ({ ...s, sessionRetentionDays: parseInt(e.target.value, 10) || 0 }))}
+              style={{ maxWidth: 100 }}
+              aria-label={t('compliance.retentionDays')}
+            />
+            <p className="text-muted text-sm" style={{ marginTop: 4 }}>
+              {t('compliance.retentionDaysHint')}
+            </p>
           </div>
         </section>
 

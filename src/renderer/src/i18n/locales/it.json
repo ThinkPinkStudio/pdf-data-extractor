@@ -187,6 +187,20 @@
     "cfLabel": "CF",
     "cfNumber": "GLLFNC89C28Z611W"
   },
+  "compliance": {
+    "gdprCloudWarningTitle": "Attenzione GDPR",
+    "gdprCloudWarning": "Utilizzando {{provider}}, il testo dei PDF — inclusi eventuali dati personali (nomi, codici fiscali, indirizzi) — verrà trasmesso a server di {{provider}} al di fuori dell'UE. Prima di processare documenti con dati di terzi verifica di avere una base giuridica valida (GDPR Art. 6) e un Data Processing Agreement (DPA) stipulato con {{provider}}.",
+    "aiDisclaimer": "Risultati generati da AI — verificare sempre prima dell'uso",
+    "sectionPrivacy": "Privacy e Conservazione Dati",
+    "sectionPrivacyDesc": "Gestisci la conservazione automatica delle sessioni. Le sessioni scadute vengono eliminate all'avvio dell'applicazione.",
+    "retentionDays": "Conserva le sessioni per (giorni)",
+    "retentionDaysHint": "Inserisci 0 per disabilitare la pulizia automatica.",
+    "webhookToken": "Token di autenticazione API",
+    "webhookTokenDesc": "Includi questo token in ogni richiesta all'endpoint /extract.",
+    "webhookTokenHeader": "Header: X-Webhook-Token: <token>",
+    "webhookTokenCopy": "Copia token",
+    "webhookTokenCopied": "Copiato!"
+  },
   "common": {
     "close": "Chiudi",
     "cancel": "Annulla",

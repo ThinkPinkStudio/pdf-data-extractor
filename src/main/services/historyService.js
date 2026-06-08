@@ -82,6 +82,29 @@ export function deleteSession(id) {
   }
 }
 
+export function purgeExpiredSessions(maxAgeDays) {
+  if (!maxAgeDays || maxAgeDays <= 0) return { deleted: 0 }
+  try {
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+    const index = readIndex()
+    const toDelete = index.filter(s => {
+      const ts = new Date(s.createdAt).getTime()
+      return !isNaN(ts) && ts < cutoff
+    })
+    const sessionsDir = getSessionsDir()
+    for (const s of toDelete) {
+      try {
+        const filePath = join(sessionsDir, `${s.id}.json`)
+        if (existsSync(filePath)) unlinkSync(filePath)
+      } catch {}
+    }
+    writeIndex(index.filter(s => !toDelete.some(d => d.id === s.id)))
+    return { deleted: toDelete.length }
+  } catch (err) {
+    return { deleted: 0, error: err.message }
+  }
+}
+
 export function clearAllSessions() {
   try {
     const index = readIndex()
