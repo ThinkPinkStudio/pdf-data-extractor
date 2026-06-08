@@ -1026,12 +1026,25 @@ export default function Polizza({ visible }) {
               </div>
             )}
             {extracted && !extracting && (
-              <ExtractedTable
-                fields={sheetFields}
-                data={extracted}
-                sources={sources}
-                onUpdate={(id, val) => setExtracted(prev => ({ ...prev, [id]: val }))}
-              />
+              <>
+                <div role="note" style={{
+                  margin: '0 0 10px 0',
+                  padding: '7px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(234,179,8,0.1)',
+                  border: '1px solid rgba(234,179,8,0.3)',
+                  color: 'var(--c-text-secondary)',
+                  fontSize: 12
+                }}>
+                  Risultati generati da AI — verificare sempre prima dell&apos;uso
+                </div>
+                <ExtractedTable
+                  fields={sheetFields}
+                  data={extracted}
+                  sources={sources}
+                  onUpdate={(id, val) => setExtracted(prev => ({ ...prev, [id]: val }))}
+                />
+              </>
             )}
           </div>
         </div>

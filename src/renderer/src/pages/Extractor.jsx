@@ -862,6 +862,11 @@ export default function Extractor({ restoredSession, onSessionRestored }) {
                       {extractError}
                     </div>
                   )}
+                  {extracted && (
+                    <div className="alert alert-warning" role="note" style={{ marginBottom: 8, fontSize: 12 }}>
+                      {t('compliance.aiDisclaimer')}
+                    </div>
+                  )}
                   {extracted ? (
                     <dl>
                       {Object.entries(extracted).map(([key, val]) => {

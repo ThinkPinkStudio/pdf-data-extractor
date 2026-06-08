@@ -25,10 +25,32 @@ function sendJSON(res, status, body) {
   res.end(payload)
 }
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || origin === 'null'
+}
+
+function hasValidToken(req, token) {
+  if (!token) return true
+  const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
+  const xToken = req.headers['x-webhook-token'] || ''
+  return auth === token || xToken === token
+}
+
+let serverToken = ''
+
 async function handleRequest(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const origin = req.headers['origin'] || ''
+  const allowOrigin = isAllowedOrigin(origin) ? (origin || 'http://127.0.0.1') : 'http://127.0.0.1'
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Webhook-Token')
+  res.setHeader('Vary', 'Origin')
+
+  if (!isAllowedOrigin(origin) && origin) {
+    sendJSON(res, 403, { error: 'Origin not allowed' })
+    return
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -38,6 +60,11 @@ async function handleRequest(req, res) {
 
   if (req.method === 'GET' && req.url === '/health') {
     sendJSON(res, 200, { status: 'ok', service: 'pdf-extractor', version: '1.0.0' })
+    return
+  }
+
+  if (!hasValidToken(req, serverToken)) {
+    sendJSON(res, 401, { error: 'Unauthorized: missing or invalid token' })
     return
   }
 
@@ -83,8 +110,9 @@ async function handleRequest(req, res) {
   sendJSON(res, 404, { error: 'Not found' })
 }
 
-export function startWebhook(port) {
+export function startWebhook(port, token = '') {
   stopWebhook()
+  serverToken = token || ''
   server = createServer((req, res) => {
     handleRequest(req, res).catch(err => {
       console.error('[webhook] Unhandled error:', err.message)

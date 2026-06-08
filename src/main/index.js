@@ -1,9 +1,11 @@
 import { app, shell, BrowserWindow, protocol, nativeImage } from 'electron'
 import { join } from 'path'
 import { ipcMain } from 'electron'
+import { randomUUID } from 'crypto'
 import { registerHandlers } from './ipc/handlers.js'
 import { startWebhook, stopWebhook } from './services/webhookService.js'
-import { getSettings } from './services/settingsService.js'
+import { getSettings, saveSettings } from './services/settingsService.js'
+import { purgeExpiredSessions } from './services/historyService.js'
 
 function getIconPath() {
   if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
@@ -64,11 +66,19 @@ app.whenReady().then(() => {
   const mainWindow = createWindow()
   registerHandlers(ipcMain, mainWindow)
 
-  // Init webhook if enabled
+  // One-time startup tasks: token generation + session purge
   try {
     const settings = getSettings()
+
+    if (!settings.webhookToken) {
+      settings.webhookToken = randomUUID()
+      saveSettings(settings)
+    }
+
+    try { purgeExpiredSessions(settings.sessionRetentionDays ?? 90) } catch (_) {}
+
     if (settings.webhookEnabled) {
-      startWebhook(settings.webhookPort || 3847)
+      startWebhook(settings.webhookPort || 3847, settings.webhookToken)
     }
   } catch (_) {}
 
@@ -78,7 +88,7 @@ app.whenReady().then(() => {
       const settings = getSettings()
       stopWebhook()
       if (settings.webhookEnabled) {
-        startWebhook(settings.webhookPort || 3847)
+        startWebhook(settings.webhookPort || 3847, settings.webhookToken)
       }
     } catch (_) {}
   })
