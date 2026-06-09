@@ -1146,8 +1146,9 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
 
   let state = initRollingState(activeFields)
   const scannedFiles = []
+  let totalPagesProcessed = 0
 
-  const notify = (extra) => onProgress?.({ state, ...extra })
+  const notify = (extra) => onProgress?.({ state, totalPagesProcessed, ...extra })
 
   for (let docIdx = 0; docIdx < normalizedFiles.length; docIdx++) {
     const { path: filePath, type: docType } = normalizedFiles[docIdx]
@@ -1170,6 +1171,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
         tail = batch[batch.length - 1].slice(-300)
 
         const pageEnd = Math.min(i + BATCH_SIZE, totalPages)
+        totalPagesProcessed += batch.length
         notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageEnd, pageTotal: totalPages, docName })
 
         state = await callRollingLLMText(settings, state, docType, batchText)
@@ -1193,6 +1195,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             const batchText = tail ? `${tail}\n---\n${pageBatch.join('\n---\n')}` : pageBatch.join('\n---\n')
             tail = pageBatch[pageBatch.length - 1].slice(-300)
 
+            totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
             state = await callRollingLLMText(settings, state, docType, batchText)

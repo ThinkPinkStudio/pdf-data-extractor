@@ -245,6 +245,7 @@ export default function Polizza({ visible }) {
     }
 
     let currentState = { ...initialRollingState }
+    let totalPagesProcessed = 0
 
     try {
       for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
@@ -269,12 +270,14 @@ export default function Polizza({ visible }) {
         console.log(`[vision:rolling] ${docName}: ${totalPages} pagine`)
 
         for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+          totalPagesProcessed++
           setRollingProgress({
             docIndex: sfIdx,
             docTotal: scannedFilesList.length,
             pageIndex: pageNum,
             pageTotal: totalPages,
             docName,
+            totalPagesProcessed,
             state: currentState
           })
 
@@ -1064,11 +1067,22 @@ export default function Polizza({ visible }) {
                 <IconSpinner />
                 <h3>Estrazione in corso…</h3>
                 {rollingProgress ? (
-                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-secondary)', lineHeight: 1.6 }}>
-                    {rollingProgress.docName}<br />
-                    Doc {rollingProgress.docIndex + 1}/{rollingProgress.docTotal}
-                    {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
-                  </p>
+                  <>
+                    <div style={{ width: 220, height: 4, background: 'rgba(59,130,246,0.15)', borderRadius: 2, margin: '8px auto 10px' }}>
+                      <div style={{
+                        width: `${Math.round(((rollingProgress.docIndex) / rollingProgress.docTotal) * 100)}%`,
+                        height: '100%', background: 'var(--c-info)', borderRadius: 2, transition: 'width 0.4s'
+                      }} />
+                    </div>
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-secondary)', lineHeight: 1.8 }}>
+                      {rollingProgress.docName}<br />
+                      File {rollingProgress.docIndex + 1} di {rollingProgress.docTotal}
+                      {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                      {(rollingProgress.totalPagesProcessed > 0) && (
+                        <><br />{rollingProgress.totalPagesProcessed} pagine elaborate</>
+                      )}
+                    </p>
+                  </>
                 ) : (
                   <p>L&apos;AI sta analizzando i documenti di polizza</p>
                 )}
@@ -1079,21 +1093,31 @@ export default function Polizza({ visible }) {
                 {(extracting || visionExtracting) && rollingProgress && (
                   <div style={{
                     margin: '0 0 8px 0',
-                    padding: '6px 10px',
                     borderRadius: 6,
                     background: 'rgba(59,130,246,0.07)',
                     border: '1px solid rgba(59,130,246,0.2)',
                     fontSize: 11,
                     color: 'var(--c-info)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontFamily: 'var(--font-mono)'
+                    fontFamily: 'var(--font-mono)',
+                    overflow: 'hidden'
                   }}>
-                    <IconSpinner />
-                    {rollingProgress.docName}
-                    {' · '}Doc {rollingProgress.docIndex + 1}/{rollingProgress.docTotal}
-                    {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                    <div style={{
+                      height: 3,
+                      background: 'rgba(59,130,246,0.15)'
+                    }}>
+                      <div style={{
+                        width: `${Math.round(((rollingProgress.docIndex) / rollingProgress.docTotal) * 100)}%`,
+                        height: '100%', background: 'var(--c-info)', transition: 'width 0.4s'
+                      }} />
+                    </div>
+                    <div style={{ padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <IconSpinner />
+                      <span>
+                        File {rollingProgress.docIndex + 1}/{rollingProgress.docTotal} · {rollingProgress.docName}
+                        {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                        {rollingProgress.totalPagesProcessed > 0 && ` · ${rollingProgress.totalPagesProcessed} pag. elaborate`}
+                      </span>
+                    </div>
                   </div>
                 )}
                 <div role="note" style={{
