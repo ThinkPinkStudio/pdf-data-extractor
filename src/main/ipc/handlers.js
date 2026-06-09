@@ -31,6 +31,8 @@ import {
 import {
   extractPolizzaFromPDFs,
   extractPolizzaFromImages,
+  extractPolizzaRolling,
+  updateStateWithVisionPage,
   exportToNewExcel,
   exportToTemplateExcel,
   exportApprovedChanges,
@@ -550,6 +552,36 @@ ${context}
     try {
       const data = await extractPolizzaFromImages(imageFiles, settings)
       return { success: true, data }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Estrazione rolling: una pagina alla volta, stato accumulativo date-aware.
+  // Emette 'polizza:rollingProgress' durante l'elaborazione per aggiornare la UI.
+  // Restituisce anche 'rollingState' (con date) per continuare con le pagine vision.
+  ipcMain.handle('polizza:extractRolling', async (_, { filePaths }) => {
+    const settings = getSettings()
+    try {
+      const result = await extractPolizzaRolling(
+        filePaths,
+        settings,
+        (progress) => mainWindow.webContents.send('polizza:rollingProgress', progress)
+      )
+      return { success: true, ...result }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Aggiornamento rolling per una singola pagina vision (PDF scansionato).
+  // Il frontend chiama questo handler in loop, pagina per pagina, passando
+  // lo stato corrente e ricevendo quello aggiornato.
+  ipcMain.handle('polizza:rollingVisionUpdate', async (_, { state, imageBase64, docType, pageNum, totalPages }) => {
+    const settings = getSettings()
+    try {
+      const updatedState = await updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings)
+      return { success: true, state: updatedState }
     } catch (err) {
       return { success: false, error: err.message }
     }
