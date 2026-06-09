@@ -11,6 +11,7 @@
  */
 
 import { readFileSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { execSync } from 'child_process'
 import { loadPDF } from './pdfService.js'
 
@@ -844,6 +845,396 @@ async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
   }
   const data = await res.json()
   return (data.content?.[0]?.text || '').trim()
+}
+
+// ─── Rolling state extraction ─────────────────────────────────────────────────
+
+/**
+ * Async generator: itera le pagine di un PDF con pdfjs-dist restituendo il testo
+ * di ogni pagina singolarmente. Carica il buffer UNA sola volta, poi elabora una
+ * pagina per volta liberando le risorse dopo ogni pagina.
+ *
+ * @yields {{ text: string, pageNum: number, totalPages: number }}
+ */
+async function* iteratePdfjsPages(filePath) {
+  const fileBuffer = await readFile(filePath)
+
+  const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
+  const pdfjs = pdfjsMod.default || pdfjsMod
+  if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
+
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(fileBuffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    disableFontFace: true
+  }).promise
+
+  const totalPages = doc.numPages
+
+  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+    const page = await doc.getPage(pageNum)
+    const content = await page.getTextContent({ includeMarkedContent: false })
+
+    let pageText = ''
+    let prevX = null, prevY = null
+
+    for (const item of content.items) {
+      if (!('str' in item)) continue
+      const x = item.transform[4], y = item.transform[5]
+
+      if (prevY !== null) {
+        const dy = Math.abs(y - prevY)
+        const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
+        if (item.hasEOL || dy > fontSize * 0.4) {
+          pageText += '\n'
+          prevX = null
+        } else if (prevX !== null) {
+          const gap = x - prevX
+          const charW = (item.width > 0 && item.str.length > 0)
+            ? item.width / item.str.length
+            : fontSize * 0.5
+          if (gap > charW * 0.3) pageText += ' '
+        }
+      }
+
+      pageText += item.str
+      prevX = x + (item.width || item.str.length * ((Math.abs(item.transform[0]) || 10) * 0.5))
+      prevY = y
+    }
+
+    page.cleanup()
+    yield { text: pageText.trim(), pageNum, totalPages }
+  }
+}
+
+/**
+ * Inizializza lo stato rolling: un entry per ogni campo configurato,
+ * tutti con valore null e data_validita null.
+ */
+function initRollingState(configuredFields) {
+  const state = {}
+  for (const f of configuredFields) {
+    state[f.id] = { valore: null, data_validita: null }
+  }
+  return state
+}
+
+/**
+ * Appiattisce lo stato rolling in { fieldId: valore } per compatibilità
+ * con il resto del codice (export Excel, UI, ecc.).
+ */
+function flattenRollingState(state) {
+  const flat = {}
+  for (const [key, entry] of Object.entries(state)) {
+    if (entry?.valore != null && entry.valore !== '') {
+      flat[key] = entry.valore
+    }
+  }
+  return flat
+}
+
+// Prompt di sistema condiviso per tutte le chiamate rolling (testo e vision)
+const ROLLING_SYSTEM_PROMPT =
+  'Sei un estrattore dati da polizze assicurative italiane in modalità "rolling state".\n' +
+  'Ricevi lo stato corrente dei campi estratti e nuovo contenuto da analizzare.\n\n' +
+  'REGOLE TASSATIVE:\n' +
+  '1. Se un campo ha "valore": null → aggiornalo se trovi un valore nel contenuto.\n' +
+  '2. Se un campo ha già un valore → sostituiscilo SOLO se il nuovo valore ha una\n' +
+  '   data di validità (decorrenza, data effetto, data modifica) semanticamente più recente.\n' +
+  '3. Se non puoi determinare quale data sia più recente → NON aggiornare.\n' +
+  '4. Aggiungi campi nuovi se trovi dati rilevanti della polizza non ancora in stato.\n' +
+  '5. Restituisci SEMPRE e SOLO il JSON completo aggiornato. Zero testo extra, zero markdown.\n\n' +
+  'FORMATO OBBLIGATORIO per ogni campo:\n' +
+  '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
+
+/**
+ * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
+ * Ogni batch è piccolo → contesto ridotto → risparmio RAM massiccio su macchine 8-16 GB.
+ */
+async function callOllamaRolling(settings, systemPrompt, userPrompt) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const res = await fetch(`${url}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: settings.ollamaModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   }
+      ],
+      stream: false,
+      format: 'json',
+      options: {
+        num_ctx:     8192,  // batch piccoli non richiedono contesto grande
+        temperature: 0,
+        num_predict: 3000   // abbastanza per lo stato completo
+      }
+    }),
+    signal: AbortSignal.timeout(60000)  // 60s: batch piccoli = risposte veloci
+  })
+  if (!res.ok) throw new Error(`Ollama rolling error: ${res.status}`)
+  const data = await res.json()
+  return (data.message?.content || '').trim()
+}
+
+async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base64Image) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const model = settings.ollamaVisionModel || settings.ollamaModel
+  if (!model) throw new Error('Nessun modello vision Ollama configurato.')
+
+  const res = await fetch(`${url}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt, images: [base64Image] }
+      ],
+      stream: false,
+      format: 'json',
+      options: {
+        num_ctx:     8192,
+        temperature: 0,
+        num_predict: 3000
+      }
+    }),
+    signal: AbortSignal.timeout(120000)  // vision è più lento
+  })
+  if (!res.ok) throw new Error(`Ollama vision rolling error: ${res.status}`)
+  const data = await res.json()
+  return (data.message?.content || '').trim()
+}
+
+/**
+ * Aggiorna lo stato rolling con un batch di testo (fino a 3 pagine + coda precedente).
+ * Se il LLM restituisce JSON non valido, mantiene lo stato precedente invariato.
+ */
+async function callRollingLLMText(settings, state, docType, batchText) {
+  const stateJSON = JSON.stringify(state, null, 2)
+
+  const userPrompt =
+`STATO CORRENTE:
+${stateJSON}
+
+TIPO DOCUMENTO: ${docType}
+
+TESTO PAGINE:
+${batchText}
+
+Aggiorna e restituisci il JSON completo:`
+
+  const provider = settings.llmProvider || 'ollama'
+  let raw
+
+  try {
+    if (provider === 'openai') {
+      raw = await callOpenAI(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
+    } else if (provider === 'anthropic') {
+      raw = await callAnthropic(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
+    } else {
+      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
+    }
+
+    const updated = parseJsonResponse(raw)
+    return { ...state, ...updated }
+  } catch (err) {
+    console.warn('[polizza:rolling] Stato invariato per errore LLM:', err.message)
+    return state
+  }
+}
+
+/**
+ * Aggiorna lo stato rolling con una singola immagine di pagina (PDF scansionato).
+ */
+async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages) {
+  const stateJSON = JSON.stringify(state, null, 2)
+
+  const userPrompt =
+`STATO CORRENTE:
+${stateJSON}
+
+TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
+
+Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
+
+  const provider = settings.llmProvider || 'ollama'
+  let raw
+
+  try {
+    if (provider === 'openai') {
+      const imageContent = [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }]
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
+        body: JSON.stringify({
+          model: settings.openaiModel || 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: ROLLING_SYSTEM_PROMPT },
+            { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContent] }
+          ],
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          max_tokens: 4096
+        }),
+        signal: AbortSignal.timeout(90000)
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`OpenAI vision: ${res.status} ${e?.error?.message || ''}`) }
+      raw = ((await res.json()).choices?.[0]?.message?.content || '').trim()
+    } else if (provider === 'anthropic') {
+      const mediaType = imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+      const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+          max_tokens: 4096,
+          system: ROLLING_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text', text: userPrompt }
+          ]}]
+        }),
+        signal: AbortSignal.timeout(90000)
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Anthropic vision: ${res.status} ${e?.error?.message || ''}`) }
+      raw = ((await res.json()).content?.[0]?.text || '').trim()
+    } else {
+      const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
+      raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data)
+    }
+
+    const updated = parseJsonResponse(raw)
+    return { ...state, ...updated }
+  } catch (err) {
+    console.warn('[polizza:rolling] Vision stato invariato per errore LLM:', err.message)
+    return state
+  }
+}
+
+/**
+ * Estrazione polizza in modalità rolling state.
+ *
+ * Processa i documenti uno alla volta nell'ordine corretto (polizza → appendice →
+ * allegato → CGA), ogni documento pagina per pagina in batch da 3 + coda di 300 chars.
+ * Ogni chiamata LLM riceve al massimo ~8-10K token. Lo stato accumula i valori
+ * in modo date-aware: l'LLM aggiorna un campo solo se il nuovo valore è più recente.
+ *
+ * @param {Array<string|{path,type}>} files
+ * @param {object} settings
+ * @param {Function|null} onProgress  callback({ docIndex, docTotal, pageIndex, pageTotal, docName, state })
+ * @returns {{ data, scannedFiles, sources, rollingState }}
+ */
+export async function extractPolizzaRolling(files, settings, onProgress = null) {
+  const configuredFields = (settings.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+
+  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
+  const BATCH_SIZE = 3
+
+  const normalizedFiles = (files || []).map(f =>
+    typeof f === 'string' ? { path: f, type: 'polizza' } : f
+  ).sort((a, b) => {
+    const ai = TYPE_ORDER.indexOf(a.type)
+    const bi = TYPE_ORDER.indexOf(b.type)
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+  })
+
+  let state = initRollingState(activeFields)
+  const scannedFiles = []
+  let totalPagesProcessed = 0
+
+  const notify = (extra) => onProgress?.({ state, totalPagesProcessed, ...extra })
+
+  for (let docIdx = 0; docIdx < normalizedFiles.length; docIdx++) {
+    const { path: filePath, type: docType } = normalizedFiles[docIdx]
+    const docName = filePath.split(/[\\/]/).pop()
+
+    console.log(`[polizza:rolling] ${docIdx + 1}/${normalizedFiles.length}: ${docName} [${docType}]`)
+    notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: 0, pageTotal: 0, docName })
+
+    // Tentativo 1: pdftotext (subprocess, non carica nulla in JS memory)
+    const pdftotextText = extractTextWithPdftotext(filePath)
+
+    if (pdftotextText) {
+      const pages = pdftotextText.split('\f').map(p => p.trim()).filter(p => p.length > 0)
+      const totalPages = pages.length
+      let tail = ''
+
+      for (let i = 0; i < pages.length; i += BATCH_SIZE) {
+        const batch = pages.slice(i, i + BATCH_SIZE)
+        const batchText = tail ? `${tail}\n---\n${batch.join('\n---\n')}` : batch.join('\n---\n')
+        tail = batch[batch.length - 1].slice(-300)
+
+        const pageEnd = Math.min(i + BATCH_SIZE, totalPages)
+        totalPagesProcessed += batch.length
+        notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageEnd, pageTotal: totalPages, docName })
+
+        state = await callRollingLLMText(settings, state, docType, batchText)
+        console.log(`[polizza:rolling]   pg ${i + 1}-${pageEnd}/${totalPages}`)
+      }
+      continue
+    }
+
+    // Tentativo 2: pdfjs pagina per pagina (async generator)
+    let hasText = false
+    let pageBatch = []
+    let tail = ''
+
+    try {
+      for await (const { text, pageNum, totalPages } of iteratePdfjsPages(filePath)) {
+        if (text.length > 5) {
+          hasText = true
+          pageBatch.push(text)
+
+          if (pageBatch.length === BATCH_SIZE || pageNum === totalPages) {
+            const batchText = tail ? `${tail}\n---\n${pageBatch.join('\n---\n')}` : pageBatch.join('\n---\n')
+            tail = pageBatch[pageBatch.length - 1].slice(-300)
+
+            totalPagesProcessed += pageBatch.length
+            notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
+
+            state = await callRollingLLMText(settings, state, docType, batchText)
+            console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
+            pageBatch = []
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[polizza:rolling] pdfjs error su ${docName}:`, err.message)
+    }
+
+    if (!hasText) {
+      // PDF scansionato: nessun testo estraibile, gestione vision dal frontend
+      console.log(`[polizza:rolling] ${docName}: scansionato → vision`)
+      scannedFiles.push({ path: filePath, type: docType })
+    }
+  }
+
+  const data = flattenRollingState(state)
+  console.log(`[polizza:rolling] Completato: ${Object.keys(data).length} campi estratti`)
+
+  return { data, scannedFiles, sources: {}, rollingState: state }
+}
+
+/**
+ * Aggiorna lo stato rolling con una singola pagina vision (base64).
+ * Chiamato dal frontend per i PDF scansionati, pagina per pagina.
+ *
+ * @param {object} state           stato rolling corrente (con {valore, data_validita})
+ * @param {string} imageBase64     immagine della pagina in formato data:image/...;base64,...
+ * @param {string} docType         'polizza'|'appendice'|'allegato'|'cga'
+ * @param {number} pageNum         pagina corrente (1-based)
+ * @param {number} totalPages      totale pagine del documento
+ * @param {object} settings
+ * @returns {object} stato aggiornato
+ */
+export async function updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings) {
+  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages)
 }
 
 // ─── Utilità ExcelJS ──────────────────────────────────────────────────────────

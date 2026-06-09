@@ -77,6 +77,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaExtract: (filePaths) => ipcRenderer.invoke('polizza:extract', { filePaths }),
   polizzaGetFileBuffer: (filePath) => ipcRenderer.invoke('polizza:getFileBuffer', { filePath }),
   polizzaVisionExtract: (imageFiles) => ipcRenderer.invoke('polizza:visionExtract', { imageFiles }),
+  polizzaExtractRolling: (filePaths) => ipcRenderer.invoke('polizza:extractRolling', { filePaths }),
+  polizzaRollingVisionUpdate: (params) => ipcRenderer.invoke('polizza:rollingVisionUpdate', params),
+  onPolizzaRollingProgress: (callback) => {
+    ipcRenderer.on('polizza:rollingProgress', (_event, data) => callback(data))
+  },
+  removePolizzaRollingListeners: () => {
+    ipcRenderer.removeAllListeners('polizza:rollingProgress')
+  },
   polizzaExportNew: (data, suggestedName) => ipcRenderer.invoke('polizza:exportNew', { data, suggestedName }),
   polizzaReadTemplateStructure: (templatePath) => ipcRenderer.invoke('polizza:readTemplateStructure', { templatePath }),
   polizzaExportToTemplate: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:exportToTemplate', { templatePath, data, mapping }),
