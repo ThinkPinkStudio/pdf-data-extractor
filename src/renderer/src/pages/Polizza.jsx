@@ -107,6 +107,10 @@ export default function Polizza({ visible }) {
   const [showPreview, setShowPreview] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
 
+  // Progresso rolling (aggiornato via IPC durante l'estrazione)
+  const [rollingProgress, setRollingProgress] = useState(null)
+  // { docIndex, docTotal, pageIndex, pageTotal, docName, state }
+
   const inputRef = useRef(null)
 
   // Carica (o ricarica) i campi e i tipi ogni volta che la pagina diventa visibile
@@ -157,7 +161,21 @@ export default function Polizza({ visible }) {
   const setFileType = (path, type) =>
     setFiles(prev => prev.map(f => f.path === path ? { ...f, type } : f))
 
-  // ─── Estrazione ─────────────────────────────────────────────────────────────
+  // ─── Estrazione rolling ──────────────────────────────────────────────────────
+
+  // Appiattisce lo stato rolling {field: {valore, data_validita}} → {field: value}
+  const flattenRollingState = (state) => {
+    const flat = {}
+    for (const [key, entry] of Object.entries(state || {})) {
+      if (entry == null) continue
+      if (typeof entry === 'object' && 'valore' in entry) {
+        if (entry.valore != null && entry.valore !== '') flat[key] = entry.valore
+      } else if (typeof entry === 'string' && entry !== '') {
+        flat[key] = entry
+      }
+    }
+    return flat
+  }
 
   const handleExtract = async () => {
     if (!files.length) return
@@ -168,113 +186,136 @@ export default function Polizza({ visible }) {
     setExportMsg(null)
     setVisionMsg(null)
     setScannedFiles([])
+    setRollingProgress(null)
+
+    // Ascolta i progressi in tempo reale: aggiorna UI ad ogni batch
+    window.electronAPI.onPolizzaRollingProgress((progress) => {
+      setRollingProgress(progress)
+      const flat = flattenRollingState(progress.state)
+      if (Object.keys(flat).length > 0) setExtracted(flat)
+    })
+
     try {
       const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
-      const res = await window.electronAPI.polizzaExtract(filesWithTypes)
+      const res = await window.electronAPI.polizzaExtractRolling(filesWithTypes)
       if (!res.success) throw new Error(res.error)
-      setExtracted(res.data)
+
+      // Usa lo stato rolling strutturato se disponibile, altrimenti data piatto
+      const flatData = flattenRollingState(res.rollingState)
+      setExtracted(Object.keys(flatData).length > 0 ? flatData : (res.data || {}))
       setSources(res.sources || {})
 
-      // Se ci sono file scansionati, auto-trigger vision
+      // PDF scansionati: vision rolling pagina per pagina
       if (res.scannedFiles?.length > 0) {
         setScannedFiles(res.scannedFiles)
-        await handleVisionExtract(res.scannedFiles, res.data)
+        await handleVisionRolling(res.scannedFiles, res.rollingState || {})
       }
     } catch (err) {
       setError(err.message)
     } finally {
       setExtracting(false)
+      setRollingProgress(null)
+      window.electronAPI.removePolizzaRollingListeners()
     }
   }
 
-  // ─── Rendering PDF come immagini (vision OCR) ────────────────────────────────
+  // ─── Vision rolling: PDF scansionati pagina per pagina ───────────────────────
 
-  // Renderizza le pagine di un PDF come immagini JPEG base64
-  // Si esegue nel renderer (che ha Canvas nativo) — nessuna dipendenza nativa
-  const renderPdfPages = async (filePath, maxPages = 5) => {
-    const bufResult = await window.electronAPI.polizzaGetFileBuffer(filePath)
-    if (!bufResult.success) {
-      console.warn(`[vision] Impossibile leggere ${filePath}:`, bufResult.error)
-      return []
-    }
-
-    try {
-      // Importa la build browser di pdfjs (non la legacy Node)
-      const pdfjsLib = await import('pdfjs-dist')
-      const pdfjs = pdfjsLib.default || pdfjsLib
-
-      // Usa il worker già presente in public/
-      if (pdfjs.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
-      }
-
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer) }).promise
-      const pageImages = []
-
-      for (let pageNum = 1; pageNum <= Math.min(doc.numPages, maxPages); pageNum++) {
-        const page = await doc.getPage(pageNum)
-        const viewport = page.getViewport({ scale: 2.0 })  // 2x per qualità OCR
-
-        const canvas = document.createElement('canvas')
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-
-        await page.render({
-          canvasContext: canvas.getContext('2d'),
-          viewport
-        }).promise
-
-        pageImages.push(canvas.toDataURL('image/jpeg', 0.85))
-      }
-
-      return pageImages
-    } catch (err) {
-      console.warn(`[vision] Rendering fallito per ${filePath}:`, err.message)
-      return []
-    }
-  }
-
-  // Estrae dati da file scansionati usando vision LLM
-  const handleVisionExtract = async (scannedFilesList, existingData) => {
+  // Processa i PDF scansionati una pagina alla volta, aggiornando lo stato rolling
+  // dopo ogni immagine. Tiene aperto il doc pdfjs per l'intero documento, poi lo libera.
+  const handleVisionRolling = async (scannedFilesList, initialRollingState) => {
     if (!scannedFilesList?.length) return
 
     setVisionExtracting(true)
     setVisionMsg('extracting')
 
+    // Importa pdfjs una volta sola per tutto il ciclo vision
+    let pdfjs
     try {
-      // Renderizza le pagine di ogni file scansionato
-      const imageFiles = []
-      for (const sf of scannedFilesList) {
-        const pages = await renderPdfPages(sf.path, 5)
-        if (pages.length > 0) {
-          imageFiles.push({
-            name: sf.path.split(/[\\/]/).pop(),
-            type: sf.type || 'polizza',
-            pages
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjs = pdfjsLib.default || pdfjsLib
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+      }
+    } catch (err) {
+      console.error('[vision:rolling] pdfjs non disponibile:', err.message)
+      setVisionMsg('error')
+      setVisionExtracting(false)
+      return
+    }
+
+    let currentState = { ...initialRollingState }
+
+    try {
+      for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
+        const sf = scannedFilesList[sfIdx]
+        const docName = sf.path.split(/[\\/]/).pop()
+
+        const bufResult = await window.electronAPI.polizzaGetFileBuffer(sf.path)
+        if (!bufResult.success) {
+          console.warn(`[vision:rolling] Buffer non disponibile per ${docName}`)
+          continue
+        }
+
+        let doc
+        try {
+          doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer) }).promise
+        } catch (err) {
+          console.warn(`[vision:rolling] Apertura PDF fallita per ${docName}:`, err.message)
+          continue
+        }
+
+        const totalPages = doc.numPages
+        console.log(`[vision:rolling] ${docName}: ${totalPages} pagine`)
+
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+          setRollingProgress({
+            docIndex: sfIdx,
+            docTotal: scannedFilesList.length,
+            pageIndex: pageNum,
+            pageTotal: totalPages,
+            docName,
+            state: currentState
           })
+
+          let imageBase64
+          try {
+            const page = await doc.getPage(pageNum)
+            const viewport = page.getViewport({ scale: 2.0 })
+            const canvas = document.createElement('canvas')
+            canvas.width = viewport.width
+            canvas.height = viewport.height
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+            imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
+            page.cleanup()
+          } catch (err) {
+            console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)
+            continue
+          }
+
+          const res = await window.electronAPI.polizzaRollingVisionUpdate({
+            state: currentState,
+            imageBase64,
+            docType: sf.type || 'polizza',
+            pageNum,
+            totalPages
+          })
+
+          if (res.success) {
+            currentState = res.state
+            setExtracted(flattenRollingState(currentState))
+          }
         }
       }
 
-      if (imageFiles.length === 0) {
-        setVisionMsg('error')
-        return
-      }
-
-      // Chiama vision extraction nel main process
-      const res = await window.electronAPI.polizzaVisionExtract(imageFiles)
-      if (!res.success) throw new Error(res.error)
-
-      // Merge: i dati già trovati da text extraction hanno priorità
-      // (il testo estratto è più affidabile della vision OCR)
-      const merged = { ...res.data, ...existingData }
-      setExtracted(merged)
       setVisionMsg('done')
     } catch (err) {
-      console.error('[vision] Errore:', err.message)
+      console.error('[vision:rolling] Errore:', err.message)
       setVisionMsg('error')
       setError('Vision OCR: ' + err.message)
     } finally {
       setVisionExtracting(false)
+      setRollingProgress(null)
     }
   }
 
@@ -1018,15 +1059,43 @@ export default function Polizza({ visible }) {
                 <p>Carica i PDF della polizza e premi «Estrai dati polizza»</p>
               </div>
             )}
-            {extracting && (
+            {extracting && !extracted && (
               <div className="polizza-empty">
                 <IconSpinner />
                 <h3>Estrazione in corso…</h3>
-                <p>L'AI sta analizzando i documenti di polizza</p>
+                {rollingProgress ? (
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-secondary)', lineHeight: 1.6 }}>
+                    {rollingProgress.docName}<br />
+                    Doc {rollingProgress.docIndex + 1}/{rollingProgress.docTotal}
+                    {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                  </p>
+                ) : (
+                  <p>L&apos;AI sta analizzando i documenti di polizza</p>
+                )}
               </div>
             )}
-            {extracted && !extracting && (
+            {extracted && (
               <>
+                {(extracting || visionExtracting) && rollingProgress && (
+                  <div style={{
+                    margin: '0 0 8px 0',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'rgba(59,130,246,0.07)',
+                    border: '1px solid rgba(59,130,246,0.2)',
+                    fontSize: 11,
+                    color: 'var(--c-info)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontFamily: 'var(--font-mono)'
+                  }}>
+                    <IconSpinner />
+                    {rollingProgress.docName}
+                    {' · '}Doc {rollingProgress.docIndex + 1}/{rollingProgress.docTotal}
+                    {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                  </div>
+                )}
                 <div role="note" style={{
                   margin: '0 0 10px 0',
                   padding: '7px 12px',
@@ -1042,7 +1111,7 @@ export default function Polizza({ visible }) {
                   fields={sheetFields}
                   data={extracted}
                   sources={sources}
-                  onUpdate={(id, val) => setExtracted(prev => ({ ...prev, [id]: val }))}
+                  onUpdate={(id, val) => !extracting && !visionExtracting && setExtracted(prev => ({ ...prev, [id]: val }))}
                 />
               </>
             )}
