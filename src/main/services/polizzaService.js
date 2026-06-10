@@ -1043,25 +1043,126 @@ function coerceScalar(val) {
 }
 
 /**
- * Unisce nello stato i campi trovati in un batch, regola "primo valore non vuoto vince".
+ * Converte una data italiana "GG/MM/AAAA" (anche con . o - come separatori,
+ * e anno a 2 cifre) in un intero confrontabile AAAAMMGG, o null se non valida.
+ */
+function parseItalianDateToNum(str) {
+  if (str == null) return null
+  const m = String(str).match(/(\d{1,2})\s*[/.\-]\s*(\d{1,2})\s*[/.\-]\s*(\d{2,4})/)
+  if (!m) return null
+  let d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10)
+  if (y < 100) y += 2000
+  if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 1900 || y > 2100) return null
+  return y * 10000 + mo * 100 + d
+}
+
+/**
+ * Estrae la DATA DI EFFICACIA di un documento (una sola per file): decorrenza per
+ * la polizza, "data di effetto / a decorrere dal" per appendici e allegati.
+ * Le CGA sono trattate come SENZA data (boilerplate): possono solo riempire i vuoti.
+ * @returns {{str:string, num:number}|null}
+ */
+function extractDocEffectiveDate(text, docType) {
+  if (!text || docType === 'cga') return null
+
+  const DATE = /(\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{2,4})/
+  const byKeyword = new RegExp(
+    '(?:effetto\\s+(?:dal|dalle)|con\\s+effetto|a\\s+(?:partire|decorrere)\\s+dal|' +
+    'data\\s+(?:di\\s+)?effetto|data\\s+di\\s+decorrenza|\\bdecorrenza\\b)' +
+    '[^\\n]{0,60}?' + DATE.source, 'i')
+  const byDuration = new RegExp('\\bdalle\\s+ore\\b[^\\n]{0,40}?\\bdel\\s+' + DATE.source, 'i')
+
+  // Per la polizza la decorrenza coincide con l'inizio durata ("dalle ore … del …");
+  // per appendici/allegati conta la data di effetto/decorrenza esplicita.
+  const order = docType === 'polizza' ? [byDuration, byKeyword] : [byKeyword, byDuration]
+  for (const re of order) {
+    const m = text.match(re)
+    if (m) {
+      const num = parseItalianDateToNum(m[1])
+      if (num) return { str: m[1].replace(/\s+/g, ''), num }
+    }
+  }
+  return null
+}
+
+/**
+ * Estrae valore + eventuale data dichiarata dal modello per un singolo campo.
+ * Accetta sia il valore piatto ("3.000.000,00") sia la forma annidata con data
+ * ({valore|value, data|data_validita|data_efficacia|decorrenza}).
+ * @returns {{value:string|null, date:string|null}}
+ */
+function extractValueAndDate(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const value = coerceScalar(raw.valore ?? raw.value ?? null)
+    const d = raw.data ?? raw.data_validita ?? raw.data_efficacia ?? raw.decorrenza ?? null
+    return { value, date: typeof d === 'string' ? d : null }
+  }
+  return { value: coerceScalar(raw), date: null }
+}
+
+/**
+ * Decide se sovrascrivere un valore esistente con uno nuovo, in base alla data
+ * di efficacia (AAAAMMGG) e, a parità, all'ordine di documento.
+ * - entrambi senza data → primo vince (non sovrascrive)
+ * - datato batte non-datato; non-datato non sovrascrive mai un datato
+ * - tra due datati → vince la data più recente; a parità, il documento successivo
+ */
+function shouldOverride(curEff, curIdx, inEff, inIdx) {
+  if (curEff == null && inEff == null) return false
+  if (curEff == null) return true          // inEff != null
+  if (inEff == null) return false          // curEff != null
+  if (inEff > curEff) return true
+  if (inEff < curEff) return false
+  return inIdx > curIdx
+}
+
+/**
+ * Unisce nello stato i campi trovati in un batch con logica DATE-AWARE "vince il più
+ * recente", interamente lato JS (i modelli locali non devono mantenere stato).
  *
- * I documenti vengono processati nell'ordine polizza → appendice → allegato → cga,
- * quindi il primo valore incontrato (dalla polizza principale e dalle prime pagine)
- * ha la precedenza: le pagine di condizioni/CGA successive — che spesso citano valori
- * di esempio — possono solo RIEMPIRE i campi ancora vuoti, mai sovrascrivere.
+ * Per ogni campo la data di efficacia è quella per-campo dichiarata dal modello
+ * (forma annidata {valore,data} o mappa opzionale found._date), altrimenti la data
+ * del documento (ctx.docDate). Un campo già valorizzato viene sostituito solo se il
+ * nuovo valore ha una data di efficacia più recente. Valori null/vuoti non cancellano
+ * mai nulla; documenti senza data (es. CGA) possono solo riempire i campi vuoti.
  *
- * @param {object} state   stato rolling { id: {valore, data_validita} }
- * @param {object} found   risposta LLM piatta { id: "valore" } (solo campi trovati)
+ * @param {object} state  stato rolling { id: {valore, data_validita, _eff, _docIdx} }
+ * @param {object} found  risposta LLM { id: "valore" } o { id: {valore, data} } (+ _date opzionale)
+ * @param {{docDate?:{str,num}|null, docIdx?:number}} ctx
  * @returns {object} stato aggiornato (nuovo oggetto)
  */
-function mergeFoundFields(state, found) {
+function mergeFoundFields(state, found, ctx = {}) {
   const merged = { ...state }
-  for (const [key, raw] of Object.entries(found || {})) {
-    const val = coerceScalar(raw)
-    if (val == null || val === '') continue
-    const curVal = coerceScalar(merged[key])
-    if (curVal != null && curVal !== '') continue  // primo non-vuoto vince → non sovrascrivere
-    merged[key] = { valore: val, data_validita: null }
+  if (!found || typeof found !== 'object') return merged
+
+  const docNum = ctx.docDate?.num ?? null
+  const docStr = ctx.docDate?.str ?? null
+  const docIdx = typeof ctx.docIdx === 'number' ? ctx.docIdx : 0
+  const dmap = (found._date && typeof found._date === 'object') ? found._date : {}
+
+  for (const [key, raw] of Object.entries(found)) {
+    if (key.startsWith('_')) continue   // chiavi meta (_date, _doc_date, …) non sono campi
+    const { value, date: inlineDate } = extractValueAndDate(raw)
+    if (value == null || value === '') continue
+
+    const fieldDateStr = (typeof dmap[key] === 'string' ? dmap[key] : null) || inlineDate
+    const fieldNum = parseItalianDateToNum(fieldDateStr)
+    const effNum = fieldNum ?? docNum
+    const effStr = fieldDateStr || docStr
+
+    const cur = merged[key]
+    const curVal = coerceScalar(cur)
+    const isObj = cur && typeof cur === 'object'
+
+    if (curVal == null || curVal === '') {
+      merged[key] = { valore: value, data_validita: effStr, _eff: effNum, _docIdx: docIdx }
+      continue
+    }
+    const curEff = isObj && typeof cur._eff === 'number' ? cur._eff : null
+    const curIdx = isObj && typeof cur._docIdx === 'number' ? cur._docIdx : -1
+    if (shouldOverride(curEff, curIdx, effNum, docIdx)) {
+      merged[key] = { valore: value, data_validita: effStr, _eff: effNum, _docIdx: docIdx }
+    }
   }
   return merged
 }
@@ -1082,7 +1183,11 @@ const ROLLING_SYSTEM_PROMPT =
   '2. Copia i valori ESATTAMENTE come scritti (importi formato italiano es. 3.000.000,00; date GG/MM/AAAA).\n' +
   '3. Includi nel JSON SOLO i campi di cui hai trovato il valore nel testo. Ometti tutti gli altri.\n' +
   '4. Usa ESATTAMENTE gli id campo forniti come chiavi JSON.\n' +
-  '5. Rispondi SEMPRE e SOLO con un oggetto JSON PIATTO: {"id_campo": "valore"}. Zero testo, zero markdown.'
+  '5. Formato NORMALE: piatto {"id_campo": "valore"}.\n' +
+  '6. SOLO se accanto a un valore è indicata ESPLICITAMENTE una data di decorrenza/effetto/modifica\n' +
+  '   propria di quel valore, usa per QUEL campo: {"id_campo": {"valore": "...", "data": "GG/MM/AAAA"}}.\n' +
+  '   Negli altri casi resta piatto. Non inventare date.\n' +
+  '7. Rispondi SEMPRE e SOLO con un unico oggetto JSON. Zero testo, zero markdown.'
 
 /**
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
@@ -1191,7 +1296,8 @@ ${buildFieldSchema(fields)}
 
 TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
 
-Leggi il testo nell'immagine e restituisci il JSON piatto dei soli campi trovati:`
+Leggi il testo nell'immagine e restituisci il JSON piatto dei soli campi trovati.
+Se nell'immagine è indicata la data di decorrenza/effetto del documento, aggiungi "_doc_date": "GG/MM/AAAA".`
 
   const provider = settings.llmProvider || 'ollama'
   let raw
@@ -1296,6 +1402,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
       const totalPages = pages.length
       let tail = ''
 
+      // Data di efficacia del documento (per il merge date-aware): è sulle prime pagine.
+      const docDate = extractDocEffectiveDate(pages.slice(0, 3).join('\n'), docType)
+      if (docDate) console.log(`[polizza:rolling]   data efficacia doc: ${docDate.str}`)
+
       for (let i = 0; i < pages.length; i += BATCH_SIZE) {
         const batch = pages.slice(i, i + BATCH_SIZE)
         const batchText = tail ? `${tail}\n---\n${batch.join('\n---\n')}` : batch.join('\n---\n')
@@ -1306,7 +1416,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
         notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageEnd, pageTotal: totalPages, docName })
 
         const found = await extractBatchFieldsText(settings, activeFields, docType, batchText)
-        state = mergeFoundFields(state, found)
+        state = mergeFoundFields(state, found, { docDate, docIdx })
         console.log(`[polizza:rolling]   pg ${i + 1}-${pageEnd}/${totalPages} → +${Object.keys(found || {}).length} campi nel batch`)
       }
       continue
@@ -1316,6 +1426,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     let hasText = false
     let pageBatch = []
     let tail = ''
+    let docDate = null   // calcolata dal primo batch (la data è sulle prime pagine)
 
     try {
       for await (const { text, pageNum, totalPages } of iteratePdfjsPages(filePath)) {
@@ -1327,11 +1438,18 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             const batchText = tail ? `${tail}\n---\n${pageBatch.join('\n---\n')}` : pageBatch.join('\n---\n')
             tail = pageBatch[pageBatch.length - 1].slice(-300)
 
+            // Finché non trovata, cerca la data di efficacia nelle prime pagine
+            // (robusto a pagine iniziali vuote/cover che vengono saltate).
+            if (docDate === null) {
+              docDate = extractDocEffectiveDate(batchText, docType)
+              if (docDate) console.log(`[polizza:rolling]   data efficacia doc: ${docDate.str}`)
+            }
+
             totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
             const found = await extractBatchFieldsText(settings, activeFields, docType, batchText)
-            state = mergeFoundFields(state, found)
+            state = mergeFoundFields(state, found, { docDate, docIdx })
             console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages} → +${Object.keys(found || {}).length} campi nel batch`)
             pageBatch = []
           }
@@ -1372,7 +1490,13 @@ export async function updateStateWithVisionPage(state, imageBase64, docType, pag
   // Se lo stato arriva "piatto" o vuoto dal frontend, garantiamo comunque le chiavi attese.
   const baseState = (state && Object.keys(state).length) ? state : initRollingState(activeFields)
   const found = await extractBatchFieldsVision(settings, activeFields, docType, imageBase64, pageNum, totalPages)
-  return mergeFoundFields(baseState, found)
+
+  // Data efficacia: la CGA resta senza data; per gli altri si usa l'eventuale
+  // _doc_date riconosciuta dal modello. I doc scansionati sono concettualmente
+  // successivi a quelli testuali → docIdx alto, così a parità di data prevalgono.
+  const docDate = docType === 'cga' ? null
+    : (parseItalianDateToNum(found?._doc_date) ? { str: String(found._doc_date), num: parseItalianDateToNum(found._doc_date) } : null)
+  return mergeFoundFields(baseState, found, { docDate, docIdx: 1000 })
 }
 
 // ─── Utilità ExcelJS ──────────────────────────────────────────────────────────
