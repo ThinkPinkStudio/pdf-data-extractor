@@ -137,7 +137,14 @@ function extractTextWithPdftotext(filePath) {
 
   for (const cmd of candidates) {
     try {
-      const text = execSync(cmd, { encoding: 'utf8', timeout: 30000, maxBuffer: 20 * 1024 * 1024 })
+      // stdio: stderr 'ignore' → niente spam "pdftotext: command not found" in console
+      // quando poppler non è installato (caso normale: si usa il fallback pdfjs).
+      const text = execSync(cmd, {
+        encoding: 'utf8',
+        timeout: 30000,
+        maxBuffer: 20 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
       if (text && text.trim().length > 10) return text
     } catch {
       // Prova il prossimo
@@ -674,6 +681,11 @@ function parseJsonResponse(raw) {
   // Cerca il blocco JSON anche se il modello aggiunge testo prima/dopo
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
   if (!jsonMatch) {
+    // Nessun '}' di chiusura → probabile output troncato: tenta una riparazione.
+    const repaired = repairTruncatedJson(raw)
+    if (repaired) {
+      try { return JSON.parse(repaired) } catch { /* cade nell'errore sotto */ }
+    }
     console.warn('[polizza] Risposta LLM senza JSON:', raw.slice(0, 300))
     throw new Error('Il modello LLM non ha restituito un JSON valido')
   }
@@ -687,11 +699,54 @@ function parseJsonResponse(raw) {
       .replace(/,(\s*[}\]])/g, '$1') // rimuovi trailing commas
     try {
       return JSON.parse(cleaned)
-    } catch (e2) {
+    } catch (_e2) {
+      // Ultimo tentativo: ribilancia un JSON eventualmente troncato dal limite token
+      const repaired = repairTruncatedJson(raw)
+      if (repaired) {
+        try { return JSON.parse(repaired) } catch { /* niente */ }
+      }
       console.warn('[polizza] JSON non parsabile:', cleaned.slice(0, 400))
-      throw new Error(`JSON malformato dal LLM: ${e2.message}`)
+      throw new Error(`JSON malformato dal LLM: ${_e2.message}`)
     }
   }
+}
+
+/**
+ * Tenta di recuperare un oggetto JSON da output potenzialmente troncato
+ * (modelli locali che esauriscono i token a metà risposta).
+ * Trova il primo '{' e, scandendo graffe e stringhe, restituisce il più grande
+ * prefisso bilanciato; se l'output è troncato chiude stringa/graffe aperte SENZA
+ * inventare valori. Restituisce null se non c'è alcun '{'.
+ */
+function repairTruncatedJson(s) {
+  if (typeof s !== 'string') return null
+  const start = s.indexOf('{')
+  if (start < 0) return null
+
+  let depth = 0, inStr = false, esc = false, lastBalanced = -1
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+    } else if (c === '"') inStr = true
+    else if (c === '{') depth++
+    else if (c === '}') { depth--; if (depth === 0) { lastBalanced = i; break } }
+  }
+
+  if (lastBalanced >= 0) return s.slice(start, lastBalanced + 1)
+
+  // Troncato: chiudi stringa aperta, rimuovi coda penzolante, bilancia le graffe.
+  let fixed = s.slice(start)
+  if (inStr) fixed += '"'
+  fixed = fixed
+    .replace(/\\$/, '')                    // backslash penzolante
+    .replace(/[,:]\s*$/, '')               // virgola/duepunti finali
+    .replace(/,\s*"[^"]*"\s*$/, '')        // chiave senza valore in coda
+    .replace(/,(\s*)$/, '$1')              // virgola finale
+  fixed += '}'.repeat(Math.max(depth, 1))
+  return fixed
 }
 
 // ─── Estrazione vision (PDF scansionati) ─────────────────────────────────────
@@ -924,30 +979,110 @@ function initRollingState(configuredFields) {
 /**
  * Appiattisce lo stato rolling in { fieldId: valore } per compatibilità
  * con il resto del codice (export Excel, UI, ecc.).
+ * Tollerante: accetta sia la forma annidata {valore, data_validita} sia un
+ * valore scalare diretto (alcuni modelli locali restituiscono il valore "piatto").
  */
 function flattenRollingState(state) {
   const flat = {}
-  for (const [key, entry] of Object.entries(state)) {
-    if (entry?.valore != null && entry.valore !== '') {
-      flat[key] = entry.valore
-    }
+  for (const [key, entry] of Object.entries(state || {})) {
+    const val = coerceScalar(entry)
+    if (val != null && val !== '') flat[key] = val
   }
   return flat
 }
 
-// Prompt di sistema condiviso per tutte le chiamate rolling (testo e vision)
+/**
+ * Restituisce l'elenco dei campi polizza attivi a partire dalle impostazioni.
+ */
+function getActivePolizzaFields(settings) {
+  const configured = (settings?.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  return configured.filter(f => f.enabled !== false)
+}
+
+/**
+ * Costruisce l'elenco "id: etichetta — descrizione" da mostrare al modello,
+ * così sa COSA cercare per ogni campo (gli ID snake_case da soli non bastano).
+ * Gli esempi "(es. ...)" vengono rimossi per non indurre il modello a copiarli.
+ */
+function buildFieldSchema(fields) {
+  return fields.map(f => {
+    const desc = (f.description || '')
+      .replace(/\(\s*es\.[^)]*\)/gi, '')   // rimuove "(es. ...)" tra parentesi
+      .replace(/[,;]\s*es\.\s.*$/i, '')    // rimuove ", es. ..." fino a fine descrizione
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([.,;])/g, '$1')
+      .trim()
+    return `- ${f.id}: ${f.label}${desc ? ` — ${desc}` : ''}`
+  }).join('\n')
+}
+
+/**
+ * Riduce un valore (scalare, annidato {valore}, array) a una stringa pulita.
+ * Tollera tutte le forme che un modello locale può restituire.
+ * @returns {string|null}
+ */
+function coerceScalar(val) {
+  if (val == null) return null
+  if (typeof val === 'string') {
+    const t = val.trim()
+    return (t === '' || t.toLowerCase() === 'null' || t === '-' || t === '—') ? null : t
+  }
+  if (typeof val === 'number') return Number.isFinite(val) ? String(val) : null
+  if (typeof val === 'boolean') return null
+  if (Array.isArray(val)) {
+    const parts = val.map(coerceScalar).filter(Boolean)
+    return parts.length ? parts.join(', ') : null
+  }
+  if (typeof val === 'object') {
+    // Forma annidata {valore, data_validita} o varianti {value}
+    if ('valore' in val) return coerceScalar(val.valore)
+    if ('value' in val) return coerceScalar(val.value)
+  }
+  return null
+}
+
+/**
+ * Unisce nello stato i campi trovati in un batch, regola "primo valore non vuoto vince".
+ *
+ * I documenti vengono processati nell'ordine polizza → appendice → allegato → cga,
+ * quindi il primo valore incontrato (dalla polizza principale e dalle prime pagine)
+ * ha la precedenza: le pagine di condizioni/CGA successive — che spesso citano valori
+ * di esempio — possono solo RIEMPIRE i campi ancora vuoti, mai sovrascrivere.
+ *
+ * @param {object} state   stato rolling { id: {valore, data_validita} }
+ * @param {object} found   risposta LLM piatta { id: "valore" } (solo campi trovati)
+ * @returns {object} stato aggiornato (nuovo oggetto)
+ */
+function mergeFoundFields(state, found) {
+  const merged = { ...state }
+  for (const [key, raw] of Object.entries(found || {})) {
+    const val = coerceScalar(raw)
+    if (val == null || val === '') continue
+    const curVal = coerceScalar(merged[key])
+    if (curVal != null && curVal !== '') continue  // primo non-vuoto vince → non sovrascrivere
+    merged[key] = { valore: val, data_validita: null }
+  }
+  return merged
+}
+
+/**
+ * Prompt di sistema condiviso (testo e vision). Estrazione stateless di un singolo
+ * batch: il modello riceve l'elenco dei campi + il testo e restituisce un JSON PIATTO
+ * con i soli campi trovati. La logica di accumulo/merge è gestita lato JS in modo
+ * deterministico (vedi mergeFoundFields), così i modelli locali non devono mantenere
+ * uno stato complesso tra una chiamata e l'altra.
+ */
 const ROLLING_SYSTEM_PROMPT =
-  'Sei un estrattore dati da polizze assicurative italiane in modalità "rolling state".\n' +
-  'Ricevi lo stato corrente dei campi estratti e nuovo contenuto da analizzare.\n\n' +
+  'Sei un estrattore di dati da polizze assicurative italiane (Responsabilità Civile).\n' +
+  'Ricevi un ELENCO DI CAMPI (con descrizione) e un TESTO estratto da una o più pagine.\n' +
+  'Il tuo compito è trovare nel testo il valore di ciascun campo.\n\n' +
   'REGOLE TASSATIVE:\n' +
-  '1. Se un campo ha "valore": null → aggiornalo se trovi un valore nel contenuto.\n' +
-  '2. Se un campo ha già un valore → sostituiscilo SOLO se il nuovo valore ha una\n' +
-  '   data di validità (decorrenza, data effetto, data modifica) semanticamente più recente.\n' +
-  '3. Se non puoi determinare quale data sia più recente → NON aggiornare.\n' +
-  '4. Aggiungi campi nuovi se trovi dati rilevanti della polizza non ancora in stato.\n' +
-  '5. Restituisci SEMPRE e SOLO il JSON completo aggiornato. Zero testo extra, zero markdown.\n\n' +
-  'FORMATO OBBLIGATORIO per ogni campo:\n' +
-  '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
+  '1. Estrai SOLO valori presenti ESPLICITAMENTE nel testo. NON inventare, NON dedurre.\n' +
+  '2. Copia i valori ESATTAMENTE come scritti (importi formato italiano es. 3.000.000,00; date GG/MM/AAAA).\n' +
+  '3. Includi nel JSON SOLO i campi di cui hai trovato il valore nel testo. Ometti tutti gli altri.\n' +
+  '4. Usa ESATTAMENTE gli id campo forniti come chiavi JSON.\n' +
+  '5. Rispondi SEMPRE e SOLO con un oggetto JSON PIATTO: {"id_campo": "valore"}. Zero testo, zero markdown.'
 
 /**
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
@@ -1009,27 +1144,27 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
 }
 
 /**
- * Aggiorna lo stato rolling con un batch di testo (fino a 3 pagine + coda precedente).
- * Se il LLM restituisce JSON non valido, mantiene lo stato precedente invariato.
+ * Estrae i campi presenti in un batch di testo (fino a 3 pagine + coda precedente).
+ * Chiamata STATELESS: al modello non viene passato alcuno stato, solo l'elenco campi
+ * e il testo. Restituisce un oggetto PIATTO { id: "valore" } con i soli campi trovati.
+ * Su errore/JSON non valido restituisce {} (nessun campo) senza intaccare lo stato.
  */
-async function callRollingLLMText(settings, state, docType, batchText) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function extractBatchFieldsText(settings, fields, docType, batchText) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI DA ESTRARRE:
+${buildFieldSchema(fields)}
 
 TIPO DOCUMENTO: ${docType}
 
-TESTO PAGINE:
+TESTO:
 ${batchText}
 
-Aggiorna e restituisci il JSON completo:`
+Restituisci il JSON piatto dei soli campi trovati:`
 
   const provider = settings.llmProvider || 'ollama'
-  let raw
 
   try {
+    let raw
     if (provider === 'openai') {
       raw = await callOpenAI(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
     } else if (provider === 'anthropic') {
@@ -1037,28 +1172,26 @@ Aggiorna e restituisci il JSON completo:`
     } else {
       raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
     }
-
-    const updated = parseJsonResponse(raw)
-    return { ...state, ...updated }
+    return parseJsonResponse(raw)
   } catch (err) {
-    console.warn('[polizza:rolling] Stato invariato per errore LLM:', err.message)
-    return state
+    console.warn('[polizza:rolling] Batch ignorato per errore LLM:', err.message)
+    return {}
   }
 }
 
 /**
- * Aggiorna lo stato rolling con una singola immagine di pagina (PDF scansionato).
+ * Estrae i campi presenti in una singola immagine di pagina (PDF scansionato).
+ * Chiamata STATELESS come la variante testo: restituisce un oggetto PIATTO
+ * { id: "valore" } con i soli campi trovati, {} su errore.
  */
-async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function extractBatchFieldsVision(settings, fields, docType, imageBase64, pageNum, totalPages) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI DA ESTRARRE:
+${buildFieldSchema(fields)}
 
 TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
 
-Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
+Leggi il testo nell'immagine e restituisci il JSON piatto dei soli campi trovati:`
 
   const provider = settings.llmProvider || 'ollama'
   let raw
@@ -1107,11 +1240,10 @@ Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
       raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data)
     }
 
-    const updated = parseJsonResponse(raw)
-    return { ...state, ...updated }
+    return parseJsonResponse(raw)
   } catch (err) {
-    console.warn('[polizza:rolling] Vision stato invariato per errore LLM:', err.message)
-    return state
+    console.warn('[polizza:rolling] Pagina vision ignorata per errore LLM:', err.message)
+    return {}
   }
 }
 
@@ -1120,8 +1252,9 @@ Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
  *
  * Processa i documenti uno alla volta nell'ordine corretto (polizza → appendice →
  * allegato → CGA), ogni documento pagina per pagina in batch da 3 + coda di 300 chars.
- * Ogni chiamata LLM riceve al massimo ~8-10K token. Lo stato accumula i valori
- * in modo date-aware: l'LLM aggiorna un campo solo se il nuovo valore è più recente.
+ * Ogni chiamata LLM è STATELESS (riceve solo elenco campi + testo del batch) e
+ * restituisce i soli campi trovati; l'accumulo avviene lato JS con mergeFoundFields
+ * (primo valore non vuoto vince, secondo l'ordine di processamento dei documenti).
  *
  * @param {Array<string|{path,type}>} files
  * @param {object} settings
@@ -1129,9 +1262,7 @@ Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
  * @returns {{ data, scannedFiles, sources, rollingState }}
  */
 export async function extractPolizzaRolling(files, settings, onProgress = null) {
-  const configuredFields = (settings.polizzaFields?.length > 0)
-    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
-  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  const activeFields = getActivePolizzaFields(settings)
 
   const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
   const BATCH_SIZE = 3
@@ -1174,8 +1305,9 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
         totalPagesProcessed += batch.length
         notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageEnd, pageTotal: totalPages, docName })
 
-        state = await callRollingLLMText(settings, state, docType, batchText)
-        console.log(`[polizza:rolling]   pg ${i + 1}-${pageEnd}/${totalPages}`)
+        const found = await extractBatchFieldsText(settings, activeFields, docType, batchText)
+        state = mergeFoundFields(state, found)
+        console.log(`[polizza:rolling]   pg ${i + 1}-${pageEnd}/${totalPages} → +${Object.keys(found || {}).length} campi nel batch`)
       }
       continue
     }
@@ -1198,8 +1330,9 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
-            state = await callRollingLLMText(settings, state, docType, batchText)
-            console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
+            const found = await extractBatchFieldsText(settings, activeFields, docType, batchText)
+            state = mergeFoundFields(state, found)
+            console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages} → +${Object.keys(found || {}).length} campi nel batch`)
             pageBatch = []
           }
         }
@@ -1216,7 +1349,8 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   }
 
   const data = flattenRollingState(state)
-  console.log(`[polizza:rolling] Completato: ${Object.keys(data).length} campi estratti`)
+  console.log(`[polizza:rolling] Completato: ${Object.keys(data).length} campi estratti`,
+    Object.keys(data).length ? Object.keys(data).join(', ') : '(nessuno)')
 
   return { data, scannedFiles, sources: {}, rollingState: state }
 }
@@ -1234,7 +1368,11 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
  * @returns {object} stato aggiornato
  */
 export async function updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings) {
-  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages)
+  const activeFields = getActivePolizzaFields(settings)
+  // Se lo stato arriva "piatto" o vuoto dal frontend, garantiamo comunque le chiavi attese.
+  const baseState = (state && Object.keys(state).length) ? state : initRollingState(activeFields)
+  const found = await extractBatchFieldsVision(settings, activeFields, docType, imageBase64, pageNum, totalPages)
+  return mergeFoundFields(baseState, found)
 }
 
 // ─── Utilità ExcelJS ──────────────────────────────────────────────────────────

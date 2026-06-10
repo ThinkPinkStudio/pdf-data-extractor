@@ -202,13 +202,18 @@ export default function Polizza({ visible }) {
 
       // Usa lo stato rolling strutturato se disponibile, altrimenti data piatto
       const flatData = flattenRollingState(res.rollingState)
-      setExtracted(Object.keys(flatData).length > 0 ? flatData : (res.data || {}))
+      const finalData = Object.keys(flatData).length > 0 ? flatData : (res.data || {})
+      setExtracted(finalData)
       setSources(res.sources || {})
 
+      const hasScanned = res.scannedFiles?.length > 0
       // PDF scansionati: vision rolling pagina per pagina
-      if (res.scannedFiles?.length > 0) {
+      if (hasScanned) {
         setScannedFiles(res.scannedFiles)
         await handleVisionRolling(res.scannedFiles, res.rollingState || {})
+      } else if (Object.keys(finalData).length === 0) {
+        // Il testo è stato letto ma il modello AI non ha riconosciuto alcun campo.
+        setError('Nessun campo riconosciuto dal modello AI. Il testo del PDF è stato letto correttamente, ma il modello non ha restituito valori. Prova con un modello più capace (es. un provider cloud in Impostazioni) o verifica che il documento contenga i dati attesi.')
       }
     } catch (err) {
       setError(err.message)
