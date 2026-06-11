@@ -36,6 +36,8 @@ jobs:
 
       - name: Build app (electron-vite)
         run: npm run build
+        env:
+          UPDATE_DOWNLOAD_URL: ${{ vars.UPDATE_DOWNLOAD_URL }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'

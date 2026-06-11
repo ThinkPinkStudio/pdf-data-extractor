@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import iconUrl from '../assets/icon.png'
 
-/* global __APP_VERSION__ */
+/* global __APP_VERSION__ __UPDATE_URL__ */
 
 const IconPDF = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -193,7 +193,7 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
             )}
             {updateInfo && (
               <button
-                onClick={() => window.open(updateInfo.releaseUrl)}
+                onClick={() => window.open(__UPDATE_URL__ || updateInfo.releaseUrl)}
                 title={`v${updateInfo.latestVersion} disponibile`}
                 aria-label={`Aggiornamento disponibile: v${updateInfo.latestVersion}`}
                 style={{

@@ -23,7 +23,8 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     define: {
-      __APP_VERSION__: JSON.stringify(version)
+      __APP_VERSION__: JSON.stringify(version),
+      __UPDATE_URL__: JSON.stringify(process.env.UPDATE_DOWNLOAD_URL || '')
     },
     resolve: {
       alias: {
