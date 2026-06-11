@@ -127,6 +127,13 @@ function WindowControls() {
 
 export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, onLangChange }) {
   const { t } = useTranslation()
+  const [updateInfo, setUpdateInfo] = useState(null)
+
+  useEffect(() => {
+    window.electronAPI?.checkForUpdate?.().then(info => {
+      if (info?.hasUpdate) setUpdateInfo(info)
+    }).catch(() => {})
+  }, [])
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'
@@ -180,9 +187,32 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
           <span className="footer-brand" aria-label={t('brand.company')}>
             {t('brand.company')}
           </span>
-          {appVersion && (
-            <span className="footer-version">v{appVersion}</span>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {appVersion && (
+              <span className="footer-version">v{appVersion}</span>
+            )}
+            {updateInfo && (
+              <button
+                onClick={() => window.open(updateInfo.releaseUrl)}
+                title={`v${updateInfo.latestVersion} disponibile`}
+                aria-label={`Aggiornamento disponibile: v${updateInfo.latestVersion}`}
+                style={{
+                  background: 'var(--c-accent)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '1px 6px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  lineHeight: '16px',
+                  letterSpacing: '0.02em'
+                }}
+              >
+                v{updateInfo.latestVersion} ↑
+              </button>
+            )}
+          </div>
         </div>
         <div className="footer-actions">
           <button

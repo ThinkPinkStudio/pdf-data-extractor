@@ -487,6 +487,28 @@ ${context}
 
   ipcMain.handle('app:version', () => app.getVersion())
 
+  ipcMain.handle('app:checkUpdate', async () => {
+    try {
+      const current = app.getVersion()
+      const res = await fetch(
+        'https://api.github.com/repos/thinkpinkstudio/pdf-data-extractor/releases/latest',
+        { headers: { 'User-Agent': 'pdf-data-extractor' } }
+      )
+      if (!res.ok) return { hasUpdate: false }
+      const data = await res.json()
+      const match = data.tag_name?.match(/^v?(\d+\.\d+\.\d+)/)
+      if (!match) return { hasUpdate: false }
+      const latest = match[1]
+      const pa = current.split('.').map(Number)
+      const pb = latest.split('.').map(Number)
+      let cmp = 0
+      for (let i = 0; i < 3 && cmp === 0; i++) cmp = (pb[i] || 0) - (pa[i] || 0)
+      return { hasUpdate: cmp > 0, latestVersion: latest, releaseUrl: data.html_url }
+    } catch {
+      return { hasUpdate: false }
+    }
+  })
+
   // ─── Polizza RC ───────────────────────────────────────────────────────────
 
   ipcMain.handle('dialog:openExcel', async () => {
