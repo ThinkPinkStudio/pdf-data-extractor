@@ -246,6 +246,7 @@ export default function Polizza({ visible }) {
 
     let currentState = { ...initialRollingState }
     let totalPagesProcessed = 0
+    let consecutiveFailures = 0
 
     try {
       for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
@@ -269,45 +270,64 @@ export default function Polizza({ visible }) {
         const totalPages = doc.numPages
         console.log(`[vision:rolling] ${docName}: ${totalPages} pagine`)
 
-        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-          totalPagesProcessed++
-          setRollingProgress({
-            docIndex: sfIdx,
-            docTotal: scannedFilesList.length,
-            pageIndex: pageNum,
-            pageTotal: totalPages,
-            docName,
-            totalPagesProcessed,
-            state: currentState
-          })
+        try {
+          for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            totalPagesProcessed++
+            setRollingProgress({
+              docIndex: sfIdx,
+              docTotal: scannedFilesList.length,
+              pageIndex: pageNum,
+              pageTotal: totalPages,
+              docName,
+              totalPagesProcessed,
+              state: currentState
+            })
 
-          let imageBase64
-          try {
-            const page = await doc.getPage(pageNum)
-            const viewport = page.getViewport({ scale: 2.0 })
-            const canvas = document.createElement('canvas')
-            canvas.width = viewport.width
-            canvas.height = viewport.height
-            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-            imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
-            page.cleanup()
-          } catch (err) {
-            console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)
-            continue
+            let imageBase64
+            try {
+              const page = await doc.getPage(pageNum)
+              // Limita il lato lungo a ~1600px: le scansioni ad alta risoluzione
+              // a scala fissa 2.0 producono immagini enormi che rallentano
+              // drasticamente (o mandano in timeout) il modello vision
+              const baseViewport = page.getViewport({ scale: 1 })
+              const scale = Math.min(2, 1600 / Math.max(baseViewport.width, baseViewport.height))
+              const viewport = page.getViewport({ scale })
+              const canvas = document.createElement('canvas')
+              canvas.width = viewport.width
+              canvas.height = viewport.height
+              await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+              imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
+              page.cleanup()
+            } catch (err) {
+              console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)
+              continue
+            }
+
+            const res = await window.electronAPI.polizzaRollingVisionUpdate({
+              state: currentState,
+              imageBase64,
+              docType: sf.type || 'polizza',
+              pageNum,
+              totalPages
+            })
+
+            if (res.success) {
+              currentState = res.state
+              consecutiveFailures = 0
+              setExtracted(flattenRollingState(currentState))
+            } else {
+              consecutiveFailures++
+              console.warn(`[vision:rolling] Pag. ${pageNum}/${totalPages} di ${docName}: ${res.error}`)
+              // Ollama spento → inutile insistere; timeout/errori ripetuti → stop
+              if (res.connectionError ||
+                  (res.timeoutError && consecutiveFailures >= 2) ||
+                  consecutiveFailures >= 3) {
+                throw new Error(res.error)
+              }
+            }
           }
-
-          const res = await window.electronAPI.polizzaRollingVisionUpdate({
-            state: currentState,
-            imageBase64,
-            docType: sf.type || 'polizza',
-            pageNum,
-            totalPages
-          })
-
-          if (res.success) {
-            currentState = res.state
-            setExtracted(flattenRollingState(currentState))
-          }
+        } finally {
+          try { await doc.destroy() } catch { /* già distrutto */ }
         }
       }
 

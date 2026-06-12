@@ -583,7 +583,14 @@ ${context}
       const updatedState = await updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings)
       return { success: true, state: updatedState }
     } catch (err) {
-      return { success: false, error: err.message }
+      // I flag permettono al renderer di interrompere subito il ciclo vision
+      // (Ollama spento) o dopo pochi tentativi (timeout ripetuti)
+      return {
+        success: false,
+        error: err.message,
+        connectionError: !!err.isLlmConnectionError,
+        timeoutError: !!err.isLlmTimeout
+      }
     }
   })
 

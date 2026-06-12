@@ -26,7 +26,8 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, prompt, stream: false }),
-    signal: AbortSignal.timeout(60000)
+    // 3 min: i modelli locali possono impiegare oltre un minuto, specie al primo avvio
+    signal: AbortSignal.timeout(180000)
   })
 
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
