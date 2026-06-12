@@ -89,5 +89,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaReadTemplateStructure: (templatePath) => ipcRenderer.invoke('polizza:readTemplateStructure', { templatePath }),
   polizzaExportToTemplate: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:exportToTemplate', { templatePath, data, mapping }),
   polizzaPreviewChanges: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:previewChanges', { templatePath, data, mapping }),
-  polizzaExportApproved: (templatePath, approvedChanges) => ipcRenderer.invoke('polizza:exportApproved', { templatePath, approvedChanges })
+  polizzaExportApproved: (templatePath, approvedChanges) => ipcRenderer.invoke('polizza:exportApproved', { templatePath, approvedChanges }),
+  polizzaSaveDiagnostics: (content) => ipcRenderer.invoke('polizza:saveDiagnostics', { content })
 })

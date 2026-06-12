@@ -658,6 +658,22 @@ ${context}
     }
   })
 
+  ipcMain.handle('polizza:saveDiagnostics', async (_, { content }) => {
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salva log diagnostica',
+      defaultPath: `polizza_diagnostica_${ts}.txt`,
+      filters: [{ name: 'Testo', extensions: ['txt'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await writeFile(filePath, content, 'utf-8')
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
   // ─── Window controls ────────────────────────────────────────────────────────
   ipcMain.handle('window:minimize', () => mainWindow.minimize())
   ipcMain.handle('window:maximize', () => {
