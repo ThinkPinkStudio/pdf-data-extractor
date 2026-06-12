@@ -562,11 +562,22 @@ ${context}
   // Restituisce anche 'rollingState' (con date) per continuare con le pagine vision.
   ipcMain.handle('polizza:extractRolling', async (_, { filePaths }) => {
     const settings = getSettings()
+    let sendFailures = 0
     try {
       const result = await extractPolizzaRolling(
         filePaths,
         settings,
-        (progress) => mainWindow.webContents.send('polizza:rollingProgress', progress)
+        (progress) => {
+          // L'invio del progresso non deve MAI interrompere l'estrazione
+          // (es. finestra distrutta/ricreata)
+          try {
+            mainWindow.webContents.send('polizza:rollingProgress', progress)
+          } catch (err) {
+            if (sendFailures++ === 0) {
+              console.warn('[polizza] invio progresso alla UI fallito:', err.message)
+            }
+          }
+        }
       )
       return { success: true, ...result }
     } catch (err) {
@@ -583,7 +594,14 @@ ${context}
       const updatedState = await updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings)
       return { success: true, state: updatedState }
     } catch (err) {
-      return { success: false, error: err.message }
+      // I flag permettono al renderer di interrompere subito il ciclo vision
+      // (Ollama spento) o dopo pochi tentativi (timeout ripetuti)
+      return {
+        success: false,
+        error: err.message,
+        connectionError: !!err.isLlmConnectionError,
+        timeoutError: !!err.isLlmTimeout
+      }
     }
   })
 
@@ -635,6 +653,22 @@ ${context}
     try {
       const changes = await previewTemplateChanges(templatePath, data, mapping, settings.polizzaFields || null)
       return { success: true, changes }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('polizza:saveDiagnostics', async (_, { content }) => {
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salva log diagnostica',
+      defaultPath: `polizza_diagnostica_${ts}.txt`,
+      filters: [{ name: 'Testo', extensions: ['txt'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await writeFile(filePath, content, 'utf-8')
+      return { success: true, filePath }
     } catch (err) {
       return { success: false, error: err.message }
     }

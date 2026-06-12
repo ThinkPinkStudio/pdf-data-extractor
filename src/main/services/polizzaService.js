@@ -5,14 +5,12 @@
  * Fogli Excel target: RCT_O e RCP
  *
  * Strategia di estrazione (in ordine di qualità):
- * 1. pdftotext (poppler-utils)  – migliore, ma richiede installazione esterna
- * 2. pdfjs-dist con ricostruzione spaziale – puro JS, funziona su Win/Mac/Linux
- * 3. pdf-parse – ultimo fallback generico
+ * 1. pdfjs-dist con ricostruzione spaziale – puro JS, funziona su Win/Mac/Linux
+ * 2. pdf-parse – ultimo fallback generico
  */
 
 import { readFileSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { execSync } from 'child_process'
 import { loadPDF } from './pdfService.js'
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
@@ -113,39 +111,6 @@ export const RCP_FIELDS = [
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
 
-// ─── Estrazione testo via pdftotext (poppler-utils) ──────────────────────────
-
-/**
- * Estrae il testo da un PDF con pdftotext -layout (poppler-utils).
- * Produce output eccellente per PDF-form. Cerca il binario in PATH e in
- * percorsi comuni su macOS (Homebrew Intel/ARM) e Linux.
- * @returns {string|null} testo estratto, null se poppler non installato
- */
-function extractTextWithPdftotext(filePath) {
-  const EXTRA_DIRS = [
-    '/opt/homebrew/bin',    // macOS Homebrew ARM (Apple Silicon)
-    '/usr/local/bin',       // macOS Homebrew Intel + Linux vari
-    '/opt/local/bin',       // macOS MacPorts
-    '/usr/bin'              // Linux standard
-  ]
-  const escaped = filePath.replace(/'/g, "'\\''")
-
-  const candidates = [
-    `pdftotext -layout '${escaped}' -`,
-    ...EXTRA_DIRS.map(d => `'${d}/pdftotext' -layout '${escaped}' -`)
-  ]
-
-  for (const cmd of candidates) {
-    try {
-      const text = execSync(cmd, { encoding: 'utf8', timeout: 30000, maxBuffer: 20 * 1024 * 1024 })
-      if (text && text.trim().length > 10) return text
-    } catch {
-      // Prova il prossimo
-    }
-  }
-  return null  // non disponibile — il chiamante usa il fallback pdfjs
-}
-
 // ─── Estrazione con pdfjs-dist (puro JS, cross-platform) ─────────────────────
 
 /**
@@ -210,8 +175,8 @@ async function extractTextWithPdfjsSpatial(filePath) {
       if (pageText.trim()) pageTexts.push(pageText.trim())
     }
 
-    // Use \f (form feed) as page separator — same as pdftotext — so page numbers
-    // can be reconstructed later by counting \f chars before a value's position.
+    // Use \f (form feed) as page separator so page numbers can be
+    // reconstructed later by counting \f chars before a value's position.
     const fullText = pageTexts.join('\f').trim()
     return fullText.length > 20 ? fullText : null
   } catch (err) {
@@ -245,8 +210,9 @@ function filterCGA(text, maxChars = 600) {
 function extractFieldsWithRegex(text) {
   const found = {}
 
-  // ── N° Polizza: numero lungo dopo "POLIZZA N°", "POLIZZA No." ecc.
-  const polMatch = text.match(/POLIZZA\s+N[°oO.]\s*(\d[\d\s]{4,15})/i)
+  // ── N° Polizza: dopo "POLIZZA", "POLIZZA N°", "POLIZZA R.C. N." ecc.
+  // Accetta anche numerazioni alfanumeriche con prefisso lettere (es. ILI0003005)
+  const polMatch = text.match(/POLIZZA\s+(?:R\.?C\.?\s+)?(?:N[°oO.\s]{0,3})?([A-Z]{0,5}\d[\d\s]{3,15})/i)
   if (polMatch) {
     found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
   }
@@ -270,7 +236,7 @@ function extractFieldsWithRegex(text) {
 
 /**
  * Cerca una data in una riga di testo corrispondente al pattern.
- * Gestisce sia il formato standard "GG/MM/AAAA" sia gli artefatti pdftotext
+ * Gestisce sia il formato standard "GG/MM/AAAA" sia gli artefatti di estrazione
  * tipo "31 112 I 2021" (→ "31/12/2021").
  */
 function parseDateFromContextLine(fullText, linePattern) {
@@ -317,38 +283,49 @@ function parseDateFromContextLine(fullText, linePattern) {
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
- * Restituisce la data più recente trovata nel testo del documento come timestamp
- * numerico (ms). Cerca nell'ordine: scadenza → decorrenza → prima data GG/MM/AAAA.
+ * Trova la data "di riferimento" di un documento nel suo testo, come stringa
+ * GG/MM/AAAA. È sempre una data LETTA nel contenuto (mai la data del file).
+ * Priorità: data di emissione → data di effetto → scadenza → decorrenza →
+ * prima data GG/MM/AAAA presente.
+ */
+function extractDocumentDateString(text) {
+  // 1. "Emesso in Milano il 25/05/2026" — la più affidabile per la recenza
+  const emesso = parseDateFromContextLine(text, /EMESS[OAE]\b[^\n]{0,80}/i)
+  if (emesso) return emesso
+
+  // 2. "con effetto dalle ore 24.00 del 27/04/2026"
+  const effetto = parseDateFromContextLine(text, /EFFETTO\b[^\n]{0,80}/i)
+  if (effetto) return effetto
+
+  // 3. Data di scadenza (es. "SCADENZA 31/12/2025")
+  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scad) return scad
+
+  // 4. Data di decorrenza (es. "DECORRENZA 01/01/2024")
+  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (dec) return dec
+
+  // 5. Prima data GG/MM/AAAA trovata nel testo
+  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
+  if (any) return `${any[1].padStart(2, '0')}/${any[2].padStart(2, '0')}/${any[3]}`
+
+  return null
+}
+
+/**
+ * Restituisce la data di riferimento del documento come timestamp numerico (ms).
  * Usata per stabilire quale documento è il più recente quando ci sono più file.
  */
 function extractDocumentDate(text) {
-  const toTimestamp = (dateStr) => {
-    if (!dateStr) return 0
-    const [dd, mm, yyyy] = dateStr.split('/')
-    if (!dd || !mm || !yyyy) return 0
-    return new Date(+yyyy, +mm - 1, +dd).getTime()
-  }
-
-  // 1. Data di scadenza (es. "SCADENZA 31/12/2025") — la più indicativa
-  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
-  if (scad) return toTimestamp(scad)
-
-  // 2. Data di decorrenza (es. "DECORRENZA 01/01/2024")
-  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
-  if (dec) return toTimestamp(dec)
-
-  // 3. Prima data GG/MM/AAAA trovata nel testo
-  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
-  if (any) {
-    return toTimestamp(`${any[1].padStart(2,'0')}/${any[2].padStart(2,'0')}/${any[3]}`)
-  }
-
-  return 0
+  const str = extractDocumentDateString(text)
+  if (!str) return 0
+  const [dd, mm, yyyy] = str.split('/')
+  return new Date(+yyyy, +mm - 1, +dd).getTime()
 }
 
 /**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
- * Strategia: pdftotext → regex (alta affidabilità) + LLM (campi liberi).
+ * Strategia: pdfjs → regex (alta affidabilità) + LLM (campi liberi).
  *
  * Regola "file più recente vince": quando un campo è presente in più file,
  * viene usato il valore del file con la data interna più recente (scadenza/decorrenza).
@@ -374,24 +351,18 @@ export async function extractPolizzaFromPDFs(files, settings) {
   const allTexts = []
 
   for (const { path: fp, type = 'polizza' } of normalizedFiles) {
-    let text = extractTextWithPdftotext(fp)
-
+    let text = await extractTextWithPdfjsSpatial(fp)
     if (text) {
-      console.log(`[polizza] pdftotext OK: ${fp.split('/').pop()} (${text.length} chars)`)
+      console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
     } else {
-      text = await extractTextWithPdfjsSpatial(fp)
-      if (text) {
-        console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
-      } else {
-        try {
-          const pdfData = await loadPDF(fp)
-          text = pdfData.text || ''
-          if (text.trim().length > 5) {
-            console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
-          }
-        } catch (err) {
-          console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
+      try {
+        const pdfData = await loadPDF(fp)
+        text = pdfData.text || ''
+        if (text.trim().length > 5) {
+          console.log(`[polizza] pdf-parse fallback: ${fp.split('/').pop()} (${text.length} chars)`)
         }
+      } catch (err) {
+        console.warn(`[polizza] Impossibile leggere ${fp}:`, err.message)
       }
     }
 
@@ -479,7 +450,7 @@ export async function extractPolizzaFromPDFs(files, settings) {
       const llmFound = Object.keys(llmResult).filter(k => llmResult[k])
       console.log(`[polizza] LLM: ${llmFound.length} campi trovati:`, llmFound)
     } catch (err) {
-      console.warn('[polizza] Errore LLM (non fatale):', err.message)
+      console.warn('[polizza] Errore LLM (non fatale):', classifyLlmError(err, settings).message)
     }
   }
 
@@ -512,8 +483,7 @@ function findValueSource(value, allTexts) {
     const pos = lower.indexOf(needle)
     if (pos === -1) continue
 
-    // Conta i separatori di pagina prima della posizione trovata.
-    // Sia pdftotext (\f) che pdfjs (\f dopo la modifica) usano lo stesso separatore.
+    // Conta i separatori di pagina (\f) prima della posizione trovata.
     const before = text.slice(0, pos)
     const pageNum = (before.match(/\f/g) || []).length + 1
 
@@ -532,8 +502,10 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
 
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
 
+  // La DESCRIZIONE è la specifica di cosa estrarre: va sempre inviata al modello
+  // (l'id del campo è solo una chiave arbitraria)
   const fieldGuide = fields
-    .map(f => `${f.id}: ${f.label} (es. ${f.description.match(/es\.\s*[^)]+/)?.[0] || f.description.slice(0, 60)})`)
+    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '').slice(0, 160)}`)
     .join('\n')
 
   const systemPrompt =
@@ -552,6 +524,9 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
   const ollamaPrompt =
 `DOCUMENTO ASSICURATIVO:
 ${contextText}
+
+GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
+${fieldGuide}
 
 Leggi il documento e compila il JSON seguente.
 Sostituisci null con il valore trovato nel documento, lascia null se non presente.
@@ -663,7 +638,10 @@ async function callOllama(settings, systemPrompt, userPrompt) {
     }),
     signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
   })
-  if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+  }
   const data = await res.json()
   return (data.message?.content || '').trim()
 }
@@ -692,6 +670,45 @@ function parseJsonResponse(raw) {
       throw new Error(`JSON malformato dal LLM: ${e2.message}`)
     }
   }
+}
+
+/**
+ * Traduce gli errori di rete/timeout delle chiamate LLM in messaggi azionabili
+ * e li marca con flag (isLlmConnectionError / isLlmTimeout) così i chiamanti
+ * possono decidere se interrompere subito l'estrazione.
+ */
+function classifyLlmError(err, settings) {
+  if (err?.isLlmConnectionError !== undefined) return err  // già classificato
+
+  const provider = settings.llmProvider || 'ollama'
+  const cause = err?.cause
+  const code = cause?.code || cause?.errors?.[0]?.code || ''
+  const isTimeout = err?.name === 'TimeoutError' || /aborted due to timeout/i.test(err?.message || '')
+  const isConnection = !isTimeout && (
+    err?.message === 'fetch failed' ||
+    ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EHOSTUNREACH', 'ETIMEDOUT',
+     'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET'].includes(code)
+  )
+
+  let message
+  if (isConnection && provider === 'ollama') {
+    const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+    message = `Ollama non raggiungibile su ${url}. Avvia l'app Ollama (o "ollama serve") e riprova.`
+  } else if (isConnection) {
+    message = `Connessione al provider LLM (${provider}) fallita: verifica la rete. (${err.message})`
+  } else if (isTimeout && provider === 'ollama') {
+    message = 'Timeout: Ollama non ha risposto entro il limite. Il modello potrebbe essere troppo grande o lento per questa macchina.'
+  } else if (isTimeout) {
+    message = `Timeout: il provider LLM (${provider}) non ha risposto entro il limite.`
+  } else {
+    return err
+  }
+
+  const classified = new Error(message)
+  classified.isLlmConnectionError = isConnection
+  classified.isLlmTimeout = isTimeout
+  classified.cause = err
+  return classified
 }
 
 // ─── Estrazione vision (PDF scansionati) ─────────────────────────────────────
@@ -734,6 +751,10 @@ export async function extractPolizzaFromImages(imageFiles, settings) {
 async function callVisionProvider(settings, fields, pages) {
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
 
+  const fieldGuide = fields
+    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '').slice(0, 160)}`)
+    .join('\n')
+
   const systemPrompt =
     'Sei un estrattore di dati da polizze assicurative italiane. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
@@ -742,6 +763,10 @@ async function callVisionProvider(settings, fields, pages) {
   const userPrompt =
 `Queste sono pagine di una polizza assicurativa RC italiana.
 Leggi il testo nelle immagini ed estrai i valori nel JSON.
+
+GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
+${fieldGuide}
+
 Sostituisci null con il valore trovato, lascia null se non presente.
 Importi formato italiano (es. 3.000.000,00). Date: GG/MM/AAAA.
 Rispondi SOLO con il JSON:
@@ -780,7 +805,10 @@ async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
     }),
     signal: AbortSignal.timeout(300000)  // 5 min — vision è più lento
   })
-  if (!res.ok) throw new Error(`Ollama vision error: ${res.status}`)
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Ollama vision error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+  }
   const data = await res.json()
   return (data.message?.content || '').trim()
 }
@@ -873,39 +901,43 @@ async function* iteratePdfjsPages(filePath) {
 
   const totalPages = doc.numPages
 
-  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-    const page = await doc.getPage(pageNum)
-    const content = await page.getTextContent({ includeMarkedContent: false })
+  try {
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const page = await doc.getPage(pageNum)
+      const content = await page.getTextContent({ includeMarkedContent: false })
 
-    let pageText = ''
-    let prevX = null, prevY = null
+      let pageText = ''
+      let prevX = null, prevY = null
 
-    for (const item of content.items) {
-      if (!('str' in item)) continue
-      const x = item.transform[4], y = item.transform[5]
+      for (const item of content.items) {
+        if (!('str' in item)) continue
+        const x = item.transform[4], y = item.transform[5]
 
-      if (prevY !== null) {
-        const dy = Math.abs(y - prevY)
-        const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
-        if (item.hasEOL || dy > fontSize * 0.4) {
-          pageText += '\n'
-          prevX = null
-        } else if (prevX !== null) {
-          const gap = x - prevX
-          const charW = (item.width > 0 && item.str.length > 0)
-            ? item.width / item.str.length
-            : fontSize * 0.5
-          if (gap > charW * 0.3) pageText += ' '
+        if (prevY !== null) {
+          const dy = Math.abs(y - prevY)
+          const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
+          if (item.hasEOL || dy > fontSize * 0.4) {
+            pageText += '\n'
+            prevX = null
+          } else if (prevX !== null) {
+            const gap = x - prevX
+            const charW = (item.width > 0 && item.str.length > 0)
+              ? item.width / item.str.length
+              : fontSize * 0.5
+            if (gap > charW * 0.3) pageText += ' '
+          }
         }
+
+        pageText += item.str
+        prevX = x + (item.width || item.str.length * ((Math.abs(item.transform[0]) || 10) * 0.5))
+        prevY = y
       }
 
-      pageText += item.str
-      prevX = x + (item.width || item.str.length * ((Math.abs(item.transform[0]) || 10) * 0.5))
-      prevY = y
+      page.cleanup()
+      yield { text: pageText.trim(), pageNum, totalPages }
     }
-
-    page.cleanup()
-    yield { text: pageText.trim(), pageNum, totalPages }
+  } finally {
+    try { await doc.destroy() } catch { /* già distrutto */ }
   }
 }
 
@@ -935,18 +967,180 @@ function flattenRollingState(state) {
   return flat
 }
 
-// Prompt di sistema condiviso per tutte le chiamate rolling (testo e vision)
+/**
+ * Normalizza una data in formato GG/MM/AAAA. Accetta GG/MM/AAAA, GG.MM.AAAA,
+ * GG-MM-AAAA e AAAA-MM-GG. Restituisce null se non è una data riconoscibile.
+ */
+function normalizeDateValue(raw) {
+  const v = String(raw).trim()
+  let d, m, y
+  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/)
+  if (match) { d = +match[1]; m = +match[2]; y = +match[3] }
+  else {
+    match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+    if (match) { y = +match[1]; m = +match[2]; d = +match[3] }
+  }
+  if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+}
+
+// Id dei campi del set predefinito: le regole di sanitizzazione per-id si
+// applicano SOLO a questi. I campi personalizzati dell'utente passano intatti
+// (a parte la normalizzazione date se l'utente ha scelto type 'date').
+const KNOWN_DEFAULT_IDS = new Set(ALL_POLIZZA_FIELDS.map(f => f.id))
+
+/**
+ * Valida/ripulisce un valore proposto dal LLM per un campo.
+ * Restituisce il valore normalizzato, oppure null se il valore è palesemente
+ * incompatibile con la definizione del campo (es. una percentuale come importo
+ * di imposta, un numero come "parametro di regolazione", una P.IVA di 4 cifre).
+ * @returns {string|number|null}
+ */
+function sanitizeFieldValue(field, rawValue) {
+  let v = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue)
+  if (!v) return null
+
+  // "€ 3.000.000,00" / "EUR 3.000.000,00" → "3.000.000,00"
+  // (coerente con gli esempi e con l'export numerico su Excel)
+  const euroMatch = v.match(/^(?:€|EUR)\s*([\d.,]+)$/i)
+  if (euroMatch) v = euroMatch[1]
+
+  // Campi data (per type configurato): accetta solo date riconoscibili
+  if (field?.type === 'date') return normalizeDateValue(v)
+
+  if (!field || !KNOWN_DEFAULT_IDS.has(field.id)) return v
+  const id = field.id
+
+  // P.IVA (11 cifre) o Codice Fiscale (16 alfanumerici): tutto il resto è rumore
+  // (es. codici agenzia/broker tipo "0705")
+  if (id === 'codice_fiscale_iva') {
+    const compact = v.replace(/[\s.\-]/g, '')
+    if (/^\d{11}$/.test(compact) || /^[A-Z0-9]{16}$/i.test(compact)) return compact.toUpperCase()
+    return null
+  }
+
+  // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
+  // "Salari e stipendi + Quota TFR"), mai un numero o un tasso
+  if (/_parametro$/.test(id) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
+
+  // Il tasso è un numero per mille: togli l'eventuale simbolo
+  if (/_tasso$/.test(id)) return v.replace(/\s*[‰%]\s*$/, '')
+
+  // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
+  if (/massimale|premio|imposta|importo|scoperto/.test(id) && /[%‰]\s*$/.test(v)) return null
+
+  return v
+}
+
+/** Converte una data GG/MM/AAAA in timestamp (ms), null se non valida. */
+function dateStrToTs(d) {
+  if (!d || typeof d !== 'string') return null
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const ts = new Date(+m[3], +m[2] - 1, +m[1]).getTime()
+  return Number.isFinite(ts) ? ts : null
+}
+
+/**
+ * Fonde la risposta del LLM nello stato rolling in modo difensivo:
+ * - accetta SOLO chiavi già presenti nello stato (il modello non può inventare
+ *   campi che la UI non mostrerebbe mai);
+ * - normalizza risposte "piatte" ("campo": "valore") nel formato {valore, data_validita};
+ * - valida i valori rispetto alla definizione del campo (sanitizeFieldValue);
+ * - non sovrascrive MAI un valore esistente con null/vuoto (niente regressioni);
+ * - VINCE SEMPRE il valore temporalmente più recente, indipendentemente
+ *   dall'ordine di lettura dei documenti. La data effettiva di un valore è:
+ *   data_validita dichiarata dal modello → il valore stesso se è una data
+ *   (es. scadenza) → la data del documento letta nel contenuto (fonte_data).
+ *   Un valore con data nota non viene mai sostituito da uno più vecchio o
+ *   senza data.
+ *
+ * @param {object} fieldsById  { fieldId: fieldDef } per la validazione per-campo
+ * @param {string|null} docDate  data GG/MM/AAAA del documento corrente (letta nel testo)
+ */
+function mergeRollingState(state, updated, fieldsById = {}, docDate = null) {
+  if (!updated || typeof updated !== 'object' || Array.isArray(updated)) return state
+
+  const merged = { ...state }
+  for (const [key, rawEntry] of Object.entries(updated)) {
+    if (!(key in merged)) continue
+
+    let entry = rawEntry
+    if (typeof entry === 'string' || typeof entry === 'number') {
+      entry = { valore: entry, data_validita: null }
+    }
+    if (!entry || typeof entry !== 'object' || !('valore' in entry)) continue
+
+    const val = entry.valore
+    if (typeof val !== 'string' && typeof val !== 'number') continue
+    if (val == null || String(val).trim() === '') continue
+
+    const cleaned = sanitizeFieldValue(fieldsById[key], val)
+    if (cleaned == null || cleaned === '') continue
+
+    const validita = typeof entry.data_validita === 'string'
+      ? normalizeDateValue(entry.data_validita)
+      : null
+
+    // Data effettiva del nuovo valore (per i campi data il valore stesso è la
+    // miglior data disponibile: una scadenza 2026 è più recente di una 2022)
+    const newEffective = validita
+      || (fieldsById[key]?.type === 'date' ? cleaned : null)
+      || docDate
+      || null
+
+    const existing = merged[key]
+    if (existing && existing.valore != null && existing.valore !== '') {
+      const oldTs = dateStrToTs(existing.data_validita || existing.fonte_data)
+      const newTs = dateStrToTs(newEffective)
+      // Il valore datato vince: niente sostituzioni con valori più vecchi o senza data
+      if (oldTs != null && (newTs == null || newTs < oldTs)) continue
+    }
+
+    merged[key] = { valore: cleaned, data_validita: validita, fonte_data: newEffective }
+  }
+  return merged
+}
+
+/**
+ * Costruisce l'elenco campi per il prompt rolling: id, label, DESCRIZIONE
+ * (è la descrizione a definire COSA estrarre — l'id è solo una chiave) e
+ * valore attuale. Una riga per campo.
+ */
+function buildRollingFieldLines(fields, state) {
+  return fields.map(f => {
+    const desc = (f.description || f.label || f.id).slice(0, 160)
+    const entry = state[f.id]
+    const effDate = entry?.data_validita || entry?.fonte_data
+    const current = entry?.valore != null && entry.valore !== ''
+      ? `[attuale: "${entry.valore}"${effDate ? ` — validità ${effDate}` : ''}]`
+      : '[DA ESTRARRE]'
+    return `- ${f.id} — ${f.label}: ${desc} ${current}`
+  }).join('\n')
+}
+
+// Prompt di sistema condiviso per tutte le chiamate rolling (testo e vision).
+// Chiede SOLO i campi da aggiornare (delta): risposte brevi = più veloci,
+// meno timeout e nessuna possibilità di azzerare campi già estratti.
 const ROLLING_SYSTEM_PROMPT =
-  'Sei un estrattore dati da polizze assicurative italiane in modalità "rolling state".\n' +
-  'Ricevi lo stato corrente dei campi estratti e nuovo contenuto da analizzare.\n\n' +
+  'Sei un estrattore dati da polizze assicurative italiane.\n' +
+  'Ricevi un elenco di CAMPI (id, nome, descrizione, valore attuale) e nuovo contenuto da analizzare.\n\n' +
   'REGOLE TASSATIVE:\n' +
-  '1. Se un campo ha "valore": null → aggiornalo se trovi un valore nel contenuto.\n' +
-  '2. Se un campo ha già un valore → sostituiscilo SOLO se il nuovo valore ha una\n' +
-  '   data di validità (decorrenza, data effetto, data modifica) semanticamente più recente.\n' +
-  '3. Se non puoi determinare quale data sia più recente → NON aggiornare.\n' +
-  '4. Aggiungi campi nuovi se trovi dati rilevanti della polizza non ancora in stato.\n' +
-  '5. Restituisci SEMPRE e SOLO il JSON completo aggiornato. Zero testo extra, zero markdown.\n\n' +
-  'FORMATO OBBLIGATORIO per ogni campo:\n' +
+  '1. La DESCRIZIONE di ogni campo definisce esattamente cosa estrarre. L\'id è solo\n' +
+  '   una chiave: non dedurre il significato dal nome del campo, segui la descrizione.\n' +
+  '2. Rispondi SOLO con i campi da aggiornare, come oggetto JSON. Se non c\'è nulla\n' +
+  '   da aggiornare rispondi {}.\n' +
+  '3. Usa ESCLUSIVAMENTE gli id elencati. NON inventare campi nuovi.\n' +
+  '4. Compila i campi [DA ESTRARRE] solo se trovi nel contenuto un valore che\n' +
+  '   corrisponde alla descrizione. Nel dubbio, ometti il campo.\n' +
+  '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore è\n' +
+  '   temporalmente più recente di quello attuale (data di effetto, emissione o\n' +
+  '   modifica più recente). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
+  '6. Indica SEMPRE "data_validita" quando il documento riporta una data di effetto,\n' +
+  '   emissione, decorrenza o modifica riferibile al dato estratto.\n' +
+  '7. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
+  '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
+  'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
 
 /**
@@ -967,14 +1161,19 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt) {
       stream: false,
       format: 'json',
       options: {
-        num_ctx:     8192,  // batch piccoli non richiedono contesto grande
+        num_ctx:     16384, // batch (3 pagine) + guida campi + risposta delta
         temperature: 0,
-        num_predict: 3000   // abbastanza per lo stato completo
+        num_predict: 3000
       }
     }),
-    signal: AbortSignal.timeout(60000)  // 60s: batch piccoli = risposte veloci
+    // 3 min: i modelli locali possono essere lenti, soprattutto alla prima
+    // chiamata (caricamento modello) o quando lo stato si riempie
+    signal: AbortSignal.timeout(180000)
   })
-  if (!res.ok) throw new Error(`Ollama rolling error: ${res.status}`)
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Ollama rolling error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+  }
   const data = await res.json()
   return (data.message?.content || '').trim()
 }
@@ -1001,30 +1200,36 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
         num_predict: 3000
       }
     }),
-    signal: AbortSignal.timeout(120000)  // vision è più lento
+    // 5 min: l'encoding dell'immagine + inferenza vision su hardware consumer
+    // può superare abbondantemente i 2 minuti per pagina
+    signal: AbortSignal.timeout(300000)
   })
-  if (!res.ok) throw new Error(`Ollama vision rolling error: ${res.status}`)
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Ollama vision rolling error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+  }
   const data = await res.json()
   return (data.message?.content || '').trim()
 }
 
 /**
  * Aggiorna lo stato rolling con un batch di testo (fino a 3 pagine + coda precedente).
- * Se il LLM restituisce JSON non valido, mantiene lo stato precedente invariato.
+ * Il prompt include la GUIDA dei campi (label + descrizione): è la descrizione a
+ * definire cosa estrarre, l'id da solo non basta.
+ * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
+ * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
-async function callRollingLLMText(settings, state, docType, batchText) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function callRollingLLMText(settings, state, docType, batchText, fields, docDate = null) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI (id — nome: descrizione [valore attuale]):
+${buildRollingFieldLines(fields, state)}
 
-TIPO DOCUMENTO: ${docType}
+TIPO DOCUMENTO: ${docType}${docDate ? ` — DATA DOCUMENTO: ${docDate}` : ''}
 
 TESTO PAGINE:
 ${batchText}
 
-Aggiorna e restituisci il JSON completo:`
+Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const provider = settings.llmProvider || 'ollama'
   let raw
@@ -1037,28 +1242,28 @@ Aggiorna e restituisci il JSON completo:`
     } else {
       raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
     }
-
-    const updated = parseJsonResponse(raw)
-    return { ...state, ...updated }
   } catch (err) {
-    console.warn('[polizza:rolling] Stato invariato per errore LLM:', err.message)
-    return state
+    throw classifyLlmError(err, settings)
   }
+
+  const updated = parseJsonResponse(raw)
+  const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
+  return mergeRollingState(state, updated, fieldsById, docDate)
 }
 
 /**
  * Aggiorna lo stato rolling con una singola immagine di pagina (PDF scansionato).
+ * Anche qui il prompt include la GUIDA dei campi (label + descrizione).
+ * Lancia un errore classificato se la chiamata LLM fallisce.
  */
-async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, fields) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI (id — nome: descrizione [valore attuale]):
+${buildRollingFieldLines(fields, state)}
 
 TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
 
-Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
+Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const provider = settings.llmProvider || 'ollama'
   let raw
@@ -1106,13 +1311,13 @@ Leggi il testo nell'immagine, aggiorna lo stato e restituisci il JSON completo:`
       const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
       raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data)
     }
-
-    const updated = parseJsonResponse(raw)
-    return { ...state, ...updated }
   } catch (err) {
-    console.warn('[polizza:rolling] Vision stato invariato per errore LLM:', err.message)
-    return state
+    throw classifyLlmError(err, settings)
   }
+
+  const updated = parseJsonResponse(raw)
+  const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
+  return mergeRollingState(state, updated, fieldsById)
 }
 
 /**
@@ -1147,8 +1352,47 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   let state = initRollingState(activeFields)
   const scannedFiles = []
   let totalPagesProcessed = 0
+  let consecutiveLlmErrors = 0
 
   const notify = (extra) => onProgress?.({ state, totalPagesProcessed, ...extra })
+
+  // Pre-seed con regex: i campi ultra-strutturati (n° polizza, P.IVA, date)
+  // vengono estratti in modo deterministico prima della chiamata LLM, così il
+  // modello li vede già compilati e non può inventarli (es. codici broker
+  // scambiati per P.IVA).
+  const seedFromRegex = (batchText, docDate) => {
+    const regexFound = extractFieldsWithRegex(batchText)
+    for (const [k, v] of Object.entries(regexFound)) {
+      if (v && k in state && (state[k]?.valore == null || state[k].valore === '')) {
+        // Se il valore stesso è una data (decorrenza/scadenza) è anche la sua validità
+        const selfDate = normalizeDateValue(v)
+        state[k] = { valore: v, data_validita: selfDate, fonte_data: selfDate || docDate || null }
+      }
+    }
+  }
+
+  // Aggiorna lo stato con un batch. Se Ollama/il provider è irraggiungibile, o se
+  // gli errori LLM si accumulano, interrompe TUTTA l'estrazione invece di macinare
+  // inutilmente le pagine restanti a vuoto.
+  const applyTextBatch = async (docType, batchText, docDate) => {
+    seedFromRegex(batchText, docDate)
+    try {
+      state = await callRollingLLMText(settings, state, docType, batchText, activeFields, docDate)
+      consecutiveLlmErrors = 0
+    } catch (err) {
+      consecutiveLlmErrors++
+      console.warn('[polizza:rolling] Stato invariato per errore LLM:', err.message)
+      if (err.isLlmConnectionError || consecutiveLlmErrors >= 3) {
+        const fatal = new Error(
+          err.isLlmConnectionError
+            ? err.message
+            : `Estrazione interrotta dopo ${consecutiveLlmErrors} errori LLM consecutivi. Ultimo errore: ${err.message}`
+        )
+        fatal.isLlmFatal = true
+        throw fatal
+      }
+    }
+  }
 
   for (let docIdx = 0; docIdx < normalizedFiles.length; docIdx++) {
     const { path: filePath, type: docType } = normalizedFiles[docIdx]
@@ -1157,33 +1401,13 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     console.log(`[polizza:rolling] ${docIdx + 1}/${normalizedFiles.length}: ${docName} [${docType}]`)
     notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: 0, pageTotal: 0, docName })
 
-    // Tentativo 1: pdftotext (subprocess, non carica nulla in JS memory)
-    const pdftotextText = extractTextWithPdftotext(filePath)
-
-    if (pdftotextText) {
-      const pages = pdftotextText.split('\f').map(p => p.trim()).filter(p => p.length > 0)
-      const totalPages = pages.length
-      let tail = ''
-
-      for (let i = 0; i < pages.length; i += BATCH_SIZE) {
-        const batch = pages.slice(i, i + BATCH_SIZE)
-        const batchText = tail ? `${tail}\n---\n${batch.join('\n---\n')}` : batch.join('\n---\n')
-        tail = batch[batch.length - 1].slice(-300)
-
-        const pageEnd = Math.min(i + BATCH_SIZE, totalPages)
-        totalPagesProcessed += batch.length
-        notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageEnd, pageTotal: totalPages, docName })
-
-        state = await callRollingLLMText(settings, state, docType, batchText)
-        console.log(`[polizza:rolling]   pg ${i + 1}-${pageEnd}/${totalPages}`)
-      }
-      continue
-    }
-
-    // Tentativo 2: pdfjs pagina per pagina (async generator)
+    // pdfjs pagina per pagina (async generator)
     let hasText = false
     let pageBatch = []
     let tail = ''
+    // Data di riferimento del documento, letta nel contenuto (mai dal file):
+    // serve al merge per decidere se un valore è più recente di uno già estratto
+    let docDate = null
 
     try {
       for await (const { text, pageNum, totalPages } of iteratePdfjsPages(filePath)) {
@@ -1195,16 +1419,22 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             const batchText = tail ? `${tail}\n---\n${pageBatch.join('\n---\n')}` : pageBatch.join('\n---\n')
             tail = pageBatch[pageBatch.length - 1].slice(-300)
 
+            if (!docDate) docDate = extractDocumentDateString(batchText)
+
             totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
-            state = await callRollingLLMText(settings, state, docType, batchText)
+            await applyTextBatch(docType, batchText, docDate)
             console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
+            // Seconda notifica a batch completato: porta subito alla UI lo stato
+            // aggiornato (i campi trovati), non al batch successivo
+            notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
             pageBatch = []
           }
         }
       }
     } catch (err) {
+      if (err.isLlmFatal) throw err
       console.warn(`[polizza:rolling] pdfjs error su ${docName}:`, err.message)
     }
 
@@ -1216,7 +1446,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   }
 
   const data = flattenRollingState(state)
-  console.log(`[polizza:rolling] Completato: ${Object.keys(data).length} campi estratti`)
+  console.log(`[polizza:rolling] Completato: ${Object.keys(data).length} campi estratti:`, Object.keys(data))
 
   return { data, scannedFiles, sources: {}, rollingState: state }
 }
@@ -1234,7 +1464,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
  * @returns {object} stato aggiornato
  */
 export async function updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings) {
-  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages)
+  const configuredFields = (settings.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, activeFields)
 }
 
 // ─── Utilità ExcelJS ──────────────────────────────────────────────────────────

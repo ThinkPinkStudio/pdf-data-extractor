@@ -109,7 +109,92 @@ export default function Polizza({ visible }) {
 
   // Progresso rolling (aggiornato via IPC durante l'estrazione)
   const [rollingProgress, setRollingProgress] = useState(null)
-  // { docIndex, docTotal, pageIndex, pageTotal, docName, state }
+  // { docIndex, docTotal, pageIndex, pageTotal, docName, state, receivedAt }
+
+  // Tick di liveness: re-render al secondo durante l'estrazione, così il
+  // contatore mostra il tempo che passa anche durante una singola chiamata
+  // LLM lunga (es. vision su una pagina) in cui File/Pag. non possono avanzare
+  const [, setLivenessTick] = useState(0)
+  useEffect(() => {
+    if (!extracting && !visionExtracting) return
+    const t = setInterval(() => setLivenessTick(x => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [extracting, visionExtracting])
+
+  // Secondi trascorsi dall'ultimo avanzamento del progresso (liveness)
+  const liveSecs = (p) => {
+    if (!p?.receivedAt) return ''
+    const s = Math.max(0, Math.floor((Date.now() - p.receivedAt) / 1000))
+    return s >= 2 ? ` · in analisi da ${s}s` : ''
+  }
+
+  // True mentre un'estrazione è in corso: gli eventi di progresso arrivati
+  // fuori da un run attivo vengono ignorati
+  const runActiveRef = useRef(false)
+  const diagLogsRef = useRef([])
+  const lastSettingsRef = useRef(null)
+  const [showDiagBtn, setShowDiagBtn] = useState(false)
+  const [diagSaved, setDiagSaved] = useState(false)
+
+  const buildDiagText = () => {
+    const s = lastSettingsRef.current || {}
+    const ts = new Date().toISOString().replace('T', ' ').slice(0, 19)
+    const provider = s.llmProvider || 'ollama'
+    const modelLine = provider === 'openai'
+      ? `Modello: ${s.openaiModel || '(non impostato)'}`
+      : provider === 'anthropic'
+        ? `Modello: ${s.anthropicModel || '(non impostato)'}`
+        : `Modello testo: ${s.ollamaModel || '(non impostato)'}  Modello vision: ${s.ollamaVisionModel || '(non impostato)'}  URL: ${s.ollamaUrl || ''}`
+    const lines = [
+      '=== DIAGNOSTICA ESTRAZIONE POLIZZA ===',
+      `Data/ora:     ${ts}`,
+      `Provider LLM: ${provider}`,
+      modelLine,
+      '',
+      '=== FILE CARICATI ===',
+      ...files.map((f, i) => `${i + 1}. ${f.name} [${f.type || 'polizza'}]`),
+      '',
+      '=== LOG ESTRAZIONE ===',
+      ...(diagLogsRef.current.length ? diagLogsRef.current : ['(nessun log disponibile)']),
+      '',
+      '=== DATI ESTRATTI ===',
+    ]
+    if (extracted) {
+      for (const [k, v] of Object.entries(extracted)) {
+        lines.push(`${k}: ${v !== null && v !== undefined && v !== '' ? String(v) : '(vuoto)'}`)
+      }
+    } else {
+      lines.push('(nessun dato estratto)')
+    }
+    if (error) lines.push('', '=== ERRORE FINALE ===', error)
+    return lines.join('\n')
+  }
+
+  const handleSaveDiagnostics = async () => {
+    const content = buildDiagText()
+    const res = await window.electronAPI.polizzaSaveDiagnostics(content)
+    if (res?.success) {
+      setDiagSaved(true)
+      setTimeout(() => setDiagSaved(false), 3000)
+    }
+  }
+
+  // Listener di progresso registrato UNA volta al mount (non per-run): la
+  // registrazione per-click + removeAllListeners nel finally poteva perdere
+  // gli eventi al minimo disallineamento, lasciando il contatore fermo
+  useEffect(() => {
+    window.electronAPI.onPolizzaRollingProgress((progress) => {
+      if (!runActiveRef.current) return
+      const _progMsg = `File ${(progress.docIndex ?? 0) + 1}/${progress.docTotal} · pag ${progress.pageIndex}/${progress.pageTotal}`
+      console.log(`[polizza:ui] progresso: ${_progMsg}`)
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ${_progMsg}`)
+      setRollingProgress({ ...progress, receivedAt: Date.now() })
+      const flat = flattenRollingState(progress.state)
+      if (Object.keys(flat).length > 0) setExtracted(flat)
+    })
+    return () => window.electronAPI.removePolizzaRollingListeners()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const inputRef = useRef(null)
 
@@ -187,18 +272,26 @@ export default function Polizza({ visible }) {
     setVisionMsg(null)
     setScannedFiles([])
     setRollingProgress(null)
+    setShowDiagBtn(false)
+    setDiagSaved(false)
+    diagLogsRef.current = []
+    runActiveRef.current = true
 
-    // Ascolta i progressi in tempo reale: aggiorna UI ad ogni batch
-    window.electronAPI.onPolizzaRollingProgress((progress) => {
-      setRollingProgress(progress)
-      const flat = flattenRollingState(progress.state)
-      if (Object.keys(flat).length > 0) setExtracted(flat)
-    })
+    try {
+      const s = await window.electronAPI.getSettings().catch(() => null)
+      if (s) {
+        const { openaiApiKey: _ok, anthropicApiKey: _ak, ...safeSettings } = s
+        lastSettingsRef.current = safeSettings
+      }
+    } catch { /* settings non critiche per l'estrazione */ }
+    diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Inizio estrazione - ${files.length} file`)
 
     try {
       const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
       const res = await window.electronAPI.polizzaExtractRolling(filesWithTypes)
       if (!res.success) throw new Error(res.error)
+
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Estrazione testo completata`)
 
       // Usa lo stato rolling strutturato se disponibile, altrimenti data piatto
       const flatData = flattenRollingState(res.rollingState)
@@ -211,11 +304,13 @@ export default function Polizza({ visible }) {
         await handleVisionRolling(res.scannedFiles, res.rollingState || {})
       }
     } catch (err) {
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ERRORE: ${err.message}`)
       setError(err.message)
     } finally {
+      runActiveRef.current = false
       setExtracting(false)
       setRollingProgress(null)
-      window.electronAPI.removePolizzaRollingListeners()
+      setShowDiagBtn(true)
     }
   }
 
@@ -244,8 +339,10 @@ export default function Polizza({ visible }) {
       return
     }
 
+    diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR visivo: inizio - ${scannedFilesList.length} file scansionati`)
     let currentState = { ...initialRollingState }
     let totalPagesProcessed = 0
+    let consecutiveFailures = 0
 
     try {
       for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
@@ -269,50 +366,74 @@ export default function Polizza({ visible }) {
         const totalPages = doc.numPages
         console.log(`[vision:rolling] ${docName}: ${totalPages} pagine`)
 
-        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-          totalPagesProcessed++
-          setRollingProgress({
-            docIndex: sfIdx,
-            docTotal: scannedFilesList.length,
-            pageIndex: pageNum,
-            pageTotal: totalPages,
-            docName,
-            totalPagesProcessed,
-            state: currentState
-          })
+        try {
+          for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            totalPagesProcessed++
+            setRollingProgress({
+              docIndex: sfIdx,
+              docTotal: scannedFilesList.length,
+              pageIndex: pageNum,
+              pageTotal: totalPages,
+              docName,
+              totalPagesProcessed,
+              state: currentState,
+              receivedAt: Date.now()
+            })
 
-          let imageBase64
-          try {
-            const page = await doc.getPage(pageNum)
-            const viewport = page.getViewport({ scale: 2.0 })
-            const canvas = document.createElement('canvas')
-            canvas.width = viewport.width
-            canvas.height = viewport.height
-            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-            imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
-            page.cleanup()
-          } catch (err) {
-            console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)
-            continue
+            let imageBase64
+            try {
+              const page = await doc.getPage(pageNum)
+              // Limita il lato lungo a ~1600px: le scansioni ad alta risoluzione
+              // a scala fissa 2.0 producono immagini enormi che rallentano
+              // drasticamente (o mandano in timeout) il modello vision
+              const baseViewport = page.getViewport({ scale: 1 })
+              const scale = Math.min(2, 1600 / Math.max(baseViewport.width, baseViewport.height))
+              const viewport = page.getViewport({ scale })
+              const canvas = document.createElement('canvas')
+              canvas.width = viewport.width
+              canvas.height = viewport.height
+              await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+              imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
+              page.cleanup()
+            } catch (err) {
+              console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)
+              continue
+            }
+
+            const res = await window.electronAPI.polizzaRollingVisionUpdate({
+              state: currentState,
+              imageBase64,
+              docType: sf.type || 'polizza',
+              pageNum,
+              totalPages
+            })
+
+            if (res.success) {
+              currentState = res.state
+              consecutiveFailures = 0
+              diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR vision pag. ${pageNum}/${totalPages} di ${docName}: OK`)
+              setExtracted(flattenRollingState(currentState))
+            } else {
+              consecutiveFailures++
+              diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR vision pag. ${pageNum}/${totalPages} di ${docName}: ${res.error}`)
+              console.warn(`[vision:rolling] Pag. ${pageNum}/${totalPages} di ${docName}: ${res.error}`)
+              // Ollama spento → inutile insistere; timeout/errori ripetuti → stop
+              if (res.connectionError ||
+                  (res.timeoutError && consecutiveFailures >= 2) ||
+                  consecutiveFailures >= 3) {
+                throw new Error(res.error)
+              }
+            }
           }
-
-          const res = await window.electronAPI.polizzaRollingVisionUpdate({
-            state: currentState,
-            imageBase64,
-            docType: sf.type || 'polizza',
-            pageNum,
-            totalPages
-          })
-
-          if (res.success) {
-            currentState = res.state
-            setExtracted(flattenRollingState(currentState))
-          }
+        } finally {
+          try { await doc.destroy() } catch { /* già distrutto */ }
         }
       }
 
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR visivo completato (${totalPagesProcessed} pagine)`)
       setVisionMsg('done')
     } catch (err) {
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR visivo ERRORE: ${err.message}`)
       console.error('[vision:rolling] Errore:', err.message)
       setVisionMsg('error')
       setError('Vision OCR: ' + err.message)
@@ -976,6 +1097,17 @@ export default function Polizza({ visible }) {
               {extracting ? 'Estrazione in corso…' : 'Estrai dati polizza'}
             </button>
 
+            {showDiagBtn && (
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '11px', padding: '4px 10px', opacity: 0.75 }}
+                onClick={handleSaveDiagnostics}
+                title="Salva log diagnostica come file .txt — utile per inviarlo al supporto tecnico"
+              >
+                {diagSaved ? '✓ Salvato' : '📋 Salva diagnostica'}
+              </button>
+            )}
+
             {/* Indicatore vision OCR */}
             {(visionExtracting || visionMsg) && (
               <div style={{
@@ -1078,6 +1210,7 @@ export default function Polizza({ visible }) {
                       {rollingProgress.docName}<br />
                       File {rollingProgress.docIndex + 1} di {rollingProgress.docTotal}
                       {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                      {liveSecs(rollingProgress)}
                       {(rollingProgress.totalPagesProcessed > 0) && (
                         <><br />{rollingProgress.totalPagesProcessed} pagine elaborate</>
                       )}
@@ -1116,6 +1249,7 @@ export default function Polizza({ visible }) {
                         File {rollingProgress.docIndex + 1}/{rollingProgress.docTotal} · {rollingProgress.docName}
                         {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
                         {rollingProgress.totalPagesProcessed > 0 && ` · ${rollingProgress.totalPagesProcessed} pag. elaborate`}
+                        {liveSecs(rollingProgress)}
                       </span>
                     </div>
                   </div>
