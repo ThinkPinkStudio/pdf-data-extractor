@@ -109,7 +109,24 @@ export default function Polizza({ visible }) {
 
   // Progresso rolling (aggiornato via IPC durante l'estrazione)
   const [rollingProgress, setRollingProgress] = useState(null)
-  // { docIndex, docTotal, pageIndex, pageTotal, docName, state }
+  // { docIndex, docTotal, pageIndex, pageTotal, docName, state, receivedAt }
+
+  // Tick di liveness: re-render al secondo durante l'estrazione, così il
+  // contatore mostra il tempo che passa anche durante una singola chiamata
+  // LLM lunga (es. vision su una pagina) in cui File/Pag. non possono avanzare
+  const [, setLivenessTick] = useState(0)
+  useEffect(() => {
+    if (!extracting && !visionExtracting) return
+    const t = setInterval(() => setLivenessTick(x => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [extracting, visionExtracting])
+
+  // Secondi trascorsi dall'ultimo avanzamento del progresso (liveness)
+  const liveSecs = (p) => {
+    if (!p?.receivedAt) return ''
+    const s = Math.max(0, Math.floor((Date.now() - p.receivedAt) / 1000))
+    return s >= 2 ? ` · in analisi da ${s}s` : ''
+  }
 
   const inputRef = useRef(null)
 
@@ -190,7 +207,7 @@ export default function Polizza({ visible }) {
 
     // Ascolta i progressi in tempo reale: aggiorna UI ad ogni batch
     window.electronAPI.onPolizzaRollingProgress((progress) => {
-      setRollingProgress(progress)
+      setRollingProgress({ ...progress, receivedAt: Date.now() })
       const flat = flattenRollingState(progress.state)
       if (Object.keys(flat).length > 0) setExtracted(flat)
     })
@@ -280,7 +297,8 @@ export default function Polizza({ visible }) {
               pageTotal: totalPages,
               docName,
               totalPagesProcessed,
-              state: currentState
+              state: currentState,
+              receivedAt: Date.now()
             })
 
             let imageBase64
@@ -1098,6 +1116,7 @@ export default function Polizza({ visible }) {
                       {rollingProgress.docName}<br />
                       File {rollingProgress.docIndex + 1} di {rollingProgress.docTotal}
                       {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
+                      {liveSecs(rollingProgress)}
                       {(rollingProgress.totalPagesProcessed > 0) && (
                         <><br />{rollingProgress.totalPagesProcessed} pagine elaborate</>
                       )}
@@ -1136,6 +1155,7 @@ export default function Polizza({ visible }) {
                         File {rollingProgress.docIndex + 1}/{rollingProgress.docTotal} · {rollingProgress.docName}
                         {rollingProgress.pageTotal > 0 && ` · Pag. ${rollingProgress.pageIndex}/${rollingProgress.pageTotal}`}
                         {rollingProgress.totalPagesProcessed > 0 && ` · ${rollingProgress.totalPagesProcessed} pag. elaborate`}
+                        {liveSecs(rollingProgress)}
                       </span>
                     </div>
                   </div>

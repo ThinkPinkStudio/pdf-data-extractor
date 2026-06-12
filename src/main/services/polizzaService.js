@@ -283,33 +283,44 @@ function parseDateFromContextLine(fullText, linePattern) {
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
 
 /**
- * Restituisce la data più recente trovata nel testo del documento come timestamp
- * numerico (ms). Cerca nell'ordine: scadenza → decorrenza → prima data GG/MM/AAAA.
+ * Trova la data "di riferimento" di un documento nel suo testo, come stringa
+ * GG/MM/AAAA. È sempre una data LETTA nel contenuto (mai la data del file).
+ * Priorità: data di emissione → data di effetto → scadenza → decorrenza →
+ * prima data GG/MM/AAAA presente.
+ */
+function extractDocumentDateString(text) {
+  // 1. "Emesso in Milano il 25/05/2026" — la più affidabile per la recenza
+  const emesso = parseDateFromContextLine(text, /EMESS[OAE]\b[^\n]{0,80}/i)
+  if (emesso) return emesso
+
+  // 2. "con effetto dalle ore 24.00 del 27/04/2026"
+  const effetto = parseDateFromContextLine(text, /EFFETTO\b[^\n]{0,80}/i)
+  if (effetto) return effetto
+
+  // 3. Data di scadenza (es. "SCADENZA 31/12/2025")
+  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
+  if (scad) return scad
+
+  // 4. Data di decorrenza (es. "DECORRENZA 01/01/2024")
+  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
+  if (dec) return dec
+
+  // 5. Prima data GG/MM/AAAA trovata nel testo
+  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
+  if (any) return `${any[1].padStart(2, '0')}/${any[2].padStart(2, '0')}/${any[3]}`
+
+  return null
+}
+
+/**
+ * Restituisce la data di riferimento del documento come timestamp numerico (ms).
  * Usata per stabilire quale documento è il più recente quando ci sono più file.
  */
 function extractDocumentDate(text) {
-  const toTimestamp = (dateStr) => {
-    if (!dateStr) return 0
-    const [dd, mm, yyyy] = dateStr.split('/')
-    if (!dd || !mm || !yyyy) return 0
-    return new Date(+yyyy, +mm - 1, +dd).getTime()
-  }
-
-  // 1. Data di scadenza (es. "SCADENZA 31/12/2025") — la più indicativa
-  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
-  if (scad) return toTimestamp(scad)
-
-  // 2. Data di decorrenza (es. "DECORRENZA 01/01/2024")
-  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
-  if (dec) return toTimestamp(dec)
-
-  // 3. Prima data GG/MM/AAAA trovata nel testo
-  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
-  if (any) {
-    return toTimestamp(`${any[1].padStart(2,'0')}/${any[2].padStart(2,'0')}/${any[3]}`)
-  }
-
-  return 0
+  const str = extractDocumentDateString(text)
+  if (!str) return 0
+  const [dd, mm, yyyy] = str.split('/')
+  return new Date(+yyyy, +mm - 1, +dd).getTime()
 }
 
 /**
@@ -1021,17 +1032,33 @@ function sanitizeFieldValue(field, rawValue) {
   return v
 }
 
+/** Converte una data GG/MM/AAAA in timestamp (ms), null se non valida. */
+function dateStrToTs(d) {
+  if (!d || typeof d !== 'string') return null
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const ts = new Date(+m[3], +m[2] - 1, +m[1]).getTime()
+  return Number.isFinite(ts) ? ts : null
+}
+
 /**
  * Fonde la risposta del LLM nello stato rolling in modo difensivo:
  * - accetta SOLO chiavi già presenti nello stato (il modello non può inventare
  *   campi che la UI non mostrerebbe mai);
  * - normalizza risposte "piatte" ("campo": "valore") nel formato {valore, data_validita};
  * - valida i valori rispetto alla definizione del campo (sanitizeFieldValue);
- * - non sovrascrive MAI un valore esistente con null/vuoto (niente regressioni).
+ * - non sovrascrive MAI un valore esistente con null/vuoto (niente regressioni);
+ * - VINCE SEMPRE il valore temporalmente più recente, indipendentemente
+ *   dall'ordine di lettura dei documenti. La data effettiva di un valore è:
+ *   data_validita dichiarata dal modello → il valore stesso se è una data
+ *   (es. scadenza) → la data del documento letta nel contenuto (fonte_data).
+ *   Un valore con data nota non viene mai sostituito da uno più vecchio o
+ *   senza data.
  *
  * @param {object} fieldsById  { fieldId: fieldDef } per la validazione per-campo
+ * @param {string|null} docDate  data GG/MM/AAAA del documento corrente (letta nel testo)
  */
-function mergeRollingState(state, updated, fieldsById = {}) {
+function mergeRollingState(state, updated, fieldsById = {}, docDate = null) {
   if (!updated || typeof updated !== 'object' || Array.isArray(updated)) return state
 
   const merged = { ...state }
@@ -1055,7 +1082,22 @@ function mergeRollingState(state, updated, fieldsById = {}) {
       ? normalizeDateValue(entry.data_validita)
       : null
 
-    merged[key] = { valore: cleaned, data_validita: validita }
+    // Data effettiva del nuovo valore (per i campi data il valore stesso è la
+    // miglior data disponibile: una scadenza 2026 è più recente di una 2022)
+    const newEffective = validita
+      || (fieldsById[key]?.type === 'date' ? cleaned : null)
+      || docDate
+      || null
+
+    const existing = merged[key]
+    if (existing && existing.valore != null && existing.valore !== '') {
+      const oldTs = dateStrToTs(existing.data_validita || existing.fonte_data)
+      const newTs = dateStrToTs(newEffective)
+      // Il valore datato vince: niente sostituzioni con valori più vecchi o senza data
+      if (oldTs != null && (newTs == null || newTs < oldTs)) continue
+    }
+
+    merged[key] = { valore: cleaned, data_validita: validita, fonte_data: newEffective }
   }
   return merged
 }
@@ -1069,8 +1111,9 @@ function buildRollingFieldLines(fields, state) {
   return fields.map(f => {
     const desc = (f.description || f.label || f.id).slice(0, 160)
     const entry = state[f.id]
+    const effDate = entry?.data_validita || entry?.fonte_data
     const current = entry?.valore != null && entry.valore !== ''
-      ? `[attuale: "${entry.valore}"${entry.data_validita ? ` — validità ${entry.data_validita}` : ''}]`
+      ? `[attuale: "${entry.valore}"${effDate ? ` — validità ${effDate}` : ''}]`
       : '[DA ESTRARRE]'
     return `- ${f.id} — ${f.label}: ${desc} ${current}`
   }).join('\n')
@@ -1090,10 +1133,13 @@ const ROLLING_SYSTEM_PROMPT =
   '3. Usa ESCLUSIVAMENTE gli id elencati. NON inventare campi nuovi.\n' +
   '4. Compila i campi [DA ESTRARRE] solo se trovi nel contenuto un valore che\n' +
   '   corrisponde alla descrizione. Nel dubbio, ometti il campo.\n' +
-  '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore ha una\n' +
-  '   data di validità (decorrenza, data effetto, data modifica) più recente.\n' +
-  '6. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
-  '7. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
+  '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore è\n' +
+  '   temporalmente più recente di quello attuale (data di effetto, emissione o\n' +
+  '   modifica più recente). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
+  '6. Indica SEMPRE "data_validita" quando il documento riporta una data di effetto,\n' +
+  '   emissione, decorrenza o modifica riferibile al dato estratto.\n' +
+  '7. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
+  '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
 
@@ -1173,12 +1219,12 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
  * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
-async function callRollingLLMText(settings, state, docType, batchText, fields) {
+async function callRollingLLMText(settings, state, docType, batchText, fields, docDate = null) {
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
 
-TIPO DOCUMENTO: ${docType}
+TIPO DOCUMENTO: ${docType}${docDate ? ` — DATA DOCUMENTO: ${docDate}` : ''}
 
 TESTO PAGINE:
 ${batchText}
@@ -1202,7 +1248,7 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const updated = parseJsonResponse(raw)
   const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
-  return mergeRollingState(state, updated, fieldsById)
+  return mergeRollingState(state, updated, fieldsById, docDate)
 }
 
 /**
@@ -1314,11 +1360,13 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   // vengono estratti in modo deterministico prima della chiamata LLM, così il
   // modello li vede già compilati e non può inventarli (es. codici broker
   // scambiati per P.IVA).
-  const seedFromRegex = (batchText) => {
+  const seedFromRegex = (batchText, docDate) => {
     const regexFound = extractFieldsWithRegex(batchText)
     for (const [k, v] of Object.entries(regexFound)) {
       if (v && k in state && (state[k]?.valore == null || state[k].valore === '')) {
-        state[k] = { valore: v, data_validita: null }
+        // Se il valore stesso è una data (decorrenza/scadenza) è anche la sua validità
+        const selfDate = normalizeDateValue(v)
+        state[k] = { valore: v, data_validita: selfDate, fonte_data: selfDate || docDate || null }
       }
     }
   }
@@ -1326,10 +1374,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   // Aggiorna lo stato con un batch. Se Ollama/il provider è irraggiungibile, o se
   // gli errori LLM si accumulano, interrompe TUTTA l'estrazione invece di macinare
   // inutilmente le pagine restanti a vuoto.
-  const applyTextBatch = async (docType, batchText) => {
-    seedFromRegex(batchText)
+  const applyTextBatch = async (docType, batchText, docDate) => {
+    seedFromRegex(batchText, docDate)
     try {
-      state = await callRollingLLMText(settings, state, docType, batchText, activeFields)
+      state = await callRollingLLMText(settings, state, docType, batchText, activeFields, docDate)
       consecutiveLlmErrors = 0
     } catch (err) {
       consecutiveLlmErrors++
@@ -1357,6 +1405,9 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     let hasText = false
     let pageBatch = []
     let tail = ''
+    // Data di riferimento del documento, letta nel contenuto (mai dal file):
+    // serve al merge per decidere se un valore è più recente di uno già estratto
+    let docDate = null
 
     try {
       for await (const { text, pageNum, totalPages } of iteratePdfjsPages(filePath)) {
@@ -1368,10 +1419,12 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             const batchText = tail ? `${tail}\n---\n${pageBatch.join('\n---\n')}` : pageBatch.join('\n---\n')
             tail = pageBatch[pageBatch.length - 1].slice(-300)
 
+            if (!docDate) docDate = extractDocumentDateString(batchText)
+
             totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
-            await applyTextBatch(docType, batchText)
+            await applyTextBatch(docType, batchText, docDate)
             console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
             pageBatch = []
           }
