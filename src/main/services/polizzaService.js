@@ -1426,6 +1426,9 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
 
             await applyTextBatch(docType, batchText, docDate)
             console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
+            // Seconda notifica a batch completato: porta subito alla UI lo stato
+            // aggiornato (i campi trovati), non al batch successivo
+            notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
             pageBatch = []
           }
         }

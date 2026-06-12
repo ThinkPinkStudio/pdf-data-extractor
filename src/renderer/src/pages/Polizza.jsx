@@ -128,6 +128,25 @@ export default function Polizza({ visible }) {
     return s >= 2 ? ` · in analisi da ${s}s` : ''
   }
 
+  // True mentre un'estrazione è in corso: gli eventi di progresso arrivati
+  // fuori da un run attivo vengono ignorati
+  const runActiveRef = useRef(false)
+
+  // Listener di progresso registrato UNA volta al mount (non per-run): la
+  // registrazione per-click + removeAllListeners nel finally poteva perdere
+  // gli eventi al minimo disallineamento, lasciando il contatore fermo
+  useEffect(() => {
+    window.electronAPI.onPolizzaRollingProgress((progress) => {
+      if (!runActiveRef.current) return
+      console.log(`[polizza:ui] progresso: file ${(progress.docIndex ?? 0) + 1}/${progress.docTotal} · pag ${progress.pageIndex}/${progress.pageTotal}`)
+      setRollingProgress({ ...progress, receivedAt: Date.now() })
+      const flat = flattenRollingState(progress.state)
+      if (Object.keys(flat).length > 0) setExtracted(flat)
+    })
+    return () => window.electronAPI.removePolizzaRollingListeners()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const inputRef = useRef(null)
 
   // Carica (o ricarica) i campi e i tipi ogni volta che la pagina diventa visibile
@@ -204,13 +223,7 @@ export default function Polizza({ visible }) {
     setVisionMsg(null)
     setScannedFiles([])
     setRollingProgress(null)
-
-    // Ascolta i progressi in tempo reale: aggiorna UI ad ogni batch
-    window.electronAPI.onPolizzaRollingProgress((progress) => {
-      setRollingProgress({ ...progress, receivedAt: Date.now() })
-      const flat = flattenRollingState(progress.state)
-      if (Object.keys(flat).length > 0) setExtracted(flat)
-    })
+    runActiveRef.current = true
 
     try {
       const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
@@ -230,9 +243,9 @@ export default function Polizza({ visible }) {
     } catch (err) {
       setError(err.message)
     } finally {
+      runActiveRef.current = false
       setExtracting(false)
       setRollingProgress(null)
-      window.electronAPI.removePolizzaRollingListeners()
     }
   }
 

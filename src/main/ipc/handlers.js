@@ -562,11 +562,22 @@ ${context}
   // Restituisce anche 'rollingState' (con date) per continuare con le pagine vision.
   ipcMain.handle('polizza:extractRolling', async (_, { filePaths }) => {
     const settings = getSettings()
+    let sendFailures = 0
     try {
       const result = await extractPolizzaRolling(
         filePaths,
         settings,
-        (progress) => mainWindow.webContents.send('polizza:rollingProgress', progress)
+        (progress) => {
+          // L'invio del progresso non deve MAI interrompere l'estrazione
+          // (es. finestra distrutta/ricreata)
+          try {
+            mainWindow.webContents.send('polizza:rollingProgress', progress)
+          } catch (err) {
+            if (sendFailures++ === 0) {
+              console.warn('[polizza] invio progresso alla UI fallito:', err.message)
+            }
+          }
+        }
       )
       return { success: true, ...result }
     } catch (err) {
