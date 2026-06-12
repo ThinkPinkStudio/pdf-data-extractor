@@ -210,8 +210,9 @@ function filterCGA(text, maxChars = 600) {
 function extractFieldsWithRegex(text) {
   const found = {}
 
-  // ── N° Polizza: numero lungo dopo "POLIZZA N°", "POLIZZA No." ecc.
-  const polMatch = text.match(/POLIZZA\s+N[°oO.]\s*(\d[\d\s]{4,15})/i)
+  // ── N° Polizza: dopo "POLIZZA", "POLIZZA N°", "POLIZZA R.C. N." ecc.
+  // Accetta anche numerazioni alfanumeriche con prefisso lettere (es. ILI0003005)
+  const polMatch = text.match(/POLIZZA\s+(?:R\.?C\.?\s+)?(?:N[°oO.\s]{0,3})?([A-Z]{0,5}\d[\d\s]{3,15})/i)
   if (polMatch) {
     found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
   }
@@ -490,8 +491,10 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
 
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
 
+  // La DESCRIZIONE è la specifica di cosa estrarre: va sempre inviata al modello
+  // (l'id del campo è solo una chiave arbitraria)
   const fieldGuide = fields
-    .map(f => `${f.id}: ${f.label} (es. ${f.description.match(/es\.\s*[^)]+/)?.[0] || f.description.slice(0, 60)})`)
+    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '').slice(0, 160)}`)
     .join('\n')
 
   const systemPrompt =
@@ -510,6 +513,9 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
   const ollamaPrompt =
 `DOCUMENTO ASSICURATIVO:
 ${contextText}
+
+GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
+${fieldGuide}
 
 Leggi il documento e compila il JSON seguente.
 Sostituisci null con il valore trovato nel documento, lascia null se non presente.
@@ -734,6 +740,10 @@ export async function extractPolizzaFromImages(imageFiles, settings) {
 async function callVisionProvider(settings, fields, pages) {
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
 
+  const fieldGuide = fields
+    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '').slice(0, 160)}`)
+    .join('\n')
+
   const systemPrompt =
     'Sei un estrattore di dati da polizze assicurative italiane. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
@@ -742,6 +752,10 @@ async function callVisionProvider(settings, fields, pages) {
   const userPrompt =
 `Queste sono pagine di una polizza assicurativa RC italiana.
 Leggi il testo nelle immagini ed estrai i valori nel JSON.
+
+GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
+${fieldGuide}
+
 Sostituisci null con il valore trovato, lascia null se non presente.
 Importi formato italiano (es. 3.000.000,00). Date: GG/MM/AAAA.
 Rispondi SOLO con il JSON:
@@ -943,13 +957,81 @@ function flattenRollingState(state) {
 }
 
 /**
+ * Normalizza una data in formato GG/MM/AAAA. Accetta GG/MM/AAAA, GG.MM.AAAA,
+ * GG-MM-AAAA e AAAA-MM-GG. Restituisce null se non è una data riconoscibile.
+ */
+function normalizeDateValue(raw) {
+  const v = String(raw).trim()
+  let d, m, y
+  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/)
+  if (match) { d = +match[1]; m = +match[2]; y = +match[3] }
+  else {
+    match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+    if (match) { y = +match[1]; m = +match[2]; d = +match[3] }
+  }
+  if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+}
+
+// Id dei campi del set predefinito: le regole di sanitizzazione per-id si
+// applicano SOLO a questi. I campi personalizzati dell'utente passano intatti
+// (a parte la normalizzazione date se l'utente ha scelto type 'date').
+const KNOWN_DEFAULT_IDS = new Set(ALL_POLIZZA_FIELDS.map(f => f.id))
+
+/**
+ * Valida/ripulisce un valore proposto dal LLM per un campo.
+ * Restituisce il valore normalizzato, oppure null se il valore è palesemente
+ * incompatibile con la definizione del campo (es. una percentuale come importo
+ * di imposta, un numero come "parametro di regolazione", una P.IVA di 4 cifre).
+ * @returns {string|number|null}
+ */
+function sanitizeFieldValue(field, rawValue) {
+  let v = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue)
+  if (!v) return null
+
+  // "€ 3.000.000,00" / "EUR 3.000.000,00" → "3.000.000,00"
+  // (coerente con gli esempi e con l'export numerico su Excel)
+  const euroMatch = v.match(/^(?:€|EUR)\s*([\d.,]+)$/i)
+  if (euroMatch) v = euroMatch[1]
+
+  // Campi data (per type configurato): accetta solo date riconoscibili
+  if (field?.type === 'date') return normalizeDateValue(v)
+
+  if (!field || !KNOWN_DEFAULT_IDS.has(field.id)) return v
+  const id = field.id
+
+  // P.IVA (11 cifre) o Codice Fiscale (16 alfanumerici): tutto il resto è rumore
+  // (es. codici agenzia/broker tipo "0705")
+  if (id === 'codice_fiscale_iva') {
+    const compact = v.replace(/[\s.\-]/g, '')
+    if (/^\d{11}$/.test(compact) || /^[A-Z0-9]{16}$/i.test(compact)) return compact.toUpperCase()
+    return null
+  }
+
+  // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
+  // "Salari e stipendi + Quota TFR"), mai un numero o un tasso
+  if (/_parametro$/.test(id) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
+
+  // Il tasso è un numero per mille: togli l'eventuale simbolo
+  if (/_tasso$/.test(id)) return v.replace(/\s*[‰%]\s*$/, '')
+
+  // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
+  if (/massimale|premio|imposta|importo|scoperto/.test(id) && /[%‰]\s*$/.test(v)) return null
+
+  return v
+}
+
+/**
  * Fonde la risposta del LLM nello stato rolling in modo difensivo:
  * - accetta SOLO chiavi già presenti nello stato (il modello non può inventare
  *   campi che la UI non mostrerebbe mai);
  * - normalizza risposte "piatte" ("campo": "valore") nel formato {valore, data_validita};
+ * - valida i valori rispetto alla definizione del campo (sanitizeFieldValue);
  * - non sovrascrive MAI un valore esistente con null/vuoto (niente regressioni).
+ *
+ * @param {object} fieldsById  { fieldId: fieldDef } per la validazione per-campo
  */
-function mergeRollingState(state, updated) {
+function mergeRollingState(state, updated, fieldsById = {}) {
   if (!updated || typeof updated !== 'object' || Array.isArray(updated)) return state
 
   const merged = { ...state }
@@ -966,28 +1048,52 @@ function mergeRollingState(state, updated) {
     if (typeof val !== 'string' && typeof val !== 'number') continue
     if (val == null || String(val).trim() === '') continue
 
-    merged[key] = {
-      valore: typeof val === 'string' ? val.trim() : val,
-      data_validita: typeof entry.data_validita === 'string' ? entry.data_validita : null
-    }
+    const cleaned = sanitizeFieldValue(fieldsById[key], val)
+    if (cleaned == null || cleaned === '') continue
+
+    const validita = typeof entry.data_validita === 'string'
+      ? normalizeDateValue(entry.data_validita)
+      : null
+
+    merged[key] = { valore: cleaned, data_validita: validita }
   }
   return merged
+}
+
+/**
+ * Costruisce l'elenco campi per il prompt rolling: id, label, DESCRIZIONE
+ * (è la descrizione a definire COSA estrarre — l'id è solo una chiave) e
+ * valore attuale. Una riga per campo.
+ */
+function buildRollingFieldLines(fields, state) {
+  return fields.map(f => {
+    const desc = (f.description || f.label || f.id).slice(0, 160)
+    const entry = state[f.id]
+    const current = entry?.valore != null && entry.valore !== ''
+      ? `[attuale: "${entry.valore}"${entry.data_validita ? ` — validità ${entry.data_validita}` : ''}]`
+      : '[DA ESTRARRE]'
+    return `- ${f.id} — ${f.label}: ${desc} ${current}`
+  }).join('\n')
 }
 
 // Prompt di sistema condiviso per tutte le chiamate rolling (testo e vision).
 // Chiede SOLO i campi da aggiornare (delta): risposte brevi = più veloci,
 // meno timeout e nessuna possibilità di azzerare campi già estratti.
 const ROLLING_SYSTEM_PROMPT =
-  'Sei un estrattore dati da polizze assicurative italiane in modalità "rolling state".\n' +
-  'Ricevi lo stato corrente dei campi estratti e nuovo contenuto da analizzare.\n\n' +
+  'Sei un estrattore dati da polizze assicurative italiane.\n' +
+  'Ricevi un elenco di CAMPI (id, nome, descrizione, valore attuale) e nuovo contenuto da analizzare.\n\n' +
   'REGOLE TASSATIVE:\n' +
-  '1. Rispondi SOLO con i campi da aggiornare, come oggetto JSON. Se non c\'è nulla\n' +
+  '1. La DESCRIZIONE di ogni campo definisce esattamente cosa estrarre. L\'id è solo\n' +
+  '   una chiave: non dedurre il significato dal nome del campo, segui la descrizione.\n' +
+  '2. Rispondi SOLO con i campi da aggiornare, come oggetto JSON. Se non c\'è nulla\n' +
   '   da aggiornare rispondi {}.\n' +
-  '2. Usa ESCLUSIVAMENTE i nomi campo già presenti nello stato. NON inventare campi nuovi.\n' +
-  '3. Se un campo nello stato ha "valore": null → compilalo se trovi il valore nel contenuto.\n' +
-  '4. Se un campo ha già un valore → includilo SOLO se il nuovo valore ha una\n' +
+  '3. Usa ESCLUSIVAMENTE gli id elencati. NON inventare campi nuovi.\n' +
+  '4. Compila i campi [DA ESTRARRE] solo se trovi nel contenuto un valore che\n' +
+  '   corrisponde alla descrizione. Nel dubbio, ometti il campo.\n' +
+  '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore ha una\n' +
   '   data di validità (decorrenza, data effetto, data modifica) più recente.\n' +
-  '5. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
+  '6. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
+  '7. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
 
@@ -1009,7 +1115,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt) {
       stream: false,
       format: 'json',
       options: {
-        num_ctx:     8192,  // batch piccoli non richiedono contesto grande
+        num_ctx:     16384, // batch (3 pagine) + guida campi + risposta delta
         temperature: 0,
         num_predict: 3000
       }
@@ -1062,15 +1168,15 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
 
 /**
  * Aggiorna lo stato rolling con un batch di testo (fino a 3 pagine + coda precedente).
+ * Il prompt include la GUIDA dei campi (label + descrizione): è la descrizione a
+ * definire cosa estrarre, l'id da solo non basta.
  * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
-async function callRollingLLMText(settings, state, docType, batchText) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function callRollingLLMText(settings, state, docType, batchText, fields) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI (id — nome: descrizione [valore attuale]):
+${buildRollingFieldLines(fields, state)}
 
 TIPO DOCUMENTO: ${docType}
 
@@ -1095,19 +1201,19 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
   }
 
   const updated = parseJsonResponse(raw)
-  return mergeRollingState(state, updated)
+  const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
+  return mergeRollingState(state, updated, fieldsById)
 }
 
 /**
  * Aggiorna lo stato rolling con una singola immagine di pagina (PDF scansionato).
+ * Anche qui il prompt include la GUIDA dei campi (label + descrizione).
  * Lancia un errore classificato se la chiamata LLM fallisce.
  */
-async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages) {
-  const stateJSON = JSON.stringify(state, null, 2)
-
+async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, fields) {
   const userPrompt =
-`STATO CORRENTE:
-${stateJSON}
+`CAMPI (id — nome: descrizione [valore attuale]):
+${buildRollingFieldLines(fields, state)}
 
 TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
 
@@ -1164,7 +1270,8 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
   }
 
   const updated = parseJsonResponse(raw)
-  return mergeRollingState(state, updated)
+  const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
+  return mergeRollingState(state, updated, fieldsById)
 }
 
 /**
@@ -1203,12 +1310,26 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
 
   const notify = (extra) => onProgress?.({ state, totalPagesProcessed, ...extra })
 
+  // Pre-seed con regex: i campi ultra-strutturati (n° polizza, P.IVA, date)
+  // vengono estratti in modo deterministico prima della chiamata LLM, così il
+  // modello li vede già compilati e non può inventarli (es. codici broker
+  // scambiati per P.IVA).
+  const seedFromRegex = (batchText) => {
+    const regexFound = extractFieldsWithRegex(batchText)
+    for (const [k, v] of Object.entries(regexFound)) {
+      if (v && k in state && (state[k]?.valore == null || state[k].valore === '')) {
+        state[k] = { valore: v, data_validita: null }
+      }
+    }
+  }
+
   // Aggiorna lo stato con un batch. Se Ollama/il provider è irraggiungibile, o se
   // gli errori LLM si accumulano, interrompe TUTTA l'estrazione invece di macinare
   // inutilmente le pagine restanti a vuoto.
   const applyTextBatch = async (docType, batchText) => {
+    seedFromRegex(batchText)
     try {
-      state = await callRollingLLMText(settings, state, docType, batchText)
+      state = await callRollingLLMText(settings, state, docType, batchText, activeFields)
       consecutiveLlmErrors = 0
     } catch (err) {
       consecutiveLlmErrors++
@@ -1287,7 +1408,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
  * @returns {object} stato aggiornato
  */
 export async function updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings) {
-  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages)
+  const configuredFields = (settings.polizzaFields?.length > 0)
+    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, activeFields)
 }
 
 // ─── Utilità ExcelJS ──────────────────────────────────────────────────────────
