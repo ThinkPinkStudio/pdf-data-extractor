@@ -16,12 +16,12 @@
   "dependencies": {
     "exceljs": "^4.4.0",
     "i18next": "^23.7.6",
+    "jszip": "^3.10.1",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^3.11.174",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-i18next": "^14.0.5",
-    "xlsx": "^0.18.5"
+    "react-i18next": "^14.0.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

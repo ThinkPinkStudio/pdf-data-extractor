@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Sidebar from './components/Sidebar.jsx'
+import TitleBar from './components/TitleBar.jsx'
 import Extractor from './pages/Extractor.jsx'
 import Settings from './pages/Settings.jsx'
 import Contacts from './pages/Contacts.jsx'
@@ -65,6 +66,7 @@ export default function App() {
       <a href="#main-content" className="skip-nav">
         Skip to main content
       </a>
+      <TitleBar />
       <div className="app-shell">
         <Sidebar
           page={page}

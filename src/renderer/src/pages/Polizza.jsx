@@ -357,7 +357,8 @@ export default function Polizza({ visible }) {
 
         let doc
         try {
-          doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer) }).promise
+          // isEvalSupported: false → mitiga l'esecuzione di JS da PDF malevoli (CVE-2024-4367)
+          doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer), isEvalSupported: false }).promise
         } catch (err) {
           console.warn(`[vision:rolling] Apertura PDF fallita per ${docName}:`, err.message)
           continue

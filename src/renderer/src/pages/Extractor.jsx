@@ -158,7 +158,8 @@ function PDFPreview({ buffer, fileName, numPages, extracted }) {
       const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist')
       GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.js', window.location.href).href
       const uint8 = new Uint8Array(buffer)
-      const doc = await getDocument({ data: uint8 }).promise
+      // isEvalSupported: false → mitiga l'esecuzione di JS da PDF malevoli (CVE-2024-4367)
+      const doc = await getDocument({ data: uint8, isEvalSupported: false }).promise
       if (!cancelled) {
         setPdfDoc(doc)
         setCurrentPage(1)

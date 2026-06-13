@@ -270,12 +270,15 @@ ${context}
         const csv = `${keys.map(esc).join(',')}\n${vals.map(esc).join(',')}`
         await writeFile(filePath, csv, 'utf-8')
       } else if (format === 'xlsx') {
-        const XLSX = await import('xlsx')
-        const ws = XLSX.utils.json_to_sheet([data])
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, 'Dati Estratti')
-        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
-        await writeFile(filePath, buf)
+        // ExcelJS (non SheetJS/xlsx): evita la dipendenza 'xlsx' con vulnerabilità
+        // HIGH note e senza fix upstream (prototype pollution + ReDoS).
+        const { default: ExcelJS } = await import('exceljs')
+        const wb = new ExcelJS.Workbook()
+        const ws = wb.addWorksheet('Dati Estratti')
+        const keys = Object.keys(data)
+        ws.addRow(keys)
+        ws.addRow(keys.map(k => data[k] ?? ''))
+        await wb.xlsx.writeFile(filePath)
       }
       return { success: true, filePath }
     } catch (err) {
