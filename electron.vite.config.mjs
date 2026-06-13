@@ -23,7 +23,10 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     define: {
-      __APP_VERSION__: JSON.stringify(version)
+      __APP_VERSION__: JSON.stringify(version),
+      // URL del portale download aperto dal badge "aggiornamento disponibile".
+      // Override possibile via variabile repo UPDATE_DOWNLOAD_URL (Settings → Variables → Actions).
+      __UPDATE_URL__: JSON.stringify(process.env.UPDATE_DOWNLOAD_URL || 'https://downloads.thinkpinkstudio.it/p/pdf-data-extractor')
     },
     resolve: {
       alias: {

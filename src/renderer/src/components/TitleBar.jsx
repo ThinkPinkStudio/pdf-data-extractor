@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
-/* global __APP_VERSION__ */
-
 // Barra del titolo personalizzata, a tutta larghezza, in cima alla finestra.
 //
 // - L'intera barra è una zona di trascinamento (-webkit-app-region: drag) → la
@@ -17,7 +15,6 @@ const isMac = platform === 'darwin'
 const isWindows = platform === 'win32'
 const isLinux = platform === 'linux'
 const showWindowControls = isWindows || isLinux
-const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''
 
 function WindowControls() {
   const [maximized, setMaximized] = useState(false)
@@ -65,10 +62,7 @@ export default function TitleBar() {
   const { t } = useTranslation()
   return (
     <div className={`titlebar${isMac ? ' titlebar-mac' : ''}`}>
-      <div className="titlebar-title">
-        {t('brand.name')}
-        {appVersion && <span className="titlebar-version">v{appVersion}</span>}
-      </div>
+      <div className="titlebar-title">{t('brand.name')}</div>
       {showWindowControls && <WindowControls />}
     </div>
   )

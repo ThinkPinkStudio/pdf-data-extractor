@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── App ────────────────────────────────────────────────────────────────
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+  checkForUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
   platform: process.platform,
 
   // ─── Window controls ────────────────────────────────────────────────────
