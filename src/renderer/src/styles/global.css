@@ -136,22 +136,12 @@ body {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--c-text-secondary);
   pointer-events: none;        /* non blocca il trascinamento */
   white-space: nowrap;
-}
-
-.titlebar-version {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--c-text-muted);
-  opacity: 0.7;
 }
 
 .win-controls {
@@ -306,11 +296,33 @@ body {
   font-weight: 500;
 }
 
+.footer-version-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .footer-version {
   font-size: 10px;
   color: var(--c-text-muted);
   opacity: 0.65;
 }
+
+/* Badge "aggiornamento disponibile" accanto alla versione */
+.footer-update-badge {
+  background: var(--c-accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.footer-update-badge:hover { background: var(--c-accent-hover); }
 
 .footer-actions {
   display: flex;

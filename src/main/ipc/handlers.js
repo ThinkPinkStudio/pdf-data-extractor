@@ -490,6 +490,30 @@ ${context}
 
   ipcMain.handle('app:version', () => app.getVersion())
 
+  // Controlla se su GitHub esiste una release più recente di quella in esecuzione.
+  // Silenzioso: in assenza di rete o su errore restituisce { hasUpdate: false }.
+  ipcMain.handle('app:checkUpdate', async () => {
+    try {
+      const current = app.getVersion()
+      const res = await fetch(
+        'https://api.github.com/repos/thinkpinkstudio/pdf-data-extractor/releases/latest',
+        { headers: { 'User-Agent': 'pdf-data-extractor' }, signal: AbortSignal.timeout(5000) }
+      )
+      if (!res.ok) return { hasUpdate: false }
+      const data = await res.json()
+      const match = data.tag_name?.match(/^v?(\d+\.\d+\.\d+)/)
+      if (!match) return { hasUpdate: false }
+      const latest = match[1]
+      const cur = current.split('.').map(Number)
+      const lat = latest.split('.').map(Number)
+      let cmp = 0
+      for (let i = 0; i < 3 && cmp === 0; i++) cmp = (lat[i] || 0) - (cur[i] || 0)
+      return { hasUpdate: cmp > 0, latestVersion: latest, releaseUrl: data.html_url }
+    } catch {
+      return { hasUpdate: false }
+    }
+  })
+
   // ─── Polizza RC ───────────────────────────────────────────────────────────
 
   ipcMain.handle('dialog:openExcel', async () => {

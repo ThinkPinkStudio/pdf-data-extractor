@@ -12,6 +12,10 @@
     "subtitle": "EXTRACTOR",
     "company": "ThinkPink Studio"
   },
+  "update": {
+    "badge": "v{{version}} ↑",
+    "tooltip": "Aggiornamento disponibile: v{{version}}"
+  },
   "extractor": {
     "title": "Estrattore PDF",
     "subtitle": "Sviluppato da ThinkPink Studio",

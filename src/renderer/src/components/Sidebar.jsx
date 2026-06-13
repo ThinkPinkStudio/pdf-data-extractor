@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
+import { useState, useEffect } from 'react'
 import iconUrl from '../assets/icon.png'
 
-/* global __APP_VERSION__ */
+/* global __APP_VERSION__ __UPDATE_URL__ */
 
 const IconPDF = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -81,6 +82,14 @@ const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''
 
 export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, onLangChange }) {
   const { t } = useTranslation()
+  const [updateInfo, setUpdateInfo] = useState(null)
+
+  // All'avvio: controllo silenzioso di una versione più recente su GitHub.
+  useEffect(() => {
+    window.electronAPI?.checkForUpdate?.()
+      .then(info => { if (info?.hasUpdate) setUpdateInfo(info) })
+      .catch(() => {})
+  }, [])
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'
@@ -133,9 +142,19 @@ export default function Sidebar({ page, onNavigate, theme, onThemeChange, lang, 
           <span className="footer-brand" aria-label={t('brand.company')}>
             {t('brand.company')}
           </span>
-          {appVersion && (
-            <span className="footer-version">v{appVersion}</span>
-          )}
+          <div className="footer-version-row">
+            {appVersion && <span className="footer-version">v{appVersion}</span>}
+            {updateInfo && (
+              <button
+                className="footer-update-badge"
+                onClick={() => window.open((typeof __UPDATE_URL__ !== 'undefined' && __UPDATE_URL__) || updateInfo.releaseUrl)}
+                title={t('update.tooltip', { version: updateInfo.latestVersion })}
+                aria-label={t('update.tooltip', { version: updateInfo.latestVersion })}
+              >
+                {t('update.badge', { version: updateInfo.latestVersion })}
+              </button>
+            )}
+          </div>
         </div>
         <div className="footer-actions">
           <button
