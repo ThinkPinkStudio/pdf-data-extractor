@@ -13,6 +13,7 @@ import { readFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
+import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
 // Struttura rilevata dal file Gestionale_Clienti_CSA.xlsx
@@ -1471,29 +1472,6 @@ export async function updateStateWithVisionPage(state, imageBase64, docType, pag
   return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, activeFields)
 }
 
-// ─── Utilità ExcelJS ──────────────────────────────────────────────────────────
-
-/**
- * Restituisce il valore display di una cella ExcelJS come stringa leggibile.
- * Gestisce numeri, date, formule con risultato, richText e placeholder vuoti.
- */
-function getCellDisplayValue(cell) {
-  if (!cell) return ''
-  const v = cell.value
-  if (v == null) return ''
-  if (v instanceof Date) {
-    const d = v.getDate(), m = v.getMonth() + 1, y = v.getFullYear()
-    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
-  }
-  if (typeof v === 'object') {
-    if (v.formula !== undefined || v.sharedFormula !== undefined) return v.result != null ? String(v.result) : ''
-    if (Array.isArray(v.richText)) return v.richText.map(rt => rt.text || '').join('')
-  }
-  if (typeof v === 'number' && v === 0) return ''
-  if (typeof v === 'string' && v.trim() === '……….') return ''
-  return String(v)
-}
-
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
 
 /**
@@ -1600,27 +1578,9 @@ function parseItalianNumber(val) {
  * all'utente dove mappare i campi.
  */
 export async function readExcelStructure(templatePath) {
-  const { default: ExcelJS } = await import('exceljs')
-
-  const buf = readFileSync(templatePath)
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buf)
-
-  const structure = {}
-  for (const ws of wb.worksheets) {
-    const cells = []
-    const rowLimit = Math.min(ws.rowCount, 50)
-    const colLimit = Math.min(ws.columnCount, 26)
-    for (let r = 1; r <= rowLimit; r++) {
-      for (let c = 1; c <= colLimit; c++) {
-        const cell = ws.getCell(r, c)
-        const v = getCellDisplayValue(cell)
-        if (v) cells.push({ addr: cell.address, value: v.slice(0, 60) })
-      }
-    }
-    structure[ws.name] = cells
-  }
-  return structure
+  // Lettura robusta via jszip (xlsxTemplateReader): non usa ExcelJS, che può
+  // andare in crash caricando file con formattazione condizionale.
+  return readTemplateStructure(templatePath, { maxRow: 50, maxCol: 26 })
 }
 
 // ─── Preview modifiche (vecchio → nuovo) prima dell'export ───────────────────
@@ -1636,11 +1596,10 @@ export async function readExcelStructure(templatePath) {
  * @returns {Array<{fieldId, label, sheet, cell, oldValue, newValue, type}>}
  */
 export async function previewTemplateChanges(templatePath, data, userMapping = {}, fieldsConfig = null) {
-  const { default: ExcelJS } = await import('exceljs')
-
-  const buf = readFileSync(templatePath)
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buf)
+  // Lettura robusta dei valori attuali via jszip (no ExcelJS → no crash su file
+  // con formattazione condizionale).
+  const templateCells = await readTemplateCells(templatePath)
+  const oldCellValue = (sheet, cell) => templateCells[sheet]?.[cell] ?? ''
 
   const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
   const changes = []
@@ -1657,8 +1616,7 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
       if (!target?.sheet || !target?.cell) continue
       const newValue = data[fieldId]
       if (newValue == null || newValue === '') continue
-      const ws = wb.getWorksheet(target.sheet)
-      const oldValue = ws ? getCellDisplayValue(ws.getCell(target.cell)) : ''
+      const oldValue = oldCellValue(target.sheet, target.cell)
       const key = `${target.sheet}!${target.cell}`
       if (seen.has(key)) continue
       seen.add(key)
@@ -1680,8 +1638,7 @@ export async function previewTemplateChanges(templatePath, data, userMapping = {
         const key = `${target.sheet}!${target.cell}`
         if (seen.has(key)) continue
         seen.add(key)
-        const ws = wb.getWorksheet(target.sheet)
-        const oldValue = ws ? getCellDisplayValue(ws.getCell(target.cell)) : ''
+        const oldValue = oldCellValue(target.sheet, target.cell)
         changes.push({
           fieldId,
           label: fieldMeta[fieldId]?.label ?? fieldId,

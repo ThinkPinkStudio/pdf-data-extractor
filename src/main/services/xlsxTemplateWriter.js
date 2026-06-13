@@ -149,7 +149,7 @@ function setCellValue(xml, ref, value) {
  * relationship. Necessaria perché "sheet1.xml" non corrisponde per forza al primo
  * foglio per nome.
  */
-async function buildSheetPathMap(zip) {
+export async function buildSheetPathMap(zip) {
   const workbookXml = await zip.file('xl/workbook.xml')?.async('string')
   const relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('string')
   if (!workbookXml || !relsXml) {
