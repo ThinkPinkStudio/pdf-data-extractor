@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, protocol, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, protocol, nativeImage, dialog } from 'electron'
 import { join } from 'path'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
@@ -20,7 +20,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 620,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 16, y: 18 },
+    // Semafori macOS centrati verticalmente nella barra del titolo (alta --titlebar-h = 38px)
+    trafficLightPosition: { x: 18, y: 12 },
     backgroundColor: '#13141f',
     icon,
     webPreferences: {

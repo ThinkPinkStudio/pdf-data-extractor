@@ -12,6 +12,7 @@
 import { readFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { loadPDF } from './pdfService.js'
+import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 
 // ─── Mapping predefinito per il Gestionale CSA (Consulenze & Soluzioni Aziendali)
 // Struttura rilevata dal file Gestionale_Clienti_CSA.xlsx
@@ -1537,23 +1538,16 @@ export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
  * @param {Array|null} [fieldsConfig] - configurazione campi opzionale
  */
 export async function exportToTemplateExcel(templatePath, outputPath, data, userMapping = {}, fieldsConfig = null) {
-  const { default: ExcelJS } = await import('exceljs')
-
-  const templateBuf = readFileSync(templatePath)
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(templateBuf)
-
   const hasUserMapping = Object.keys(userMapping).some(k => userMapping[k]?.sheet && userMapping[k]?.cell)
+  const edits = []
 
   if (hasUserMapping) {
     for (const [fieldId, target] of Object.entries(userMapping)) {
       if (!target?.sheet || !target?.cell) continue
       const value = data[fieldId]
-      if (value == null) continue
-      const ws = wb.getWorksheet(target.sheet)
-      if (!ws) continue
+      if (value == null || value === '') continue
       const numVal = parseItalianNumber(String(value))
-      ws.getCell(target.cell).value = numVal !== null ? numVal : String(value)
+      edits.push({ sheet: target.sheet, cell: target.cell, value: numVal !== null ? numVal : String(value) })
     }
   } else {
     const mapping = fieldsConfig ? buildMappingFromFields(fieldsConfig) : CSA_MAPPING
@@ -1563,14 +1557,15 @@ export async function exportToTemplateExcel(templatePath, outputPath, data, user
       if (value == null || value === '') continue
       const numVal = parseItalianNumber(String(value))
       for (const target of targets) {
-        const ws = wb.getWorksheet(target.sheet)
-        if (!ws) continue
-        ws.getCell(target.cell).value = numVal !== null ? numVal : String(value)
+        edits.push({ sheet: target.sheet, cell: target.cell, value: numVal !== null ? numVal : String(value) })
       }
     }
   }
 
-  await wb.xlsx.writeFile(outputPath)
+  // Scrittura chirurgica: modifica SOLO le celle target, preservando intatto il
+  // resto del template (formattazione, colori, validazioni, grafici…). Evita il
+  // prompt di ripristino di Excel su Windows. Vedi xlsxTemplateWriter.js.
+  await writeTemplatePreservingStyles(templatePath, outputPath, edits)
 }
 
 /**
@@ -1726,18 +1721,14 @@ export function buildMappingFromFields(fields) {
  * @param {Array<{sheet, cell, newValue}>} approvedChanges
  */
 export async function exportApprovedChanges(templatePath, outputPath, approvedChanges) {
-  const { default: ExcelJS } = await import('exceljs')
+  const edits = (approvedChanges || [])
+    .filter(c => c && c.sheet && c.cell)
+    .map(change => {
+      const numVal = parseItalianNumber(String(change.newValue))
+      return { sheet: change.sheet, cell: change.cell, value: numVal !== null ? numVal : String(change.newValue) }
+    })
 
-  const templateBuf = readFileSync(templatePath)
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(templateBuf)
-
-  for (const change of approvedChanges) {
-    const ws = wb.getWorksheet(change.sheet)
-    if (!ws) continue
-    const numVal = parseItalianNumber(change.newValue)
-    ws.getCell(change.cell).value = numVal !== null ? numVal : String(change.newValue)
-  }
-
-  await wb.xlsx.writeFile(outputPath)
+  // Scrittura chirurgica sullo ZIP del template: niente ricostruzione del file →
+  // nessuna perdita di formattazione/colori e nessun ripristino richiesto da Excel.
+  await writeTemplatePreservingStyles(templatePath, outputPath, edits)
 }
