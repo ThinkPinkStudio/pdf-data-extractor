@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
+import { resilientFetch } from '../services/netFetch.js'
 import {
   getOllamaStatus,
   extractDataWithProvider,
@@ -519,7 +520,7 @@ ${context}
   ipcMain.handle('app:checkUpdate', async () => {
     try {
       const current = app.getVersion()
-      const res = await netFetch(
+      const res = await resilientFetch(
         'https://api.github.com/repos/thinkpinkstudio/pdf-data-extractor/releases/latest',
         { headers: { 'User-Agent': 'pdf-data-extractor' }, signal: AbortSignal.timeout(5000) }
       )

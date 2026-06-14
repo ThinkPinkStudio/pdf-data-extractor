@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { netFetch } from './netFetch.js'
+import { resilientFetch } from './netFetch.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -569,7 +569,7 @@ ${jsonTemplate}`
 }
 
 async function callOpenAI(settings, systemPrompt, userPrompt) {
-  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
+  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -595,7 +595,7 @@ async function callOpenAI(settings, systemPrompt, userPrompt) {
 }
 
 async function callAnthropic(settings, systemPrompt, userPrompt) {
-  const res = await netFetch('https://api.anthropic.com/v1/messages', {
+  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -622,7 +622,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   // Usiamo /api/chat (non /api/generate) + format:"json" che forza JSON
   // a livello grammaticale — il modello non può rispondere con testo libero
-  const res = await netFetch(`${url}/api/chat`, {
+  const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -793,7 +793,7 @@ async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
   // Ollama: immagini come base64 senza il prefisso data:image/...
   const images = pages.map(p => p.replace(/^data:image\/[^;]+;base64,/, ''))
 
-  const res = await netFetch(`${url}/api/chat`, {
+  const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -822,7 +822,7 @@ async function callOpenAIVision(settings, systemPrompt, userPrompt, pages) {
     image_url: { url: p, detail: 'high' }
   }))
 
-  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
+  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -855,7 +855,7 @@ async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
     return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }
   })
 
-  const res = await netFetch('https://api.anthropic.com/v1/messages', {
+  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1152,7 +1152,7 @@ const ROLLING_SYSTEM_PROMPT =
  */
 async function callOllamaRolling(settings, systemPrompt, userPrompt) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
-  const res = await netFetch(`${url}/api/chat`, {
+  const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1186,7 +1186,7 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
   const model = settings.ollamaVisionModel || settings.ollamaModel
   if (!model) throw new Error('Nessun modello vision Ollama configurato.')
 
-  const res = await netFetch(`${url}/api/chat`, {
+  const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1274,7 +1274,7 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
   try {
     if (provider === 'openai') {
       const imageContent = [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }]
-      const res = await netFetch('https://api.openai.com/v1/chat/completions', {
+      const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
         body: JSON.stringify({
@@ -1294,7 +1294,7 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
     } else if (provider === 'anthropic') {
       const mediaType = imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
       const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
-      const res = await netFetch('https://api.anthropic.com/v1/messages', {
+      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({

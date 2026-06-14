@@ -1,4 +1,4 @@
-import { netFetch, describeNetworkError } from './netFetch.js'
+import { resilientFetch, describeNetworkError } from './netFetch.js'
 
 // ─── Diagnostica connessione provider ────────────────────────────────────────
 
@@ -23,14 +23,14 @@ export async function testProviderConnection(settings) {
   const label = provider === 'openai' ? 'OpenAI' : provider === 'anthropic' ? 'Anthropic' : 'Ollama'
   try {
     if (provider === 'openai') {
-      const res = await netFetch('https://api.openai.com/v1/models', {
+      const res = await resilientFetch('https://api.openai.com/v1/models', {
         headers: { 'Authorization': `Bearer ${settings.openaiApiKey || ''}` },
         signal: AbortSignal.timeout(8000)
       })
       return interpretHttp(label, res.status)
     }
     if (provider === 'anthropic') {
-      const res = await netFetch('https://api.anthropic.com/v1/messages', {
+      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ export async function testProviderConnection(settings) {
     }
     // ollama (locale)
     const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
-    const res = await netFetch(`${url}/api/tags`, { signal: AbortSignal.timeout(8000) })
+    const res = await resilientFetch(`${url}/api/tags`, { signal: AbortSignal.timeout(8000) })
     if (res.ok) return { ok: true, provider: label, stage: 'ok', status: res.status, message: 'Connessione riuscita.' }
     return { ok: false, provider: label, stage: 'http', status: res.status, message: `Ollama ha risposto con HTTP ${res.status}.` }
   } catch (err) {
@@ -61,7 +61,7 @@ export async function testProviderConnection(settings) {
 
 export async function getOllamaStatus(baseUrl) {
   try {
-    const res = await netFetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
+    const res = await resilientFetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
     if (!res.ok) return { connected: false, models: [] }
     const data = await res.json()
     const models = (data.models || []).map(m => m.name)
@@ -81,7 +81,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
 
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await netFetch(`${baseUrl}/api/generate`, {
+  const res = await resilientFetch(`${baseUrl}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, prompt, stream: false }),
@@ -98,7 +98,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
 }
 
 export async function* streamChat(baseUrl, model, messages) {
-  const res = await netFetch(`${baseUrl}/api/chat`, {
+  const res = await resilientFetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, messages, stream: true }),
@@ -135,7 +135,7 @@ async function extractDataOpenAI(apiKey, model, fields, contextChunks) {
   const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
+  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -160,7 +160,7 @@ async function extractDataOpenAI(apiKey, model, fields, contextChunks) {
 }
 
 async function* streamChatOpenAI(apiKey, model, messages) {
-  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
+  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -200,7 +200,7 @@ async function* streamChatOpenAI(apiKey, model, messages) {
 
 export async function testOpenAI(apiKey, model) {
   try {
-    const res = await netFetch('https://api.openai.com/v1/models', {
+    const res = await resilientFetch('https://api.openai.com/v1/models', {
       headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000)
     })
@@ -220,7 +220,7 @@ async function extractDataAnthropic(apiKey, model, fields, contextChunks) {
   const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await netFetch('https://api.anthropic.com/v1/messages', {
+  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -258,7 +258,7 @@ async function* streamChatAnthropic(apiKey, model, messages) {
   }
   if (systemMsg) body.system = systemMsg.content
 
-  const res = await netFetch('https://api.anthropic.com/v1/messages', {
+  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -300,7 +300,7 @@ async function* streamChatAnthropic(apiKey, model, messages) {
 
 export async function testAnthropic(apiKey, model) {
   try {
-    const res = await netFetch('https://api.anthropic.com/v1/messages', {
+    const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
