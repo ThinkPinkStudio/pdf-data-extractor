@@ -8,6 +8,7 @@ import Contacts from './pages/Contacts.jsx'
 import Batch from './pages/Batch.jsx'
 import History from './pages/History.jsx'
 import Polizza from './pages/Polizza.jsx'
+import Diagnostics from './pages/Diagnostics.jsx'
 
 const DEFAULT_ACCENT = '#e91e8c'
 
@@ -107,6 +108,9 @@ export default function App() {
               currentTheme={theme}
               currentLang={i18n.language}
             />
+          </div>
+          <div style={{ display: page === 'security' ? 'contents' : 'none' }}>
+            <Diagnostics visible={page === 'security'} />
           </div>
           <div style={{ display: page === 'contacts' ? 'contents' : 'none' }}>
             <Contacts />

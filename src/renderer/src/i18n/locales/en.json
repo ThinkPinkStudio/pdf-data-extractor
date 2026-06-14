@@ -5,7 +5,8 @@
     "settings": "Settings",
     "contacts": "Contacts",
     "batch": "Batch",
-    "history": "History"
+    "history": "History",
+    "security": "Security"
   },
   "brand": {
     "name": "PDF Extractor",

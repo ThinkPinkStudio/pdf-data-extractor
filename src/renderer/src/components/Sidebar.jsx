@@ -69,12 +69,19 @@ const IconShield = () => (
   </svg>
 )
 
+const IconActivity = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+  </svg>
+)
+
 const navItems = [
   { id: 'extractor', icon: <IconPDF />,     labelKey: 'nav.extractor' },
   { id: 'polizza',   icon: <IconShield />,  labelKey: 'nav.polizza'   },
   { id: 'batch',     icon: <IconBatch />,   labelKey: 'nav.batch'     },
   { id: 'history',   icon: <IconHistory />, labelKey: 'nav.history'   },
   { id: 'settings',  icon: <IconSettings />,labelKey: 'nav.settings'  },
+  { id: 'security',  icon: <IconActivity />,labelKey: 'nav.security'  },
   { id: 'contacts',  icon: <IconUser />,    labelKey: 'nav.contacts'  }
 ]
 

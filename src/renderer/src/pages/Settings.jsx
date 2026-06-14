@@ -563,8 +563,6 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
   const [testingAnthropic, setTestingAnthropic] = useState(false)
   const [openAITestResult, setOpenAITestResult] = useState(null)
   const [anthropicTestResult, setAnthropicTestResult] = useState(null)
-  const [testingConn, setTestingConn] = useState(false)
-  const [connResult, setConnResult] = useState(null)  // null | { ok, provider, stage, status, message }
   const [saved, setSaved] = useState(false)
   const [newProfileName, setNewProfileName] = useState('')
 
@@ -609,18 +607,6 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
       setAnthropicTestResult('fail')
     }
     setTestingAnthropic(false)
-  }
-
-  const runConnectionTest = async () => {
-    setTestingConn(true)
-    setConnResult(null)
-    try {
-      const res = await window.electronAPI.testConnection()
-      setConnResult(res)
-    } catch (err) {
-      setConnResult({ ok: false, provider: '?', stage: 'network', status: null, message: err.message })
-    }
-    setTestingConn(false)
   }
 
   const addField = () => {
@@ -1000,56 +986,6 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 </span>
               )}
             </div>
-          </div>
-        </section>
-
-        <div className="sep" />
-
-        {/* Sicurezza / Rete */}
-        <section className="card-section" aria-labelledby="section-security">
-          <h2 className="section-title" id="section-security">🔒 Sicurezza</h2>
-          <p className="section-desc">
-            Rete e connessione ai provider AI. L'app usa lo stack di rete di sistema
-            (proxy e certificati del sistema operativo): se sei dietro VPN/firewall
-            aziendale con ispezione TLS, le connessioni passano dalle CA aziendali.
-            Usa il test qui sotto per diagnosticare problemi di OCR/estrazione dovuti
-            alla rete.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="flex gap-2 items-center">
-              <button
-                className="btn btn-secondary"
-                onClick={runConnectionTest}
-                disabled={testingConn}
-                title="Esegue una richiesta reale al provider configurato e riporta l'esito (rete/proxy/TLS o credenziali)"
-              >
-                {testingConn ? <div className="spinner spinner-sm" aria-hidden="true" /> : <IconRefresh />}
-                Test connessione ({settings.llmProvider === 'openai' ? 'OpenAI' : settings.llmProvider === 'anthropic' ? 'Anthropic' : 'Ollama'})
-              </button>
-            </div>
-
-            {connResult && (
-              <div
-                className={`alert ${connResult.ok ? 'alert-success' : 'alert-error'}`}
-                style={{ padding: '10px 12px', fontSize: 13, lineHeight: 1.4, display: 'flex', flexDirection: 'column', gap: 4 }}
-                role="status"
-              >
-                <strong>
-                  {connResult.ok ? '✓ Connessione OK' : '⚠ Connessione non riuscita'}
-                  {connResult.provider ? ` — ${connResult.provider}` : ''}
-                  {connResult.status != null ? ` (HTTP ${connResult.status})` : ''}
-                </strong>
-                <span style={{ opacity: 0.9 }}>{connResult.message}</span>
-                {!connResult.ok && (connResult.stage === 'tls' || connResult.stage === 'connect' || connResult.stage === 'proxy' || connResult.stage === 'dns' || connResult.stage === 'timeout') && (
-                  <span style={{ opacity: 0.75, fontSize: 12 }}>
-                    Sembra un blocco di rete/proxy/firewall. Segnala questo messaggio al supporto IT
-                    (potrebbe servire autorizzare <code>api.anthropic.com</code> / <code>api.openai.com</code>
-                    o installare la CA aziendale).
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </section>
 
