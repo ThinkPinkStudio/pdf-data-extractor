@@ -7,9 +7,56 @@ on:
 permissions:
   contents: write
 
+# Pipeline unica: bump -> build -> release nello stesso run.
+# Motivo: un push fatto con GITHUB_TOKEN (es. il commit di bump) NON innesca
+# altri workflow, quindi non si puo' delegare la release a un trigger separato
+# sul commit "chore: bump version". Facendo tutto in un solo run il problema
+# sparisce.
 jobs:
+  bump:
+    # Salta i commit di bump (non dovrebbero comunque triggerare nulla, dato
+    # che sono pushati col GITHUB_TOKEN, ma teniamo la guardia per sicurezza).
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      short_sha: ${{ steps.bump.outputs.short_sha }}
+      full_sha: ${{ steps.bump.outputs.full_sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEW=$(node -e "
+            const [major, minor, patch] = '$CURRENT'.split('.').map(Number);
+            console.log(major + '.' + minor + '.' + (patch + 1));
+          ")
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$NEW';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+          "
+          git add package.json
+          git commit -m "chore: bump version to $NEW"
+          git push
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "full_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
-    if: "startsWith(github.event.head_commit.message, 'chore: bump version')"
+    needs: bump
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +72,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Builda esattamente il commit di bump appena pushato, cosi' la
+          # versione nei pacchetti combacia con quella della release.
+          ref: ${{ needs.bump.outputs.full_sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -71,33 +122,24 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: build
+    needs: [bump, build]
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-all
           merge-multiple: false
 
-      - name: Get version
-        id: pkg
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Get short SHA
-        id: sha
-        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.pkg.outputs.version }}-${{ steps.sha.outputs.short }}
-          name: PDF Data Extractor v${{ steps.pkg.outputs.version }}
+          tag_name: v${{ needs.bump.outputs.version }}-${{ needs.bump.outputs.short_sha }}
+          name: PDF Data Extractor v${{ needs.bump.outputs.version }}
+          target_commitish: ${{ needs.bump.outputs.full_sha }}
           body: |
-            Build automatica dal commit `${{ steps.sha.outputs.short }}`.
+            Build automatica dal commit `${{ needs.bump.outputs.short_sha }}`.
 
             | Piattaforma | File |
             |-------------|------|
