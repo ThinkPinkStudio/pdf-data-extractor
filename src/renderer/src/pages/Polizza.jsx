@@ -91,6 +91,7 @@ export default function Polizza({ visible }) {
   // Vision OCR (PDF scansionati)
   const [visionExtracting, setVisionExtracting] = useState(false)
   const [visionMsg, setVisionMsg] = useState(null)  // null | 'extracting' | 'done' | 'error'
+  const [visionErr, setVisionErr] = useState(null)  // motivo leggibile del fallimento vision
   const [scannedFiles, setScannedFiles] = useState([])
 
   // Template
@@ -323,6 +324,7 @@ export default function Polizza({ visible }) {
 
     setVisionExtracting(true)
     setVisionMsg('extracting')
+    setVisionErr(null)
 
     // Importa pdfjs una volta sola per tutto il ciclo vision
     let pdfjs
@@ -335,6 +337,7 @@ export default function Polizza({ visible }) {
     } catch (err) {
       console.error('[vision:rolling] pdfjs non disponibile:', err.message)
       setVisionMsg('error')
+      setVisionErr('Componente PDF non disponibile: ' + err.message)
       setVisionExtracting(false)
       return
     }
@@ -437,7 +440,7 @@ export default function Polizza({ visible }) {
       diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR visivo ERRORE: ${err.message}`)
       console.error('[vision:rolling] Errore:', err.message)
       setVisionMsg('error')
-      setError('Vision OCR: ' + err.message)
+      setVisionErr(err.message)
     } finally {
       setVisionExtracting(false)
       setRollingProgress(null)
@@ -1116,8 +1119,8 @@ export default function Polizza({ visible }) {
                 padding: '6px 10px',
                 borderRadius: 'var(--r-sm)',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                flexDirection: 'column',
+                gap: '4px',
                 background: visionMsg === 'done' ? 'rgba(34,197,94,0.08)' :
                   visionMsg === 'error' ? 'rgba(239,68,68,0.08)' :
                     'rgba(59,130,246,0.08)',
@@ -1129,10 +1132,23 @@ export default function Polizza({ visible }) {
                   visionMsg === 'error' ? 'var(--c-error)' :
                     'var(--c-info)'
               }}>
-                {visionExtracting && <IconSpinner />}
-                {visionMsg === 'extracting' && 'OCR visivo in corso…'}
-                {visionMsg === 'done' && '✓ OCR visivo completato'}
-                {visionMsg === 'error' && '⚠ OCR visivo non disponibile'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {visionExtracting && <IconSpinner />}
+                  {visionMsg === 'extracting' && 'OCR visivo in corso…'}
+                  {visionMsg === 'done' && '✓ OCR visivo completato'}
+                  {visionMsg === 'error' && '⚠ OCR visivo non riuscito'}
+                </div>
+                {visionMsg === 'error' && visionErr && (
+                  <>
+                    <div style={{ opacity: 0.85, lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      Motivo: {visionErr}
+                    </div>
+                    <div style={{ opacity: 0.7 }}>
+                      I PDF scansionati richiedono un modello vision raggiungibile (controlla provider/API key
+                      o connessione nelle Impostazioni). Usa «📋 Salva diagnostica» per il log completo da inviare al supporto.
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
