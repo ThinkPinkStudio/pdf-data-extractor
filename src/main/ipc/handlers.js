@@ -9,7 +9,8 @@ import {
   extractDataWithProvider,
   streamChatWithProvider,
   testOpenAI,
-  testAnthropic
+  testAnthropic,
+  testProviderConnection
 } from '../services/llmService.js'
 import {
   addDocument,
@@ -486,6 +487,19 @@ ${context}
     return testAnthropic(apiKey, model)
   })
 
+  // ─── Sicurezza / Diagnostica rete ───────────────────────────────────────────
+
+  // Testa la connessione verso il provider LLM configurato usando lo stack di
+  // rete di Chromium (proxy di sistema + CA del SO). Riporta una diagnosi
+  // leggibile distinguendo problemi di rete/proxy/TLS da problemi di credenziali.
+  ipcMain.handle('diagnostics:testConnection', async () => {
+    try {
+      return await testProviderConnection(getSettings())
+    } catch (err) {
+      return { ok: false, provider: '?', stage: 'network', status: null, message: err.message }
+    }
+  })
+
   // ─── App ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('app:version', () => app.getVersion())
@@ -495,7 +509,7 @@ ${context}
   ipcMain.handle('app:checkUpdate', async () => {
     try {
       const current = app.getVersion()
-      const res = await fetch(
+      const res = await netFetch(
         'https://api.github.com/repos/thinkpinkstudio/pdf-data-extractor/releases/latest',
         { headers: { 'User-Agent': 'pdf-data-extractor' }, signal: AbortSignal.timeout(5000) }
       )
