@@ -1,8 +1,67 @@
+import { netFetch, describeNetworkError } from './netFetch.js'
+
+// ─── Diagnostica connessione provider ────────────────────────────────────────
+
+// Aver ricevuto QUALSIASI risposta HTTP significa che rete/proxy/TLS funzionano:
+// distinguiamo quindi i problemi di RETE (eccezione) da quelli di CREDENZIALI/
+// CONFIGURAZIONE (status HTTP).
+function interpretHttp(label, status) {
+  if (status === 200) return { ok: true,  provider: label, stage: 'ok',    status, message: 'Connessione e credenziali OK.' }
+  if (status === 400) return { ok: true,  provider: label, stage: 'ok',    status, message: `Rete e TLS OK (HTTP ${status}, endpoint raggiungibile).` }
+  if (status === 401 || status === 403)
+    return { ok: false, provider: label, stage: 'auth',  status, message: `Rete OK, ma la API key è stata rifiutata (HTTP ${status}). Controlla la chiave.` }
+  if (status === 404) return { ok: false, provider: label, stage: 'model', status, message: `Rete OK, ma modello/endpoint non trovato (HTTP ${status}).` }
+  if (status === 429) return { ok: false, provider: label, stage: 'rate',  status, message: 'Rete OK, ma limite di richieste raggiunto (HTTP 429).' }
+  return { ok: status < 500, provider: label, stage: 'http', status, message: `Il provider ha risposto con HTTP ${status}.` }
+}
+
+// Esegue una richiesta reale al provider configurato e riporta un esito
+// diagnostico leggibile (rete/proxy/TLS vs credenziali). Usata dal pulsante
+// "Test connessione" nella sezione Sicurezza delle Impostazioni.
+export async function testProviderConnection(settings) {
+  const provider = settings.llmProvider || 'ollama'
+  const label = provider === 'openai' ? 'OpenAI' : provider === 'anthropic' ? 'Anthropic' : 'Ollama'
+  try {
+    if (provider === 'openai') {
+      const res = await netFetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${settings.openaiApiKey || ''}` },
+        signal: AbortSignal.timeout(8000)
+      })
+      return interpretHttp(label, res.status)
+    }
+    if (provider === 'anthropic') {
+      const res = await netFetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': settings.anthropicApiKey || '',
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }]
+        }),
+        signal: AbortSignal.timeout(8000)
+      })
+      return interpretHttp(label, res.status)
+    }
+    // ollama (locale)
+    const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+    const res = await netFetch(`${url}/api/tags`, { signal: AbortSignal.timeout(8000) })
+    if (res.ok) return { ok: true, provider: label, stage: 'ok', status: res.status, message: 'Connessione riuscita.' }
+    return { ok: false, provider: label, stage: 'http', status: res.status, message: `Ollama ha risposto con HTTP ${res.status}.` }
+  } catch (err) {
+    const d = describeNetworkError(err)
+    return { ok: false, provider: label, stage: d.stage, status: null, message: d.message }
+  }
+}
+
 // ─── Ollama ──────────────────────────────────────────────────────────────────
 
 export async function getOllamaStatus(baseUrl) {
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
+    const res = await netFetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
     if (!res.ok) return { connected: false, models: [] }
     const data = await res.json()
     const models = (data.models || []).map(m => m.name)
@@ -22,7 +81,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
 
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await fetch(`${baseUrl}/api/generate`, {
+  const res = await netFetch(`${baseUrl}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, prompt, stream: false }),
@@ -39,7 +98,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
 }
 
 export async function* streamChat(baseUrl, model, messages) {
-  const res = await fetch(`${baseUrl}/api/chat`, {
+  const res = await netFetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, messages, stream: true }),
@@ -76,7 +135,7 @@ async function extractDataOpenAI(apiKey, model, fields, contextChunks) {
   const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -101,7 +160,7 @@ async function extractDataOpenAI(apiKey, model, fields, contextChunks) {
 }
 
 async function* streamChatOpenAI(apiKey, model, messages) {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await netFetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -141,7 +200,7 @@ async function* streamChatOpenAI(apiKey, model, messages) {
 
 export async function testOpenAI(apiKey, model) {
   try {
-    const res = await fetch('https://api.openai.com/v1/models', {
+    const res = await netFetch('https://api.openai.com/v1/models', {
       headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000)
     })
@@ -161,7 +220,7 @@ async function extractDataAnthropic(apiKey, model, fields, contextChunks) {
   const contextText = contextChunks.map(c => c.text).join('\n\n---\n\n')
   const prompt = buildExtractionPrompt(fieldsList, contextText)
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await netFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -199,7 +258,7 @@ async function* streamChatAnthropic(apiKey, model, messages) {
   }
   if (systemMsg) body.system = systemMsg.content
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await netFetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -241,7 +300,7 @@ async function* streamChatAnthropic(apiKey, model, messages) {
 
 export async function testAnthropic(apiKey, model) {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await netFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

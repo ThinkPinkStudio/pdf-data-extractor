@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testOpenAI: (apiKey, model) => ipcRenderer.invoke('llm:testOpenAI', { apiKey, model }),
   testAnthropic: (apiKey, model) => ipcRenderer.invoke('llm:testAnthropic', { apiKey, model }),
 
+  // ─── Sicurezza / Diagnostica rete ─────────────────────────────────────────
+  testConnection: () => ipcRenderer.invoke('diagnostics:testConnection'),
+
   // ─── LLM Streaming ──────────────────────────────────────────────────────
   onLLMChunk: (callback) => {
     ipcRenderer.on('llm:chunk', (_event, data) => callback(data))
