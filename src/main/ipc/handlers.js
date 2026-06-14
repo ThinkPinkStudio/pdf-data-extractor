@@ -500,6 +500,16 @@ ${context}
     }
   })
 
+  // Info di sistema utili alla diagnostica (e da allegare al supporto).
+  ipcMain.handle('diagnostics:system', () => ({
+    platform: process.platform,
+    arch: process.arch,
+    appVersion: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node
+  }))
+
   // ─── App ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('app:version', () => app.getVersion())

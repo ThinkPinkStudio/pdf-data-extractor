@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── Sicurezza / Diagnostica rete ─────────────────────────────────────────
   testConnection: () => ipcRenderer.invoke('diagnostics:testConnection'),
+  getDiagnosticsSystem: () => ipcRenderer.invoke('diagnostics:system'),
 
   // ─── LLM Streaming ──────────────────────────────────────────────────────
   onLLMChunk: (callback) => {
