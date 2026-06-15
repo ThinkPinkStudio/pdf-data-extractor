@@ -11,6 +11,87 @@ const provLabel = (p) => (p === 'openai' ? 'OpenAI' : p === 'anthropic' ? 'Anthr
 const platName = (p) => ({ win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[p] || p)
 const statusLabel = (st) => ({ ok: 'OK', warn: 'ATTENZIONE', fail: 'ERRORE', skip: 'SALTATO', running: '…', pending: '—' }[st] || st)
 
+// Verdetti "gravi" (colpa della rete del cliente o assenza connessione) →
+// banner rosso; auth/proxy/unknown → giallo; all-ok → verde.
+const VERDICT_ERROR = ['tls-interception', 'tls-blocked', 'dns-blocked', 'egress-blocked', 'captive-portal', 'no-internet', 'error']
+const verdictAlertClass = (v) =>
+  VERDICT_ERROR.includes(v) ? 'alert-error' : v === 'all-ok' ? 'alert-success' : 'alert-warning'
+
+// Costruisce il testo del report rapido (riusato sia per "Copia report" sia per
+// l'export del report completo).
+function buildQuickReport({ checks, results, sysInfo, provider }) {
+  const lines = []
+  lines.push('PDF Data Extractor — Report diagnostica')
+  lines.push(new Date().toLocaleString())
+  if (sysInfo) lines.push(`Sistema: ${platName(sysInfo.platform)} ${sysInfo.arch} · App v${sysInfo.appVersion} · Electron ${sysInfo.electron}`)
+  lines.push(`Provider AI: ${provLabel(provider)}`)
+  lines.push('')
+  checks.forEach(c => {
+    const r = results[c.id] || {}
+    lines.push(`[${statusLabel(r.status)}] ${c.label}${r.detail ? ` — ${r.detail}` : ''}`)
+  })
+  return lines.join('\n')
+}
+
+// Trasforma il risultato della diagnostica approfondita in card visualizzabili.
+function deepCards(deep) {
+  if (!deep || !deep.layers) return []
+  const cards = []
+  const L = deep.layers
+
+  if (L.dns) {
+    const d = L.dns
+    cards.push({
+      id: 'deep-dns', label: 'DNS — risoluzione dominio', status: d.status,
+      detail: d.status === 'ok'
+        ? `IP: ${(d.ips || []).join(', ') || '—'} · server DNS: ${(d.servers || []).join(', ') || '—'} · ${d.ms}ms`
+        : `${d.code || 'errore'}: ${d.error || 'risoluzione fallita'} · server DNS: ${(d.servers || []).join(', ') || '—'}`
+    })
+  }
+  if (L.tcp) {
+    const t = L.tcp
+    cards.push({
+      id: 'deep-tcp', label: 'TCP — connessione :443', status: t.status,
+      detail: t.status === 'ok' ? `Connesso a ${t.peer} · ${t.ms}ms`
+        : t.status === 'skip' ? (t.reason || 'saltato')
+          : `${t.code || 'errore'}: ${t.error || 'connessione fallita'}`
+    })
+  }
+  if (L.tls) {
+    const tl = L.tls
+    const parts = []
+    if (tl.protocol) parts.push(tl.protocol)
+    if (tl.cipher) parts.push(tl.cipher)
+    if (tl.ms != null) parts.push(`${tl.ms}ms`)
+    cards.push({
+      id: 'deep-tls', label: 'TLS — handshake ed emittente certificato', status: tl.status,
+      detail: tl.status === 'skip' ? (tl.reason || 'saltato')
+        : tl.status === 'fail' ? `${tl.code || 'errore'}: ${tl.error || 'handshake fallito'}`
+          : `${parts.join(' · ')} · Emittente root: ${tl.rootIssuer || '—'}`,
+      emphasis: tl.intercepted ? tl.interceptionReason : null,
+      note: !tl.intercepted && tl.suspicious ? tl.suspicionReason : null,
+      chain: tl.chain || []
+    })
+  }
+  if (L.http) {
+    const h = L.http
+    cards.push({
+      id: 'deep-http', label: 'HTTP — risposta endpoint', status: h.status,
+      detail: h.status === 'skip' ? (h.reason || 'saltato')
+        : h.status === 'ok' ? `HTTP ${h.httpStatus} · ${h.ms}ms (qualunque risposta = rete/proxy/TLS OK)`
+          : `${h.code || 'errore'}: ${h.error || 'nessuna risposta'}`
+    })
+  }
+  if (deep.proxy) {
+    const p = deep.proxy
+    cards.push({
+      id: 'deep-proxy', label: 'Proxy di sistema', status: p.usingProxy ? 'warn' : 'ok',
+      detail: `resolveProxy: ${p.resolved || '—'} · HTTPS_PROXY=${p.env?.HTTPS_PROXY || '(nessuno)'} · HTTP_PROXY=${p.env?.HTTP_PROXY || '(nessuno)'}`
+    })
+  }
+  return cards
+}
+
 function StatusDot({ status }) {
   if (status === 'running') return <div className="spinner spinner-sm" aria-hidden="true" />
   const map = {
@@ -149,6 +230,9 @@ export default function Diagnostics({ visible }) {
   const [running, setRunning] = useState(false)
   const [sysInfo, setSysInfo] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [deep, setDeep] = useState(null)
+  const [deepRunning, setDeepRunning] = useState(false)
+  const [exportMsg, setExportMsg] = useState('')
   const hasAutoRun = useRef(false)
 
   useEffect(() => {
@@ -182,24 +266,52 @@ export default function Diagnostics({ visible }) {
   }, [visible, settings, runAll])
 
   const provider = settings?.llmProvider || 'ollama'
+  const isCloud = provider === 'anthropic' || provider === 'openai'
 
   const copyReport = async () => {
-    const lines = []
-    lines.push(`PDF Data Extractor — Report diagnostica`)
-    lines.push(new Date().toLocaleString())
-    if (sysInfo) lines.push(`Sistema: ${platName(sysInfo.platform)} ${sysInfo.arch} · App v${sysInfo.appVersion} · Electron ${sysInfo.electron}`)
-    lines.push(`Provider AI: ${provLabel(provider)}`)
-    lines.push('')
-    checks.forEach(c => {
-      const r = results[c.id] || {}
-      lines.push(`[${statusLabel(r.status)}] ${c.label}${r.detail ? ` — ${r.detail}` : ''}`)
-    })
+    let text = buildQuickReport({ checks, results, sysInfo, provider })
+    if (deep) {
+      text += `\n\n── Diagnostica approfondita ──\nVERDETTO: ${deep.verdict}\n${deep.verdictText || ''}`
+      if (deep.layers?.tls?.rootIssuer) text += `\nEmittente certificato: ${deep.layers.tls.rootIssuer}`
+    }
     try {
-      await navigator.clipboard.writeText(lines.join('\n'))
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch { /* clipboard non disponibile */ }
   }
+
+  const runDeep = useCallback(async () => {
+    setDeepRunning(true)
+    setExportMsg('')
+    try {
+      const res = await window.electronAPI.deepNetworkDiagnostics()
+      setDeep(res)
+    } catch (e) {
+      setDeep({ verdict: 'error', verdictText: e?.message || 'errore', layers: {}, controls: [] })
+    } finally {
+      setDeepRunning(false)
+    }
+  }, [])
+
+  const exportFull = async () => {
+    setExportMsg('')
+    const quickReport = buildQuickReport({ checks, results, sysInfo, provider })
+    try {
+      const res = await window.electronAPI.exportDiagnosticsReport({ result: deep, quickReport, system: sysInfo })
+      if (res?.success) setExportMsg(`✓ Report salvato: ${res.filePath}`)
+      else if (res?.canceled) setExportMsg('')
+      else setExportMsg(`Errore esportazione: ${res?.error || 'sconosciuto'}`)
+    } catch (e) {
+      setExportMsg(`Errore esportazione: ${e?.message || 'sconosciuto'}`)
+    }
+  }
+
+  const openLogs = async () => {
+    try { await window.electronAPI.openDiagnosticsLogFolder() } catch { /* noop */ }
+  }
+
+  const deepResultCards = deepCards(deep)
 
   const hasFailures = checks.some(c => results[c.id]?.status === 'fail')
   const hasWarnings = checks.some(c => results[c.id]?.status === 'warn')
@@ -229,6 +341,25 @@ export default function Diagnostics({ visible }) {
               Provider attivo: <strong>{provLabel(provider)}</strong>
             </span>
           </div>
+
+          {isCloud && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={runDeep} disabled={deepRunning}>
+                {deepRunning ? <div className="spinner spinner-sm" aria-hidden="true" /> : '🔬'}
+                {deepRunning ? 'Analisi approfondita…' : 'Esegui diagnostica approfondita'}
+              </button>
+              <button className="btn btn-secondary" onClick={exportFull} disabled={deepRunning}>
+                💾 Esporta report completo
+              </button>
+              <button className="btn btn-secondary" onClick={openLogs}>
+                📁 Apri cartella log
+              </button>
+            </div>
+          )}
+
+          {exportMsg && (
+            <div style={{ fontSize: 12, opacity: 0.85, wordBreak: 'break-all' }}>{exportMsg}</div>
+          )}
 
           {checks.length > 0 && !running && (
             <div
@@ -272,6 +403,84 @@ export default function Diagnostics({ visible }) {
               </p>
             )}
           </div>
+
+          {deep && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, margin: '4px 0' }}>Diagnostica approfondita</h2>
+
+              {deep.verdictText && (
+                <div
+                  className={`alert ${verdictAlertClass(deep.verdict)}`}
+                  style={{ padding: '10px 12px', fontSize: 13 }}
+                  role="status"
+                >
+                  <strong>Verdetto: {deep.verdict}</strong><br />
+                  {deep.verdictText}
+                </div>
+              )}
+
+              {deepResultCards.map(c => (
+                <div key={c.id} style={{
+                  display: 'flex', gap: 12, alignItems: 'flex-start',
+                  padding: '10px 12px', borderRadius: 'var(--r-sm, 8px)',
+                  border: '1px solid var(--c-border, rgba(128,128,128,0.2))',
+                  background: 'var(--c-surface, rgba(128,128,128,0.04))'
+                }}>
+                  <div style={{ paddingTop: 1 }}><StatusDot status={c.status} /></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{c.label}</span>
+                    {c.detail && (
+                      <span style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.4, wordBreak: 'break-word' }}>{c.detail}</span>
+                    )}
+                    {c.emphasis && (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-error)', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                        ⚠ {c.emphasis}
+                      </span>
+                    )}
+                    {c.note && (
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#b45309', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                        ⚠ {c.note}
+                      </span>
+                    )}
+                    {c.chain && c.chain.length > 0 && (
+                      <details style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                        <summary style={{ cursor: 'pointer' }}>Catena certificati ({c.chain.length})</summary>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                          {c.chain.map((cert, i) => (
+                            <div key={i} style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                              [{i}] subject CN={cert.subjectCN || '—'} O={cert.subjectO || '—'}<br />
+                              &nbsp;&nbsp;&nbsp;&nbsp;issuer CN={cert.issuerCN || '—'} O={cert.issuerO || '—'}<br />
+                              &nbsp;&nbsp;&nbsp;&nbsp;valido fino a {cert.validTo || '—'}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {deep.controls && deep.controls.length > 0 && (
+                <div style={{
+                  padding: '10px 12px', borderRadius: 'var(--r-sm, 8px)',
+                  border: '1px solid var(--c-border, rgba(128,128,128,0.2))',
+                  background: 'var(--c-surface, rgba(128,128,128,0.04))'
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Endpoint di controllo (confronto a tre vie)</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                    {deep.controls.map(ctl => (
+                      <div key={ctl.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <StatusDot status={ctl.status} />
+                        <span style={{ fontSize: 12, opacity: 0.85 }}>
+                          {ctl.label}{ctl.httpStatus != null ? ` · HTTP ${ctl.httpStatus}` : ''}{ctl.note ? ` (${ctl.note})` : ''}{ctl.ms != null ? ` · ${ctl.ms}ms` : ''}{ctl.error ? ` · ${ctl.error}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
