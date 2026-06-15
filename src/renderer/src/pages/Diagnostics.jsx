@@ -472,7 +472,7 @@ export default function Diagnostics({ visible }) {
                       <div key={ctl.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <StatusDot status={ctl.status} />
                         <span style={{ fontSize: 12, opacity: 0.85 }}>
-                          {ctl.label}{ctl.httpStatus != null ? ` · HTTP ${ctl.httpStatus}` : ''}{ctl.ms != null ? ` · ${ctl.ms}ms` : ''}{ctl.error ? ` · ${ctl.error}` : ''}
+                          {ctl.label}{ctl.httpStatus != null ? ` · HTTP ${ctl.httpStatus}` : ''}{ctl.note ? ` (${ctl.note})` : ''}{ctl.ms != null ? ` · ${ctl.ms}ms` : ''}{ctl.error ? ` · ${ctl.error}` : ''}
                         </span>
                       </div>
                     ))}

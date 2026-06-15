@@ -192,16 +192,14 @@ function analyzeChain(chain, authorized, authError) {
 }
 
 // ─── Strato 4: HTTP probe (riusa resilientFetch) ─────────────────────────────
-export async function probeHttp(url, headers = {}) {
+// Riceve la richiesta già costruita dall'orchestratore (metodo/headers/body)
+// così rispecchia ESATTAMENTE la chiamata reale del provider — incluso il
+// modello configurato. NB: usare un modello finto darebbe 404 e maschererebbe
+// l'esito dell'autenticazione (200 vs 401).
+export async function probeHttp(url, { method = 'GET', headers = {}, body } = {}) {
   const t0 = performance.now()
-  const isAnthropic = url.includes('anthropic')
   try {
-    const res = await resilientFetch(url, {
-      method: isAnthropic ? 'POST' : 'GET',
-      headers,
-      body: isAnthropic ? JSON.stringify({ model: 'probe', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }) : undefined,
-      signal: AbortSignal.timeout(TIMEOUTS.http)
-    })
+    const res = await resilientFetch(url, { method, headers, body, signal: AbortSignal.timeout(TIMEOUTS.http) })
     // Qualunque status HTTP (anche 401/403) prova che rete+proxy+TLS funzionano.
     return { status: 'ok', ms: ms(t0), httpStatus: res.status, error: null, code: null }
   } catch (err) {
@@ -239,7 +237,9 @@ export async function probeControls() {
       const res = await resilientFetch(c.url, { signal: AbortSignal.timeout(TIMEOUTS.control) })
       const ok = Array.isArray(c.expect) ? c.expect.includes(res.status) : res.status === c.expect
       // generate_204 che torna 200 (anziché 204) = probabile captive portal.
-      return { id: c.id, label: c.label, status: ok ? 'ok' : 'warn', httpStatus: res.status, ms: ms(t0), error: null }
+      // Un 401/403 atteso (es. OpenAI senza chiave) prova solo la RAGGIUNGIBILITÀ.
+      const note = ok && res.status >= 400 ? 'raggiungibile (auth non fornita, atteso)' : null
+      return { id: c.id, label: c.label, status: ok ? 'ok' : 'warn', httpStatus: res.status, note, ms: ms(t0), error: null }
     } catch (err) {
       return { id: c.id, label: c.label, status: 'fail', httpStatus: null, ms: ms(t0), error: err.message, code: err.code || null }
     }
@@ -275,11 +275,18 @@ export async function runDeepDiagnostics({ settings, session }) {
     ? await probeTls(ep.host, ep.port)
     : { status: 'skip', reason: 'TCP fallito' }
 
-  const headers = ep.label === 'Anthropic'
-    ? { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey || '', 'anthropic-version': '2023-06-01' }
-    : { Authorization: `Bearer ${settings.openaiApiKey || ''}` }
+  // Costruiamo la richiesta REALE del provider (col modello configurato) così
+  // lo strato HTTP riproduce la chiamata vera: 200 = anche auth OK, 401/403 =
+  // chiave rifiutata. Un modello finto darebbe 404 fuorviante.
+  const httpReq = ep.label === 'Anthropic'
+    ? {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey || '', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: settings.anthropicModel || 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
+      }
+    : { method: 'GET', headers: { Authorization: `Bearer ${settings.openaiApiKey || ''}` } }
   const tlsOk = result.layers.tls.status === 'ok' || result.layers.tls.status === 'warn'
-  result.layers.http = tlsOk ? await probeHttp(ep.url, headers) : { status: 'skip', reason: 'TLS fallito' }
+  result.layers.http = tlsOk ? await probeHttp(ep.url, httpReq) : { status: 'skip', reason: 'TLS fallito' }
 
   result.proxy = await probeProxy(session, ep.url)
   result.controls = await probeControls()
@@ -378,7 +385,7 @@ export function buildHumanReport({ result, quickReport, system }) {
     if (result.controls?.length) {
       L.push('')
       L.push('[CONTROLLI] confronto a tre vie:')
-      result.controls.forEach(c => L.push(`        ${String(c.status).toUpperCase().padEnd(5)} ${c.label}${c.httpStatus != null ? ` · HTTP ${c.httpStatus}` : ''}${c.ms != null ? ` · ${c.ms}ms` : ''}${c.error ? ` · ${c.error}` : ''}`))
+      result.controls.forEach(c => L.push(`        ${String(c.status).toUpperCase().padEnd(5)} ${c.label}${c.httpStatus != null ? ` · HTTP ${c.httpStatus}` : ''}${c.note ? ` (${c.note})` : ''}${c.ms != null ? ` · ${c.ms}ms` : ''}${c.error ? ` · ${c.error}` : ''}`))
     }
     L.push(sep)
   }
