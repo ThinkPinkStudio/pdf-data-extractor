@@ -6,6 +6,7 @@ import { registerHandlers } from './ipc/handlers.js'
 import { startWebhook, stopWebhook } from './services/webhookService.js'
 import { getSettings, saveSettings } from './services/settingsService.js'
 import { purgeExpiredSessions } from './services/historyService.js'
+import { initDiagLogger } from './services/diagLogger.js'
 
 function getIconPath() {
   if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
@@ -59,6 +60,8 @@ process.on('unhandledRejection', (reason) => {
 })
 
 app.whenReady().then(() => {
+  initDiagLogger()
+
   protocol.registerFileProtocol('local-pdf', (request, callback) => {
     const url = decodeURIComponent(request.url.replace('local-pdf://', ''))
     callback({ path: url })
