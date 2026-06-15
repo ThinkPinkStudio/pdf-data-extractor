@@ -130,7 +130,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist-all
-          merge-multiple: false
+          merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -146,5 +146,5 @@ jobs:
             | Windows     | `.exe` (installer NSIS) |
             | macOS       | `.dmg` |
             | Linux       | `.AppImage`, `.deb` |
-          files: dist-all/**/*
+          files: dist-all/*
           fail_on_unmatched_files: false
