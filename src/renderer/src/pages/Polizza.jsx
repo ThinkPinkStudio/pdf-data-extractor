@@ -54,15 +54,6 @@ const IconMap = () => (
 // ─── Icone cicliche per i tab polizza ─────────────────────────────────────────
 const TAB_ICONS = ['🔵', '🟢', '🟠', '🟡', '🟣', '🔴']
 
-// ─── Etichette dei tipi documento ────────────────────────────────────────────
-
-const DOC_TYPES = [
-  { id: 'polizza', label: 'Polizza principale', hint: 'Es. Polizza_RCTOP.pdf — frontespizio con premi e massimali' },
-  { id: 'appendice', label: 'App. rinnovo / variazione', hint: 'Es. App_rinnovo_2024.pdf, App_R4_per_premio.pdf' },
-  { id: 'allegato', label: 'App. n.1 / allegati', hint: 'Es. App.n._1_polizza.pdf — condizioni particolari' },
-  { id: 'cga', label: 'Condizioni generali (CGA)', hint: 'Es. CGA_PMI_GENERAIMPRESA.pdf (opzionale, migliora contesto)' }
-]
-
 // ─── Campi per i due fogli ────────────────────────────────────────────────────
 
 const SHEET_LABELS = {
@@ -73,7 +64,7 @@ const SHEET_LABELS = {
 // ─── Componente principale ────────────────────────────────────────────────────
 
 export default function Polizza({ visible }) {
-  const [files, setFiles] = useState([])           // { path, name, type }
+  const [files, setFiles] = useState([])           // { path, name }
   const [dragging, setDragging] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [extracted, setExtracted] = useState(null)  // { fieldId: value }
@@ -87,6 +78,19 @@ export default function Polizza({ visible }) {
   const [activeTab, setActiveTab] = useState('RCT_O')
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState(null)
+
+  // Ricerca nei risultati
+  const [tableSearch, setTableSearch] = useState('')
+
+  // Modello per-estrazione (override impostazioni globali)
+  const [modelOverride, setModelOverride] = useState('')
+  const [llmProvider, setLlmProvider] = useState(null)
+
+  // Configurazioni/preset
+  const [presets, setPresets] = useState([])
+  const [showPresets, setShowPresets] = useState(false)
+  const [presetSaveName, setPresetSaveName] = useState('')
+  const [presetSaving, setPresetSaving] = useState(false)
 
   // Vision OCR (PDF scansionati)
   const [visionExtracting, setVisionExtracting] = useState(false)
@@ -153,7 +157,7 @@ export default function Polizza({ visible }) {
       modelLine,
       '',
       '=== FILE CARICATI ===',
-      ...files.map((f, i) => `${i + 1}. ${f.name} [${f.type || 'polizza'}]`),
+      ...files.map((f, i) => `${i + 1}. ${f.name}`),
       '',
       '=== LOG ESTRAZIONE ===',
       ...(diagLogsRef.current.length ? diagLogsRef.current : ['(nessun log disponibile)']),
@@ -180,6 +184,53 @@ export default function Polizza({ visible }) {
     }
   }
 
+  // ─── Preset configurazioni ───────────────────────────────────────────────────
+
+  const handleSavePreset = async () => {
+    if (!presetSaveName.trim()) return
+    setPresetSaving(true)
+    try {
+      const res = await window.electronAPI.polizzaSavePreset(presetSaveName.trim())
+      if (res?.success) {
+        setPresets(res.presets)
+        setPresetSaveName('')
+      }
+    } catch { /* silent */ } finally {
+      setPresetSaving(false)
+    }
+  }
+
+  const handleDeletePreset = async (id) => {
+    try {
+      const res = await window.electronAPI.polizzaDeletePreset(id)
+      if (res?.success) setPresets(res.presets)
+    } catch { /* silent */ }
+  }
+
+  const handleApplyPreset = async (id) => {
+    try {
+      const res = await window.electronAPI.polizzaApplyPreset(id)
+      if (res?.success) {
+        window.electronAPI.polizzaGetFields().then(setFields).catch(() => {})
+        window.electronAPI.polizzaGetDefaultMapping().then(setDefaultMapping).catch(() => {})
+        setShowPresets(false)
+      }
+    } catch { /* silent */ }
+  }
+
+  const handleExportPreset = async (preset) => {
+    try {
+      await window.electronAPI.polizzaExportPreset(preset)
+    } catch { /* silent */ }
+  }
+
+  const handleImportPreset = async () => {
+    try {
+      const res = await window.electronAPI.polizzaImportPreset()
+      if (res?.success) setPresets(res.presets)
+    } catch { /* silent */ }
+  }
+
   // Listener di progresso registrato UNA volta al mount (non per-run): la
   // registrazione per-click + removeAllListeners nel finally poteva perdere
   // gli eventi al minimo disallineamento, lasciando il contatore fermo
@@ -199,7 +250,7 @@ export default function Polizza({ visible }) {
 
   const inputRef = useRef(null)
 
-  // Carica (o ricarica) i campi e i tipi ogni volta che la pagina diventa visibile
+  // Carica (o ricarica) i campi, i tipi e i preset ogni volta che la pagina diventa visibile
   useEffect(() => {
     if (visible === false) return
     window.electronAPI.polizzaGetFields().then(setFields).catch(() => { })
@@ -210,6 +261,10 @@ export default function Polizza({ visible }) {
         setActiveTab(prev => types.some(t => t.id === prev) ? prev : types[0].id)
       }
     }).catch(() => { })
+    window.electronAPI.getSettings().then(s => {
+      setLlmProvider(s?.llmProvider || null)
+      setPresets(s?.polizzaPresets || [])
+    }).catch(() => { })
   }, [visible])
 
   // ─── Drag & drop ────────────────────────────────────────────────────────────
@@ -217,8 +272,7 @@ export default function Polizza({ visible }) {
   const addFilePaths = useCallback((paths) => {
     const newFiles = paths.map(p => ({
       path: p,
-      name: p.split(/[\\/]/).pop(),
-      type: guessDocType(p)
+      name: p.split(/[\\/]/).pop()
     }))
     setFiles(prev => {
       const existing = new Set(prev.map(f => f.path))
@@ -243,9 +297,6 @@ export default function Polizza({ visible }) {
   }
 
   const removeFile = (path) => setFiles(prev => prev.filter(f => f.path !== path))
-
-  const setFileType = (path, type) =>
-    setFiles(prev => prev.map(f => f.path === path ? { ...f, type } : f))
 
   // ─── Estrazione rolling ──────────────────────────────────────────────────────
 
@@ -288,8 +339,8 @@ export default function Polizza({ visible }) {
     diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Inizio estrazione - ${files.length} file`)
 
     try {
-      const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
-      const res = await window.electronAPI.polizzaExtractRolling(filesWithTypes)
+      const filePaths = files.map(f => f.path)
+      const res = await window.electronAPI.polizzaExtractRolling(filePaths, modelOverride || null)
       if (!res.success) throw new Error(res.error)
 
       diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Estrazione testo completata`)
@@ -407,9 +458,10 @@ export default function Polizza({ visible }) {
             const res = await window.electronAPI.polizzaRollingVisionUpdate({
               state: currentState,
               imageBase64,
-              docType: sf.type || 'polizza',
+              docType: 'polizza',
               pageNum,
-              totalPages
+              totalPages,
+              modelOverride: modelOverride || null
             })
 
             if (res.success) {
@@ -538,7 +590,17 @@ export default function Polizza({ visible }) {
 
   // ─── Campi per sheet attivo ──────────────────────────────────────────────────
 
-  const sheetFields = fields.filter(f => f.sheet === activeTab)
+  const sheetFields = fields
+    .filter(f => f.sheet === activeTab)
+    .filter(f => {
+      if (!tableSearch.trim()) return true
+      const q = tableSearch.toLowerCase()
+      const val = extracted?.[f.id]
+      return (
+        f.label.toLowerCase().includes(q) ||
+        (val != null && String(val).toLowerCase().includes(q))
+      )
+    })
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -1027,32 +1089,9 @@ export default function Polizza({ visible }) {
                           <IconX />
                         </button>
                       </div>
-                      <select
-                        className="polizza-type-select"
-                        value={f.type}
-                        onChange={e => setFileType(f.path, e.target.value)}
-                        aria-label="Tipo documento"
-                      >
-                        {DOC_TYPES.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Legenda tipi documento */}
-            {files.length === 0 && (
-              <div style={{ background: 'var(--c-bg-card)', borderRadius: 'var(--r-sm)', padding: '10px 12px' }}>
-                <div className="section-title">Documenti da caricare</div>
-                {DOC_TYPES.map(t => (
-                  <div key={t.id} style={{ marginBottom: '6px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--c-text-secondary)' }}>{t.label}</div>
-                    <div style={{ fontSize: '10px', color: 'var(--c-text-muted)' }}>{t.hint}</div>
-                  </div>
-                ))}
               </div>
             )}
 
@@ -1091,15 +1130,44 @@ export default function Polizza({ visible }) {
           <div className="polizza-actions">
             {error && <div className="polizza-error">⚠ {error}</div>}
 
-            <button
-              className="btn-primary"
-              onClick={handleExtract}
-              disabled={!files.length || extracting}
-              aria-busy={extracting}
-            >
-              {extracting ? <IconSpinner /> : '⚡'}
-              {extracting ? 'Estrazione in corso…' : 'Estrai dati polizza'}
-            </button>
+            {llmProvider === 'anthropic' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                <label htmlFor="polizza-model-override" style={{ whiteSpace: 'nowrap' }}>Modello AI:</label>
+                <select
+                  id="polizza-model-override"
+                  className="field-input-sm"
+                  value={modelOverride}
+                  onChange={e => setModelOverride(e.target.value)}
+                  style={{ fontSize: 11 }}
+                >
+                  <option value="">Default (impostazioni)</option>
+                  <option value="claude-haiku-4-5-20251001">Haiku (veloce, economico)</option>
+                  <option value="claude-sonnet-4-6">Sonnet (accurato)</option>
+                </select>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn-primary"
+                onClick={handleExtract}
+                disabled={!files.length || extracting}
+                aria-busy={extracting}
+                style={{ flex: 1 }}
+              >
+                {extracting ? <IconSpinner /> : '⚡'}
+                {extracting ? 'Estrazione in corso…' : 'Estrai dati polizza'}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowPresets(true)}
+                title="Gestisci configurazioni salvate"
+                style={{ padding: '8px 10px', fontSize: 16 }}
+                aria-label="Configurazioni"
+              >
+                ⚙
+              </button>
+            </div>
 
             {showDiagBtn && (
               <button
@@ -1282,6 +1350,17 @@ export default function Polizza({ visible }) {
                 }}>
                   Risultati generati da AI — verificare sempre prima dell&apos;uso
                 </div>
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="search"
+                    className="form-input"
+                    placeholder="Cerca campo o valore…"
+                    value={tableSearch}
+                    onChange={e => setTableSearch(e.target.value)}
+                    style={{ width: '100%', fontSize: 12, padding: '5px 10px' }}
+                    aria-label="Filtra campi estratti"
+                  />
+                </div>
                 <ExtractedTable
                   fields={sheetFields}
                   data={extracted}
@@ -1317,6 +1396,22 @@ export default function Polizza({ visible }) {
           onChange={setPreviewChanges}
           onConfirm={handleExportApproved}
           onClose={() => { setShowPreview(false); setPreviewChanges(null) }}
+        />
+      )}
+
+      {/* ── Modal configurazioni/preset ───────────────────────────────────── */}
+      {showPresets && (
+        <PresetsModal
+          presets={presets}
+          saveName={presetSaveName}
+          saving={presetSaving}
+          onSaveNameChange={setPresetSaveName}
+          onSave={handleSavePreset}
+          onApply={handleApplyPreset}
+          onExport={handleExportPreset}
+          onDelete={handleDeletePreset}
+          onImport={handleImportPreset}
+          onClose={() => setShowPresets(false)}
         />
       )}
     </div>
@@ -1720,12 +1815,119 @@ function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }
   )
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Modal configurazioni/preset ─────────────────────────────────────────────
 
-function guessDocType(filePath) {
-  const lower = filePath.toLowerCase()
-  if (lower.includes('rinnov') || lower.includes('app_r')) return 'appendice'
-  if (lower.includes('cga') || lower.includes('condiz')) return 'cga'
-  if (lower.includes('app') || lower.includes('allegat')) return 'allegato'
-  return 'polizza'
+function PolizzaTrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="13" height="13">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+    </svg>
+  )
+}
+
+function PresetsModal({ presets, saveName, saving, onSaveNameChange, onSave, onApply, onExport, onDelete, onImport, onClose }) {
+  const fmtDate = (iso) => {
+    try { return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
+    catch { return iso }
+  }
+
+  return (
+    <div className="mapping-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="mapping-modal" role="dialog" aria-modal="true" aria-label="Gestione configurazioni">
+        <div className="mapping-header">
+          <div>
+            <h2>Configurazioni salvate</h2>
+            <p>Salva l&apos;insieme di campi, descrizioni AI e mapping celle come profilo riutilizzabile.</p>
+          </div>
+          <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={onClose}>Chiudi</button>
+        </div>
+
+        <div className="mapping-body">
+          {/* Salva configurazione corrente */}
+          <div style={{
+            display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16,
+            padding: '10px 12px', background: 'var(--c-bg-card)', borderRadius: 'var(--r-sm)'
+          }}>
+            <input
+              className="form-input"
+              type="text"
+              placeholder="Nome configurazione (es. CSA Standard 2024)…"
+              value={saveName}
+              onChange={e => onSaveNameChange(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !saving && saveName.trim() && onSave()}
+              style={{ flex: 1, fontSize: 12 }}
+              aria-label="Nome della configurazione da salvare"
+            />
+            <button
+              className="btn-primary"
+              onClick={onSave}
+              disabled={!saveName.trim() || saving}
+              style={{ whiteSpace: 'nowrap', fontSize: 12, padding: '6px 14px' }}
+            >
+              {saving ? '…' : '+ Salva configurazione corrente'}
+            </button>
+          </div>
+
+          {/* Lista preset */}
+          {presets.length === 0 ? (
+            <p style={{ color: 'var(--c-text-muted)', fontSize: 12, padding: '8px 0' }}>
+              Nessuna configurazione salvata. Salva quella corrente per iniziare.
+            </p>
+          ) : (
+            <table className="mapping-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Data</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {presets.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 500 }}>{p.name}</td>
+                    <td style={{ fontSize: 11, color: 'var(--c-text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(p.createdAt)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          className="btn-primary"
+                          style={{ fontSize: 11, padding: '3px 10px' }}
+                          onClick={() => onApply(p.id)}
+                          title="Applica questa configurazione"
+                        >Applica</button>
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 11, padding: '3px 10px' }}
+                          onClick={() => onExport(p)}
+                          title="Esporta come file JSON"
+                        >Esporta</button>
+                        <button
+                          className="btn-danger"
+                          style={{ fontSize: 11, padding: '3px 8px' }}
+                          onClick={() => onDelete(p.id)}
+                          title="Elimina configurazione"
+                        ><PolizzaTrashIcon /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="mapping-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 12, padding: '6px 14px' }}
+            onClick={onImport}
+            title="Importa configurazione da file JSON"
+          >
+            ↑ Importa da file…
+          </button>
+          <button className="btn-secondary" onClick={onClose}>Chiudi</button>
+        </div>
+      </div>
+    </div>
+  )
 }

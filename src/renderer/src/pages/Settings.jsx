@@ -244,7 +244,7 @@ function parseCells(str) {
   }).filter(Boolean)
 }
 
-function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
+function PolizzaFieldRow({ field, onChange, onDelete, onMoveUp, onMoveDown, onDuplicate, isFirst, isLast, polizzaTypes }) {
   const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
   const [cellsRaw, setCellsRaw] = useState(formatCells(field.cells))
   const lastFieldId = useRef(field.id)
@@ -260,10 +260,12 @@ function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
     setCellsRaw(formatCells(field.cells))
   }, [field.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const btnSm = { padding: '3px 5px', fontSize: 12, lineHeight: 1, cursor: 'pointer', borderRadius: 'var(--r-xs)' }
+
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: '30px 130px 1fr 80px 160px 28px',
+      gridTemplateColumns: '30px 130px 1fr 80px 160px auto',
       gap: 6,
       alignItems: 'center',
       padding: '4px 0',
@@ -332,15 +334,40 @@ function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
         style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 11 }}
       />
 
-      <button
-        className="btn-danger"
-        onClick={() => onDelete(field.id)}
-        aria-label={`Elimina campo ${field.label}`}
-        title="Elimina campo"
-        style={{ padding: '4px 6px' }}
-      >
-        <IconTrash />
-      </button>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        <button
+          className="btn-secondary"
+          onClick={onMoveUp}
+          disabled={isFirst}
+          aria-label={`Sposta su ${field.label}`}
+          title="Sposta su"
+          style={{ ...btnSm, opacity: isFirst ? 0.35 : 1 }}
+        >↑</button>
+        <button
+          className="btn-secondary"
+          onClick={onMoveDown}
+          disabled={isLast}
+          aria-label={`Sposta giù ${field.label}`}
+          title="Sposta giù"
+          style={{ ...btnSm, opacity: isLast ? 0.35 : 1 }}
+        >↓</button>
+        <button
+          className="btn-secondary"
+          onClick={onDuplicate}
+          aria-label={`Duplica campo ${field.label}`}
+          title="Duplica campo"
+          style={btnSm}
+        >⧉</button>
+        <button
+          className="btn-danger"
+          onClick={() => onDelete(field.id)}
+          aria-label={`Elimina campo ${field.label}`}
+          title="Elimina campo"
+          style={{ padding: '4px 6px' }}
+        >
+          <IconTrash />
+        </button>
+      </div>
     </div>
   )
 }
@@ -354,6 +381,26 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
 
   const deleteField = (id) => {
     onChange(fields.filter(f => f.id !== id))
+  }
+
+  const moveField = (index, dir) => {
+    const target = index + dir
+    if (target < 0 || target >= fields.length) return
+    const next = [...fields]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
+  }
+
+  const duplicateField = (index) => {
+    const orig = fields[index]
+    const copy = {
+      ...orig,
+      id: 'copy_' + orig.id + '_' + Date.now(),
+      cells: (orig.cells || []).map(c => ({ ...c }))
+    }
+    const next = [...fields]
+    next.splice(index + 1, 0, copy)
+    onChange(next)
   }
 
   const addField = () => {
@@ -402,7 +449,7 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
       <div style={{ overflowX: 'auto' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '30px 130px 1fr 80px 160px 28px',
+          gridTemplateColumns: '30px 130px 1fr 80px 160px auto',
           gap: 6,
           padding: '4px 0 6px',
           borderBottom: '2px solid var(--c-border)',
@@ -413,19 +460,24 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Descrizione AI</span>
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Tab</span>
           <span className="field-label-sm" style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11 }}>Celle Excel</span>
-          <span />
+          <span className="field-label-sm" style={{ fontWeight: 600, fontSize: 10 }}>Azioni</span>
         </div>
 
         {fields.length === 0 ? (
           <p className="text-muted text-sm" style={{ padding: '12px 0' }}>Nessun campo configurato.</p>
         ) : (
           <div role="list" aria-label="Campi Polizza RC">
-            {fields.map(field => (
+            {fields.map((field, index) => (
               <PolizzaFieldRow
                 key={field.id}
                 field={field}
                 onChange={updateField}
                 onDelete={deleteField}
+                onMoveUp={() => moveField(index, -1)}
+                onMoveDown={() => moveField(index, 1)}
+                onDuplicate={() => duplicateField(index)}
+                isFirst={index === 0}
+                isLast={index === fields.length - 1}
                 polizzaTypes={types}
               />
             ))}

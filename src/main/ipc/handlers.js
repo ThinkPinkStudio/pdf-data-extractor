@@ -1,5 +1,5 @@
 import { dialog, app, Notification, BrowserWindow, shell } from 'electron'
-import { writeFile, copyFile, mkdir } from 'fs/promises'
+import { writeFile, readFile, copyFile, mkdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
@@ -680,13 +680,16 @@ ${context}
   // Estrazione rolling: una pagina alla volta, stato accumulativo date-aware.
   // Emette 'polizza:rollingProgress' durante l'elaborazione per aggiornare la UI.
   // Restituisce anche 'rollingState' (con date) per continuare con le pagine vision.
-  ipcMain.handle('polizza:extractRolling', async (_, { filePaths }) => {
+  ipcMain.handle('polizza:extractRolling', async (_, { filePaths, modelOverride }) => {
     const settings = getSettings()
+    const effectiveSettings = modelOverride
+      ? { ...settings, anthropicModel: modelOverride, openaiModel: modelOverride }
+      : settings
     let sendFailures = 0
     try {
       const result = await withNetworkAutopsy(() => extractPolizzaRolling(
         filePaths,
-        settings,
+        effectiveSettings,
         (progress) => {
           // L'invio del progresso non deve MAI interrompere l'estrazione
           // (es. finestra distrutta/ricreata)
@@ -708,10 +711,13 @@ ${context}
   // Aggiornamento rolling per una singola pagina vision (PDF scansionato).
   // Il frontend chiama questo handler in loop, pagina per pagina, passando
   // lo stato corrente e ricevendo quello aggiornato.
-  ipcMain.handle('polizza:rollingVisionUpdate', async (_, { state, imageBase64, docType, pageNum, totalPages }) => {
+  ipcMain.handle('polizza:rollingVisionUpdate', async (_, { state, imageBase64, docType, pageNum, totalPages, modelOverride }) => {
     const settings = getSettings()
+    const effectiveSettings = modelOverride
+      ? { ...settings, anthropicModel: modelOverride, openaiModel: modelOverride }
+      : settings
     try {
-      const updatedState = await updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings)
+      const updatedState = await updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, effectiveSettings)
       return { success: true, state: updatedState }
     } catch (err) {
       // I flag permettono al renderer di interrompere subito il ciclo vision
@@ -773,6 +779,88 @@ ${context}
     try {
       const changes = await previewTemplateChanges(templatePath, data, mapping, settings.polizzaFields || null)
       return { success: true, changes }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // ─── Configurazioni/preset ──────────────────────────────────────────────────
+
+  ipcMain.handle('polizza:savePreset', (_, { name }) => {
+    const settings = getSettings()
+    const preset = {
+      id: 'preset_' + Date.now(),
+      name,
+      createdAt: new Date().toISOString(),
+      fields: settings.polizzaFields || ALL_POLIZZA_FIELDS,
+      mapping: settings.polizzaCustomMapping || {},
+      promptExtra: settings.polizzaPromptExtra || ''
+    }
+    const presets = [...(settings.polizzaPresets || []), preset]
+    saveSettings({ ...settings, polizzaPresets: presets })
+    return { success: true, presets }
+  })
+
+  ipcMain.handle('polizza:deletePreset', (_, { id }) => {
+    const settings = getSettings()
+    const presets = (settings.polizzaPresets || []).filter(p => p.id !== id)
+    saveSettings({ ...settings, polizzaPresets: presets })
+    return { success: true, presets }
+  })
+
+  ipcMain.handle('polizza:applyPreset', (_, { id }) => {
+    const settings = getSettings()
+    const preset = (settings.polizzaPresets || []).find(p => p.id === id)
+    if (!preset) return { success: false, error: 'Preset non trovato' }
+    saveSettings({
+      ...settings,
+      polizzaFields: preset.fields,
+      polizzaCustomMapping: preset.mapping || {},
+      polizzaPromptExtra: preset.promptExtra || ''
+    })
+    return { success: true }
+  })
+
+  ipcMain.handle('polizza:exportPreset', async (_, { preset }) => {
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Esporta configurazione',
+      defaultPath: `polizza_config_${preset.name.replace(/[^a-z0-9]/gi, '_')}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      await writeFile(filePath, JSON.stringify(preset, null, 2), 'utf-8')
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('polizza:importPreset', async () => {
+    const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Importa configurazione',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (canceled || !filePaths?.length) return { success: false, canceled: true }
+    try {
+      const raw = await readFile(filePaths[0], 'utf-8')
+      const preset = JSON.parse(raw)
+      if (!preset.name || !Array.isArray(preset.fields)) {
+        return { success: false, error: 'File non valido: mancano name o fields' }
+      }
+      const normalized = {
+        id: preset.id || ('preset_' + Date.now()),
+        name: preset.name,
+        createdAt: preset.createdAt || new Date().toISOString(),
+        fields: preset.fields,
+        mapping: preset.mapping || {},
+        promptExtra: preset.promptExtra || ''
+      }
+      const settings = getSettings()
+      const presets = [...(settings.polizzaPresets || []), normalized]
+      saveSettings({ ...settings, polizzaPresets: presets })
+      return { success: true, presets }
     } catch (err) {
       return { success: false, error: err.message }
     }

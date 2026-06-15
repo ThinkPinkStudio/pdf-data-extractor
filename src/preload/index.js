@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaExtract: (filePaths) => ipcRenderer.invoke('polizza:extract', { filePaths }),
   polizzaGetFileBuffer: (filePath) => ipcRenderer.invoke('polizza:getFileBuffer', { filePath }),
   polizzaVisionExtract: (imageFiles) => ipcRenderer.invoke('polizza:visionExtract', { imageFiles }),
-  polizzaExtractRolling: (filePaths) => ipcRenderer.invoke('polizza:extractRolling', { filePaths }),
+  polizzaExtractRolling: (filePaths, modelOverride) => ipcRenderer.invoke('polizza:extractRolling', { filePaths, modelOverride }),
   polizzaRollingVisionUpdate: (params) => ipcRenderer.invoke('polizza:rollingVisionUpdate', params),
   onPolizzaRollingProgress: (callback) => {
     ipcRenderer.on('polizza:rollingProgress', (_event, data) => callback(data))
@@ -98,5 +98,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaExportToTemplate: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:exportToTemplate', { templatePath, data, mapping }),
   polizzaPreviewChanges: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:previewChanges', { templatePath, data, mapping }),
   polizzaExportApproved: (templatePath, approvedChanges) => ipcRenderer.invoke('polizza:exportApproved', { templatePath, approvedChanges }),
-  polizzaSaveDiagnostics: (content) => ipcRenderer.invoke('polizza:saveDiagnostics', { content })
+  polizzaSaveDiagnostics: (content) => ipcRenderer.invoke('polizza:saveDiagnostics', { content }),
+  polizzaSavePreset: (name) => ipcRenderer.invoke('polizza:savePreset', { name }),
+  polizzaDeletePreset: (id) => ipcRenderer.invoke('polizza:deletePreset', { id }),
+  polizzaApplyPreset: (id) => ipcRenderer.invoke('polizza:applyPreset', { id }),
+  polizzaExportPreset: (preset) => ipcRenderer.invoke('polizza:exportPreset', { preset }),
+  polizzaImportPreset: () => ipcRenderer.invoke('polizza:importPreset')
 })

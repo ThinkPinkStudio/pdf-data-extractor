@@ -58,6 +58,8 @@ const defaultSettings = {
   ],
   // Polizza RC: extra prompt instructions appended to the LLM extraction prompt
   polizzaPromptExtra: '',
+  // Polizza RC: configurazioni/preset salvati dall'utente
+  polizzaPresets: [],
   // Polizza RC: tipi di polizza (tab nel pannello risultati)
   polizzaTypes: [
     { id: 'RCT_O', label: 'RC Terzi / Operai' },
