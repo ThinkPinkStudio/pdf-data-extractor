@@ -1,10 +1,12 @@
-import { dialog, app, Notification, BrowserWindow } from 'electron'
-import { writeFile, copyFile } from 'fs/promises'
+import { dialog, app, Notification, BrowserWindow, shell } from 'electron'
+import { writeFile, copyFile, mkdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
-import { resilientFetch } from '../services/netFetch.js'
+import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
+import { runDeepDiagnostics, buildHumanReport } from '../services/netDiagnostics.js'
+import { logDiagnostics, logLlmFailure, getLogDir } from '../services/diagLogger.js'
 import {
   getOllamaStatus,
   extractDataWithProvider,
@@ -47,6 +49,27 @@ import {
 import { basename } from 'path'
 
 export function registerHandlers(ipcMain, mainWindow) {
+  // Auto-cattura forense: se una chiamata reale al provider fallisce con un
+  // errore di RETE (non auth/model/parse), in background eseguiamo una
+  // diagnostica approfondita e la scriviamo nel log — così la prova esiste
+  // anche se l'utente non apre mai la pagina di diagnostica. Fire-and-forget:
+  // non blocca né altera l'errore mostrato all'utente.
+  const NET_STAGES = ['tls', 'connect', 'proxy', 'dns', 'timeout', 'network']
+  const withNetworkAutopsy = async (fn) => {
+    try {
+      return await fn()
+    } catch (err) {
+      const stage = describeNetworkError(err).stage
+      if (NET_STAGES.includes(stage)) {
+        const session = mainWindow?.webContents?.session || null
+        runDeepDiagnostics({ settings: getSettings(), session })
+          .then(r => logLlmFailure({ stage, message: err.message, verdict: r.verdict, snapshot: r }))
+          .catch(() => {})
+      }
+      throw err
+    }
+  }
+
   // ─── PDF ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('dialog:openPDF', async () => {
@@ -121,11 +144,11 @@ export function registerHandlers(ipcMain, mainWindow) {
       const fieldQuery = enabledFields.map(f => f.description).join(' ')
       const relevant = searchChunks(fieldQuery, chunks, 6)
 
-      const result = await extractDataWithProvider(
+      const result = await withNetworkAutopsy(() => extractDataWithProvider(
         settings,
         enabledFields,
         relevant.length > 0 ? relevant : chunks.slice(0, 4)
-      )
+      ))
 
       // Notify if window not focused
       const focused = mainWindow.isFocused()
@@ -511,6 +534,51 @@ ${context}
     node: process.versions.node
   }))
 
+  // Diagnostica di rete APPROFONDITA: spacca la connessione verso il provider in
+  // strati (DNS → TCP → TLS+catena cert → HTTP), risolve il proxy di sistema e
+  // confronta con endpoint di controllo neutri. Scrive uno snapshot nel log.
+  ipcMain.handle('diagnostics:deepNetwork', async () => {
+    const settings = getSettings()
+    const session = mainWindow?.webContents?.session || null
+    try {
+      const result = await runDeepDiagnostics({ settings, session })
+      logDiagnostics({ kind: 'deep-diagnostics', verdict: result.verdict, provider: result.provider, host: result.host, result })
+      return result
+    } catch (err) {
+      logDiagnostics({ kind: 'deep-diagnostics-error', error: err.message })
+      return { type: 'deep-net', verdict: 'error', verdictText: err.message, error: err.message, layers: {}, controls: [], proxy: null }
+    }
+  })
+
+  // Esporta un report completo: .txt leggibile + .json grezzo affiancato.
+  // Solo file locale, nessun invio a server esterni.
+  ipcMain.handle('diagnostics:exportReport', async (_, { result, quickReport, system } = {}) => {
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Esporta report diagnostica completo',
+      defaultPath: `pdf-extractor-diagnostica-${ts}.txt`,
+      filters: [{ name: 'Testo', extensions: ['txt'] }]
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    try {
+      const txt = buildHumanReport({ result, quickReport, system })
+      await writeFile(filePath, txt, 'utf-8')
+      await writeFile(filePath.replace(/\.txt$/i, '.json'), JSON.stringify({ result, quickReport, system }, null, 2), 'utf-8')
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Apre la cartella dei log nel file manager del sistema.
+  ipcMain.handle('diagnostics:openLogFolder', async () => {
+    const dir = getLogDir()
+    if (!dir) return { success: false, error: 'cartella log non disponibile' }
+    await mkdir(dir, { recursive: true }).catch(() => {})
+    const err = await shell.openPath(dir) // '' = successo
+    return { success: !err, error: err || null, dir }
+  })
+
   // ─── App ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('app:version', () => app.getVersion())
@@ -580,7 +648,7 @@ ${context}
   ipcMain.handle('polizza:extract', async (_, { filePaths }) => {
     const settings = getSettings()
     try {
-      const { data, scannedFiles, sources } = await extractPolizzaFromPDFs(filePaths, settings)
+      const { data, scannedFiles, sources } = await withNetworkAutopsy(() => extractPolizzaFromPDFs(filePaths, settings))
       return { success: true, data, scannedFiles, sources: sources || {} }
     } catch (err) {
       return { success: false, error: err.message }
@@ -602,7 +670,7 @@ ${context}
   ipcMain.handle('polizza:visionExtract', async (_, { imageFiles }) => {
     const settings = getSettings()
     try {
-      const data = await extractPolizzaFromImages(imageFiles, settings)
+      const data = await withNetworkAutopsy(() => extractPolizzaFromImages(imageFiles, settings))
       return { success: true, data }
     } catch (err) {
       return { success: false, error: err.message }
@@ -616,7 +684,7 @@ ${context}
     const settings = getSettings()
     let sendFailures = 0
     try {
-      const result = await extractPolizzaRolling(
+      const result = await withNetworkAutopsy(() => extractPolizzaRolling(
         filePaths,
         settings,
         (progress) => {
@@ -630,7 +698,7 @@ ${context}
             }
           }
         }
-      )
+      ))
       return { success: true, ...result }
     } catch (err) {
       return { success: false, error: err.message }

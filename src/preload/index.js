@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── Sicurezza / Diagnostica rete ─────────────────────────────────────────
   testConnection: () => ipcRenderer.invoke('diagnostics:testConnection'),
   getDiagnosticsSystem: () => ipcRenderer.invoke('diagnostics:system'),
+  deepNetworkDiagnostics: () => ipcRenderer.invoke('diagnostics:deepNetwork'),
+  exportDiagnosticsReport: (payload) => ipcRenderer.invoke('diagnostics:exportReport', payload),
+  openDiagnosticsLogFolder: () => ipcRenderer.invoke('diagnostics:openLogFolder'),
 
   // ─── LLM Streaming ──────────────────────────────────────────────────────
   onLLMChunk: (callback) => {
