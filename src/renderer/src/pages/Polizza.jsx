@@ -54,15 +54,6 @@ const IconMap = () => (
 // ─── Icone cicliche per i tab polizza ─────────────────────────────────────────
 const TAB_ICONS = ['🔵', '🟢', '🟠', '🟡', '🟣', '🔴']
 
-// ─── Etichette dei tipi documento ────────────────────────────────────────────
-
-const DOC_TYPES = [
-  { id: 'polizza', label: 'Polizza principale', hint: 'Es. Polizza_RCTOP.pdf — frontespizio con premi e massimali' },
-  { id: 'appendice', label: 'App. rinnovo / variazione', hint: 'Es. App_rinnovo_2024.pdf, App_R4_per_premio.pdf' },
-  { id: 'allegato', label: 'App. n.1 / allegati', hint: 'Es. App.n._1_polizza.pdf — condizioni particolari' },
-  { id: 'cga', label: 'Condizioni generali (CGA)', hint: 'Es. CGA_PMI_GENERAIMPRESA.pdf (opzionale, migliora contesto)' }
-]
-
 // ─── Campi per i due fogli ────────────────────────────────────────────────────
 
 const SHEET_LABELS = {
@@ -153,7 +144,7 @@ export default function Polizza({ visible }) {
       modelLine,
       '',
       '=== FILE CARICATI ===',
-      ...files.map((f, i) => `${i + 1}. ${f.name} [${f.type || 'polizza'}]`),
+      ...files.map((f, i) => `${i + 1}. ${f.name}`),
       '',
       '=== LOG ESTRAZIONE ===',
       ...(diagLogsRef.current.length ? diagLogsRef.current : ['(nessun log disponibile)']),
@@ -217,8 +208,7 @@ export default function Polizza({ visible }) {
   const addFilePaths = useCallback((paths) => {
     const newFiles = paths.map(p => ({
       path: p,
-      name: p.split(/[\\/]/).pop(),
-      type: guessDocType(p)
+      name: p.split(/[\\/]/).pop()
     }))
     setFiles(prev => {
       const existing = new Set(prev.map(f => f.path))
@@ -243,9 +233,6 @@ export default function Polizza({ visible }) {
   }
 
   const removeFile = (path) => setFiles(prev => prev.filter(f => f.path !== path))
-
-  const setFileType = (path, type) =>
-    setFiles(prev => prev.map(f => f.path === path ? { ...f, type } : f))
 
   // ─── Estrazione rolling ──────────────────────────────────────────────────────
 
@@ -288,8 +275,8 @@ export default function Polizza({ visible }) {
     diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Inizio estrazione - ${files.length} file`)
 
     try {
-      const filesWithTypes = files.map(f => ({ path: f.path, type: f.type }))
-      const res = await window.electronAPI.polizzaExtractRolling(filesWithTypes)
+      const filePaths = files.map(f => f.path)
+      const res = await window.electronAPI.polizzaExtractRolling(filePaths)
       if (!res.success) throw new Error(res.error)
 
       diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Estrazione testo completata`)
@@ -407,7 +394,6 @@ export default function Polizza({ visible }) {
             const res = await window.electronAPI.polizzaRollingVisionUpdate({
               state: currentState,
               imageBase64,
-              docType: sf.type || 'polizza',
               pageNum,
               totalPages
             })
@@ -1027,32 +1013,9 @@ export default function Polizza({ visible }) {
                           <IconX />
                         </button>
                       </div>
-                      <select
-                        className="polizza-type-select"
-                        value={f.type}
-                        onChange={e => setFileType(f.path, e.target.value)}
-                        aria-label="Tipo documento"
-                      >
-                        {DOC_TYPES.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Legenda tipi documento */}
-            {files.length === 0 && (
-              <div style={{ background: 'var(--c-bg-card)', borderRadius: 'var(--r-sm)', padding: '10px 12px' }}>
-                <div className="section-title">Documenti da caricare</div>
-                {DOC_TYPES.map(t => (
-                  <div key={t.id} style={{ marginBottom: '6px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--c-text-secondary)' }}>{t.label}</div>
-                    <div style={{ fontSize: '10px', color: 'var(--c-text-muted)' }}>{t.hint}</div>
-                  </div>
-                ))}
               </div>
             )}
 
@@ -1721,11 +1684,3 @@ function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function guessDocType(filePath) {
-  const lower = filePath.toLowerCase()
-  if (lower.includes('rinnov') || lower.includes('app_r')) return 'appendice'
-  if (lower.includes('cga') || lower.includes('condiz')) return 'cga'
-  if (lower.includes('app') || lower.includes('allegat')) return 'allegato'
-  return 'polizza'
-}

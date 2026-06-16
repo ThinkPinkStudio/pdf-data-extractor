@@ -188,21 +188,6 @@ async function extractTextWithPdfjsSpatial(filePath) {
   }
 }
 
-/**
- * Riduce il testo di un documento CGA al minimo necessario.
- * Per tutti gli altri tipi, il testo viene inviato integro al LLM.
- *
- * Il CGA è l'unico caso filtrato perché:
- * - È boilerplate puro (200K+ chars) che monopolizzerebbe il contesto
- * - Contiene valori generici di ESEMPIO (massimali, importi) che potrebbero
- *   confondere il LLM portandolo ad estrarre dati sbagliati
- */
-function filterCGA(text, maxChars = 600) {
-  if (text.length <= maxChars) return text
-  // Per il CGA bastano pochissimi char: vogliamo solo confermare nome compagnia/prodotto
-  return text.slice(0, maxChars)
-}
-
 // ─── Estrazione regex per campi strutturati ───────────────────────────────────
 
 /**
@@ -333,27 +318,24 @@ function extractDocumentDate(text) {
  * Regola "file più recente vince": quando un campo è presente in più file,
  * viene usato il valore del file con la data interna più recente (scadenza/decorrenza).
  *
- * @param {Array<string|{path:string,type:string}>} files
- *   Può essere un array di path (string) oppure oggetti { path, type }.
- *   type: 'polizza' | 'appendice' | 'allegato' | 'cga'
+ * @param {Array<string|{path:string}>} files
+ *   Può essere un array di path (string) oppure oggetti { path }.
  */
 export async function extractPolizzaFromPDFs(files, settings) {
-  // Normalizza input: string → { path, type:'polizza' }
+  // Normalizza input: string → { path }
   const normalizedFiles = (files || []).map(f =>
-    typeof f === 'string' ? { path: f, type: 'polizza' } : f
+    typeof f === 'string' ? { path: f } : f
   )
 
   const provider = settings.llmProvider || 'ollama'
   const TOTAL_BUDGET = provider === 'anthropic' ? 180000
                      : provider === 'openai'    ? 100000
                      :                             60000
-  const CGA_MAX    = 600
-  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
 
   // 1. Estrai testo da tutti i PDF, leggi la data interna del documento
   const allTexts = []
 
-  for (const { path: fp, type = 'polizza' } of normalizedFiles) {
+  for (const { path: fp } of normalizedFiles) {
     let text = await extractTextWithPdfjsSpatial(fp)
     if (text) {
       console.log(`[polizza] pdfjs-spatial: ${fp.split('/').pop()} (${text.length} chars)`)
@@ -373,14 +355,14 @@ export async function extractPolizzaFromPDFs(files, settings) {
       // Usa la data trovata nel contenuto del documento come indicatore di "recenza"
       // (es. la data di scadenza/decorrenza), non la data di modifica del file.
       const docDate = extractDocumentDate(text)
-      allTexts.push({ path: fp, type: type || 'polizza', text, docDate })
+      allTexts.push({ path: fp, text, docDate })
     }
   }
 
   // Traccia i file senza testo estratto (PDF scansionati = solo immagini)
   const scannedFiles = normalizedFiles
     .filter(f => !allTexts.find(t => t.path === f.path))
-    .map(f => ({ path: f.path, type: f.type || 'polizza' }))
+    .map(f => ({ path: f.path }))
 
   if (scannedFiles.length > 0) {
     console.log(
@@ -393,35 +375,23 @@ export async function extractPolizzaFromPDFs(files, settings) {
     return { data: {}, scannedFiles, sources: {} }
   }
 
-  // 2. Ordina per tipo (priorità), poi per data interna crescente (documento più vecchio
-  //    prima → documento più recente alla fine). Il LLM vede l'aggiornamento più recente
-  //    per ultimo e tende a privilegiarlo in caso di valori contrastanti.
-  allTexts.sort((a, b) => {
-    const ai = TYPE_ORDER.indexOf(a.type)
-    const bi = TYPE_ORDER.indexOf(b.type)
-    const typeDiff = (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
-    if (typeDiff !== 0) return typeDiff
-    return (a.docDate || 0) - (b.docDate || 0)  // stesso tipo: data doc più vecchia prima
-  })
+  // 2. Ordina per data interna crescente (documento più vecchio prima → più recente alla fine).
+  //    Il LLM vede l'aggiornamento più recente per ultimo e tende a privilegiarlo.
+  allTexts.sort((a, b) => (a.docDate || 0) - (b.docDate || 0))
 
   // 3. Costruisci il testo da inviare al LLM
   const excerpts = []
   let remainingBudget = TOTAL_BUDGET
 
-  for (const { path: fp, type, text } of allTexts) {
-    let excerpt
-    if (type === 'cga') {
-      excerpt = filterCGA(text, CGA_MAX)
-    } else {
-      if (remainingBudget <= 0) {
-        console.log(`[polizza] skip [${type}] ${fp.split('/').pop()}: budget esaurito`)
-        continue
-      }
-      excerpt = text.length <= remainingBudget ? text : text.slice(0, remainingBudget)
-      remainingBudget -= excerpt.length
+  for (const { path: fp, text } of allTexts) {
+    if (remainingBudget <= 0) {
+      console.log(`[polizza] skip ${fp.split('/').pop()}: budget esaurito`)
+      continue
     }
-    console.log(`[polizza] contesto [${type}] ${fp.split('/').pop()}: ${excerpt.length} chars${type === 'cga' ? '' : ` (budget residuo: ${remainingBudget})`}`)
-    excerpts.push(`=== ${fp.split('/').pop()} [${type}] ===\n${excerpt}`)
+    const excerpt = text.length <= remainingBudget ? text : text.slice(0, remainingBudget)
+    remainingBudget -= excerpt.length
+    console.log(`[polizza] contesto ${fp.split('/').pop()}: ${excerpt.length} chars (budget residuo: ${remainingBudget})`)
+    excerpts.push(`=== ${fp.split('/').pop()} ===\n${excerpt}`)
   }
 
   const combinedText = excerpts.join('\n\n')
@@ -720,7 +690,7 @@ function classifyLlmError(err, settings) {
  * Estrae dati da polizza tramite Vision LLM su pagine rese come immagini.
  * Usato quando i PDF sono scansionati e non contengono testo selezionabile.
  *
- * @param {Array<{name:string, type:string, pages:string[]}>} imageFiles
+ * @param {Array<{name:string, pages:string[]}>} imageFiles
  * @param {object} settings
  */
 export async function extractPolizzaFromImages(imageFiles, settings) {
@@ -728,18 +698,9 @@ export async function extractPolizzaFromImages(imageFiles, settings) {
     ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const allFields = configuredFields.filter(f => f.enabled !== false)
 
-  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
-  const sorted = [...imageFiles].sort((a, b) => {
-    const ai = TYPE_ORDER.indexOf(a.type); const bi = TYPE_ORDER.indexOf(b.type)
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
-  })
-
-  // Budget pagine per tipo (troppo tante pagine = LLM lento o errore)
-  const PAGE_BUDGET = { polizza: 5, appendice: 3, allegato: 2, cga: 1 }
   const pages = []
-  for (const { type, pages: docPages } of sorted) {
-    const budget = PAGE_BUDGET[type] || 2
-    pages.push(...docPages.slice(0, budget))
+  for (const { pages: docPages } of imageFiles) {
+    pages.push(...docPages.slice(0, 5))
     if (pages.length >= 10) break
   }
 
@@ -1222,13 +1183,11 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
  * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
-async function callRollingLLMText(settings, state, docType, batchText, fields, docDate = null) {
+async function callRollingLLMText(settings, state, batchText, fields, docDate = null) {
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
-
-TIPO DOCUMENTO: ${docType}${docDate ? ` — DATA DOCUMENTO: ${docDate}` : ''}
-
+${docDate ? `\nDATA DOCUMENTO: ${docDate}\n` : ''}
 TESTO PAGINE:
 ${batchText}
 
@@ -1259,12 +1218,12 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
  * Anche qui il prompt include la GUIDA dei campi (label + descrizione).
  * Lancia un errore classificato se la chiamata LLM fallisce.
  */
-async function callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, fields) {
+async function callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, fields) {
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
 
-TIPO DOCUMENTO: ${docType} — Pagina ${pageNum}/${totalPages}
+Pagina ${pageNum}/${totalPages}
 
 Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
@@ -1326,12 +1285,12 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
 /**
  * Estrazione polizza in modalità rolling state.
  *
- * Processa i documenti uno alla volta nell'ordine corretto (polizza → appendice →
- * allegato → CGA), ogni documento pagina per pagina in batch da 3 + coda di 300 chars.
+ * Processa i documenti uno alla volta nell'ordine in cui sono stati caricati,
+ * ogni documento pagina per pagina in batch da 3 + coda di 300 chars.
  * Ogni chiamata LLM riceve al massimo ~8-10K token. Lo stato accumula i valori
  * in modo date-aware: l'LLM aggiorna un campo solo se il nuovo valore è più recente.
  *
- * @param {Array<string|{path,type}>} files
+ * @param {Array<string|{path}>} files
  * @param {object} settings
  * @param {Function|null} onProgress  callback({ docIndex, docTotal, pageIndex, pageTotal, docName, state })
  * @returns {{ data, scannedFiles, sources, rollingState }}
@@ -1341,16 +1300,11 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
 
-  const TYPE_ORDER = ['polizza', 'appendice', 'allegato', 'cga']
   const BATCH_SIZE = 3
 
   const normalizedFiles = (files || []).map(f =>
-    typeof f === 'string' ? { path: f, type: 'polizza' } : f
-  ).sort((a, b) => {
-    const ai = TYPE_ORDER.indexOf(a.type)
-    const bi = TYPE_ORDER.indexOf(b.type)
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
-  })
+    typeof f === 'string' ? { path: f } : f
+  )
 
   let state = initRollingState(activeFields)
   const scannedFiles = []
@@ -1377,10 +1331,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   // Aggiorna lo stato con un batch. Se Ollama/il provider è irraggiungibile, o se
   // gli errori LLM si accumulano, interrompe TUTTA l'estrazione invece di macinare
   // inutilmente le pagine restanti a vuoto.
-  const applyTextBatch = async (docType, batchText, docDate) => {
+  const applyTextBatch = async (batchText, docDate) => {
     seedFromRegex(batchText, docDate)
     try {
-      state = await callRollingLLMText(settings, state, docType, batchText, activeFields, docDate)
+      state = await callRollingLLMText(settings, state, batchText, activeFields, docDate)
       consecutiveLlmErrors = 0
     } catch (err) {
       consecutiveLlmErrors++
@@ -1398,10 +1352,10 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
   }
 
   for (let docIdx = 0; docIdx < normalizedFiles.length; docIdx++) {
-    const { path: filePath, type: docType } = normalizedFiles[docIdx]
+    const { path: filePath } = normalizedFiles[docIdx]
     const docName = filePath.split(/[\\/]/).pop()
 
-    console.log(`[polizza:rolling] ${docIdx + 1}/${normalizedFiles.length}: ${docName} [${docType}]`)
+    console.log(`[polizza:rolling] ${docIdx + 1}/${normalizedFiles.length}: ${docName}`)
     notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: 0, pageTotal: 0, docName })
 
     // pdfjs pagina per pagina (async generator)
@@ -1427,7 +1381,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
             totalPagesProcessed += pageBatch.length
             notify({ docIndex: docIdx, docTotal: normalizedFiles.length, pageIndex: pageNum, pageTotal: totalPages, docName })
 
-            await applyTextBatch(docType, batchText, docDate)
+            await applyTextBatch(batchText, docDate)
             console.log(`[polizza:rolling]   pg ${pageNum - pageBatch.length + 1}-${pageNum}/${totalPages}`)
             // Seconda notifica a batch completato: porta subito alla UI lo stato
             // aggiornato (i campi trovati), non al batch successivo
@@ -1444,7 +1398,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     if (!hasText) {
       // PDF scansionato: nessun testo estraibile, gestione vision dal frontend
       console.log(`[polizza:rolling] ${docName}: scansionato → vision`)
-      scannedFiles.push({ path: filePath, type: docType })
+      scannedFiles.push({ path: filePath })
     }
   }
 
@@ -1460,17 +1414,16 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
  *
  * @param {object} state           stato rolling corrente (con {valore, data_validita})
  * @param {string} imageBase64     immagine della pagina in formato data:image/...;base64,...
- * @param {string} docType         'polizza'|'appendice'|'allegato'|'cga'
  * @param {number} pageNum         pagina corrente (1-based)
  * @param {number} totalPages      totale pagine del documento
  * @param {object} settings
  * @returns {object} stato aggiornato
  */
-export async function updateStateWithVisionPage(state, imageBase64, docType, pageNum, totalPages, settings) {
+export async function updateStateWithVisionPage(state, imageBase64, pageNum, totalPages, settings) {
   const configuredFields = (settings.polizzaFields?.length > 0)
     ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
-  return callRollingLLMVision(settings, state, docType, imageBase64, pageNum, totalPages, activeFields)
+  return callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, activeFields)
 }
 
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
