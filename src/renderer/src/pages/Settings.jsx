@@ -20,6 +20,20 @@ const IconRefresh = () => (
   </svg>
 )
 
+const IconGrip = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="14" height="14">
+    <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+    <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+    <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+  </svg>
+)
+
+const IconCopy = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="13" height="13">
+    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+)
+
 const FIELD_TYPES = ['text', 'number', 'date', 'email', 'phone', 'iva', 'cf', 'url']
 
 function WebhookTokenField({ token }) {
@@ -244,31 +258,44 @@ function parseCells(str) {
   }).filter(Boolean)
 }
 
-function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
+function PolizzaFieldRow({ field, onChange, onDelete, onCopy, polizzaTypes, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }) {
   const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
   const [cellsRaw, setCellsRaw] = useState(formatCells(field.cells))
   const lastFieldId = useRef(field.id)
 
-  // Reset local raw value if the field identity changes (e.g. after reset-to-defaults)
   if (field.id !== lastFieldId.current) {
     lastFieldId.current = field.id
-    // will be corrected on next render naturally via the useState initializer
   }
 
-  // Sync from outside only when the field id changes (not on every parent re-render)
   useEffect(() => {
     setCellsRaw(formatCells(field.cells))
   }, [field.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '30px 130px 1fr 80px 160px 28px',
-      gap: 6,
-      alignItems: 'center',
-      padding: '4px 0',
-      borderBottom: '1px solid var(--c-border)'
-    }}>
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '20px 30px 130px 1fr 80px 160px 28px 28px',
+        gap: 6,
+        alignItems: 'center',
+        padding: '4px 0',
+        borderBottom: '1px solid var(--c-border)',
+        borderTop: isDragOver ? '2px solid var(--c-accent)' : '2px solid transparent',
+        transition: 'border-top-color 0.1s'
+      }}
+    >
+      <span
+        title="Trascina per riordinare"
+        style={{ cursor: 'grab', color: 'var(--c-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <IconGrip />
+      </span>
+
       <label className="toggle" title="Abilitato" style={{ margin: 0 }}>
         <input
           type="checkbox"
@@ -333,6 +360,15 @@ function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
       />
 
       <button
+        onClick={() => onCopy(field.id)}
+        aria-label={`Duplica campo ${field.label}`}
+        title="Copia riga sotto"
+        style={{ padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center' }}
+      >
+        <IconCopy />
+      </button>
+
+      <button
         className="btn-danger"
         onClick={() => onDelete(field.id)}
         aria-label={`Elimina campo ${field.label}`}
@@ -347,6 +383,8 @@ function PolizzaFieldRow({ field, onChange, onDelete, polizzaTypes }) {
 
 function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange, polizzaTypes }) {
   const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
+  const [dragging, setDragging] = useState(null)
+  const [dragOver, setDragOver] = useState(null)
 
   const updateField = (updated) => {
     onChange(fields.map(f => f.id === updated.id ? updated : f))
@@ -355,6 +393,46 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
   const deleteField = (id) => {
     onChange(fields.filter(f => f.id !== id))
   }
+
+  const copyField = (id) => {
+    const idx = fields.findIndex(f => f.id === id)
+    if (idx === -1) return
+    const original = fields[idx]
+    const copy = {
+      ...original,
+      cells: (original.cells || []).map(c => ({ ...c })),
+      id: Date.now().toString()
+    }
+    const next = [...fields]
+    next.splice(idx + 1, 0, copy)
+    onChange(next)
+  }
+
+  const handleDragStart = (e, id) => {
+    setDragging(id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e, id) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (id !== dragging) setDragOver(id)
+  }
+
+  const handleDrop = (e, targetId) => {
+    e.preventDefault()
+    if (!dragging || dragging === targetId) { setDragging(null); setDragOver(null); return }
+    const idx = fields.findIndex(f => f.id === dragging)
+    const targetIdx = fields.findIndex(f => f.id === targetId)
+    const next = [...fields]
+    const [removed] = next.splice(idx, 1)
+    next.splice(targetIdx, 0, removed)
+    onChange(next)
+    setDragging(null)
+    setDragOver(null)
+  }
+
+  const handleDragEnd = () => { setDragging(null); setDragOver(null) }
 
   const addField = () => {
     onChange([
@@ -402,31 +480,39 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
       <div style={{ overflowX: 'auto' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '30px 130px 1fr 80px 160px 28px',
+          gridTemplateColumns: '20px 30px 130px 1fr 80px 160px 28px 28px',
           gap: 6,
           padding: '4px 0 6px',
           borderBottom: '2px solid var(--c-border)',
           marginBottom: 2
         }}>
           <span />
+          <span />
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Etichetta</span>
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Descrizione AI</span>
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Tab</span>
           <span className="field-label-sm" style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11 }}>Celle Excel</span>
+          <span />
           <span />
         </div>
 
         {fields.length === 0 ? (
           <p className="text-muted text-sm" style={{ padding: '12px 0' }}>Nessun campo configurato.</p>
         ) : (
-          <div role="list" aria-label="Campi Polizza RC">
+          <div role="list" aria-label="Campi Polizza RC" onDragLeave={() => setDragOver(null)}>
             {fields.map(field => (
               <PolizzaFieldRow
                 key={field.id}
                 field={field}
                 onChange={updateField}
                 onDelete={deleteField}
+                onCopy={copyField}
                 polizzaTypes={types}
+                isDragOver={dragOver === field.id}
+                onDragStart={e => handleDragStart(e, field.id)}
+                onDragOver={e => handleDragOver(e, field.id)}
+                onDrop={e => handleDrop(e, field.id)}
+                onDragEnd={handleDragEnd}
               />
             ))}
           </div>
