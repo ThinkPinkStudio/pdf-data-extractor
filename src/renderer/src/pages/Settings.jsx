@@ -531,6 +531,39 @@ function FieldItem({ field, onChange, onDelete, t }) {
   )
 }
 
+function PolizzaProfileItem({ profile, onDelete, onApply, t }) {
+  return (
+    <div className="field-item" role="listitem">
+      <div className="field-inputs">
+        <div className="field-row">
+          <span className="field-label-sm">{profile.name}</span>
+          <span className="text-muted text-sm">
+            {profile.types?.length || 0} {t('settings.polizzaProfileTypes')} · {profile.fields?.length || 0} {t('settings.polizzaProfileFields')}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button
+          className="btn btn-secondary"
+          onClick={() => onApply(profile.id)}
+          aria-label={`${t('settings.applyPolizzaProfile')}: ${profile.name}`}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          {t('settings.applyPolizzaProfile')}
+        </button>
+        <button
+          className="btn-danger"
+          onClick={() => onDelete(profile.id)}
+          aria-label={`${t('settings.deletePolizzaProfile')}: ${profile.name}`}
+          title={t('settings.deletePolizzaProfile')}
+        >
+          <IconTrash />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ProfileItem({ profile, onDelete, t }) {
   return (
     <div className="field-item" role="listitem">
@@ -565,6 +598,8 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
   const [anthropicTestResult, setAnthropicTestResult] = useState(null)
   const [saved, setSaved] = useState(false)
   const [newProfileName, setNewProfileName] = useState('')
+  const [newPolizzaProfileName, setNewPolizzaProfileName] = useState('')
+  const polizzaProfileImportRef = useRef(null)
 
   useEffect(() => {
     window.electronAPI.getSettings().then(s => setSettings(s))
@@ -646,6 +681,67 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
 
   const deleteProfile = (id) => {
     setSettings(s => ({ ...s, profiles: (s.profiles || []).filter(p => p.id !== id) }))
+  }
+
+  const addPolizzaProfile = () => {
+    if (!newPolizzaProfileName.trim()) return
+    const profile = {
+      id: Date.now().toString(),
+      name: newPolizzaProfileName.trim(),
+      types: (settings.polizzaTypes || DEFAULT_POLIZZA_TYPES).map(t => ({ ...t })),
+      fields: (settings.polizzaFields || []).map(f => ({ ...f, cells: [...(f.cells || [])] })),
+      promptExtra: settings.polizzaPromptExtra || ''
+    }
+    setSettings(s => ({ ...s, polizzaProfiles: [...(s.polizzaProfiles || []), profile] }))
+    setNewPolizzaProfileName('')
+  }
+
+  const deletePolizzaProfile = (id) => {
+    setSettings(s => ({ ...s, polizzaProfiles: (s.polizzaProfiles || []).filter(p => p.id !== id) }))
+  }
+
+  const applyPolizzaProfile = (id) => {
+    const profile = (settings.polizzaProfiles || []).find(p => p.id === id)
+    if (!profile) return
+    setSettings(s => ({
+      ...s,
+      polizzaTypes: profile.types.map(t => ({ ...t })),
+      polizzaFields: profile.fields.map(f => ({ ...f, cells: [...(f.cells || [])] })),
+      polizzaPromptExtra: profile.promptExtra || ''
+    }))
+  }
+
+  const exportPolizzaProfiles = () => {
+    const data = JSON.stringify(settings.polizzaProfiles || [], null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'profili-polizza.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const importPolizzaProfiles = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result)
+        if (!Array.isArray(imported)) return
+        const base = Date.now()
+        setSettings(s => ({
+          ...s,
+          polizzaProfiles: [
+            ...(s.polizzaProfiles || []),
+            ...imported.map((p, i) => ({ ...p, id: (base + i).toString() }))
+          ]
+        }))
+      } catch {}
+    }
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   const save = async () => {
@@ -1160,6 +1256,71 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
           promptExtra={settings.polizzaPromptExtra || ''}
           onPromptExtraChange={val => setSettings(s => ({ ...s, polizzaPromptExtra: val }))}
         />
+
+        <div className="sep" />
+
+        {/* Polizza RC Profiles */}
+        <section className="card-section" aria-labelledby="section-polizza-profiles">
+          <h2 className="section-title" id="section-polizza-profiles">{t('settings.sectionPolizzaProfiles')}</h2>
+          <p className="section-desc">{t('settings.sectionPolizzaProfilesDesc')}</p>
+
+          {(!settings.polizzaProfiles || settings.polizzaProfiles.length === 0) ? (
+            <p className="text-muted text-sm" style={{ padding: '8px 0 12px' }}>{t('settings.noPolizzaProfiles')}</p>
+          ) : (
+            <div className="field-list" role="list" aria-label={t('settings.sectionPolizzaProfiles')} style={{ marginBottom: 12 }}>
+              {settings.polizzaProfiles.map(profile => (
+                <PolizzaProfileItem
+                  key={profile.id}
+                  profile={profile}
+                  onDelete={deletePolizzaProfile}
+                  onApply={applyPolizzaProfile}
+                  t={t}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              className="form-input"
+              type="text"
+              value={newPolizzaProfileName}
+              onChange={e => setNewPolizzaProfileName(e.target.value)}
+              placeholder={t('settings.polizzaProfileNamePlaceholder')}
+              aria-label={t('settings.polizzaProfileName')}
+              onKeyDown={e => e.key === 'Enter' && addPolizzaProfile()}
+              style={{ maxWidth: 240 }}
+            />
+            <button
+              className="btn btn-secondary"
+              onClick={addPolizzaProfile}
+              disabled={!newPolizzaProfileName.trim()}
+            >
+              <IconPlus />
+              {t('settings.savePolizzaProfile')}
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={exportPolizzaProfiles}
+              disabled={!settings.polizzaProfiles?.length}
+            >
+              {t('settings.exportPolizzaProfiles')}
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => polizzaProfileImportRef.current?.click()}
+            >
+              {t('settings.importPolizzaProfiles')}
+            </button>
+            <input
+              ref={polizzaProfileImportRef}
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={importPolizzaProfiles}
+            />
+          </div>
+        </section>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 8 }}>
           <button

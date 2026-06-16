@@ -125,7 +125,8 @@ const defaultSettings = {
       cells: [{ sheet: 'RCP', cell: 'F31' }] },
     { id: 'rcp_premio_totale', label: 'Premio totale (RCP)', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F32' }, { sheet: 'RCP', cell: 'F37' }] }
-  ]
+  ],
+  polizzaProfiles: []
 }
 
 function getSettingsPath() {
