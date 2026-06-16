@@ -557,10 +557,10 @@ body {
 }
 
 /* ─── Scrollbar ─────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: var(--r-full); }
-::-webkit-scrollbar-thumb:hover { background: var(--c-text-muted); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--c-bg-card); border-radius: var(--r-sm); }
+::-webkit-scrollbar-thumb { background: var(--c-text-muted); border-radius: var(--r-sm); border: 2px solid var(--c-bg-card); }
+::-webkit-scrollbar-thumb:hover { background: var(--c-text-secondary); }
 
 /* ─── Separator ─────────────────────────────────────────────── */
 .sep {
