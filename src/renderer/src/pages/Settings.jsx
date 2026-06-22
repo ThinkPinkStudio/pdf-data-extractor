@@ -71,115 +71,8 @@ function WebhookTokenField({ token }) {
   )
 }
 
-export const DEFAULT_POLIZZA_TYPES = [
-  { id: 'RCT_O', label: 'RC Terzi / Operai' },
-  { id: 'RCP',   label: 'RC Prodotti' }
-]
-
-// ─── Gestione tipi di polizza ─────────────────────────────────────────────────
-
-function PolizzaTypesSection({ types, onChange }) {
-  const [newId, setNewId] = useState('')
-  const [newLabel, setNewLabel] = useState('')
-
-  const addType = () => {
-    const id = newId.trim().toUpperCase().replace(/\s+/g, '_')
-    const label = newLabel.trim()
-    if (!id || !label) return
-    if (types.some(t => t.id === id)) return
-    onChange([...types, { id, label }])
-    setNewId('')
-    setNewLabel('')
-  }
-
-  const deleteType = (id) => {
-    if (types.length <= 1) return
-    onChange(types.filter(t => t.id !== id))
-  }
-
-  const updateLabel = (id, label) => {
-    onChange(types.map(t => t.id === id ? { ...t, label } : t))
-  }
-
-  return (
-    <section className="card-section" aria-labelledby="section-polizza-types">
-      <h2 className="section-title" id="section-polizza-types">Tipi di Polizza (Tab)</h2>
-      <p className="section-desc">Definisci i tipi di copertura — ogni tipo diventa un tab nella pagina Polizze RC.</p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-        {types.map(t => (
-          <div key={t.id} style={{
-            display: 'grid',
-            gridTemplateColumns: '90px 1fr 28px',
-            gap: 8,
-            alignItems: 'center',
-            padding: '5px 0',
-            borderBottom: '1px solid var(--c-border)'
-          }}>
-            <span style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
-              fontWeight: 700,
-              color: 'var(--c-accent)',
-              padding: '3px 6px',
-              background: 'var(--c-accent-faint)',
-              borderRadius: 'var(--r-sm)'
-            }}>{t.id}</span>
-            <input
-              className="field-input-sm"
-              value={t.label}
-              onChange={e => updateLabel(t.id, e.target.value)}
-              placeholder="Etichetta tab"
-              style={{ width: '100%' }}
-            />
-            <button
-              className="btn-danger"
-              onClick={() => deleteType(t.id)}
-              disabled={types.length <= 1}
-              title="Elimina tipo"
-              style={{ padding: '4px 6px' }}
-            >
-              <IconTrash />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 3 }}>ID (es. INCENDIO)</div>
-          <input
-            className="field-input-sm"
-            value={newId}
-            onChange={e => setNewId(e.target.value.toUpperCase())}
-            placeholder="INCENDIO"
-            style={{ width: 110, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}
-            onKeyDown={e => e.key === 'Enter' && addType()}
-          />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 3 }}>Etichetta</div>
-          <input
-            className="field-input-sm"
-            value={newLabel}
-            onChange={e => setNewLabel(e.target.value)}
-            placeholder="es. Incendio / Kasko"
-            style={{ width: 200 }}
-            onKeyDown={e => e.key === 'Enter' && addType()}
-          />
-        </div>
-        <button
-          className="btn btn-secondary"
-          onClick={addType}
-          disabled={!newId.trim() || !newLabel.trim()}
-        >
-          <IconPlus />
-          Aggiungi tipo
-        </button>
-      </div>
-    </section>
-  )
-}
+// Nota: i tipi di polizza (RCT_O/RCP) e la relativa suddivisione in tab sono
+// stati rimossi — i campi sono ora un unico elenco.
 
 // ─── Default Polizza RC fields (CSA preset) ───────────────────────────────────
 const DEFAULT_POLIZZA_FIELDS = [
@@ -200,48 +93,48 @@ const DEFAULT_POLIZZA_FIELDS = [
     cells: [{ sheet: 'RCT_O', cell: 'E7' }, { sheet: 'RCT_O', cell: 'Q21' }, { sheet: 'RCP', cell: 'E7' }, { sheet: 'RCP', cell: 'Q20' }] },
   { id: 'attivita', label: 'Attività assicurata', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'A10' }, { sheet: 'RCP', cell: 'A10' }] },
-  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro (RCT)', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'D15' }] },
-  { id: 'rct_massimale_persona', label: 'Massimale per persona (RCT)', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_massimale_persona', label: 'Massimale per persona', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'E15' }] },
-  { id: 'rct_massimale_danni', label: 'Massimale danni materiali (RCT)', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_massimale_danni', label: 'Massimale danni materiali', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'F15' }] },
-  { id: 'rct_massimale_prestatore', label: 'Massimale per prestatore (RCT)', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_massimale_prestatore', label: 'Massimale per prestatore', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'D16' }] },
-  { id: 'rct_parametro', label: 'Parametro regolazione (RCT)', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text', sheet: 'RCT_O', enabled: true, cells: [] },
-  { id: 'rct_importo_preventivo', label: 'Importo preventivo parametro (RCT)', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_parametro', label: 'Parametro regolazione', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text', sheet: 'RCT_O', enabled: true, cells: [] },
+  { id: 'rct_importo_preventivo', label: 'Importo preventivo parametro', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'D23' }] },
-  { id: 'rct_tasso', label: 'Tasso regolazione ‰ (RCT)', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_tasso', label: 'Tasso regolazione ‰', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'E23' }] },
-  { id: 'rct_premio_imponibile', label: 'Premio imponibile (RCT)', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_premio_imponibile', label: 'Premio imponibile', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'F28' }] },
-  { id: 'rct_imposta', label: 'Imposta (RCT)', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_imposta', label: 'Imposta', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'F29' }] },
-  { id: 'rct_premio_totale', label: 'Premio totale (RCT)', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+  { id: 'rct_premio_totale', label: 'Premio totale', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text', sheet: 'RCT_O', enabled: true,
     cells: [{ sheet: 'RCT_O', cell: 'F30' }, { sheet: 'RCT_O', cell: 'F34' }] },
   { id: 'rcp_prodotti', label: 'Prodotti assicurati', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
   { id: 'rcp_qualifica', label: 'Qualifica assicurato', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-  { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro (RCP)', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'D14' }] },
-  { id: 'rcp_massimale_annuo', label: 'Massimale annuo (RCP)', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_massimale_annuo', label: 'Massimale annuo', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'E14' }] },
-  { id: 'rcp_massimale_mat', label: 'Massimale danni materiali (RCP)', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_massimale_mat', label: 'Massimale danni materiali', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'F14' }] },
-  { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività (RCP)', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
+  { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
   { id: 'rcp_scoperto_min_mondo', label: 'Scoperto minimo - Resto del mondo', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
   { id: 'rcp_scoperto_max_mondo', label: 'Scoperto massimo - Resto del mondo', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
   { id: 'rcp_scoperto_min_usa', label: 'Scoperto minimo - USA/Canada/Messico', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
   { id: 'rcp_scoperto_max_usa', label: 'Scoperto massimo - USA/Canada/Messico', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-  { id: 'rcp_parametro', label: 'Parametro regolazione (RCP)', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-  { id: 'rcp_importo_preventivo', label: 'Importo preventivo parametro (RCP)', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_parametro', label: 'Parametro regolazione', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
+  { id: 'rcp_importo_preventivo', label: 'Importo preventivo parametro', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'D20' }] },
-  { id: 'rcp_tasso', label: 'Tasso regolazione ‰ (RCP)', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_tasso', label: 'Tasso regolazione ‰', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'E20' }] },
-  { id: 'rcp_premio_imponibile', label: 'Premio imponibile (RCP)', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_premio_imponibile', label: 'Premio imponibile', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'F30' }] },
-  { id: 'rcp_imposta', label: 'Imposta (RCP)', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_imposta', label: 'Imposta', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'F31' }] },
-  { id: 'rcp_premio_totale', label: 'Premio totale (RCP)', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text', sheet: 'RCP', enabled: true,
+  { id: 'rcp_premio_totale', label: 'Premio totale', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text', sheet: 'RCP', enabled: true,
     cells: [{ sheet: 'RCP', cell: 'F32' }, { sheet: 'RCP', cell: 'F37' }] }
 ]
 
@@ -258,8 +151,7 @@ function parseCells(str) {
   }).filter(Boolean)
 }
 
-function PolizzaFieldRow({ field, onChange, onDelete, onCopy, polizzaTypes, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }) {
-  const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
+function PolizzaFieldRow({ field, onChange, onDelete, onCopy, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }) {
   const [cellsRaw, setCellsRaw] = useState(formatCells(field.cells))
   const lastFieldId = useRef(field.id)
 
@@ -326,18 +218,6 @@ function PolizzaFieldRow({ field, onChange, onDelete, onCopy, polizzaTypes, isDr
         style={{ width: '100%' }}
       />
 
-      <select
-        className="field-input-sm"
-        value={field.sheet || (types[0]?.id || 'RCT_O')}
-        onChange={e => onChange({ ...field, sheet: e.target.value })}
-        aria-label="Tab UI"
-        style={{ width: '100%' }}
-      >
-        {types.map(t => (
-          <option key={t.id} value={t.id}>{t.id}</option>
-        ))}
-      </select>
-
       <input
         className="field-input-sm"
         type="text"
@@ -381,8 +261,7 @@ function PolizzaFieldRow({ field, onChange, onDelete, onCopy, polizzaTypes, isDr
   )
 }
 
-function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange, polizzaTypes }) {
-  const types = polizzaTypes && polizzaTypes.length > 0 ? polizzaTypes : DEFAULT_POLIZZA_TYPES
+function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChange }) {
   const [dragging, setDragging] = useState(null)
   const [dragOver, setDragOver] = useState(null)
 
@@ -442,7 +321,6 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
         label: '',
         description: '',
         type: 'text',
-        sheet: types[0]?.id || 'RCT_O',
         enabled: true,
         cells: []
       }
@@ -480,7 +358,7 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
       <div style={{ overflowX: 'auto' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '20px 30px 130px 1fr 80px 160px 28px 28px',
+          gridTemplateColumns: '20px 30px 130px 1fr 160px 28px 28px',
           gap: 6,
           padding: '4px 0 6px',
           borderBottom: '2px solid var(--c-border)',
@@ -490,7 +368,6 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
           <span />
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Etichetta</span>
           <span className="field-label-sm" style={{ fontWeight: 600 }}>Descrizione AI</span>
-          <span className="field-label-sm" style={{ fontWeight: 600 }}>Tab</span>
           <span className="field-label-sm" style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11 }}>Celle Excel</span>
           <span />
           <span />
@@ -507,7 +384,6 @@ function PolizzaFieldsSection({ fields, onChange, promptExtra, onPromptExtraChan
                 onChange={updateField}
                 onDelete={deleteField}
                 onCopy={copyField}
-                polizzaTypes={types}
                 isDragOver={dragOver === field.id}
                 onDragStart={e => handleDragStart(e, field.id)}
                 onDragOver={e => handleDragOver(e, field.id)}
@@ -624,7 +500,7 @@ function PolizzaProfileItem({ profile, onDelete, onApply, t }) {
         <div className="field-row">
           <span className="field-label-sm">{profile.name}</span>
           <span className="text-muted text-sm">
-            {profile.types?.length || 0} {t('settings.polizzaProfileTypes')} · {profile.fields?.length || 0} {t('settings.polizzaProfileFields')}
+            {profile.fields?.length || 0} {t('settings.polizzaProfileFields')}
           </span>
         </div>
       </div>
@@ -774,7 +650,6 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
     const profile = {
       id: Date.now().toString(),
       name: newPolizzaProfileName.trim(),
-      types: (settings.polizzaTypes || DEFAULT_POLIZZA_TYPES).map(t => ({ ...t })),
       fields: (settings.polizzaFields || []).map(f => ({ ...f, cells: [...(f.cells || [])] })),
       promptExtra: settings.polizzaPromptExtra || ''
     }
@@ -791,7 +666,6 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
     if (!profile) return
     setSettings(s => ({
       ...s,
-      polizzaTypes: profile.types.map(t => ({ ...t })),
       polizzaFields: profile.fields.map(f => ({ ...f, cells: [...(f.cells || [])] })),
       polizzaPromptExtra: profile.promptExtra || ''
     }))
@@ -1326,18 +1200,9 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
 
         <div className="sep" />
 
-        {/* Polizza RC: Tipi (Tab) */}
-        <PolizzaTypesSection
-          types={settings.polizzaTypes || DEFAULT_POLIZZA_TYPES}
-          onChange={types => setSettings(s => ({ ...s, polizzaTypes: types }))}
-        />
-
-        <div className="sep" />
-
         {/* Polizza RC Fields */}
         <PolizzaFieldsSection
           fields={settings.polizzaFields || []}
-          polizzaTypes={settings.polizzaTypes || DEFAULT_POLIZZA_TYPES}
           onChange={fields => setSettings(s => ({ ...s, polizzaFields: fields }))}
           promptExtra={settings.polizzaPromptExtra || ''}
           onPromptExtraChange={val => setSettings(s => ({ ...s, polizzaPromptExtra: val }))}

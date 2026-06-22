@@ -619,17 +619,6 @@ ${context}
     return result.filePaths[0]
   })
 
-  ipcMain.handle('polizza:getTypes', () => {
-    const settings = getSettings()
-    const defaultTypes = [
-      { id: 'RCT_O', label: 'RC Terzi / Operai' },
-      { id: 'RCP',   label: 'RC Prodotti' }
-    ]
-    return (settings.polizzaTypes && settings.polizzaTypes.length > 0)
-      ? settings.polizzaTypes
-      : defaultTypes
-  })
-
   ipcMain.handle('polizza:getFields', () => {
     const settings = getSettings()
     return (settings.polizzaFields && settings.polizzaFields.length > 0)
