@@ -82,48 +82,48 @@ const defaultSettings = {
       cells: [{ sheet: 'RCT_O', cell: 'E7' }, { sheet: 'RCT_O', cell: 'Q21' }, { sheet: 'RCP', cell: 'E7' }, { sheet: 'RCP', cell: 'Q20' }] },
     { id: 'attivita', label: 'Attività assicurata', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'A10' }, { sheet: 'RCP', cell: 'A10' }] },
-    { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro (RCT)', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'D15' }] },
-    { id: 'rct_massimale_persona', label: 'Massimale per persona (RCT)', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_massimale_persona', label: 'Massimale per persona', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'E15' }] },
-    { id: 'rct_massimale_danni', label: 'Massimale danni materiali (RCT)', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_massimale_danni', label: 'Massimale danni materiali', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'F15' }] },
-    { id: 'rct_massimale_prestatore', label: 'Massimale per prestatore (RCT)', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_massimale_prestatore', label: 'Massimale per prestatore', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'D16' }] },
-    { id: 'rct_parametro', label: 'Parametro regolazione (RCT)', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text', sheet: 'RCT_O', enabled: true, cells: [] },
-    { id: 'rct_importo_preventivo', label: 'Importo preventivo parametro (RCT)', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_parametro', label: 'Parametro regolazione', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text', sheet: 'RCT_O', enabled: true, cells: [] },
+    { id: 'rct_importo_preventivo', label: 'Importo preventivo parametro', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'D23' }] },
-    { id: 'rct_tasso', label: 'Tasso regolazione ‰ (RCT)', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_tasso', label: 'Tasso regolazione ‰', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'E23' }] },
-    { id: 'rct_premio_imponibile', label: 'Premio imponibile (RCT)', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_premio_imponibile', label: 'Premio imponibile', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'F28' }] },
-    { id: 'rct_imposta', label: 'Imposta (RCT)', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_imposta', label: 'Imposta', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'F29' }] },
-    { id: 'rct_premio_totale', label: 'Premio totale (RCT)', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text', sheet: 'RCT_O', enabled: true,
+    { id: 'rct_premio_totale', label: 'Premio totale', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text', sheet: 'RCT_O', enabled: true,
       cells: [{ sheet: 'RCT_O', cell: 'F30' }, { sheet: 'RCT_O', cell: 'F34' }] },
     { id: 'rcp_prodotti', label: 'Prodotti assicurati', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_qualifica', label: 'Qualifica assicurato', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-    { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro (RCP)', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'D14' }] },
-    { id: 'rcp_massimale_annuo', label: 'Massimale annuo (RCP)', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_massimale_annuo', label: 'Massimale annuo', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'E14' }] },
-    { id: 'rcp_massimale_mat', label: 'Massimale danni materiali (RCP)', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_massimale_mat', label: 'Massimale danni materiali', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F14' }] },
-    { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività (RCP)', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
+    { id: 'rcp_massimale_interr', label: 'Massimale interruzione attività', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_min_mondo', label: 'Scoperto minimo - Resto del mondo', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_max_mondo', label: 'Scoperto massimo - Resto del mondo', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_min_usa', label: 'Scoperto minimo - USA/Canada/Messico', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
     { id: 'rcp_scoperto_max_usa', label: 'Scoperto massimo - USA/Canada/Messico', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-    { id: 'rcp_parametro', label: 'Parametro regolazione (RCP)', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
-    { id: 'rcp_importo_preventivo', label: 'Importo preventivo parametro (RCP)', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_parametro', label: 'Parametro regolazione', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text', sheet: 'RCP', enabled: true, cells: [] },
+    { id: 'rcp_importo_preventivo', label: 'Importo preventivo parametro', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'D20' }] },
-    { id: 'rcp_tasso', label: 'Tasso regolazione ‰ (RCP)', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_tasso', label: 'Tasso regolazione ‰', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'E20' }] },
-    { id: 'rcp_premio_imponibile', label: 'Premio imponibile (RCP)', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_premio_imponibile', label: 'Premio imponibile', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F30' }] },
-    { id: 'rcp_imposta', label: 'Imposta (RCP)', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_imposta', label: 'Imposta', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F31' }] },
-    { id: 'rcp_premio_totale', label: 'Premio totale (RCP)', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text', sheet: 'RCP', enabled: true,
+    { id: 'rcp_premio_totale', label: 'Premio totale', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text', sheet: 'RCP', enabled: true,
       cells: [{ sheet: 'RCP', cell: 'F32' }, { sheet: 'RCP', cell: 'F37' }] }
   ],
   polizzaProfiles: []
@@ -164,6 +164,14 @@ export function getSettings() {
       }
       merged.polizzaFields = merged.polizzaFields.map(f =>
         FIELD_DESC_FIXES[f.id] ? { ...f, description: FIELD_DESC_FIXES[f.id] } : f
+      )
+      // Migrate: rimuovi le sigle (RCT)/(RCP)/(RCT_O) dalle etichette dei campi —
+      // i dati di polizza non sono più suddivisi per tipologia (elenco unico).
+      const SIGLA_RE = /\s*\((?:RCT_O|RCTOP|RCT|RCP|RCO)\)\s*$/i
+      merged.polizzaFields = merged.polizzaFields.map(f =>
+        (typeof f.label === 'string' && SIGLA_RE.test(f.label))
+          ? { ...f, label: f.label.replace(SIGLA_RE, '').trim() }
+          : f
       )
     }
     return merged

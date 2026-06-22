@@ -79,16 +79,16 @@ export const RCT_FIELDS = [
   { id: 'decorrenza',              label: 'Decorrenza',                          sheet: 'RCT_O', description: 'Data di decorrenza della polizza (es. 31/12/2021)', type: 'date' },
   { id: 'scadenza',                label: 'Scadenza',                            sheet: 'RCT_O', description: 'Data di scadenza della polizza (es. 31/12/2022)', type: 'date' },
   { id: 'attivita',                label: 'Attività assicurata',                 sheet: 'RCT_O', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text' },
-  { id: 'rct_massimale_sinistro',  label: 'Massimale per sinistro (RCT)',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_persona',   label: 'Massimale per persona (RCT)',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_danni',     label: 'Massimale danni materiali (RCT)',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_prestatore',label: 'Massimale per prestatore (RCT)',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text' },
-  { id: 'rct_parametro',           label: 'Parametro regolazione (RCT)',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
-  { id: 'rct_importo_preventivo',  label: 'Importo preventivo parametro (RCT)', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text' },
-  { id: 'rct_tasso',               label: 'Tasso regolazione ‰ (RCT)',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text' },
-  { id: 'rct_premio_imponibile',   label: 'Premio imponibile (RCT)',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text' },
-  { id: 'rct_imposta',             label: 'Imposta (RCT)',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text' },
-  { id: 'rct_premio_totale',       label: 'Premio totale (RCT)',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text' }
+  { id: 'rct_massimale_sinistro',  label: 'Massimale per sinistro',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text' },
+  { id: 'rct_massimale_persona',   label: 'Massimale per persona',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'text' },
+  { id: 'rct_massimale_danni',     label: 'Massimale danni materiali',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text' },
+  { id: 'rct_massimale_prestatore',label: 'Massimale per prestatore',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text' },
+  { id: 'rct_parametro',           label: 'Parametro regolazione',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
+  { id: 'rct_importo_preventivo',  label: 'Importo preventivo parametro', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text' },
+  { id: 'rct_tasso',               label: 'Tasso regolazione ‰',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text' },
+  { id: 'rct_premio_imponibile',   label: 'Premio imponibile',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text' },
+  { id: 'rct_imposta',             label: 'Imposta',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text' },
+  { id: 'rct_premio_totale',       label: 'Premio totale',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text' }
 ]
 
 // ─── Campi per il foglio RCP ──────────────────────────────────────────────────
@@ -96,20 +96,20 @@ export const RCT_FIELDS = [
 export const RCP_FIELDS = [
   { id: 'rcp_prodotti',             label: 'Prodotti assicurati',                 sheet: 'RCP', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text' },
   { id: 'rcp_qualifica',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
-  { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro (RCP)',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_annuo',      label: 'Massimale annuo (RCP)',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali (RCP)',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività (RCP)', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text' },
+  { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_annuo',      label: 'Massimale annuo',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text' },
+  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_mondo',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text' },
   { id: 'rcp_scoperto_max_mondo',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text' },
   { id: 'rcp_scoperto_min_usa',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text' },
   { id: 'rcp_scoperto_max_usa',     label: 'Scoperto massimo - USA/Canada/Messico', sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'text' },
-  { id: 'rcp_parametro',            label: 'Parametro regolazione (RCP)',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
-  { id: 'rcp_importo_preventivo',   label: 'Importo preventivo parametro (RCP)', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text' },
-  { id: 'rcp_tasso',                label: 'Tasso regolazione ‰ (RCP)',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text' },
-  { id: 'rcp_premio_imponibile',    label: 'Premio imponibile (RCP)',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text' },
-  { id: 'rcp_imposta',              label: 'Imposta (RCP)',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text' },
-  { id: 'rcp_premio_totale',        label: 'Premio totale (RCP)',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text' }
+  { id: 'rcp_parametro',            label: 'Parametro regolazione',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
+  { id: 'rcp_importo_preventivo',   label: 'Importo preventivo parametro', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text' },
+  { id: 'rcp_tasso',                label: 'Tasso regolazione ‰',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text' },
+  { id: 'rcp_premio_imponibile',    label: 'Premio imponibile',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text' },
+  { id: 'rcp_imposta',              label: 'Imposta',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text' },
+  { id: 'rcp_premio_totale',        label: 'Premio totale',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text' }
 ]
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
@@ -482,7 +482,8 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
     .join('\n')
 
   const systemPrompt =
-    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Sei un estrattore di dati da documenti di qualsiasi tipo. ' +
+    'Estrai i campi richiesti da qualunque documento, senza presupporne il tipo. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
     'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
@@ -495,7 +496,7 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
   const extraSection = promptExtra ? `\nISTRUZIONI AGGIUNTIVE:\n${promptExtra}\n` : ''
 
   const ollamaPrompt =
-`DOCUMENTO ASSICURATIVO:
+`DOCUMENTO:
 ${contextText}
 
 GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
@@ -508,7 +509,7 @@ ${newestWinsRule}${extraSection}Rispondi SOLO con il JSON compilato:
 ${jsonTemplate}`
 
   const cloudPrompt =
-`Estrai i dati dal documento assicurativo italiano e compila il JSON.
+`Estrai i dati dal documento e compila il JSON.
 
 DOCUMENTO:
 ${contextText}
@@ -517,10 +518,9 @@ GUIDA AI CAMPI:
 ${fieldGuide}
 
 Regole:
+- Estrai i campi richiesti da qualunque tipo di documento, seguendo la descrizione di ciascun campo
 - Importi: formato italiano "3.000.000,00" (punto = migliaia, virgola = decimale)
 - Date: formato GG/MM/AAAA
-- RCT = sezione "RC verso Terzi e Prestatori di Lavoro"
-- RCP = sezione "RC Prodotti"
 - ${newestWinsRule}- null se il campo non è nel documento${extraSection}
 Compila e restituisci SOLO questo JSON:
 ${jsonTemplate}`
@@ -720,12 +720,13 @@ async function callVisionProvider(settings, fields, pages) {
     .join('\n')
 
   const systemPrompt =
-    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Sei un estrattore di dati da documenti di qualsiasi tipo. ' +
+    'Estrai i campi richiesti da qualunque documento, senza presupporne il tipo. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
     'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
   const userPrompt =
-`Queste sono pagine di una polizza assicurativa RC italiana.
+`Queste sono pagine di un documento.
 Leggi il testo nelle immagini ed estrai i valori nel JSON.
 
 GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
@@ -1087,7 +1088,10 @@ function buildRollingFieldLines(fields, state) {
 // Chiede SOLO i campi da aggiornare (delta): risposte brevi = più veloci,
 // meno timeout e nessuna possibilità di azzerare campi già estratti.
 const ROLLING_SYSTEM_PROMPT =
-  'Sei un estrattore dati da polizze assicurative italiane.\n' +
+  'Sei un estrattore di dati da documenti di qualsiasi tipo (tipicamente in italiano).\n' +
+  'Il documento può essere di qualunque natura (polizza, bolletta, fattura, contratto, ecc.):\n' +
+  'estrai SEMPRE i campi richiesti basandoti solo sulla loro descrizione, senza presupporre il\n' +
+  'tipo di documento e senza saltare l\'estrazione se non è una polizza.\n' +
   'Ricevi un elenco di CAMPI (id, nome, descrizione, valore attuale) e nuovo contenuto da analizzare.\n\n' +
   'REGOLE TASSATIVE:\n' +
   '1. La DESCRIZIONE di ogni campo definisce esattamente cosa estrarre. L\'id è solo\n' +
@@ -1098,10 +1102,10 @@ const ROLLING_SYSTEM_PROMPT =
   '4. Compila i campi [DA ESTRARRE] solo se trovi nel contenuto un valore che\n' +
   '   corrisponde alla descrizione. Nel dubbio, ometti il campo.\n' +
   '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore è\n' +
-  '   temporalmente più recente di quello attuale (data di effetto, emissione o\n' +
-  '   modifica più recente). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
-  '6. Indica SEMPRE "data_validita" quando il documento riporta una data di effetto,\n' +
-  '   emissione, decorrenza o modifica riferibile al dato estratto.\n' +
+  '   temporalmente più recente di quello attuale (in base alla data riportata nel\n' +
+  '   documento). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
+  '6. Indica SEMPRE "data_validita" quando il documento riporta una data\n' +
+  '   (emissione, validità, decorrenza o modifica) riferibile al dato estratto.\n' +
   '7. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
   '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
@@ -1429,29 +1433,25 @@ export async function updateStateWithVisionPage(state, imageBase64, pageNum, tot
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
 
 /**
- * Crea un nuovo file Excel con due fogli: RCT_O e RCP.
+ * Crea un nuovo file Excel con un UNICO foglio "Polizza": tutti i campi estratti
+ * in un solo elenco (colonne Campo / Valore), senza suddivisione per tipologia.
  * @param {string} filePath - percorso di destinazione
  * @param {object} data - dati estratti (chiavi = id campi)
- * @param {Array|null} [fieldsConfig] - configurazione campi opzionale (default: RCT_FIELDS + RCP_FIELDS)
+ * @param {Array|null} [fieldsConfig] - configurazione campi opzionale (default: tutti i campi polizza)
  */
 export async function exportToNewExcel(filePath, data, fieldsConfig = null) {
   const { default: ExcelJS } = await import('exceljs')
 
-  const fields = fieldsConfig || [...RCT_FIELDS, ...RCP_FIELDS]
+  const fields = (fieldsConfig || ALL_POLIZZA_FIELDS).filter(f => f.enabled !== false)
   const wb = new ExcelJS.Workbook()
 
-  const sheetNames = [...new Set(fields.map(f => f.sheet).filter(Boolean))]
-  if (sheetNames.length === 0) sheetNames.push('RCT_O', 'RCP')
-
-  for (const sheetName of sheetNames) {
-    const ws = wb.addWorksheet(sheetName)
-    ws.columns = [
-      { header: 'Campo',  key: 'campo',  width: 45 },
-      { header: 'Valore', key: 'valore', width: 55 }
-    ]
-    for (const f of fields.filter(f => f.sheet === sheetName)) {
-      ws.addRow({ campo: f.label, valore: data[f.id] ?? '' })
-    }
+  const ws = wb.addWorksheet('Polizza')
+  ws.columns = [
+    { header: 'Campo',  key: 'campo',  width: 45 },
+    { header: 'Valore', key: 'valore', width: 55 }
+  ]
+  for (const f of fields) {
+    ws.addRow({ campo: f.label, valore: data[f.id] ?? '' })
   }
 
   await wb.xlsx.writeFile(filePath)

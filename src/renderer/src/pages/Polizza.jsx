@@ -51,14 +51,15 @@ const IconMap = () => (
   </svg>
 )
 
-// ─── Icone cicliche per i tab polizza ─────────────────────────────────────────
-const TAB_ICONS = ['🔵', '🟢', '🟠', '🟡', '🟣', '🔴']
-
-// ─── Campi per i due fogli ────────────────────────────────────────────────────
-
-const SHEET_LABELS = {
-  'RCT_O': 'RC verso Terzi e verso Operai (RCT_O)',
-  'RCP': 'RC Prodotti (RCP)'
+// ─── Fogli del gestionale (template Excel) ────────────────────────────────────
+// Deriva i nomi-foglio dal mapping celle dei campi, così da riconoscere il
+// Gestionale CSA senza dipendere dai vecchi "tipi polizza" (RCT_O/RCP).
+function mappingSheetNames(defaultMapping) {
+  const s = new Set()
+  for (const arr of Object.values(defaultMapping || {})) {
+    for (const c of (arr || [])) if (c?.sheet) s.add(c.sheet)
+  }
+  return s.size ? [...s] : ['RCT_O', 'RCP']
 }
 
 // ─── Componente principale ────────────────────────────────────────────────────
@@ -71,11 +72,6 @@ export default function Polizza({ visible }) {
   const [sources, setSources] = useState({})         // { fieldId: { file, page } }
   const [fields, setFields] = useState([])           // ALL_POLIZZA_FIELDS
   const [error, setError] = useState(null)
-  const [polizzaTypes, setPolizzaTypes] = useState([
-    { id: 'RCT_O', label: 'RC Terzi / Operai' },
-    { id: 'RCP', label: 'RC Prodotti' }
-  ])
-  const [activeTab, setActiveTab] = useState('RCT_O')
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState(null)
 
@@ -195,12 +191,6 @@ export default function Polizza({ visible }) {
     if (visible === false) return
     window.electronAPI.polizzaGetFields().then(setFields).catch(() => { })
     window.electronAPI.polizzaGetDefaultMapping().then(setDefaultMapping).catch(() => { })
-    window.electronAPI.polizzaGetTypes().then(types => {
-      if (types?.length) {
-        setPolizzaTypes(types)
-        setActiveTab(prev => types.some(t => t.id === prev) ? prev : types[0].id)
-      }
-    }).catch(() => { })
   }, [visible])
 
   // ─── Drag & drop ────────────────────────────────────────────────────────────
@@ -465,7 +455,7 @@ export default function Polizza({ visible }) {
         setTemplateStructure(res.structure)
         // Riconosci automaticamente il Gestionale CSA
         const sheets = Object.keys(res.structure)
-        if (polizzaTypes.some(t => sheets.includes(t.id))) {
+        if (mappingSheetNames(defaultMapping).some(name => sheets.includes(name))) {
           setUseAutoMapping(true)
         }
       } else throw new Error(res.error)
@@ -522,9 +512,9 @@ export default function Polizza({ visible }) {
     }))
   }
 
-  // ─── Campi per sheet attivo ──────────────────────────────────────────────────
+  // ─── Campi visibili (tutti quelli abilitati, elenco unico) ───────────────────
 
-  const sheetFields = fields.filter(f => f.sheet === activeTab)
+  const visibleFields = fields.filter(f => f.enabled !== false)
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -1025,7 +1015,7 @@ export default function Polizza({ visible }) {
               {templateName
                 ? <>
                   <div className="polizza-template-file"><IconExcel /> {templateName}</div>
-                  {templateStructure && polizzaTypes.some(t => Object.keys(templateStructure).includes(t.id)) && (
+                  {templateStructure && mappingSheetNames(defaultMapping).some(name => Object.keys(templateStructure).includes(name)) && (
                     <div style={{ fontSize: '10px', color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <IconCheck /> Gestionale CSA riconosciuto — mappatura automatica attiva
                     </div>
@@ -1123,7 +1113,7 @@ export default function Polizza({ visible }) {
                   disabled={exporting}
                 >
                   <IconExcel />
-                  Esporta nuovo Excel ({polizzaTypes.map(t => t.id).join(' + ')})
+                  Esporta nuovo Excel
                 </button>
                 {templateName && (
                   <button
@@ -1150,20 +1140,6 @@ export default function Polizza({ visible }) {
 
         {/* ── Pannello destro: risultati ────────────────────────────────────── */}
         <div className="polizza-right">
-          <div className="polizza-tabs" role="tablist">
-            {polizzaTypes.map((type, idx) => (
-              <button
-                key={type.id}
-                role="tab"
-                aria-selected={activeTab === type.id}
-                className={`polizza-tab${activeTab === type.id ? ' active' : ''}`}
-                onClick={() => setActiveTab(type.id)}
-              >
-                {TAB_ICONS[idx % TAB_ICONS.length]} {type.label}
-              </button>
-            ))}
-          </div>
-
           <div className="polizza-results" role="tabpanel">
             {!extracted && !extracting && (
               <div className="polizza-empty">
@@ -1246,7 +1222,7 @@ export default function Polizza({ visible }) {
                   Risultati generati da AI — verificare sempre prima dell&apos;uso
                 </div>
                 <ExtractedTable
-                  fields={sheetFields}
+                  fields={visibleFields}
                   data={extracted}
                   sources={sources}
                   onUpdate={(id, val) => !extracting && !visionExtracting && setExtracted(prev => ({ ...prev, [id]: val }))}
@@ -1265,7 +1241,7 @@ export default function Polizza({ visible }) {
           defaultMapping={defaultMapping}
           useAutoMapping={useAutoMapping}
           templateStructure={templateStructure}
-          polizzaTypes={polizzaTypes}
+          sheetNames={mappingSheetNames(defaultMapping)}
           onUpdate={updateMapping}
           onToggleAuto={() => setUseAutoMapping(v => !v)}
           onClose={() => setShowMapping(false)}
@@ -1342,10 +1318,10 @@ function ExtractedTable({ fields, data, sources, onUpdate }) {
 
 // ─── Modal mappatura celle Excel ──────────────────────────────────────────────
 
-function MappingModal({ fields, mapping, defaultMapping, useAutoMapping, templateStructure, polizzaTypes, onUpdate, onToggleAuto, onClose }) {
+function MappingModal({ fields, mapping, defaultMapping, useAutoMapping, templateStructure, sheetNames, onUpdate, onToggleAuto, onClose }) {
   const sheets = templateStructure ? Object.keys(templateStructure) : []
-  const activeTypes = (polizzaTypes || [{ id: 'RCT_O' }, { id: 'RCP' }])
-  const isCSATemplate = activeTypes.some(t => sheets.includes(t.id))
+  const knownSheets = (sheetNames && sheetNames.length > 0) ? sheetNames : ['RCT_O', 'RCP']
+  const isCSATemplate = knownSheets.some(name => sheets.includes(name))
 
   return (
     <div className="mapping-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1388,7 +1364,7 @@ function MappingModal({ fields, mapping, defaultMapping, useAutoMapping, templat
                 </div>
                 <div style={{ fontSize: '10px', color: 'var(--c-text-muted)', marginTop: '2px' }}>
                   {useAutoMapping
-                    ? `I dati verranno scritti nelle celle corrette di ${activeTypes.map(t => t.id).join(' e ')} automaticamente`
+                    ? `I dati verranno scritti nelle celle corrette di ${knownSheets.join(' e ')} automaticamente`
                     : 'Specifica manualmente foglio e cella per ogni campo'
                   }
                 </div>

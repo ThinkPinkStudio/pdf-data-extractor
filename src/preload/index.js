@@ -79,7 +79,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── Polizza RC ─────────────────────────────────────────────────────────
   openExcelDialog: () => ipcRenderer.invoke('dialog:openExcel'),
-  polizzaGetTypes: () => ipcRenderer.invoke('polizza:getTypes'),
   polizzaGetFields: () => ipcRenderer.invoke('polizza:getFields'),
   polizzaGetDefaultMapping: () => ipcRenderer.invoke('polizza:getDefaultMapping'),
   polizzaExtract: (filePaths) => ipcRenderer.invoke('polizza:extract', { filePaths }),
