@@ -482,7 +482,8 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
     .join('\n')
 
   const systemPrompt =
-    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Sei un estrattore di dati da documenti di qualsiasi tipo. ' +
+    'Estrai i campi richiesti da qualunque documento, senza presupporne il tipo. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
     'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
@@ -495,7 +496,7 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
   const extraSection = promptExtra ? `\nISTRUZIONI AGGIUNTIVE:\n${promptExtra}\n` : ''
 
   const ollamaPrompt =
-`DOCUMENTO ASSICURATIVO:
+`DOCUMENTO:
 ${contextText}
 
 GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
@@ -508,7 +509,7 @@ ${newestWinsRule}${extraSection}Rispondi SOLO con il JSON compilato:
 ${jsonTemplate}`
 
   const cloudPrompt =
-`Estrai i dati dal documento assicurativo italiano e compila il JSON.
+`Estrai i dati dal documento e compila il JSON.
 
 DOCUMENTO:
 ${contextText}
@@ -517,10 +518,9 @@ GUIDA AI CAMPI:
 ${fieldGuide}
 
 Regole:
+- Estrai i campi richiesti da qualunque tipo di documento, seguendo la descrizione di ciascun campo
 - Importi: formato italiano "3.000.000,00" (punto = migliaia, virgola = decimale)
 - Date: formato GG/MM/AAAA
-- RCT = sezione "RC verso Terzi e Prestatori di Lavoro"
-- RCP = sezione "RC Prodotti"
 - ${newestWinsRule}- null se il campo non è nel documento${extraSection}
 Compila e restituisci SOLO questo JSON:
 ${jsonTemplate}`
@@ -720,12 +720,13 @@ async function callVisionProvider(settings, fields, pages) {
     .join('\n')
 
   const systemPrompt =
-    'Sei un estrattore di dati da polizze assicurative italiane. ' +
+    'Sei un estrattore di dati da documenti di qualsiasi tipo. ' +
+    'Estrai i campi richiesti da qualunque documento, senza presupporne il tipo. ' +
     'Rispondi SEMPRE e SOLO con un oggetto JSON valido. ' +
     'Zero testo aggiuntivo, zero markdown, zero spiegazioni.'
 
   const userPrompt =
-`Queste sono pagine di una polizza assicurativa RC italiana.
+`Queste sono pagine di un documento.
 Leggi il testo nelle immagini ed estrai i valori nel JSON.
 
 GUIDA AI CAMPI (la descrizione definisce cosa estrarre per ogni campo):
@@ -1087,7 +1088,10 @@ function buildRollingFieldLines(fields, state) {
 // Chiede SOLO i campi da aggiornare (delta): risposte brevi = più veloci,
 // meno timeout e nessuna possibilità di azzerare campi già estratti.
 const ROLLING_SYSTEM_PROMPT =
-  'Sei un estrattore dati da polizze assicurative italiane.\n' +
+  'Sei un estrattore di dati da documenti di qualsiasi tipo (tipicamente in italiano).\n' +
+  'Il documento può essere di qualunque natura (polizza, bolletta, fattura, contratto, ecc.):\n' +
+  'estrai SEMPRE i campi richiesti basandoti solo sulla loro descrizione, senza presupporre il\n' +
+  'tipo di documento e senza saltare l\'estrazione se non è una polizza.\n' +
   'Ricevi un elenco di CAMPI (id, nome, descrizione, valore attuale) e nuovo contenuto da analizzare.\n\n' +
   'REGOLE TASSATIVE:\n' +
   '1. La DESCRIZIONE di ogni campo definisce esattamente cosa estrarre. L\'id è solo\n' +
@@ -1098,10 +1102,10 @@ const ROLLING_SYSTEM_PROMPT =
   '4. Compila i campi [DA ESTRARRE] solo se trovi nel contenuto un valore che\n' +
   '   corrisponde alla descrizione. Nel dubbio, ometti il campo.\n' +
   '5. Un campo con valore [attuale: ...] va incluso SOLO se il nuovo valore è\n' +
-  '   temporalmente più recente di quello attuale (data di effetto, emissione o\n' +
-  '   modifica più recente). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
-  '6. Indica SEMPRE "data_validita" quando il documento riporta una data di effetto,\n' +
-  '   emissione, decorrenza o modifica riferibile al dato estratto.\n' +
+  '   temporalmente più recente di quello attuale (in base alla data riportata nel\n' +
+  '   documento). Conta la data scritta NEL documento, mai l\'ordine di lettura.\n' +
+  '6. Indica SEMPRE "data_validita" quando il documento riporta una data\n' +
+  '   (emissione, validità, decorrenza o modifica) riferibile al dato estratto.\n' +
   '7. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
   '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
