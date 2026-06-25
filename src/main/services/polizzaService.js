@@ -825,7 +825,7 @@ async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+      model: settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: [...imageContent, { type: 'text', text: userPrompt }] }]
@@ -1188,10 +1188,11 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
 async function callRollingLLMText(settings, state, batchText, fields, docDate = null) {
+  const promptExtra = (settings.polizzaPromptExtra || '').trim()
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
-${docDate ? `\nDATA DOCUMENTO: ${docDate}\n` : ''}
+${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}${docDate ? `\nDATA DOCUMENTO: ${docDate}\n` : ''}
 TESTO PAGINE:
 ${batchText}
 
@@ -1223,10 +1224,11 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
  * Lancia un errore classificato se la chiamata LLM fallisce.
  */
 async function callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, fields) {
+  const promptExtra = (settings.polizzaPromptExtra || '').trim()
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
-
+${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}
 Pagina ${pageNum}/${totalPages}
 
 Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
@@ -1261,7 +1263,7 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
+          model: settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
           max_tokens: 4096,
           system: ROLLING_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: [

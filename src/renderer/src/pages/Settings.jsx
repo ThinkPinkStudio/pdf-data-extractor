@@ -1022,6 +1022,21 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 aria-label={t('settings.anthropicModel')}
               />
             </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="anthropic-vision-model">Modello OCR / vision (PDF scansionati)</label>
+              <input
+                id="anthropic-vision-model"
+                className="form-input"
+                type="text"
+                placeholder="Vuoto = stesso modello sopra · es. claude-sonnet-4-6 per OCR migliore"
+                value={settings.anthropicVisionModel || ''}
+                onChange={e => setSettings(s => ({ ...s, anthropicVisionModel: e.target.value }))}
+                aria-label="Modello OCR vision Anthropic"
+              />
+              <p style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                Usato SOLO per i PDF scansionati (OCR). Lascia vuoto per usare lo stesso modello dell'estrazione testo.
+              </p>
+            </div>
             <div className="flex gap-2 items-center">
               <button
                 className="btn btn-secondary"
