@@ -267,9 +267,11 @@ export default function Polizza({ visible }) {
     diagLogsRef.current = []
     runActiveRef.current = true
 
+    let useWholeDossier = false
     try {
       const s = await window.electronAPI.getSettings().catch(() => null)
       if (s) {
+        useWholeDossier = !!s.polizzaWholeDossier
         const { openaiApiKey: _ok, anthropicApiKey: _ak, ...safeSettings } = s
         lastSettingsRef.current = safeSettings
       }
@@ -291,7 +293,11 @@ export default function Polizza({ visible }) {
       // PDF scansionati: vision rolling pagina per pagina
       if (res.scannedFiles?.length > 0) {
         setScannedFiles(res.scannedFiles)
-        await handleVisionRolling(res.scannedFiles, res.rollingState || {})
+        if (useWholeDossier) {
+          await handleWholeDossier(res.scannedFiles)
+        } else {
+          await handleVisionRolling(res.scannedFiles, res.rollingState || {})
+        }
       }
     } catch (err) {
       diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ERRORE: ${err.message}`)
@@ -301,6 +307,96 @@ export default function Polizza({ visible }) {
       setExtracting(false)
       setRollingProgress(null)
       setShowDiagBtn(true)
+    }
+  }
+
+  // ─── FASCICOLO INTERO: OCR di tutte le pagine → testo unico → 1 chiamata ─────
+  // Rende e fa l'OCR di ogni pagina (riusando il pre-processing), accumula il testo
+  // etichettato per documento, poi estrae TUTTI i campi in una sola chiamata: il
+  // modello vede l'intero fascicolo e fa la selezione-fonte.
+  const handleWholeDossier = async (scannedFilesList) => {
+    if (!scannedFilesList?.length) return
+    setVisionExtracting(true)
+    setVisionMsg('extracting')
+    setVisionErr(null)
+
+    let pdfjs
+    try {
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjs = pdfjsLib.default || pdfjsLib
+      if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+    } catch (err) {
+      setVisionMsg('error'); setVisionErr('Componente PDF non disponibile: ' + err.message); setVisionExtracting(false); return
+    }
+
+    const parts = []
+    let totalPagesProcessed = 0
+    try {
+      for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
+        const sf = scannedFilesList[sfIdx]
+        const docName = sf.path.split(/[\\/]/).pop()
+        const bufResult = await window.electronAPI.polizzaGetFileBuffer(sf.path)
+        if (!bufResult.success) continue
+        let doc
+        try {
+          doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer), isEvalSupported: false }).promise
+        } catch (err) { continue }
+        const totalPages = doc.numPages
+        let docText = ''
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+          totalPagesProcessed++
+          setRollingProgress({ docIndex: sfIdx, docTotal: scannedFilesList.length, pageIndex: pageNum, pageTotal: totalPages, docName, totalPagesProcessed, state: {}, receivedAt: Date.now() })
+          let imageBase64
+          try {
+            const page = await doc.getPage(pageNum)
+            const baseViewport = page.getViewport({ scale: 1 })
+            const scale = Math.min(3, 2200 / Math.max(baseViewport.width, baseViewport.height))
+            const viewport = page.getViewport({ scale })
+            const canvas = document.createElement('canvas')
+            canvas.width = viewport.width
+            canvas.height = viewport.height
+            const ctx = canvas.getContext('2d')
+            await page.render({ canvasContext: ctx, viewport }).promise
+            try {
+              const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+              const d = imgData.data
+              const contrast = 1.35
+              const intercept = 128 * (1 - contrast)
+              for (let i = 0; i < d.length; i += 4) {
+                let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+                g = g * contrast + intercept
+                d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g
+              }
+              ctx.putImageData(imgData, 0, 0)
+            } catch (ppErr) { /* preprocessing opzionale */ }
+            imageBase64 = canvas.toDataURL('image/png')
+            page.cleanup()
+          } catch (err) { continue }
+          try {
+            const ocr = await window.electronAPI.polizzaOcrPage({ imageBase64 })
+            if (ocr.success && ocr.text) docText += '\n' + ocr.text
+          } catch (e) { /* salta pagina */ }
+        }
+        try { doc.destroy() } catch (_) {}
+        parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+      }
+
+      const fullText = parts.join('\n')
+      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Fascicolo intero: ${parts.length} doc, ${fullText.length} char → estrazione in 1 chiamata`)
+      const res = await window.electronAPI.polizzaExtractWholeDossier({ fullText })
+      if (res.success) {
+        setExtracted(res.data || {})
+        setSources(res.sources || {})
+        setVisionMsg(null)
+        diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Fascicolo intero: estratti ${Object.keys(res.data || {}).length} campi`)
+      } else {
+        setVisionMsg('error'); setVisionErr(res.error || 'Estrazione fascicolo fallita')
+      }
+    } catch (err) {
+      setVisionMsg('error'); setVisionErr(err.message)
+    } finally {
+      setVisionExtracting(false)
+      setRollingProgress(null)
     }
   }
 

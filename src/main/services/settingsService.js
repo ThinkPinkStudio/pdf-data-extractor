@@ -19,6 +19,8 @@ const defaultSettings = {
   polizzaConsensusPasses: 3,                     // passate di lettura per i SOLI campi in verifica
   polizzaVerificaCampi: '',                      // id/etichette dei campi da verificare (CSV); vuoto = nessuno
   polizzaVerificaModel: 'claude-sonnet-4-6',     // modello di arbitraggio quando le passate discordano
+  polizzaWholeDossier: false,                    // modalità "fascicolo intero": OCR di tutto → 1 sola chiamata
+  polizzaWholeDossierModel: 'claude-haiku-4-5-20251001', // modello per l'estrazione "fascicolo intero"
   // Extraction profiles
   profiles: [],
   // Accent color

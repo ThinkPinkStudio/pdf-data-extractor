@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaVisionExtract: (imageFiles) => ipcRenderer.invoke('polizza:visionExtract', { imageFiles }),
   polizzaExtractRolling: (filePaths) => ipcRenderer.invoke('polizza:extractRolling', { filePaths }),
   polizzaRollingVisionUpdate: (params) => ipcRenderer.invoke('polizza:rollingVisionUpdate', params),
+  polizzaOcrPage: (params) => ipcRenderer.invoke('polizza:ocrPage', params),
+  polizzaExtractWholeDossier: (params) => ipcRenderer.invoke('polizza:extractWholeDossier', params),
   onPolizzaRollingProgress: (callback) => {
     ipcRenderer.on('polizza:rollingProgress', (_event, data) => callback(data))
   },

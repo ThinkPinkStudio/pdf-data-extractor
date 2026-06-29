@@ -655,7 +655,9 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
       verificaCampi: settings.polizzaVerificaCampi || '',
       verificaModel: settings.polizzaVerificaModel || '',
       ocrEnabled: settings.polizzaOcrEnabled !== false,
-      consensusPasses: settings.polizzaConsensusPasses || 3
+      consensusPasses: settings.polizzaConsensusPasses || 3,
+      wholeDossier: !!settings.polizzaWholeDossier,
+      wholeDossierModel: settings.polizzaWholeDossierModel || ''
     }
     const next = { ...settings, polizzaProfiles: [...(settings.polizzaProfiles || []), profile] }
     setSettings(next)
@@ -679,7 +681,9 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
       polizzaVerificaCampi: profile.verificaCampi ?? s.polizzaVerificaCampi ?? '',
       polizzaVerificaModel: profile.verificaModel ?? s.polizzaVerificaModel ?? '',
       polizzaOcrEnabled: profile.ocrEnabled ?? s.polizzaOcrEnabled ?? true,
-      polizzaConsensusPasses: profile.consensusPasses ?? s.polizzaConsensusPasses ?? 3
+      polizzaConsensusPasses: profile.consensusPasses ?? s.polizzaConsensusPasses ?? 3,
+      polizzaWholeDossier: profile.wholeDossier ?? s.polizzaWholeDossier ?? false,
+      polizzaWholeDossierModel: profile.wholeDossierModel ?? s.polizzaWholeDossierModel ?? 'claude-haiku-4-5-20251001'
     }))
   }
 
@@ -1291,6 +1295,31 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
             </label>
             <span className="text-sm">OCR del testo (Tesseract) come fonte primaria — richiede «npm install tesseract.js»</span>
           </div>
+
+          <div className="flex gap-2" style={{ alignItems: 'center', marginTop: 14 }}>
+            <label className="toggle" title="Fascicolo intero" style={{ margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={!!settings.polizzaWholeDossier}
+                onChange={e => setSettings(s => ({ ...s, polizzaWholeDossier: e.target.checked }))}
+              />
+              <span className="toggle-track"><span className="toggle-thumb" /></span>
+            </label>
+            <span className="text-sm">Modalità «fascicolo intero»: OCR di tutti i documenti e UNA sola chiamata (il modello li confronta tutti insieme). Più precisa sulla selezione-fonte (anno/preventivo-consuntivo).</span>
+          </div>
+          {settings.polizzaWholeDossier && (
+            <div className="form-group" style={{ marginTop: 10, maxWidth: 380 }}>
+              <label className="form-label" htmlFor="polizza-whole-model">Modello per il fascicolo intero</label>
+              <input
+                id="polizza-whole-model"
+                className="form-input"
+                type="text"
+                value={settings.polizzaWholeDossierModel || ''}
+                onChange={e => setSettings(s => ({ ...s, polizzaWholeDossierModel: e.target.value }))}
+                placeholder="claude-haiku-4-5-20251001 (o claude-sonnet-4-6 per più precisione)"
+              />
+            </div>
+          )}
         </section>
 
         <div className="sep" />
