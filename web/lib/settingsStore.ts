@@ -1,4 +1,4 @@
-import { getDb } from './db'
+import { pool } from './db'
 
 export interface WebSettings {
   llmProvider: string
@@ -16,12 +16,10 @@ const DEFAULTS: WebSettings = {
   anthropicApiKey: '',
 }
 
-export function getSettings(): WebSettings {
-  const db = getDb()
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)
-  `)
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
+export async function getSettings(): Promise<WebSettings> {
+  const { rows } = await pool.query<{ key: string; value: string }>(
+    'SELECT key, value FROM settings'
+  )
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
   return {
     llmProvider: map.llmProvider ?? DEFAULTS.llmProvider,
@@ -32,14 +30,11 @@ export function getSettings(): WebSettings {
   }
 }
 
-export function saveSettings(s: Partial<WebSettings>) {
-  const db = getDb()
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)
-  `)
-  const upsert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-  const saveMany = db.transaction((entries: [string, string][]) => {
-    for (const [k, v] of entries) upsert.run(k, v)
-  })
-  saveMany(Object.entries(s) as [string, string][])
+export async function saveSettings(s: Partial<WebSettings>) {
+  for (const [k, v] of Object.entries(s)) {
+    await pool.query(
+      'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
+      [k, v]
+    )
+  }
 }

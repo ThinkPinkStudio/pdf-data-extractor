@@ -12,10 +12,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/auth/login?error=missing_token', req.url))
   }
 
-  const result = verifyToken(token)
+  const result = await verifyToken(token)
 
   if (!result.ok) {
-    logAction({ action: 'auth.verify', success: false, ip, userAgent, metadata: { reason: result.reason } })
+    await logAction({ action: 'auth.verify', success: false, ip, userAgent, metadata: { reason: result.reason } })
     return NextResponse.redirect(new URL(`/auth/login?error=${result.reason}`, req.url))
   }
 
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   session.loginAt = Date.now()
   await session.save()
 
-  logAction({ email: result.email, action: 'auth.verify', success: true, ip, userAgent })
+  await logAction({ email: result.email, action: 'auth.verify', success: true, ip, userAgent })
 
   return NextResponse.redirect(new URL('/extractor', req.url))
 }

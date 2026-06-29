@@ -18,6 +18,6 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get('limit') ?? '200', 10)
   const offset = parseInt(req.nextUrl.searchParams.get('offset') ?? '0', 10)
 
-  const logs = getRecentLogs(Math.min(limit, 1000), offset)
+  const logs = await getRecentLogs(Math.min(limit, 1000), offset)
   return NextResponse.json({ logs })
 }
