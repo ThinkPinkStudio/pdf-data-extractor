@@ -651,9 +651,17 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
       id: Date.now().toString(),
       name: newPolizzaProfileName.trim(),
       fields: (settings.polizzaFields || []).map(f => ({ ...f, cells: [...(f.cells || [])] })),
-      promptExtra: settings.polizzaPromptExtra || ''
+      promptExtra: settings.polizzaPromptExtra || '',
+      verificaCampi: settings.polizzaVerificaCampi || '',
+      verificaModel: settings.polizzaVerificaModel || '',
+      ocrEnabled: settings.polizzaOcrEnabled !== false,
+      consensusPasses: settings.polizzaConsensusPasses || 3
     }
-    setSettings(s => ({ ...s, polizzaProfiles: [...(s.polizzaProfiles || []), profile] }))
+    const next = { ...settings, polizzaProfiles: [...(settings.polizzaProfiles || []), profile] }
+    setSettings(next)
+    // Persisti SUBITO su disco: "Salva profilo" deve salvare davvero, non solo in memoria
+    // (altrimenti un riavvio dell'app perde il profilo).
+    try { window.electronAPI.saveSettings(next) } catch (_) {}
     setNewPolizzaProfileName('')
   }
 
@@ -667,7 +675,11 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
     setSettings(s => ({
       ...s,
       polizzaFields: profile.fields.map(f => ({ ...f, cells: [...(f.cells || [])] })),
-      polizzaPromptExtra: profile.promptExtra || ''
+      polizzaPromptExtra: profile.promptExtra || '',
+      polizzaVerificaCampi: profile.verificaCampi ?? s.polizzaVerificaCampi ?? '',
+      polizzaVerificaModel: profile.verificaModel ?? s.polizzaVerificaModel ?? '',
+      polizzaOcrEnabled: profile.ocrEnabled ?? s.polizzaOcrEnabled ?? true,
+      polizzaConsensusPasses: profile.consensusPasses ?? s.polizzaConsensusPasses ?? 3
     }))
   }
 
@@ -1022,6 +1034,21 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 aria-label={t('settings.anthropicModel')}
               />
             </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="anthropic-vision-model">Modello OCR / vision (PDF scansionati)</label>
+              <input
+                id="anthropic-vision-model"
+                className="form-input"
+                type="text"
+                placeholder="Vuoto = stesso modello sopra · es. claude-sonnet-4-6 per OCR migliore"
+                value={settings.anthropicVisionModel || ''}
+                onChange={e => setSettings(s => ({ ...s, anthropicVisionModel: e.target.value }))}
+                aria-label="Modello OCR vision Anthropic"
+              />
+              <p style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                Usato SOLO per i PDF scansionati (OCR). Lascia vuoto per usare lo stesso modello dell'estrazione testo.
+              </p>
+            </div>
             <div className="flex gap-2 items-center">
               <button
                 className="btn btn-secondary"
@@ -1207,6 +1234,64 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
           promptExtra={settings.polizzaPromptExtra || ''}
           onPromptExtraChange={val => setSettings(s => ({ ...s, polizzaPromptExtra: val }))}
         />
+
+        <div className="sep" />
+
+        {/* Polizza RC — Verifica accurata mirata (#5/#6) */}
+        <section className="card-section" aria-labelledby="section-polizza-verifica">
+          <h2 className="section-title" id="section-polizza-verifica">Verifica accurata (mirata)</h2>
+          <p className="section-desc">Solo i campi elencati qui ricevono il trattamento pesante: più letture di consenso e, se restano discordi, arbitraggio con un modello più forte. Gli altri campi restano a una passata. Vuoto = nessuna verifica (comportamento normale).</p>
+
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label className="form-label" htmlFor="polizza-verifica-campi">Campi da verificare (id o etichette, separati da virgola)</label>
+            <input
+              id="polizza-verifica-campi"
+              className="form-input"
+              type="text"
+              value={settings.polizzaVerificaCampi || ''}
+              onChange={e => setSettings(s => ({ ...s, polizzaVerificaCampi: e.target.value }))}
+              placeholder="es. Decorrenza, Scadenza, Parametro regolazione, Franchigia generica o minima RCT"
+            />
+          </div>
+
+          <div className="flex gap-2" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ flex: '1 1 280px', marginBottom: 0 }}>
+              <label className="form-label" htmlFor="polizza-verifica-model">Modello di arbitraggio (quando le passate discordano)</label>
+              <input
+                id="polizza-verifica-model"
+                className="form-input"
+                type="text"
+                value={settings.polizzaVerificaModel || ''}
+                onChange={e => setSettings(s => ({ ...s, polizzaVerificaModel: e.target.value }))}
+                placeholder="claude-sonnet-4-6"
+              />
+            </div>
+            <div className="form-group" style={{ width: 150, marginBottom: 0 }}>
+              <label className="form-label" htmlFor="polizza-consensus">Passate di consenso</label>
+              <input
+                id="polizza-consensus"
+                className="form-input"
+                type="number"
+                min={2}
+                max={5}
+                value={settings.polizzaConsensusPasses ?? 3}
+                onChange={e => setSettings(s => ({ ...s, polizzaConsensusPasses: parseInt(e.target.value, 10) || 3 }))}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2" style={{ alignItems: 'center', marginTop: 14 }}>
+            <label className="toggle" title="OCR del testo" style={{ margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={settings.polizzaOcrEnabled !== false}
+                onChange={e => setSettings(s => ({ ...s, polizzaOcrEnabled: e.target.checked }))}
+              />
+              <span className="toggle-track"><span className="toggle-thumb" /></span>
+            </label>
+            <span className="text-sm">OCR del testo (Tesseract) come fonte primaria — richiede «npm install tesseract.js»</span>
+          </div>
+        </section>
 
         <div className="sep" />
 

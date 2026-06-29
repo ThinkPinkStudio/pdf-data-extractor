@@ -14,6 +14,11 @@ const defaultSettings = {
   openaiModel: 'gpt-4o-mini',
   anthropicApiKey: '',
   anthropicModel: 'claude-haiku-4-5-20251001',
+  // Polizza RC — OCR locale + verifica mirata (#1/#5/#6)
+  polizzaOcrEnabled: true,                       // OCR Tesseract del testo come fonte primaria
+  polizzaConsensusPasses: 3,                     // passate di lettura per i SOLI campi in verifica
+  polizzaVerificaCampi: '',                      // id/etichette dei campi da verificare (CSV); vuoto = nessuno
+  polizzaVerificaModel: 'claude-sonnet-4-6',     // modello di arbitraggio quando le passate discordano
   // Extraction profiles
   profiles: [],
   // Accent color
