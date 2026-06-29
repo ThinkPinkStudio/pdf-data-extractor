@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createToken } from '@/lib/tokens'
 import { sendMagicLink } from '@/lib/mailer'
-import { isAllowedEmail } from '@/lib/auth'
+import { isAllowedDomain } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
@@ -20,13 +20,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Email non valida' }, { status: 400 })
   }
 
-  if (!isAllowedEmail(email)) {
+  if (!isAllowedDomain(email)) {
     logAction({ email, action: 'auth.send_link', success: false, ip, userAgent, metadata: { reason: 'not_allowed' } })
     // Return 200 anyway to avoid email enumeration
     return NextResponse.json({ ok: true })
   }
 
-  const token = createToken(email)
+  const token = await createToken(email)
 
   try {
     await sendMagicLink(email, token)

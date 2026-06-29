@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
 
   // Use submitted settings (with fallback to stored)
   const body = await req.json().catch(() => ({}))
-  const stored = getSettings()
+  const stored = await getSettings()
   const settings = {
     llmProvider: body.llmProvider ?? stored.llmProvider,
     ollamaUrl: body.ollamaUrl ?? stored.ollamaUrl,
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     const { testProviderConnection } = await import('@/lib/llmAdapter')
     const result = await testProviderConnection(settings)
-    logAction({ email: session.email, action: 'settings.test_connection', ip, metadata: { provider: settings.llmProvider, ok: result.ok } })
+    await logAction({ email: session.email, action: 'settings.test_connection', ip, metadata: { provider: settings.llmProvider, ok: result.ok } })
     return NextResponse.json(result)
   } catch (err) {
     return NextResponse.json({ ok: false, message: String(err) }, { status: 500 })

@@ -61,11 +61,12 @@ export async function getSession(): Promise<SessionData & { save: () => Promise<
   return session
 }
 
-export function isAllowedEmail(email: string): boolean {
-  const allowed = process.env.ALLOWED_EMAILS || '*'
+export function isAllowedDomain(email: string): boolean {
+  const allowed = process.env.ALLOWED_DOMAINS || '*'
   if (allowed === '*') return true
+  const domain = email.toLowerCase().split('@')[1] ?? ''
   return allowed
     .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .includes(email.toLowerCase())
+    .map((d) => d.trim().toLowerCase())
+    .includes(domain)
 }
