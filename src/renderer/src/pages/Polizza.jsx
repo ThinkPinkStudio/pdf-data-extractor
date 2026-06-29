@@ -376,17 +376,36 @@ export default function Polizza({ visible }) {
             let imageBase64
             try {
               const page = await doc.getPage(pageNum)
-              // Limita il lato lungo a ~1600px: le scansioni ad alta risoluzione
-              // a scala fissa 2.0 producono immagini enormi che rallentano
-              // drasticamente (o mandano in timeout) il modello vision
+              // Render ad alta risoluzione (lato lungo ~2200px ≈ 190 dpi): le tabelle
+              // dense delle scansioni diventano molto più leggibili. Cap a 2200 per non
+              // far esplodere/andare in timeout il modello vision.
               const baseViewport = page.getViewport({ scale: 1 })
-              const scale = Math.min(2, 1600 / Math.max(baseViewport.width, baseViewport.height))
+              const scale = Math.min(3, 2200 / Math.max(baseViewport.width, baseViewport.height))
               const viewport = page.getViewport({ scale })
               const canvas = document.createElement('canvas')
               canvas.width = viewport.width
               canvas.height = viewport.height
-              await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-              imageBase64 = canvas.toDataURL('image/jpeg', 0.85)
+              const ctx = canvas.getContext('2d')
+              await page.render({ canvasContext: ctx, viewport }).promise
+              // Pre-processing (pixel-only, nessuna dipendenza): scala di grigi +
+              // aumento del contrasto → testo più nero, sfondo più bianco. Migliora
+              // sensibilmente la lettura OCR/vision su scansioni sbiadite.
+              try {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+                const d = imgData.data
+                const contrast = 1.35
+                const intercept = 128 * (1 - contrast)
+                for (let i = 0; i < d.length; i += 4) {
+                  let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+                  g = g * contrast + intercept
+                  d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g
+                }
+                ctx.putImageData(imgData, 0, 0)
+              } catch (ppErr) {
+                console.warn('[vision:rolling] preprocessing immagine saltato:', ppErr.message)
+              }
+              // PNG: nessun artefatto di compressione sul testo (a differenza del JPEG)
+              imageBase64 = canvas.toDataURL('image/png')
               page.cleanup()
             } catch (err) {
               console.warn(`[vision:rolling] Rendering pag. ${pageNum} fallito:`, err.message)

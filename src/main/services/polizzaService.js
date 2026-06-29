@@ -1055,6 +1055,18 @@ function mergeRollingState(state, updated, fieldsById = {}, docDate = null, sour
     const cleaned = sanitizeFieldValue(fieldsById[key], val)
     if (cleaned == null || cleaned === '') continue
 
+    // Anti-allucinazione (AGNOSTICA, nessuna logica di dominio): se il valore è un
+    // importo "puro" e il modello ha fornito un'evidenza testuale, ma le cifre della
+    // parte intera NON compaiono in quell'evidenza, il numero è inventato → scarta.
+    // Senza evidenza non si scarta nulla (retro-compatibile).
+    const evidenza = typeof entry.evidenza === 'string' ? entry.evidenza : null
+    const cleanedAmount = parsePureAmount(cleaned)
+    if (cleanedAmount != null && evidenza) {
+      const intDigits = String(Math.trunc(Math.abs(cleanedAmount)))
+      const evDigits = evidenza.replace(/\D/g, '')
+      if (intDigits.length >= 4 && !evDigits.includes(intDigits)) continue
+    }
+
     const validita = typeof entry.data_validita === 'string'
       ? normalizeDateValue(entry.data_validita)
       : null
@@ -1150,9 +1162,13 @@ const ROLLING_SYSTEM_PROMPT =
   '6. Indica SEMPRE "data_validita" quando il documento riporta una data\n' +
   '   (emissione, validità, decorrenza o modifica) riferibile al dato estratto.\n' +
   '7. Importi in formato italiano (es. 3.000.000,00). Date in formato GG/MM/AAAA.\n' +
-  '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n\n' +
+  '8. Non includere mai campi con valore null. Zero testo extra, zero markdown.\n' +
+  '9. Per OGNI campo restituito includi "evidenza": il frammento di testo ESATTO,\n' +
+  '   copiato letteralmente dal documento, in cui compare il valore. Se NON riesci a\n' +
+  '   citare il valore copiandolo dal documento, allora lo stai inventando: NON\n' +
+  '   restituire quel campo.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
-  '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null"}}'
+  '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}'
 
 /**
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
@@ -1266,20 +1282,81 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
  * Anche qui il prompt include la GUIDA dei campi (label + descrizione).
  * Lancia un errore classificato se la chiamata LLM fallisce.
  */
+// ─── OCR locale (Tesseract.js) — opzionale e ADDITIVO ────────────────────────
+// Se 'tesseract.js' è installato, estrae il TESTO della pagina dall'immagine e lo
+// affianca all'immagine nel prompt: il modello mappa testo pulito invece di fare
+// OCR sui pixel (meno letture sbagliate, meno allucinazioni). Import dinamico +
+// try/catch: se il pacchetto non c'è o fallisce, torna '' e il flusso prosegue con
+// la sola immagine — non può rompere l'estrazione.
+let _ocrWorker = null
+let _ocrUnavailable = false
+async function ocrImageToText(base64DataUrl, lang = 'ita') {
+  if (_ocrUnavailable) return ''
+  try {
+    const tesseract = await import('tesseract.js')
+    const createWorker = tesseract.createWorker || tesseract.default?.createWorker
+    if (!createWorker) { _ocrUnavailable = true; return '' }
+    if (!_ocrWorker) _ocrWorker = await createWorker(lang)
+    const { data } = await _ocrWorker.recognize(base64DataUrl)
+    return (data?.text || '').trim()
+  } catch (e) {
+    console.warn('[ocr] non disponibile/fallita, proseguo con sola immagine:', e.message)
+    _ocrUnavailable = true
+    return ''
+  }
+}
+
+// #5 — Consenso: dato un array di delta (uno per passata di lettura), per ogni
+// campo tiene il valore che ricorre di più (a parità, il primo apparso). Cancella
+// la non-determinatezza del modello tra una passata e l'altra.
+function consensusDelta(deltas) {
+  const byField = {}
+  for (const d of deltas) {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) continue
+    for (const [k, e] of Object.entries(d)) {
+      const val = (e && typeof e === 'object') ? e.valore : e
+      if (val == null || String(val).trim() === '') continue
+      const norm = String(val).toLowerCase().replace(/\s+/g, ' ').trim()
+      ;(byField[k] = byField[k] || []).push({ norm, entry: e })
+    }
+  }
+  const out = {}
+  for (const [k, list] of Object.entries(byField)) {
+    const counts = {}
+    for (const it of list) counts[it.norm] = (counts[it.norm] || 0) + 1
+    let best = null, bestC = 0
+    for (const it of list) { if (counts[it.norm] > bestC) { bestC = counts[it.norm]; best = it } }
+    if (best) out[k] = best.entry
+  }
+  return out
+}
+
 async function callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, fields, source = null) {
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
+  // #1 — OCR del testo (fonte primaria) affiancato all'immagine. Additivo: se l'OCR
+  // non è disponibile, ocrBlock resta vuoto e si usa la sola immagine come prima.
+  const ocrText = settings.polizzaOcrEnabled === false ? '' : await ocrImageToText(imageBase64)
+  // ANCORAGGIO AL PERIODO: dal testo OCR ricavo (regex deterministica) il periodo a
+  // cui il documento si riferisce (scadenza/periodo/decorrenza). Datando ogni valore
+  // con questo periodo, per i campi che cambiano nel tempo vince sempre il documento
+  // più recente (es. importo preventivo 2024 batte quello 2019), in modo deterministico.
+  const docDate = ocrText ? (extractDocumentDateString(ocrText) || null) : null
+  const ocrBlock = ocrText
+    ? `\nTESTO OCR DELLA PAGINA (FONTE PRIMARIA — ogni valore che riporti DEVE comparire qui dentro; l'immagine serve solo per capire il layout/tabelle):\n"""\n${ocrText.slice(0, 8000)}\n"""\n`
+    : ''
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
 ${buildRollingFieldLines(fields, state)}
-${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}
+${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}${ocrBlock}
 Pagina ${pageNum}/${totalPages}
 
-Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
+Leggi il contenuto (TESTO OCR + immagine) e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const provider = settings.llmProvider || 'ollama'
-  let raw
 
-  try {
+  const callModelOnce = async (modelOverride) => {
+    let raw
+    try {
     if (provider === 'openai') {
       const imageContent = [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }]
       const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
@@ -1306,7 +1383,7 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          model: settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
+          model: modelOverride || settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
           max_tokens: 4096,
           system: ROLLING_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: [
@@ -1322,13 +1399,51 @@ Leggi il testo nell'immagine e rispondi SOLO con i campi da aggiornare (oggetto 
       const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
       raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data)
     }
-  } catch (err) {
-    throw classifyLlmError(err, settings)
+    } catch (err) {
+      throw classifyLlmError(err, settings)
+    }
+    return raw
   }
 
-  const updated = parseJsonResponse(raw)
   const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
-  return mergeRollingState(state, updated, fieldsById, null, source)
+  const hasVal = e => { const v = (e && typeof e === 'object') ? e.valore : e; return v != null && String(v).trim() !== '' }
+
+  // Prima passata col modello base (Haiku/vision)
+  const delta1 = parseJsonResponse(await callModelOnce())
+
+  // #5/#6 — VERIFICA MIRATA (selettiva): scatta SOLO se l'utente ha indicato dei
+  // campi da verificare (CSV di id/etichette in settings.polizzaVerificaCampi) e uno
+  // di essi è stato letto in questa pagina. Negli altri casi → comportamento invariato.
+  const verList = String(settings.polizzaVerificaCampi || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  const flaggedFields = verList.length ? fields.filter(f => {
+    const id = String(f.id).toLowerCase(), lbl = String(f.label || '').toLowerCase()
+    return verList.some(v => v === id || v === lbl || (v.length >= 3 && lbl.includes(v)))
+  }) : []
+  const flaggedHit = flaggedFields.some(f => hasVal(delta1[f.id]))
+  if (!flaggedHit) return mergeRollingState(state, delta1, fieldsById, docDate, source)
+
+  // Fase di verifica PROTETTA: qualunque errore qui → si ricade sul risultato di
+  // pass 1 (l'estrazione non si rompe mai).
+  let updated = delta1
+  try {
+    // Consenso Haiku ×N sulla pagina
+    const passes = Math.max(2, Math.min(5, parseInt(settings.polizzaConsensusPasses, 10) || 3))
+    const deltas = [delta1]
+    for (let p = 1; p < passes; p++) deltas.push(parseJsonResponse(await callModelOnce()))
+    updated = consensusDelta(deltas)
+    // Arbitraggio col modello forte SOLO sui campi flaggati ancora discordi tra le passate
+    const verModel = String(settings.polizzaVerificaModel || '').trim()
+    const norm = e => { const v = (e && typeof e === 'object') ? e.valore : e; return v == null ? '' : String(v).toLowerCase().replace(/\s+/g, ' ').trim() }
+    const discordant = flaggedFields.filter(f => new Set(deltas.map(d => norm(d && d[f.id]))).size > 1)
+    if (verModel && provider === 'anthropic' && discordant.length) {
+      const arb = parseJsonResponse(await callModelOnce(verModel))
+      for (const f of discordant) if (hasVal(arb[f.id])) updated[f.id] = arb[f.id]
+    }
+  } catch (e) {
+    console.warn('[verifica mirata] fallita, uso il risultato della prima passata:', e.message)
+    updated = delta1
+  }
+  return mergeRollingState(state, updated, fieldsById, docDate, source)
 }
 
 /**
