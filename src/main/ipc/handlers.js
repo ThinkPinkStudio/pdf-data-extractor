@@ -899,17 +899,8 @@ ${context}
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return { success: false, error: 'Email non valida' }
     }
-    const settings = getSettings()
-    const smtpConfig = {
-      smtpHost: settings.smtpHost || process.env.SMTP_HOST,
-      smtpPort: settings.smtpPort || process.env.SMTP_PORT,
-      smtpSecure: settings.smtpSecure ?? process.env.SMTP_SECURE,
-      smtpUser: settings.smtpUser || process.env.SMTP_USER,
-      smtpPass: settings.smtpPass || process.env.SMTP_PASS,
-      smtpFrom: settings.smtpFrom || process.env.SMTP_FROM,
-    }
     try {
-      const authedEmail = await sendMagicLinkAndWait(email, smtpConfig)
+      const authedEmail = await sendMagicLinkAndWait(email)
       currentSession = await saveAuthSession(authedEmail)
       logAction({ email: authedEmail, action: 'auth.login', metadata: { source: 'electron' } })
       return { success: true, email: authedEmail }

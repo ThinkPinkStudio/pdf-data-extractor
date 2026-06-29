@@ -29,13 +29,6 @@ const defaultSettings = {
   webhookEnabled: false,
   webhookPort: 3847,
   webhookToken: '',
-  // SMTP (magic link auth)
-  smtpHost: '',
-  smtpPort: '587',
-  smtpSecure: false,
-  smtpUser: '',
-  smtpPass: '',
-  smtpFrom: '',
   // Privacy / data retention
   sessionRetentionDays: 90,
   // Notifications
