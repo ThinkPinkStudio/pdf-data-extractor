@@ -9,6 +9,7 @@ import Batch from './pages/Batch.jsx'
 import History from './pages/History.jsx'
 import Polizza from './pages/Polizza.jsx'
 import Diagnostics from './pages/Diagnostics.jsx'
+import Login from './pages/Login.jsx'
 
 const DEFAULT_ACCENT = '#e91e8c'
 
@@ -38,6 +39,8 @@ export default function App() {
   const [page, setPage] = useState('extractor')
   const [theme, setTheme] = useState('dark')
   const [restoredSession, setRestoredSession] = useState(null)
+  const [authSession, setAuthSession] = useState(null) // null = loading, false = not logged in, object = logged in
+  const [authLoading, setAuthLoading] = useState(true)
 
   useEffect(() => {
     const load = async () => {
@@ -45,6 +48,11 @@ export default function App() {
       if (s.theme) setTheme(s.theme)
       if (s.language) i18n.changeLanguage(s.language)
       applyAccentColor(s.accentColor)
+
+      // Check existing auth session
+      const session = await window.electronAPI.authGetSession().catch(() => null)
+      setAuthSession(session || false)
+      setAuthLoading(false)
     }
     load()
   }, [])
@@ -61,6 +69,23 @@ export default function App() {
     setRestoredSession(session)
     setPage('extractor')
   }, [])
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <div className="spinner" style={{ width: 32, height: 32 }} />
+      </div>
+    )
+  }
+
+  if (!authSession) {
+    return (
+      <>
+        <TitleBar />
+        <Login onLoginSuccess={(email) => setAuthSession({ email, loginAt: Date.now() })} />
+      </>
+    )
+  }
 
   return (
     <>

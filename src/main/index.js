@@ -8,6 +8,8 @@ import { getSettings, saveSettings } from './services/settingsService.js'
 import { purgeExpiredSessions } from './services/historyService.js'
 import { initDiagLogger } from './services/diagLogger.js'
 import { initAutoUpdater } from './services/updaterService.js'
+import { loadSession } from './auth/session.js'
+import { logAction } from './services/actionLogger.js'
 
 function getIconPath() {
   if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
@@ -60,7 +62,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('[main] unhandledRejection:', reason)
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initDiagLogger()
 
   protocol.registerFileProtocol('local-pdf', (request, callback) => {
@@ -68,8 +70,14 @@ app.whenReady().then(() => {
     callback({ path: url })
   })
 
+  // Check existing session before creating window
+  const session = await loadSession().catch(() => null)
+  if (session) {
+    logAction({ email: session.email, action: 'auth.session_resumed' })
+  }
+
   const mainWindow = createWindow()
-  registerHandlers(ipcMain, mainWindow)
+  registerHandlers(ipcMain, mainWindow, session)
 
   // Auto-update (solo in produzione; guardato, non blocca mai l'avvio)
   initAutoUpdater(mainWindow)

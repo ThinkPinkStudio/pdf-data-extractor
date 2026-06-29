@@ -231,5 +231,28 @@
     "yes": "Sì",
     "no": "No",
     "confirm": "Conferma"
+  },
+  "auth": {
+    "title": "PDF Data Extractor",
+    "subtitle": "Inserisci la tua email per ricevere il link di accesso.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "tu@esempio.it",
+    "sendLink": "Invia link di accesso",
+    "sending": "Invio in corso...",
+    "checkEmail": "Controlla la tua email",
+    "checkEmailDesc": "Abbiamo inviato un link di accesso a {{email}}. Il link è valido per 15 minuti.",
+    "useAnotherEmail": "Usa un'altra email",
+    "invalidEmail": "Email non valida",
+    "sendError": "Errore durante l'invio. Riprova.",
+    "loggedInAs": "Accesso come",
+    "logout": "Esci",
+    "smtpTitle": "SMTP (Accesso Magic Link)",
+    "smtpHost": "Server SMTP",
+    "smtpPort": "Porta",
+    "smtpSecure": "SSL/TLS",
+    "smtpUser": "Utente SMTP",
+    "smtpPass": "Password SMTP",
+    "smtpFrom": "Indirizzo mittente",
+    "smtpFromPlaceholder": "PDF Extractor <noreply@esempio.it>"
   }
 }
