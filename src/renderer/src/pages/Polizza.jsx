@@ -363,7 +363,7 @@ export default function Polizza({ visible }) {
     try {
       const pdfjsLib = await import('pdfjs-dist')
       pdfjs = pdfjsLib.default || pdfjsLib
-      if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+      if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.js', window.location.href).href
     } catch (err) {
       dlog('ERRORE: componente PDF non disponibile: ' + err.message)
       setVisionMsg('error'); setVisionErr('Componente PDF non disponibile: ' + err.message); setError('Componente PDF non disponibile: ' + err.message); setVisionExtracting(false); return
@@ -481,7 +481,7 @@ export default function Polizza({ visible }) {
       const pdfjsLib = await import('pdfjs-dist')
       pdfjs = pdfjsLib.default || pdfjsLib
       if (pdfjs.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.js', window.location.href).href
       }
     } catch (err) {
       console.error('[vision:rolling] pdfjs non disponibile:', err.message)

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "electron-log": "^5.4.4",
+    "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "i18next": "^23.7.6",
     "jszip": "^3.10.1",
@@ -39,6 +40,13 @@
     "appId": "it.thinkpinkstudio.pdf-extractor",
     "productName": "PDF Data Extractor",
     "icon": "assets/icon.png",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ThinkPinkStudio",
+        "repo": "pdf-data-extractor-releases"
+      }
+    ],
     "directories": {
       "output": "dist"
     },

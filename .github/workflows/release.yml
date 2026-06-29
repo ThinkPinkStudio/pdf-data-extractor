@@ -114,6 +114,7 @@ jobs:
           name: dist-${{ matrix.artifact }}
           path: |
             dist/*.exe
+            dist/*.blockmap
             dist/*.dmg
             dist/*.AppImage
             dist/*.deb
@@ -124,6 +125,10 @@ jobs:
   release:
     needs: [bump, build]
     runs-on: ubuntu-latest
+    # Il secret RELEASES_TOKEN abilita la pubblicazione del feed di auto-update sul
+    # repo pubblico. Finché non esiste, lo step relativo viene SALTATO (build verde).
+    env:
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
     steps:
       - name: Download all artifacts
@@ -146,5 +151,20 @@ jobs:
             | Windows     | `.exe` (installer NSIS) |
             | macOS       | `.dmg` |
             | Linux       | `.AppImage`, `.deb` |
+          files: dist-all/*
+          fail_on_unmatched_files: false
+
+      # Pubblica il FEED di auto-update su un repo PUBBLICO separato: i binari sono
+      # pubblici (scaricabili senza token), il CODICE resta privato. electron-updater
+      # (provider github) legge latest.yml + .exe da qui. Richiede il secret
+      # RELEASES_TOKEN = un PAT con "contents: write" SOLO sul repo releases pubblico.
+      - name: Publish auto-update feed (public releases repo)
+        if: ${{ env.RELEASES_TOKEN != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ThinkPinkStudio/pdf-data-extractor-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ needs.bump.outputs.version }}
+          name: PDF Data Extractor v${{ needs.bump.outputs.version }}
           files: dist-all/*
           fail_on_unmatched_files: false

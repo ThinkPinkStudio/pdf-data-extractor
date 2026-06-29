@@ -592,7 +592,7 @@ ${context}
     try {
       const current = app.getVersion()
       const res = await resilientFetch(
-        'https://api.github.com/repos/thinkpinkstudio/pdf-data-extractor/releases/latest',
+        'https://api.github.com/repos/ThinkPinkStudio/pdf-data-extractor-releases/releases/latest',
         { headers: { 'User-Agent': 'pdf-data-extractor' }, signal: AbortSignal.timeout(5000) }
       )
       if (!res.ok) return { hasUpdate: false }

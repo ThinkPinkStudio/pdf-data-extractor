@@ -7,6 +7,7 @@ import { startWebhook, stopWebhook } from './services/webhookService.js'
 import { getSettings, saveSettings } from './services/settingsService.js'
 import { purgeExpiredSessions } from './services/historyService.js'
 import { initDiagLogger } from './services/diagLogger.js'
+import { initAutoUpdater } from './services/updaterService.js'
 
 function getIconPath() {
   if (app.isPackaged) return join(process.resourcesPath, 'icon.png')
@@ -69,6 +70,9 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow()
   registerHandlers(ipcMain, mainWindow)
+
+  // Auto-update (solo in produzione; guardato, non blocca mai l'avvio)
+  initAutoUpdater(mainWindow)
 
   // One-time startup tasks: token generation + session purge
   try {
