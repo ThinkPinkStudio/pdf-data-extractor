@@ -50,8 +50,13 @@ import {
   probeOcr
 } from '../services/polizzaService.js'
 import { basename } from 'path'
+import { sendMagicLinkAndWait } from '../auth/magicLink.js'
+import { loadSession as loadAuthSession, saveSession as saveAuthSession, clearSession } from '../auth/session.js'
+import { logAction, getActionLogPath } from '../services/actionLogger.js'
 
-export function registerHandlers(ipcMain, mainWindow) {
+export function registerHandlers(ipcMain, mainWindow, initialSession = null) {
+  // Current authenticated session for this process
+  let currentSession = initialSession
   // Auto-cattura forense: se una chiamata reale al provider fallisce con un
   // errore di RETE (non auth/model/parse), in background eseguiamo una
   // diagnostica approfondita e la scriviamo nel log — così la prova esiste
@@ -880,6 +885,59 @@ ${context}
       return { success: true, filePath }
     } catch (err) {
       return { success: false, error: err.message }
+    }
+  })
+
+  // ─── Auth (Magic Link) ────────────────────────────────────────────────────
+
+  ipcMain.handle('auth:getSession', () => {
+    if (!currentSession) return null
+    return { email: currentSession.email, loginAt: currentSession.loginAt }
+  })
+
+  ipcMain.handle('auth:sendMagicLink', async (_, { email }) => {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { success: false, error: 'Email non valida' }
+    }
+    const settings = getSettings()
+    const smtpConfig = {
+      smtpHost: settings.smtpHost || process.env.SMTP_HOST,
+      smtpPort: settings.smtpPort || process.env.SMTP_PORT,
+      smtpSecure: settings.smtpSecure ?? process.env.SMTP_SECURE,
+      smtpUser: settings.smtpUser || process.env.SMTP_USER,
+      smtpPass: settings.smtpPass || process.env.SMTP_PASS,
+      smtpFrom: settings.smtpFrom || process.env.SMTP_FROM,
+    }
+    try {
+      const authedEmail = await sendMagicLinkAndWait(email, smtpConfig)
+      currentSession = await saveAuthSession(authedEmail)
+      logAction({ email: authedEmail, action: 'auth.login', metadata: { source: 'electron' } })
+      return { success: true, email: authedEmail }
+    } catch (err) {
+      logAction({ email, action: 'auth.login', success: false, metadata: { error: err.message } })
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+    const email = currentSession?.email
+    currentSession = null
+    await clearSession()
+    logAction({ email, action: 'auth.logout', metadata: { source: 'electron' } })
+    return { success: true }
+  })
+
+  // ─── Action Log (Electron) ────────────────────────────────────────────────
+
+  ipcMain.handle('actionLog:get', async () => {
+    try {
+      const logPath = getActionLogPath()
+      const raw = readFileSync(logPath, 'utf-8')
+      const lines = raw.trim().split('\n').filter(Boolean)
+      const entries = lines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+      return { success: true, entries: entries.reverse().slice(0, 500) }
+    } catch {
+      return { success: true, entries: [] }
     }
   })
 }

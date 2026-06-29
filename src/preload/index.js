@@ -102,5 +102,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   polizzaExportToTemplate: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:exportToTemplate', { templatePath, data, mapping }),
   polizzaPreviewChanges: (templatePath, data, mapping) => ipcRenderer.invoke('polizza:previewChanges', { templatePath, data, mapping }),
   polizzaExportApproved: (templatePath, approvedChanges) => ipcRenderer.invoke('polizza:exportApproved', { templatePath, approvedChanges }),
-  polizzaSaveDiagnostics: (content) => ipcRenderer.invoke('polizza:saveDiagnostics', { content })
+  polizzaSaveDiagnostics: (content) => ipcRenderer.invoke('polizza:saveDiagnostics', { content }),
+
+  // ─── Auth (Magic Link) ──────────────────────────────────────────────────
+  authGetSession: () => ipcRenderer.invoke('auth:getSession'),
+  authSendMagicLink: (email) => ipcRenderer.invoke('auth:sendMagicLink', { email }),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+
+  // ─── Action Log ─────────────────────────────────────────────────────────
+  getActionLog: () => ipcRenderer.invoke('actionLog:get')
 })
