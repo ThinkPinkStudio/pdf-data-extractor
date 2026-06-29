@@ -704,16 +704,32 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const imported = JSON.parse(ev.target.result)
-        if (!Array.isArray(imported)) return
+        const parsed = JSON.parse(ev.target.result)
+        const imported = Array.isArray(parsed) ? parsed : [parsed]
+        if (imported.length === 0) return
         const base = Date.now()
-        setSettings(s => ({
-          ...s,
-          polizzaProfiles: [
-            ...(s.polizzaProfiles || []),
-            ...imported.map((p, i) => ({ ...p, id: (base + i).toString() }))
-          ]
-        }))
+        const newProfiles = imported.map((p, i) => ({ ...p, id: (base + i).toString() }))
+        // Applica SUBITO l'ultimo profilo importato e PERSISTI su disco: l'import deve
+        // ripristinare la configurazione COMPLETA e funzionante (descrizioni campi +
+        // istruzioni aggiuntive + verifica mirata + fascicolo intero + MODELLO), non
+        // limitarsi ad aggiungere una voce alla lista. Così "gli altri" importano e basta.
+        const p = newProfiles[newProfiles.length - 1]
+        const next = {
+          ...settings,
+          polizzaProfiles: [...(settings.polizzaProfiles || []), ...newProfiles],
+          ...(Array.isArray(p.fields) && p.fields.length
+            ? { polizzaFields: p.fields.map(f => ({ ...f, cells: [...(f.cells || [])] })) }
+            : {}),
+          polizzaPromptExtra: p.promptExtra ?? settings.polizzaPromptExtra ?? '',
+          polizzaVerificaCampi: p.verificaCampi ?? settings.polizzaVerificaCampi ?? '',
+          polizzaVerificaModel: p.verificaModel ?? settings.polizzaVerificaModel ?? '',
+          polizzaOcrEnabled: p.ocrEnabled ?? settings.polizzaOcrEnabled ?? true,
+          polizzaConsensusPasses: p.consensusPasses ?? settings.polizzaConsensusPasses ?? 3,
+          polizzaWholeDossier: p.wholeDossier ?? settings.polizzaWholeDossier ?? false,
+          polizzaWholeDossierModel: p.wholeDossierModel ?? settings.polizzaWholeDossierModel ?? 'claude-haiku-4-5-20251001'
+        }
+        setSettings(next)
+        try { window.electronAPI.saveSettings(next) } catch (_) {}
       } catch {}
     }
     reader.readAsText(file)
