@@ -1555,6 +1555,95 @@ export async function updateStateWithVisionPage(state, imageBase64, pageNum, tot
   return callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, activeFields, source)
 }
 
+// ─── FASCICOLO INTERO — estrazione in UNA sola chiamata ──────────────────────
+// Il modello vede il testo OCR di TUTTI i documenti insieme e fa la selezione-fonte
+// (periodo più recente per i campi che cambiano, valore coerente per gli anagrafici,
+// preventivo vs consuntivo). Espone anche l'OCR di una singola pagina, riusato dal
+// renderer per costruire il testo completo del fascicolo.
+
+export async function ocrPageText(imageBase64, settings = {}) {
+  if (settings && settings.polizzaOcrEnabled === false) return ''
+  return ocrImageToText(imageBase64)
+}
+
+const WHOLE_DOSSIER_SYSTEM =
+  'Sei un estrattore esperto di dati da fascicoli assicurativi italiani (RC).\n' +
+  'Ricevi il TESTO (OCR) di TUTTI i documenti di UNA pratica, etichettati per nome file\n' +
+  '(polizza base, appendici, rinnovi, quietanze, regolazioni premio, condizioni).\n' +
+  'Compila i campi richiesti scegliendo, per OGNI campo, il valore corretto CONFRONTANDO\n' +
+  'tutti i documenti. REGOLE:\n' +
+  '1. Estrai un valore SOLO se è esplicitamente presente nel testo. Non inventare. Se un\n' +
+  '   campo non c\'è in nessun documento, OMETTILO (mai scrivere "non specificato"/"n/d").\n' +
+  '2. Campi che CAMBIANO nel tempo (scadenza, decorrenza, premi, importi, tassi, contraente,\n' +
+  '   indirizzo): usa il valore del documento col PERIODO più recente.\n' +
+  '3. Massimali/garanzie: quelli della polizza base/condizioni; NON confondere un massimale\n' +
+  '   (importo grande) con franchigie, scoperti, sotto-limiti o minimi.\n' +
+  '4. PREVENTIVO ≠ CONSUNTIVO: per i campi "preventivo/preventivato" usa il preventivo, non\n' +
+  '   il consuntivo della regolazione.\n' +
+  '5. Anagrafici stabili (n. polizza, P.IVA/CF, contraente): usa il valore COERENTE nella\n' +
+  '   maggioranza dei documenti; ignora refusi OCR isolati.\n' +
+  '6. Importi in formato italiano (3.000.000,00). Date GG/MM/AAAA.\n' +
+  'FORMATO: un solo oggetto JSON {"id_campo": {"valore": "...", "documento": "nome file"}}.\n' +
+  'Zero testo extra, zero markdown.'
+
+export async function extractPolizzaFromFullText(fullText, settings) {
+  const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${f.description || f.label}`).join('\n')
+  const promptExtra = (settings.polizzaPromptExtra || '').trim()
+  const userPrompt =
+`CAMPI DA ESTRARRE (id — nome: descrizione):
+${fieldLines}
+${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}
+TESTO DEI DOCUMENTI DEL FASCICOLO:
+${fullText}
+
+Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file"}}.`
+
+  const provider = settings.llmProvider || 'ollama'
+  const model = settings.polizzaWholeDossierModel || settings.anthropicModel || 'claude-haiku-4-5-20251001'
+  let raw
+  try {
+    if (provider === 'anthropic') {
+      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: 4096, system: WHOLE_DOSSIER_SYSTEM, messages: [{ role: 'user', content: userPrompt }] }),
+        signal: AbortSignal.timeout(180000)
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Anthropic: ${res.status} ${e?.error?.message || ''}`) }
+      raw = ((await res.json()).content?.[0]?.text || '').trim()
+    } else if (provider === 'openai') {
+      const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
+        body: JSON.stringify({ model: settings.openaiModel || 'gpt-4o-mini', messages: [{ role: 'system', content: WHOLE_DOSSIER_SYSTEM }, { role: 'user', content: userPrompt }], temperature: 0, response_format: { type: 'json_object' }, max_tokens: 4096 }),
+        signal: AbortSignal.timeout(180000)
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`OpenAI: ${res.status} ${e?.error?.message || ''}`) }
+      raw = ((await res.json()).choices?.[0]?.message?.content || '').trim()
+    } else {
+      raw = await callOllamaRolling({ ...settings, ollamaModel: model }, WHOLE_DOSSIER_SYSTEM, userPrompt)
+    }
+  } catch (err) {
+    throw classifyLlmError(err, settings)
+  }
+
+  const parsed = parseJsonResponse(raw)
+  const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
+  const data = {}, sources = {}
+  for (const [k, e] of Object.entries(parsed || {})) {
+    if (!(k in fieldsById)) continue
+    const val = (e && typeof e === 'object') ? e.valore : e
+    const cleaned = sanitizeFieldValue(fieldsById[k], val)
+    if (cleaned == null || cleaned === '') continue
+    data[k] = cleaned
+    const doc = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+    if (doc) sources[k] = { file: doc, page: '' }
+  }
+  return { data, sources }
+}
+
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────
 
 /**

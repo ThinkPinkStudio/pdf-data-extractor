@@ -44,7 +44,9 @@ import {
   readExcelStructure,
   buildMappingFromFields,
   ALL_POLIZZA_FIELDS,
-  CSA_MAPPING
+  CSA_MAPPING,
+  ocrPageText,
+  extractPolizzaFromFullText
 } from '../services/polizzaService.js'
 import { basename } from 'path'
 
@@ -706,6 +708,31 @@ ${context}
     } catch (err) {
       // I flag permettono al renderer di interrompere subito il ciclo vision
       // (Ollama spento) o dopo pochi tentativi (timeout ripetuti)
+      return {
+        success: false,
+        error: err.message,
+        connectionError: !!err.isLlmConnectionError,
+        timeoutError: !!err.isLlmTimeout
+      }
+    }
+  })
+
+  // FASCICOLO INTERO — OCR di una singola pagina (il renderer accumula il testo)
+  ipcMain.handle('polizza:ocrPage', async (_, { imageBase64 }) => {
+    try {
+      const text = await ocrPageText(imageBase64, getSettings())
+      return { success: true, text }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // FASCICOLO INTERO — estrazione di TUTTI i campi dal testo completo, una chiamata
+  ipcMain.handle('polizza:extractWholeDossier', async (_, { fullText }) => {
+    try {
+      const { data, sources } = await extractPolizzaFromFullText(fullText, getSettings())
+      return { success: true, data, sources }
+    } catch (err) {
       return {
         success: false,
         error: err.message,
