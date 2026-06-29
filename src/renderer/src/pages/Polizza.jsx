@@ -240,6 +240,18 @@ export default function Polizza({ visible }) {
     return flat
   }
 
+  // Estrae la SORGENTE (file + pagina) di ogni campo valorizzato dallo stato
+  // rolling, per popolare la colonna "Sorgente" della tabella.
+  const buildSources = (state) => {
+    const out = {}
+    for (const [key, entry] of Object.entries(state || {})) {
+      if (entry && typeof entry === 'object' && entry.valore != null && entry.valore !== '' && entry.fonte) {
+        out[key] = entry.fonte
+      }
+    }
+    return out
+  }
+
   const handleExtract = async () => {
     if (!files.length) return
     setExtracting(true)
@@ -385,7 +397,8 @@ export default function Polizza({ visible }) {
               state: currentState,
               imageBase64,
               pageNum,
-              totalPages
+              totalPages,
+              docName
             })
 
             if (res.success) {
@@ -393,6 +406,7 @@ export default function Polizza({ visible }) {
               consecutiveFailures = 0
               diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR vision pag. ${pageNum}/${totalPages} di ${docName}: OK`)
               setExtracted(flattenRollingState(currentState))
+              setSources(buildSources(currentState))
             } else {
               consecutiveFailures++
               diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] OCR vision pag. ${pageNum}/${totalPages} di ${docName}: ${res.error}`)

@@ -697,10 +697,11 @@ ${context}
   // Aggiornamento rolling per una singola pagina vision (PDF scansionato).
   // Il frontend chiama questo handler in loop, pagina per pagina, passando
   // lo stato corrente e ricevendo quello aggiornato.
-  ipcMain.handle('polizza:rollingVisionUpdate', async (_, { state, imageBase64, pageNum, totalPages }) => {
+  ipcMain.handle('polizza:rollingVisionUpdate', async (_, { state, imageBase64, pageNum, totalPages, docName }) => {
     const settings = getSettings()
     try {
-      const updatedState = await updateStateWithVisionPage(state, imageBase64, pageNum, totalPages, settings)
+      const source = docName ? { file: docName, page: pageNum } : null
+      const updatedState = await updateStateWithVisionPage(state, imageBase64, pageNum, totalPages, settings, source)
       return { success: true, state: updatedState }
     } catch (err) {
       // I flag permettono al renderer di interrompere subito il ciclo vision
