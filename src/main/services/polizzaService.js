@@ -9,8 +9,10 @@
  * 2. pdf-parse – ultimo fallback generico
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { app } from 'electron'
 import { resilientFetch } from './netFetch.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -1288,6 +1290,23 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 // OCR sui pixel (meno letture sbagliate, meno allucinazioni). Import dinamico +
 // try/catch: se il pacchetto non c'è o fallisce, torna '' e il flusso prosegue con
 // la sola immagine — non può rompere l'estrazione.
+//
+// OFFLINE: dietro firewall/VPN il default di tesseract.js scaricherebbe la lingua
+// 'ita' da cdn.jsdelivr.net e fallirebbe in silenzio. Se troviamo 'ita.traineddata'
+// in locale lo usiamo come langPath (gzip:false: è il file NON compresso) e
+// disattiviamo la cache di rete → OCR 100% offline. In dev il file sta nella root del
+// progetto; nel build pacchettizzato in process.resourcesPath (build.extraResources).
+// Se manca, torniamo {} e resta il default (CDN): non peggioriamo chi è online. Il
+// core WASM, in Node, è già caricato via require da node_modules — niente rete.
+function tessLangOptions() {
+  try {
+    const base = app && app.isPackaged ? process.resourcesPath : (app && app.getAppPath ? app.getAppPath() : process.cwd())
+    if (base && existsSync(join(base, 'ita.traineddata'))) {
+      return { langPath: base, gzip: false, cacheMethod: 'none' }
+    }
+  } catch (_) { /* fallback CDN */ }
+  return {}
+}
 let _ocrWorker = null
 let _ocrUnavailable = false
 async function ocrImageToText(base64DataUrl, lang = 'ita') {
@@ -1296,13 +1315,36 @@ async function ocrImageToText(base64DataUrl, lang = 'ita') {
     const tesseract = await import('tesseract.js')
     const createWorker = tesseract.createWorker || tesseract.default?.createWorker
     if (!createWorker) { _ocrUnavailable = true; return '' }
-    if (!_ocrWorker) _ocrWorker = await createWorker(lang)
+    if (!_ocrWorker) _ocrWorker = await createWorker(lang, undefined, tessLangOptions())
     const { data } = await _ocrWorker.recognize(base64DataUrl)
     return (data?.text || '').trim()
   } catch (e) {
     console.warn('[ocr] non disponibile/fallita, proseguo con sola immagine:', e.message)
     _ocrUnavailable = true
     return ''
+  }
+}
+
+// Verifica UNA volta sola se l'OCR (Tesseract) è davvero utilizzabile su questo
+// computer: prova a importare il pacchetto e a creare il worker. Serve a evitare la
+// "morte silenziosa" della modalità fascicolo intero (OCR fallito su ogni pagina →
+// testo vuoto → nessun campo, senza errori). Non solleva mai: ritorna lo stato.
+export async function probeOcr(settings = {}) {
+  if (settings && settings.polizzaOcrEnabled === false) {
+    return { available: false, reason: 'OCR disattivato nelle impostazioni (serve per il fascicolo intero)' }
+  }
+  if (_ocrUnavailable) {
+    return { available: false, reason: 'Tesseract non disponibile (un tentativo precedente è fallito)' }
+  }
+  try {
+    const tesseract = await import('tesseract.js')
+    const createWorker = tesseract.createWorker || tesseract.default?.createWorker
+    if (!createWorker) { _ocrUnavailable = true; return { available: false, reason: "pacchetto 'tesseract.js' non installato (createWorker mancante)" } }
+    if (!_ocrWorker) _ocrWorker = await createWorker('ita', undefined, tessLangOptions())
+    return { available: true }
+  } catch (e) {
+    _ocrUnavailable = true
+    return { available: false, reason: 'inizializzazione OCR fallita: ' + e.message }
   }
 }
 

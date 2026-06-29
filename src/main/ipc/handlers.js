@@ -6,7 +6,7 @@ import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
 import { runDeepDiagnostics, buildHumanReport } from '../services/netDiagnostics.js'
-import { logDiagnostics, logLlmFailure, getLogDir } from '../services/diagLogger.js'
+import { logDiagnostics, logLlmFailure, getLogDir, logPolizzaRun, writePolizzaRunFile } from '../services/diagLogger.js'
 import {
   getOllamaStatus,
   extractDataWithProvider,
@@ -46,7 +46,8 @@ import {
   ALL_POLIZZA_FIELDS,
   CSA_MAPPING,
   ocrPageText,
-  extractPolizzaFromFullText
+  extractPolizzaFromFullText,
+  probeOcr
 } from '../services/polizzaService.js'
 import { basename } from 'path'
 
@@ -739,6 +740,52 @@ ${context}
         connectionError: !!err.isLlmConnectionError,
         timeoutError: !!err.isLlmTimeout
       }
+    }
+  })
+
+  // FASCICOLO INTERO — verifica se l'OCR (Tesseract) è utilizzabile su questo PC.
+  ipcMain.handle('polizza:ocrStatus', async () => {
+    try { return await probeOcr(getSettings()) }
+    catch (err) { return { available: false, reason: err.message } }
+  })
+
+  // Scrive il log di UNA estrazione su disco (electron-log + file dedicato), così al
+  // cliente resta SEMPRE una traccia del perché — anche se "non è successo nulla".
+  ipcMain.handle('polizza:writeLog', async (_, { content } = {}) => {
+    try {
+      logPolizzaRun(content || '')
+      const filePath = writePolizzaRunFile(content || '')
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Apre la mail del cliente GIÀ compilata verso lo sviluppatore e rivela il file di
+  // log da allegare. NIENTE invio automatico/SMTP: nessuna credenziale finisce nel
+  // build distribuito (sarebbe estraibile da chiunque abbia l'app).
+  ipcMain.handle('polizza:emailLog', async (_, { content, to } = {}) => {
+    try {
+      logPolizzaRun(content || '')
+      const filePath = writePolizzaRunFile(content || '')
+      const recipient = to || 'info@thinkpinkstudio.it'
+      const sys = `${process.platform} ${process.arch} · app ${app.getVersion()} · electron ${process.versions.electron}`
+      // Corpo compatto: sistema + percorso file + coda del log (cap ~1200 char per
+      // non sforare i limiti di lunghezza dei mailto su alcuni client/OS).
+      let tail = (content || '').split('\n').slice(-30).join('\n')
+      if (tail.length > 1200) tail = '…' + tail.slice(-1200)
+      const subject = 'PDF Extractor — log estrazione polizza'
+      const body =
+        "Log diagnostico dell'estrazione.\n\n" +
+        'Sistema: ' + sys + '\n' +
+        'File di log completo (allegare a questa mail): ' + (filePath || 'n/d') + '\n\n' +
+        '--- ultime righe del log ---\n' + tail + '\n'
+      const mailto = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      await shell.openExternal(mailto)
+      if (filePath) { try { shell.showItemInFolder(filePath) } catch (_) {} }
+      return { success: true, filePath }
+    } catch (err) {
+      return { success: false, error: err.message }
     }
   })
 

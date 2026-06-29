@@ -123,6 +123,8 @@ export default function Polizza({ visible }) {
   const lastSettingsRef = useRef(null)
   const [showDiagBtn, setShowDiagBtn] = useState(false)
   const [diagSaved, setDiagSaved] = useState(false)
+  const [lastLogPath, setLastLogPath] = useState(null)
+  const [emailMsg, setEmailMsg] = useState(null)
 
   const buildDiagText = () => {
     const s = lastSettingsRef.current || {}
@@ -165,6 +167,20 @@ export default function Polizza({ visible }) {
       setDiagSaved(true)
       setTimeout(() => setDiagSaved(false), 3000)
     }
+  }
+
+  // Apre la mail del cliente GIÀ compilata verso lo sviluppatore col log + rivela il
+  // file da allegare. Nessuna credenziale nell'app: usa il client di posta del cliente.
+  const handleEmailLog = async () => {
+    const content = buildDiagText()
+    const res = await window.electronAPI.polizzaEmailLog({ content, to: 'info@thinkpinkstudio.it' })
+    if (res?.success) {
+      if (res.filePath) setLastLogPath(res.filePath)
+      setEmailMsg('Email aperta nel tuo programma di posta — allega il file evidenziato e premi Invia.')
+    } else {
+      setEmailMsg('Impossibile aprire la mail automaticamente' + (res?.error ? ' (' + res.error + ')' : '') + (lastLogPath ? '. File log salvato: ' + lastLogPath : '.'))
+    }
+    setTimeout(() => setEmailMsg(null), 8000)
   }
 
   // Listener di progresso registrato UNA volta al mount (non per-run): la
@@ -307,6 +323,12 @@ export default function Polizza({ visible }) {
       setExtracting(false)
       setRollingProgress(null)
       setShowDiagBtn(true)
+      // Salva SEMPRE il log su file (electron-log + file dedicato): così al cliente
+      // resta una traccia del perché anche se "non è successo nulla". Mai bloccante.
+      try {
+        const r = await window.electronAPI.polizzaWriteLog({ content: buildDiagText() })
+        if (r?.filePath) setLastLogPath(r.filePath)
+      } catch (_) { /* il log non deve mai rompere l'estrazione */ }
     }
   }
 
@@ -320,29 +342,51 @@ export default function Polizza({ visible }) {
     setVisionMsg('extracting')
     setVisionErr(null)
 
+    const dlog = (m) => diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ${m}`)
+
+    // Verifica PRIMA che l'OCR sia davvero utilizzabile: senza, il fascicolo intero
+    // produrrebbe testo vuoto su ogni pagina e finirebbe con 0 campi e NESSUN errore
+    // (la "barra blu che muore"). Meglio fermarsi subito con un messaggio chiaro.
+    let ocrStatus = { available: true }
+    try { ocrStatus = await window.electronAPI.polizzaOcrStatus() }
+    catch (e) { ocrStatus = { available: false, reason: 'impossibile verificare OCR: ' + e.message } }
+    dlog(`OCR disponibile: ${ocrStatus.available}${ocrStatus.available ? '' : ' — ' + (ocrStatus.reason || 'motivo sconosciuto')}`)
+    if (!ocrStatus.available) {
+      const msg = `OCR non disponibile su questo computer (${ocrStatus.reason || 'motivo sconosciuto'}). La modalità "fascicolo intero" richiede il riconoscimento testo (Tesseract): estrazione interrotta. Il log è stato salvato.`
+      dlog('ERRORE FATALE: ' + msg)
+      setVisionMsg('error'); setVisionErr(msg); setError(msg)
+      setVisionExtracting(false); setRollingProgress(null)
+      return
+    }
+
     let pdfjs
     try {
       const pdfjsLib = await import('pdfjs-dist')
       pdfjs = pdfjsLib.default || pdfjsLib
       if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
     } catch (err) {
-      setVisionMsg('error'); setVisionErr('Componente PDF non disponibile: ' + err.message); setVisionExtracting(false); return
+      dlog('ERRORE: componente PDF non disponibile: ' + err.message)
+      setVisionMsg('error'); setVisionErr('Componente PDF non disponibile: ' + err.message); setError('Componente PDF non disponibile: ' + err.message); setVisionExtracting(false); return
     }
 
     const parts = []
     let totalPagesProcessed = 0
+    let ocrPagesWithText = 0
+    let docsRead = 0
     try {
       for (let sfIdx = 0; sfIdx < scannedFilesList.length; sfIdx++) {
         const sf = scannedFilesList[sfIdx]
         const docName = sf.path.split(/[\\/]/).pop()
         const bufResult = await window.electronAPI.polizzaGetFileBuffer(sf.path)
-        if (!bufResult.success) continue
+        if (!bufResult.success) { dlog(`SKIP doc "${docName}": buffer non leggibile (${bufResult.error || 'n/d'})`); continue }
         let doc
         try {
           doc = await pdfjs.getDocument({ data: new Uint8Array(bufResult.buffer), isEvalSupported: false }).promise
-        } catch (err) { continue }
+        } catch (err) { dlog(`SKIP doc "${docName}": apertura PDF fallita (${err.message})`); continue }
+        docsRead++
         const totalPages = doc.numPages
         let docText = ''
+        let docOcrPages = 0
         for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
           totalPagesProcessed++
           setRollingProgress({ docIndex: sfIdx, docTotal: scannedFilesList.length, pageIndex: pageNum, pageTotal: totalPages, docName, totalPagesProcessed, state: {}, receivedAt: Date.now() })
@@ -371,29 +415,49 @@ export default function Polizza({ visible }) {
             } catch (ppErr) { /* preprocessing opzionale */ }
             imageBase64 = canvas.toDataURL('image/png')
             page.cleanup()
-          } catch (err) { continue }
+          } catch (err) { dlog(`SKIP pagina ${pageNum} di "${docName}": render fallito (${err.message})`); continue }
           try {
             const ocr = await window.electronAPI.polizzaOcrPage({ imageBase64 })
-            if (ocr.success && ocr.text) docText += '\n' + ocr.text
-          } catch (e) { /* salta pagina */ }
+            if (ocr.success && ocr.text) { docText += '\n' + ocr.text; ocrPagesWithText++; docOcrPages++ }
+            else if (!ocr.success) { dlog(`OCR fallito pagina ${pageNum} di "${docName}": ${ocr.error || 'n/d'}`) }
+          } catch (e) { dlog(`OCR eccezione pagina ${pageNum} di "${docName}": ${e.message}`) }
         }
         try { doc.destroy() } catch (_) {}
+        dlog(`Doc "${docName}": ${docOcrPages}/${totalPages} pagine con testo, ${docText.trim().length} char`)
         parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
       }
 
       const fullText = parts.join('\n')
-      diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Fascicolo intero: ${parts.length} doc, ${fullText.length} char → estrazione in 1 chiamata`)
+      dlog(`Fascicolo intero: ${docsRead}/${scannedFilesList.length} doc letti, ${ocrPagesWithText} pagine con testo, ${fullText.length} char totali`)
+
+      // Niente "morte silenziosa": se l'OCR non ha prodotto testo, fermati e dillo.
+      if (ocrPagesWithText === 0 || fullText.trim().length < 50) {
+        const msg = "L'OCR non ha prodotto testo leggibile dai documenti (0 pagine utili). Possibili cause: Tesseract non operativo, PDF protetti/illeggibili, o pagine vuote. Estrazione interrotta — log salvato."
+        dlog('ERRORE FATALE: ' + msg)
+        setVisionMsg('error'); setVisionErr(msg); setError(msg)
+        return
+      }
+
       const res = await window.electronAPI.polizzaExtractWholeDossier({ fullText })
       if (res.success) {
+        const nFields = Object.keys(res.data || {}).length
         setExtracted(res.data || {})
         setSources(res.sources || {})
-        setVisionMsg(null)
-        diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] Fascicolo intero: estratti ${Object.keys(res.data || {}).length} campi`)
+        dlog(`Fascicolo intero: estratti ${nFields} campi`)
+        if (nFields === 0) {
+          const msg = "Il modello non ha estratto alcun campo dal testo OCR. Controlla il log: l'OCR potrebbe aver prodotto testo di scarsa qualità, o il modello/chiave non è configurato correttamente."
+          dlog('AVVISO: ' + msg)
+          setVisionMsg('error'); setVisionErr(msg)
+        } else {
+          setVisionMsg(null)
+        }
       } else {
-        setVisionMsg('error'); setVisionErr(res.error || 'Estrazione fascicolo fallita')
+        dlog(`ERRORE estrazione fascicolo: ${res.error || 'n/d'}${res.connectionError ? ' [rete]' : ''}${res.timeoutError ? ' [timeout]' : ''}`)
+        setVisionMsg('error'); setVisionErr(res.error || 'Estrazione fascicolo fallita'); setError(res.error || 'Estrazione fascicolo fallita')
       }
     } catch (err) {
-      setVisionMsg('error'); setVisionErr(err.message)
+      dlog('ERRORE non gestito fascicolo intero: ' + err.message)
+      setVisionMsg('error'); setVisionErr(err.message); setError(err.message)
     } finally {
       setVisionExtracting(false)
       setRollingProgress(null)
@@ -1192,6 +1256,29 @@ export default function Polizza({ visible }) {
               >
                 {diagSaved ? '✓ Salvato' : '📋 Salva diagnostica'}
               </button>
+            )}
+
+            {showDiagBtn && (
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '11px', padding: '4px 10px', opacity: 0.75 }}
+                onClick={handleEmailLog}
+                title="Apre la tua posta già compilata verso lo sviluppatore, col log da allegare"
+              >
+                📧 Invia log allo sviluppatore
+              </button>
+            )}
+            {emailMsg && (
+              <div style={{
+                fontSize: '11px',
+                padding: '6px 10px',
+                borderRadius: 'var(--r-sm)',
+                background: 'rgba(59,130,246,0.08)',
+                border: '1px solid rgba(59,130,246,0.25)',
+                color: 'var(--c-text-secondary)'
+              }}>
+                {emailMsg}
+              </div>
             )}
 
             {/* Indicatore vision OCR */}

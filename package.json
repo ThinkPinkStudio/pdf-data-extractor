@@ -49,7 +49,14 @@
       {
         "from": "assets/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "ita.traineddata",
+        "to": "ita.traineddata"
       }
+    ],
+    "asarUnpack": [
+      "**/node_modules/tesseract.js-core/**"
     ],
     "mac": {
       "category": "public.app-category.utilities",

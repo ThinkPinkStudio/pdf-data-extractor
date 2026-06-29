@@ -1,5 +1,7 @@
 import log from 'electron-log/main'
-import { dirname } from 'node:path'
+import { app } from 'electron'
+import { dirname, join } from 'node:path'
+import { writeFileSync, mkdirSync } from 'node:fs'
 
 // ─── Traccia persistente su disco (electron-log) ─────────────────────────────
 //
@@ -38,4 +40,23 @@ export function logLlmFailure(record) {
 // Cartella dei log, per "Apri cartella log".
 export function getLogDir() {
   try { return dirname(log.transports.file.getFile().path) } catch { return null }
+}
+
+// Traccia di una singola estrazione polizza (passi + esito), sempre su main.log.
+// Così, anche se al cliente "non succede nulla", su disco resta il perché.
+export function logPolizzaRun(text) {
+  try { log.info('[polizza-run]\n' + (text || '')) } catch { /* noop */ }
+}
+
+// Scrive un file di log DEDICATO a una singola pratica e ne ritorna il percorso,
+// così il cliente può allegarlo a una mail. Non solleva mai: se fallisce torna null.
+export function writePolizzaRunFile(text) {
+  try {
+    const dir = join(app.getPath('userData'), 'logs')
+    mkdirSync(dir, { recursive: true })
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const file = join(dir, `polizza-run-${ts}.log`)
+    writeFileSync(file, text || '', 'utf-8')
+    return file
+  } catch { return null }
 }
