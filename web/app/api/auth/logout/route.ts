@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   const email = session.email
   session.destroy()
 
-  logAction({ email, action: 'auth.logout', success: true, ip, userAgent })
+  await logAction({ email, action: 'auth.logout', success: true, ip, userAgent })
 
   return NextResponse.json({ ok: true })
 }

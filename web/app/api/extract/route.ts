@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   const tmpPath = join(tmpdir(), `pdf-extract-${randomUUID()}.pdf`)
-  logAction({ email: session.email, action: 'extract.start', resource: pdfFile.name, ip, userAgent })
+  await logAction({ email: session.email, action: 'extract.start', resource: pdfFile.name, ip, userAgent })
 
   try {
     const buffer = Buffer.from(await pdfFile.arrayBuffer())
@@ -46,11 +46,11 @@ export async function POST(req: NextRequest) {
     const { extractDataFromPDF } = await import('@/lib/extractService')
     const fields = await extractDataFromPDF(tmpPath, fieldList)
 
-    logAction({ email: session.email, action: 'extract.complete', resource: pdfFile.name, ip, userAgent, metadata: { fieldCount: fields.length } })
+    await logAction({ email: session.email, action: 'extract.complete', resource: pdfFile.name, ip, userAgent, metadata: { fieldCount: fields.length } })
 
     return NextResponse.json({ fields })
   } catch (err) {
-    logAction({ email: session.email, action: 'extract.error', resource: pdfFile.name, success: false, ip, userAgent, metadata: { error: String(err) } })
+    await logAction({ email: session.email, action: 'extract.error', resource: pdfFile.name, success: false, ip, userAgent, metadata: { error: String(err) } })
     return NextResponse.json({ error: 'Errore durante l\'estrazione: ' + String(err) }, { status: 500 })
   } finally {
     await unlink(tmpPath).catch(() => {})

@@ -7,7 +7,7 @@ export async function GET() {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const s = getSettings()
+  const s = await getSettings()
   // Never return secrets to client
   return NextResponse.json({
     llmProvider: s.llmProvider,
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
 
   // Don't overwrite keys if placeholder sent
-  const current = getSettings()
+  const current = await getSettings()
   const update = {
     llmProvider: body.llmProvider ?? current.llmProvider,
     llmModel: body.llmModel ?? current.llmModel,
@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
     anthropicApiKey: body.anthropicApiKey && body.anthropicApiKey !== '***' ? body.anthropicApiKey : current.anthropicApiKey,
   }
 
-  saveSettings(update)
-  logAction({ email: session.email, action: 'settings.save', ip })
+  await saveSettings(update)
+  await logAction({ email: session.email, action: 'settings.save', ip })
 
   return NextResponse.json({ ok: true })
 }

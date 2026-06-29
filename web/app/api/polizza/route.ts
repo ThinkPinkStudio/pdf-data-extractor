@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   const tmpPath = join(tmpdir(), `polizza-${randomUUID()}.pdf`)
-  logAction({ email: session.email, action: 'polizza.start', resource: pdfFile.name, ip, userAgent })
+  await logAction({ email: session.email, action: 'polizza.start', resource: pdfFile.name, ip, userAgent })
 
   try {
     const buffer = Buffer.from(await pdfFile.arrayBuffer())
@@ -37,11 +37,11 @@ export async function POST(req: NextRequest) {
     const { extractPolizza } = await import('@/lib/polizzaService')
     const result = await extractPolizza(tmpPath)
 
-    logAction({ email: session.email, action: 'polizza.complete', resource: pdfFile.name, ip, userAgent })
+    await logAction({ email: session.email, action: 'polizza.complete', resource: pdfFile.name, ip, userAgent })
 
     return NextResponse.json(result)
   } catch (err) {
-    logAction({ email: session.email, action: 'polizza.error', resource: pdfFile.name, success: false, ip, userAgent, metadata: { error: String(err) } })
+    await logAction({ email: session.email, action: 'polizza.error', resource: pdfFile.name, success: false, ip, userAgent, metadata: { error: String(err) } })
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {
     await unlink(tmpPath).catch(() => {})
