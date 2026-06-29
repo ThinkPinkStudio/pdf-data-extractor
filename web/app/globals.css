@@ -3,16 +3,19 @@
 :root {
   --c-accent: #6c63ff;
   --c-accent-hover: #574fd6;
-  --c-bg: #0f0f1a;
-  --c-surface: #1a1a2e;
-  --c-surface-2: #22223b;
-  --c-border: #2e2e4a;
+  --c-bg: #0d0d1a;
+  --c-surface: #161625;
+  --c-surface-2: #1e1e32;
+  --c-border: #2a2a42;
   --c-text: #e8e8f0;
-  --c-text-muted: #888;
-  --c-danger: #e05252;
-  --c-success: #52c97a;
+  --c-text-muted: #6a6a8a;
+  --c-danger: #ef4444;
+  --c-success: #22c55e;
   --radius: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius-lg: 14px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
 }
 
 body {
