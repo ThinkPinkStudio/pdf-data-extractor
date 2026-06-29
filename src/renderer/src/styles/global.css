@@ -1474,40 +1474,4 @@ a.contact-info:hover { opacity: 0.8; }
 .font-mono { font-family: var(--font-mono); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ─── Login overlay (magic link auth) ────────────────────────── */
-.login-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--c-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 20px;
-}
-.login-card {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: 12px;
-  padding: 36px 32px;
-  width: 100%;
-  max-width: 400px;
-}
-.login-logo {
-  text-align: center;
-  margin-bottom: 28px;
-}
-.login-logo-icon { font-size: 40px; display: block; margin-bottom: 8px; }
-.login-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-.login-subtitle { color: var(--c-text-muted); font-size: 13px; }
-.login-waiting { text-align: center; padding: 8px 0; }
-.login-waiting .spinner { width: 32px; height: 32px; margin-bottom: 16px; }
-.login-error {
-  background: rgba(224,82,82,0.15);
-  border: 1px solid var(--c-danger);
-  color: var(--c-danger);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  margin-bottom: 14px;
-}
+/* Login styles moved to Login.module.css */

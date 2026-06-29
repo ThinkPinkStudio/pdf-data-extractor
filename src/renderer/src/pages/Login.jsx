@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import styles from './Login.module.css'
 
 export default function Login({ onLoginSuccess }) {
-  const { t } = useTranslation()
   const [email, setEmail] = useState('')
-  const [status, setStatus] = useState('idle') // idle | sending | waiting | error
+  const [status, setStatus] = useState('idle') // idle | sending | error
   const [errorMsg, setErrorMsg] = useState('')
 
   async function handleSubmit(e) {
@@ -16,59 +15,56 @@ export default function Login({ onLoginSuccess }) {
     const result = await window.electronAPI.authSendMagicLink(email.trim())
 
     if (result.success) {
-      // Login completed (magic link clicked in browser)
       onLoginSuccess(result.email)
     } else if (result.error?.includes('Timeout')) {
       setStatus('error')
-      setErrorMsg('Timeout: nessun accesso ricevuto. Riprova.')
+      setErrorMsg('Timeout: nessun accesso ricevuto entro il limite. Riprova.')
     } else {
       setStatus('error')
-      setErrorMsg(result.error || t('auth.sendError'))
+      setErrorMsg(result.error || 'Errore durante l\'invio del link.')
     }
   }
 
   return (
-    <div className="login-overlay">
-      <div className="login-card">
-        <div className="login-logo">
-          <span className="login-logo-icon">📄</span>
-          <h1 className="login-title">{t('auth.title')}</h1>
-          <p className="login-subtitle">{t('auth.subtitle')}</p>
+    <div className={styles.overlay}>
+      <div className={styles.card}>
+        {/* Logo */}
+        <div className={styles.logoWrap}>
+          <div className={styles.logoIcon}>📄</div>
+          <h1 className={styles.title}>PDF Data Extractor</h1>
+          <p className={styles.subtitle}>Accedi con un link sicuro via email</p>
         </div>
 
         {status === 'sending' ? (
-          <div className="login-waiting">
-            <div className="spinner" />
-            <p>Email inviata a <strong>{email}</strong>.</p>
-            <p style={{ color: 'var(--c-text-muted)', fontSize: 12, marginTop: 8 }}>
-              Clicca il link nella tua email (si aprirà il browser).<br />
-              Questa finestra si aggiornerà automaticamente.
+          <div className={styles.waiting}>
+            <div className={styles.spinner} />
+            <p className={styles.waitingText}>
+              Link inviato a <strong>{email}</strong>
+            </p>
+            <p className={styles.waitingHint}>
+              Clicca il link nella tua email — questa finestra si aggiornerà automaticamente.
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} className={styles.form}>
             {status === 'error' && (
-              <div className="login-error">{errorMsg}</div>
+              <div className={styles.error}>{errorMsg}</div>
             )}
-            <div className="form-group">
-              <label className="label" htmlFor="login-email">{t('auth.emailLabel')}</label>
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="login-email">Email</label>
               <input
                 id="login-email"
+                className={styles.input}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={t('auth.emailPlaceholder')}
+                placeholder="tu@azienda.it"
                 required
                 autoFocus
               />
             </div>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ width: '100%' }}
-              disabled={status === 'sending'}
-            >
-              {t('auth.sendLink')}
+            <button type="submit" className={styles.btn} disabled={status === 'sending'}>
+              Invia link di accesso
             </button>
           </form>
         )}

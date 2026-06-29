@@ -1,0 +1,164 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-bg-app);
+  padding: 24px;
+  z-index: 9999;
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-xl);
+  padding: 32px 28px 28px;
+  box-shadow: var(--shadow-lg);
+}
+
+.logoWrap {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.logoIcon {
+  width: 54px;
+  height: 54px;
+  border-radius: var(--r-lg);
+  background: var(--gradient-logo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin: 0 auto 14px;
+  box-shadow: 0 4px 20px rgba(233, 30, 140, 0.35);
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.3px;
+  margin-bottom: 5px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-muted);
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  background: var(--c-bg-input);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  color: var(--c-text-primary);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.input:focus {
+  border-color: var(--c-border-focus);
+  box-shadow: 0 0 0 3px rgba(233, 30, 140, 0.15);
+}
+
+.input::placeholder {
+  color: var(--c-text-muted);
+}
+
+.btn {
+  width: 100%;
+  padding: 11px 20px;
+  border-radius: var(--r-md);
+  border: none;
+  background: var(--gradient-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity var(--t-fast), transform var(--t-fast);
+  box-shadow: 0 2px 12px rgba(233, 30, 140, 0.3);
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--c-error);
+  color: var(--c-error);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.waiting {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--c-border);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.waitingText {
+  font-size: 14px;
+  color: var(--c-text-primary);
+  margin-bottom: 8px;
+}
+
+.waitingHint {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  line-height: 1.6;
+}
