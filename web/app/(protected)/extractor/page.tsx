@@ -36,6 +36,11 @@ export default function ExtractorPage() {
   const [chatInput, setChatInput] = useState('')
   const [chatStreaming, setChatStreaming] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Profili campi di estrazione (definiti in Impostazioni): precompilano i campi.
+  const [profiles, setProfiles] = useState<{ id: string; name: string; fields: { label: string; enabled?: boolean }[] }[]>([])
+  useEffect(() => {
+    fetch('/api/settings').then((r) => r.json()).then((s) => setProfiles(s.profiles || [])).catch(() => {})
+  }, [])
 
   const [pageNum, setPageNum] = useState(1)
   const [numPages, setNumPages] = useState(0)
@@ -226,6 +231,13 @@ export default function ExtractorPage() {
             <div className="ext-panel">
               <div className="form-group">
                 <label className="label">{t('ext.fieldsLabel')}</label>
+                {profiles.length > 0 && (
+                  <select value="" onChange={(e) => { const p = profiles.find((x) => x.id === e.target.value); if (p) setFields(p.fields.filter((f) => f.enabled !== false).map((f) => f.label).filter(Boolean).join(', ')) }}
+                    style={{ marginBottom: 6, fontSize: 12 }}>
+                    <option value="">{t('ext.loadProfile')}</option>
+                    {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
                 <textarea rows={3} value={fields} onChange={(e) => setFields(e.target.value)} placeholder={t('ext.fieldsPlaceholder')} style={{ resize: 'vertical' }} />
                 <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('ext.fieldsHelp')}</p>
               </div>

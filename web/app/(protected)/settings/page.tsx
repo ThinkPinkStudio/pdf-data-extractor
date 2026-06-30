@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import PolizzaFieldsEditor from '@/components/PolizzaFieldsEditor'
+import GenericFieldsEditor from '@/components/GenericFieldsEditor'
 
 interface Settings {
   llmProvider: string
@@ -48,7 +49,7 @@ export default function SettingsPage() {
   const [s, setS] = useState<Settings>(DEFAULTS)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult, setTestResult] = useState<{ provider: string; ok: boolean; msg: string } | null>(null)
   const [ollama, setOllama] = useState<{ connected: boolean; models: string[] } | null>(null)
 
   useEffect(() => {
@@ -62,20 +63,25 @@ export default function SettingsPage() {
 
   function up<K extends keyof Settings>(k: K, v: Settings[K]) { setS((p) => ({ ...p, [k]: v })); setSaved(false); setTestResult(null) }
 
+  // Chiavi gestite e salvate dagli editor dedicati (PolizzaFieldsEditor / generico):
+  // vanno escluse dal salvataggio della pagina per non sovrascriverle con valori stale.
+  const EDITOR_KEYS = new Set([
+    'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles', 'polizzaWholeDossierModel',
+    'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses', 'extractions', 'profiles',
+  ])
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    // I campi/profili/prompt polizza sono gestiti e salvati dall'editor dedicato:
-    // li escludiamo qui per non sovrascriverli con valori non aggiornati.
-    const { polizzaPromptExtra: _pe, ...rest } = s as unknown as Record<string, unknown>
-    void _pe
+    const rest: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(s as unknown as Record<string, unknown>)) if (!EDITOR_KEYS.has(k)) rest[k] = v
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rest) })
     setSaved(true)
   }
-  async function handleTest() {
+  async function handleTest(provider?: string) {
+    const prov = provider || s.llmProvider
     setTesting(true); setTestResult(null)
-    const res = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) })
+    const res = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...s, llmProvider: prov }) })
     const d = await res.json()
-    setTestResult({ ok: d.ok, msg: d.message || (d.ok ? t('set.connOk') : t('set.connFail')) })
+    setTestResult({ provider: prov, ok: d.ok, msg: d.message || (d.ok ? t('set.connOk') : t('set.connFail')) })
     setTesting(false)
   }
 
@@ -154,10 +160,16 @@ export default function SettingsPage() {
             </>
           )}
 
-          {testResult && <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`}>{testResult.msg}</div>}
-          <button type="button" className="btn btn-secondary" onClick={handleTest} disabled={testing}>
-            {testing ? <><span className="spinner" /> {t('set.testing')}</> : t('set.testConn')}
-          </button>
+          {testResult && <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`}>{testResult.provider.toUpperCase()}: {testResult.msg}</div>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" className="btn btn-secondary" onClick={() => handleTest()} disabled={testing}>
+              {testing ? <><span className="spinner" /> {t('set.testing')}</> : t('set.testConn')}
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('set.testProviderHint')}</span>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('ollama')} disabled={testing}>Ollama</button>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('openai')} disabled={testing}>OpenAI</button>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('anthropic')} disabled={testing}>Anthropic</button>
+          </div>
         </div>
 
         {/* Polizze */}
@@ -168,6 +180,9 @@ export default function SettingsPage() {
             <Toggle checked={!!s.polizzaWholeDossier} onChange={(v) => up('polizzaWholeDossier', v)} label={t('set.wholeDossier')} />
           </div>
         </div>
+
+        {/* Editor campi di estrazione generici + profili */}
+        <GenericFieldsEditor />
 
         {/* Editor campi polizza + prompt + profili JSON */}
         <PolizzaFieldsEditor />

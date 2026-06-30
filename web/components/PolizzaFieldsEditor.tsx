@@ -48,6 +48,12 @@ export default function PolizzaFieldsEditor() {
   const [cellText, setCellText] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Verifica/qualità (usati dal servizio condiviso): modello fascicolo intero,
+  // campi da verificare, passate di consenso, modello arbitro.
+  const [wholeDossierModel, setWholeDossierModel] = useState('')
+  const [verificaCampi, setVerificaCampi] = useState('')
+  const [verificaModel, setVerificaModel] = useState('')
+  const [consensusPasses, setConsensusPasses] = useState(3)
   const dragIndex = useRef<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -60,6 +66,10 @@ export default function PolizzaFieldsEditor() {
       setFields((f.fields && f.fields.length ? f.fields : f.defaultFields) || [])
       setPromptExtra(s.polizzaPromptExtra || '')
       setProfiles(s.polizzaProfiles || [])
+      setWholeDossierModel(s.polizzaWholeDossierModel || '')
+      setVerificaCampi(s.polizzaVerificaCampi || '')
+      setVerificaModel(s.polizzaVerificaModel || '')
+      setConsensusPasses(s.polizzaConsensusPasses || 3)
       setLoading(false)
     })
   }, [])
@@ -98,7 +108,11 @@ export default function PolizzaFieldsEditor() {
   async function save() {
     await fetch('/api/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ polizzaFields: fields, polizzaPromptExtra: promptExtra }),
+      body: JSON.stringify({
+        polizzaFields: fields, polizzaPromptExtra: promptExtra,
+        polizzaWholeDossierModel: wholeDossierModel, polizzaVerificaCampi: verificaCampi,
+        polizzaVerificaModel: verificaModel, polizzaConsensusPasses: consensusPasses,
+      }),
     })
     setSaved(true); setTimeout(() => setSaved(false), 2500)
   }
@@ -109,10 +123,21 @@ export default function PolizzaFieldsEditor() {
     setProfiles(next); setProfileName('')
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
   }
-  function applyProfile(p: Profile) {
-    setFields(p.fields.map((f) => ({ ...f, cells: [...(f.cells || [])] })))
-    setPromptExtra(p.promptExtra || '')
-    setSaved(false)
+  // Persiste subito i campi/prompt correnti (come fa il desktop): così l'applicazione
+  // o l'import di un profilo non va persa uscendo dalla pagina senza premere "Salva".
+  async function persistFields(appliedFields: Field[], appliedPrompt: string, extra?: Record<string, unknown>) {
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ polizzaFields: appliedFields, polizzaPromptExtra: appliedPrompt, ...(extra || {}) }),
+    })
+  }
+
+  async function applyProfile(p: Profile) {
+    const applied = (p.fields || []).map((f) => ({ ...f, cells: [...(f.cells || [])] }))
+    const prompt = p.promptExtra || ''
+    setFields(applied); setPromptExtra(prompt)
+    setSaved(true); setTimeout(() => setSaved(false), 2500)
+    await persistFields(applied, prompt)
   }
   async function delProfile(id: string) {
     const next = profiles.filter((p) => p.id !== id)
@@ -130,8 +155,17 @@ export default function PolizzaFieldsEditor() {
       const stamped = arr.map((p, i) => ({ ...p, id: String(Date.now() + i) }))
       const next = [...profiles, ...stamped]
       setProfiles(next)
-      if (stamped.length) applyProfile(stamped[stamped.length - 1])
-      await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
+      // Applica l'ultimo profilo e PERSISTE campi+prompt insieme ai profili (come desktop),
+      // così l'import non viene perso uscendo dalla pagina.
+      const last = stamped[stamped.length - 1]
+      const appliedFields = last?.fields?.length ? last.fields.map((f) => ({ ...f, cells: [...(f.cells || [])] })) : fields
+      const appliedPrompt = last?.promptExtra ?? promptExtra
+      if (last?.fields?.length) { setFields(appliedFields); setPromptExtra(appliedPrompt || '') }
+      setSaved(true); setTimeout(() => setSaved(false), 2500)
+      await fetch('/api/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ polizzaProfiles: next, polizzaFields: appliedFields, polizzaPromptExtra: appliedPrompt || '' }),
+      })
     } catch { /* file non valido */ }
   }
 
@@ -147,6 +181,35 @@ export default function PolizzaFieldsEditor() {
         <label className="label">{t('set.promptExtra')}</label>
         <textarea value={promptExtra} onChange={(e) => { setPromptExtra(e.target.value); setSaved(false) }} rows={4}
           placeholder={t('set.promptExtraPlaceholder')} style={{ resize: 'vertical', fontSize: 13 }} />
+      </div>
+
+      {/* Verifica / qualità estrazione */}
+      <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--c-separator)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{t('set.qualityTitle')}</h3>
+        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 10 }}>{t('set.qualitySubtitle')}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="label">{t('set.wholeDossierModel')}</label>
+            <input value={wholeDossierModel} onChange={(e) => { setWholeDossierModel(e.target.value); setSaved(false) }}
+              placeholder="claude-haiku-4-5-20251001" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="label">{t('set.consensusPasses')}</label>
+            <input type="number" min={2} max={5} value={consensusPasses}
+              onChange={(e) => { setConsensusPasses(Math.max(2, Math.min(5, parseInt(e.target.value, 10) || 3))); setSaved(false) }}
+              style={{ fontSize: 12 }} />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="label">{t('set.verificaCampi')}</label>
+            <input value={verificaCampi} onChange={(e) => { setVerificaCampi(e.target.value); setSaved(false) }}
+              placeholder={t('set.verificaCampiPlaceholder')} style={{ fontSize: 12 }} />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="label">{t('set.verificaModel')}</label>
+            <input value={verificaModel} onChange={(e) => { setVerificaModel(e.target.value); setSaved(false) }}
+              placeholder="claude-sonnet-4-6" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
+          </div>
+        </div>
       </div>
 
       {/* Header colonne */}
