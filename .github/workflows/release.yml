@@ -93,8 +93,8 @@ jobs:
           # Senza questo mapping i secret/vars del repo NON arrivano a process.env
           # durante 'npm run build', e __RESEND_API_KEY__ verrebbe compilato vuoto.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MAGIC_LINK_FROM: ${{ vars.MAGIC_LINK_FROM }}
-          ALLOWED_DOMAINS: ${{ vars.ALLOWED_DOMAINS }}
+          MAGIC_LINK_FROM: ${{ secrets.MAGIC_LINK_FROM }}
+          ALLOWED_DOMAINS: ${{ secrets.ALLOWED_DOMAINS }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
