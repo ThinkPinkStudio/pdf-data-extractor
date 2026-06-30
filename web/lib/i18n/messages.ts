@@ -95,6 +95,8 @@ export const messages: Record<Lang, Record<string, string>> = {
     'pol.dossierFailed': 'Estrazione fascicolo fallita',
     'pol.progressFile': 'File {a}/{b}',
     'pol.progressPage': 'Pag. {p}/{t}',
+    'pol.pagesProcessed': '{n} pagine elaborate',
+    'pol.pagesProcessedShort': '{n} pag. elaborate',
 
     // Batch
     'batch.title': 'Elaborazione Batch',
@@ -323,6 +325,8 @@ export const messages: Record<Lang, Record<string, string>> = {
     'pol.dossierFailed': 'Dossier extraction failed',
     'pol.progressFile': 'File {a}/{b}',
     'pol.progressPage': 'Page {p}/{t}',
+    'pol.pagesProcessed': '{n} pages processed',
+    'pol.pagesProcessedShort': '{n} pages done',
 
     'batch.title': 'Batch Processing',
     'batch.filesLabel': 'PDF files (multiple)',

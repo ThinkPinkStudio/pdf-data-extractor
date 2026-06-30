@@ -30,11 +30,6 @@ function buildSources(state: any): Record<string, Source> {
   }
   return out
 }
-function seedState(values: Record<string, string>): any {
-  const s: any = {}
-  for (const [k, v] of Object.entries(values || {})) if (v) s[k] = { valore: v }
-  return s
-}
 function mappingSheetNames(defaultMapping: any): string[] {
   const s = new Set<string>()
   for (const arr of Object.values(defaultMapping || {})) {
@@ -103,6 +98,23 @@ export default function PolizzaPage() {
       .catch(() => {})
   }, [])
 
+  // Tick di liveness: re-render al secondo durante l'estrazione, così il contatore
+  // mostra il tempo che passa anche durante una singola chiamata LLM lunga (es. vision
+  // su una pagina) in cui File/Pag. non possono avanzare (come desktop).
+  const [, setLivenessTick] = useState(0)
+  useEffect(() => {
+    if (!extracting && !visionExtracting) return
+    const id = setInterval(() => setLivenessTick((x) => x + 1), 1000)
+    return () => clearInterval(id)
+  }, [extracting, visionExtracting])
+
+  // Secondi trascorsi dall'ultimo avanzamento del progresso (liveness)
+  const liveSecs = (p: any): string => {
+    if (!p?.receivedAt) return ''
+    const s = Math.max(0, Math.floor((Date.now() - p.receivedAt) / 1000))
+    return s >= 2 ? ` · in analisi da ${s}s` : ''
+  }
+
   const addFiles = useCallback((incoming: File[]) => {
     const pdfs = incoming.filter((f) => f.name.toLowerCase().endsWith('.pdf'))
     if (!pdfs.length) return
@@ -131,7 +143,10 @@ export default function PolizzaPage() {
         throw new Error(d.error || t('pol.errProcessing'))
       }
       const data = await res.json()
-      setExtracted(data.values || {}); setSources(data.sources || {})
+      // Usa lo stato rolling strutturato se disponibile, altrimenti i valori piatti (come desktop)
+      const flatData = flattenRollingState(data.rollingState)
+      setExtracted(Object.keys(flatData).length > 0 ? flatData : (data.values || {}))
+      setSources(data.sources || {})
       if (data.fieldDefs?.length) setFields(data.fieldDefs)
       ;(data.log || []).forEach((l: string) => dlog(l))
 
@@ -139,7 +154,7 @@ export default function PolizzaPage() {
       const scannedObjs = files.filter((f) => scannedNames.includes(f.name))
       if (scannedObjs.length) {
         if (wholeDossier) await runWholeDossier(scannedObjs)
-        else await runVisionRolling(scannedObjs, data.values || {})
+        else await runVisionRolling(scannedObjs, data.rollingState || {})
       }
     } catch (err: any) {
       dlog(`ERRORE: ${err.message}`); setError(err.message)
@@ -149,9 +164,11 @@ export default function PolizzaPage() {
   }
 
   // ─── Vision rolling (pagina per pagina) ──────────────────────────────────────
-  async function runVisionRolling(scannedObjs: File[], seedValues: Record<string, string>) {
+  async function runVisionRolling(scannedObjs: File[], initialRollingState: any) {
     setVisionExtracting(true); setVisionMsg('extracting'); setVisionErr(null)
-    let state = seedState(seedValues)
+    // Parte dallo stato rolling strutturato del desktop ({valore, data_validita, fonte}),
+    // così il merge temporale pagina-per-pagina lato server si comporta come Electron.
+    let state = { ...(initialRollingState || {}) }
     let consecutiveFailures = 0
     let processed = 0
     try {
@@ -161,7 +178,7 @@ export default function PolizzaPage() {
         try {
           for (let p = 1; p <= doc.numPages; p++) {
             processed++
-            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed })
+            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed, receivedAt: Date.now() })
             const png = await doc.renderPage(p)
             const r = await fetch('/api/polizza/vision-update', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -208,7 +225,7 @@ export default function PolizzaPage() {
         try {
           for (let p = 1; p <= doc.numPages; p++) {
             processed++
-            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed })
+            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed, receivedAt: Date.now() })
             const png = await doc.renderPage(p)
             const r = await fetch('/api/polizza/ocr-page', {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: png }),
@@ -430,16 +447,38 @@ export default function PolizzaPage() {
               <div className="polizza-empty">
                 <span className="spinner" style={{ width: 28, height: 28 }} />
                 <h3>{t('pol.extracting')}</h3>
-                {progress
-                  ? <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{progress.docName}<br />{t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })}{progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}</p>
-                  : <p>{t('pol.analyzing')}</p>}
+                {progress ? (
+                  <>
+                    <div className="progress-bar" style={{ width: 220, margin: '8px auto 10px' }}>
+                      <div className="progress-bar-fill" style={{ width: `${Math.round((progress.docIndex / Math.max(1, progress.docTotal)) * 100)}%` }} />
+                    </div>
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.8 }}>
+                      {progress.docName}<br />
+                      {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })}
+                      {progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
+                      {liveSecs(progress)}
+                      {progress.totalPagesProcessed > 0 && <><br />{t('pol.pagesProcessed', { n: progress.totalPagesProcessed })}</>}
+                    </p>
+                  </>
+                ) : <p>{t('pol.analyzing')}</p>}
               </div>
             )}
             {extracted && (
               <>
                 {(extracting || visionExtracting) && progress && (
                   <div className="progress-banner">
-                    <span className="spinner" /> {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })} · {progress.docName}{progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
+                    <div className="progress-bar progress-bar-thin">
+                      <div className="progress-bar-fill" style={{ width: `${Math.round((progress.docIndex / Math.max(1, progress.docTotal)) * 100)}%` }} />
+                    </div>
+                    <div className="progress-banner-row">
+                      <span className="spinner" />
+                      <span>
+                        {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })} · {progress.docName}
+                        {progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
+                        {progress.totalPagesProcessed > 0 && ` · ${t('pol.pagesProcessedShort', { n: progress.totalPagesProcessed })}`}
+                        {liveSecs(progress)}
+                      </span>
+                    </div>
                   </div>
                 )}
                 <div className="ai-note">{t('pol.aiNote')}</div>
@@ -578,7 +617,11 @@ const POLIZZA_CSS = `
 .polizza-empty svg { opacity: .3; }
 .polizza-empty h3 { font-size: 15px; font-weight: 600; }
 .polizza-empty p { font-size: 12px; }
-.progress-banner { margin: 0 0 8px; padding: 6px 10px; border-radius: 6px; background: rgba(59,130,246,.07); border: 1px solid rgba(59,130,246,.2); font-size: 11px; color: var(--c-info); font-family: var(--font-mono); display: flex; align-items: center; gap: 8px; }
+.progress-banner { margin: 0 0 8px; border-radius: 6px; background: rgba(59,130,246,.07); border: 1px solid rgba(59,130,246,.2); font-size: 11px; color: var(--c-info); font-family: var(--font-mono); overflow: hidden; }
+.progress-banner-row { padding: 5px 10px; display: flex; align-items: center; gap: 8px; }
+.progress-bar { height: 4px; background: rgba(59,130,246,.15); border-radius: 2px; overflow: hidden; }
+.progress-bar-thin { height: 3px; border-radius: 0; }
+.progress-bar-fill { height: 100%; background: var(--c-info); border-radius: inherit; transition: width .4s; }
 .ai-note { margin: 0 0 10px; padding: 7px 12px; border-radius: 6px; background: rgba(234,179,8,.1); border: 1px solid rgba(234,179,8,.3); color: var(--c-text-secondary); font-size: 12px; }
 .polizza-table { width: 100%; border-collapse: collapse; }
 .polizza-table th, .polizza-table td { padding: 8px 12px; text-align: left; font-size: 12px; border-bottom: 1px solid var(--c-separator); }

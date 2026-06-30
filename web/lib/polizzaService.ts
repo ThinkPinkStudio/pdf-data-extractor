@@ -18,11 +18,15 @@ export interface PolizzaSource {
   page: number
 }
 
+// Stato rolling strutturato (come desktop): per ogni campo { valore, data_validita, ... }.
+export type PolizzaRollingState = Record<string, { valore: string | null; data_validita?: string | null } | null>
+
 export interface PolizzaResult {
   values: Record<string, string>
   sources: Record<string, PolizzaSource>
   scannedFiles: string[]
   fieldDefs: PolizzaFieldDef[]
+  rollingState: PolizzaRollingState
   log: string[]
 }
 
@@ -32,6 +36,14 @@ interface PolizzaServiceModule {
     data: Record<string, string>
     scannedFiles: { path: string }[]
     sources: Record<string, PolizzaSource>
+  }>
+  // Strategia "rolling" del desktop: NON usa il testo embedded (può essere spazzatura
+  // OCR), marca TUTTI i file come scansionati e ritorna lo stato rolling strutturato.
+  extractPolizzaRolling: (paths: string[], settings: unknown, onProgress?: unknown) => Promise<{
+    data: Record<string, string>
+    scannedFiles: { path: string }[]
+    sources: Record<string, PolizzaSource>
+    rollingState: PolizzaRollingState
   }>
   ALL_POLIZZA_FIELDS: PolizzaFieldDef[]
   CSA_MAPPING: Record<string, unknown>
@@ -85,7 +97,11 @@ export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult>
   const log: string[] = []
   log.push(`Inizio estrazione · ${pdfPaths.length} documento/i`)
 
-  const { data, scannedFiles, sources } = await m.extractPolizzaFromPDFs(pdfPaths, stored)
+  // Stessa strategia del desktop: il testo embedded dei PDF non è affidabile (può
+  // essere spazzatura OCR), quindi NON lo usiamo. Tutti i file vengono trattati come
+  // scansionati ed elaborati via OCR/AI-vision pagina per pagina dal browser,
+  // partendo dallo stato rolling strutturato qui inizializzato.
+  const { data, scannedFiles, sources, rollingState } = await m.extractPolizzaRolling(pdfPaths, stored)
 
   const custom = (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields
   const configured: PolizzaFieldDef[] = (custom && custom.length > 0 ? custom : m.ALL_POLIZZA_FIELDS)
@@ -95,7 +111,7 @@ export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult>
   const valueCount = Object.values(data || {}).filter((v) => v !== null && v !== undefined && v !== '').length
   log.push(`Campi valorizzati: ${valueCount}/${configured.length}`)
   if (scannedFiles?.length) {
-    log.push(`${scannedFiles.length} documento/i scansionati (solo immagine): verranno elaborati via OCR/AI vision.`)
+    log.push(`${scannedFiles.length} documento/i da elaborare via OCR/AI vision (pagina per pagina).`)
   }
 
   return {
@@ -103,6 +119,7 @@ export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult>
     sources: (sources || {}) as Record<string, PolizzaSource>,
     scannedFiles: (scannedFiles || []).map((f) => f.path.split(/[\\/]/).pop() || f.path),
     fieldDefs: configured,
+    rollingState: (rollingState || {}) as PolizzaRollingState,
     log,
   }
 }
