@@ -328,6 +328,21 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .theme-btn:hover { background: var(--c-bg-hover); color: var(--c-text-primary); }
 .theme-btn svg { width: 15px; height: 15px; }
 
+.lang-btn {
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-border);
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.lang-btn:hover { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.lang-btn.active { background: var(--c-accent-dim); color: var(--c-accent); border-color: var(--c-accent-dim); }
+
 .footer-email {
   font-size: 11px;
   color: var(--c-text-muted);

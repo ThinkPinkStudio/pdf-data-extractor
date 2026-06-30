@@ -64,19 +64,20 @@ const IconMoon = () => (
 )
 
 const NAV = [
-  { href: '/extractor', label: 'Estrattore', icon: <IconPDF /> },
-  { href: '/polizza', label: 'Polizze', icon: <IconShield /> },
-  { href: '/batch', label: 'Batch', icon: <IconBatch /> },
-  { href: '/history', label: 'Cronologia', icon: <IconHistory /> },
-  { href: '/settings', label: 'Impostazioni', icon: <IconSettings /> },
-  { href: '/diagnostics', label: 'Sicurezza', icon: <IconActivity /> },
-  { href: '/contacts', label: 'Contatti', icon: <IconUser /> },
+  { href: '/extractor', it: 'Estrattore', en: 'Extractor', icon: <IconPDF /> },
+  { href: '/polizza', it: 'Polizze', en: 'Policies', icon: <IconShield /> },
+  { href: '/batch', it: 'Batch', en: 'Batch', icon: <IconBatch /> },
+  { href: '/history', it: 'Cronologia', en: 'History', icon: <IconHistory /> },
+  { href: '/settings', it: 'Impostazioni', en: 'Settings', icon: <IconSettings /> },
+  { href: '/diagnostics', it: 'Sicurezza', en: 'Security', icon: <IconActivity /> },
+  { href: '/contacts', it: 'Contatti', en: 'Contacts', icon: <IconUser /> },
 ]
 
 export default function Sidebar({ email }: { email: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [lang, setLang] = useState<'it' | 'en'>('it')
 
   useEffect(() => {
     const saved = (localStorage.getItem('theme') as 'dark' | 'light' | null) || 'dark'
@@ -84,7 +85,17 @@ export default function Sidebar({ email }: { email: string }) {
     document.documentElement.setAttribute('data-theme', saved)
     const accent = localStorage.getItem('accentColor')
     if (accent) document.documentElement.style.setProperty('--c-accent', accent)
+    const l = (localStorage.getItem('lang') as 'it' | 'en' | null) || 'it'
+    setLang(l)
+    document.documentElement.lang = l
   }, [])
+
+  function changeLang(l: 'it' | 'en') {
+    setLang(l)
+    localStorage.setItem('lang', l)
+    document.documentElement.lang = l
+    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: l }) }).catch(() => {})
+  }
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark'
@@ -120,7 +131,7 @@ export default function Sidebar({ email }: { email: string }) {
             aria-current={pathname.startsWith(item.href) ? 'page' : undefined}
           >
             {item.icon}
-            <span>{item.label}</span>
+            <span>{lang === 'en' ? item.en : item.it}</span>
           </Link>
         ))}
       </nav>
@@ -132,6 +143,8 @@ export default function Sidebar({ email }: { email: string }) {
             {APP_VERSION && <span className="footer-version">v{APP_VERSION}</span>}
           </div>
           <div className="footer-actions">
+            <button className={`lang-btn${lang === 'it' ? ' active' : ''}`} onClick={() => changeLang('it')} aria-pressed={lang === 'it'}>IT</button>
+            <button className={`lang-btn${lang === 'en' ? ' active' : ''}`} onClick={() => changeLang('en')} aria-pressed={lang === 'en'}>EN</button>
             <button
               className="theme-btn"
               onClick={toggleTheme}
