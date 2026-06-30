@@ -20,7 +20,7 @@ const nextConfig = {
   },
   // Next.js 14 uses experimental.serverComponentsExternalPackages
   experimental: {
-    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs'],
+    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs', 'tesseract.js', 'jszip', 'electron'],
     instrumentationHook: true,
   },
 }

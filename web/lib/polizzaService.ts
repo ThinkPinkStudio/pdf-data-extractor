@@ -1,12 +1,12 @@
 import { getSettings } from './settingsStore'
-
-const SERVICES_PATH = '../../src/main/services'
+import { importSharedService } from './sharedServices'
 
 export interface PolizzaFieldDef {
   id: string
   label: string
   description?: string
   sheet?: string
+  enabled?: boolean
 }
 
 export interface PolizzaSource {
@@ -29,7 +29,10 @@ export interface PolizzaResult {
  */
 export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult> {
   const stored = await getSettings()
-  const { extractPolizzaFromPDFs, ALL_POLIZZA_FIELDS } = await import(`${SERVICES_PATH}/polizzaService.js`)
+  const { extractPolizzaFromPDFs, ALL_POLIZZA_FIELDS } = await importSharedService<{
+    extractPolizzaFromPDFs: (paths: string[], settings: unknown) => Promise<{ data: Record<string, string>; scannedFiles: { path: string }[]; sources: Record<string, PolizzaSource> }>
+    ALL_POLIZZA_FIELDS: PolizzaFieldDef[]
+  }>('polizzaService.js')
 
   const log: string[] = []
   log.push(`Inizio estrazione · ${pdfPaths.length} documento/i`)
@@ -40,8 +43,8 @@ export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult>
   // condivisi (gli stessi dell'app desktop). polizzaFields resta opzionale.
   const customFields = (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields
   const configured: PolizzaFieldDef[] = (customFields && customFields.length > 0 ? customFields : ALL_POLIZZA_FIELDS)
-    .filter((f: { enabled?: boolean }) => f.enabled !== false)
-    .map((f: PolizzaFieldDef) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    .filter((f) => f.enabled !== false)
+    .map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
 
   const valueCount = Object.values(data || {}).filter((v) => v !== null && v !== undefined && v !== '').length
   log.push(`Campi valorizzati: ${valueCount}/${configured.length}`)
