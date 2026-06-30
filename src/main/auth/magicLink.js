@@ -5,15 +5,15 @@ import { saveSession } from './session.js'
 import { logAction } from '../services/actionLogger.js'
 import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
 
-/* global __RESEND_API_KEY__ __MAGIC_LINK_FROM__ */
-// Chiave API Resend e mittente: iniettati a build time (vedi electron.vite.config.mjs).
-// Override a runtime via env (utile in sviluppo/test) ha la precedenza.
-const RESEND_API_KEY =
-  process.env.RESEND_API_KEY || (typeof __RESEND_API_KEY__ !== 'undefined' ? __RESEND_API_KEY__ : '')
+/* global __RESEND_API_KEY__ __MAGIC_LINK_FROM__ __ALLOWED_DOMAINS__ */
+// Configurazione iniettata SOLO a build time (vedi electron.vite.config.mjs):
+// nei PC dei clienti le variabili d'ambiente non esistono, quindi qualsiasi
+// process.env.* a runtime sarebbe sempre vuoto. La fonte unica è il `define`.
+const RESEND_API_KEY = typeof __RESEND_API_KEY__ !== 'undefined' ? __RESEND_API_KEY__ : ''
 const MAGIC_LINK_FROM =
-  process.env.MAGIC_LINK_FROM ||
   (typeof __MAGIC_LINK_FROM__ !== 'undefined' && __MAGIC_LINK_FROM__) ||
   'PDF Data Extractor <noreply@thinkpinkstudio.it>'
+const ALLOWED_DOMAINS = (typeof __ALLOWED_DOMAINS__ !== 'undefined' && __ALLOWED_DOMAINS__) || '*'
 
 const pendingTokens = new Map()
 const EXPIRY_MS = 15 * 60 * 1000
@@ -22,10 +22,9 @@ let callbackServer = null
 let callbackPort = null
 
 function isAllowedDomain(email) {
-  const allowed = process.env.ALLOWED_DOMAINS || '*'
-  if (allowed === '*') return true
+  if (ALLOWED_DOMAINS === '*') return true
   const domain = email.toLowerCase().split('@')[1] ?? ''
-  return allowed.split(',').map((d) => d.trim().toLowerCase()).includes(domain)
+  return ALLOWED_DOMAINS.split(',').map((d) => d.trim().toLowerCase()).includes(domain)
 }
 
 async function ensureCallbackServer() {

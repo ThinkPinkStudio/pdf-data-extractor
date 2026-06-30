@@ -21,7 +21,11 @@ export default defineConfig({
       // MAGIC_LINK_FROM al build.
       __MAGIC_LINK_FROM__: JSON.stringify(
         process.env.MAGIC_LINK_FROM || 'PDF Data Extractor <noreply@thinkpinkstudio.it>'
-      )
+      ),
+      // Domini email ammessi al login, separati da virgola (es. "csabroker.it,
+      // thinkpinkstudio.it"). '*' = qualsiasi dominio. Iniettato a build time:
+      // sul PC del cliente non esiste alcuna ALLOWED_DOMAINS d'ambiente.
+      __ALLOWED_DOMAINS__: JSON.stringify(process.env.ALLOWED_DOMAINS || '*')
     },
     build: {
       rollupOptions: {
