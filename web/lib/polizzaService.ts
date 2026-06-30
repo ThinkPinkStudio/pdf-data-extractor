@@ -8,7 +8,7 @@ export interface PolizzaResult {
 }
 
 export async function extractPolizza(pdfPath: string): Promise<PolizzaResult> {
-  const stored = getSettings()
+  const stored = await getSettings()
   const { extractPolizzaRolling } = await import(`${SERVICES_PATH}/polizzaService.js`)
 
   const log: string[] = []
