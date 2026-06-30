@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { loadPdfFromFile } from '@/lib/pdfRender'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Field { name: string; value: string }
 interface Msg { role: 'user' | 'assistant'; content: string }
@@ -25,6 +26,7 @@ function download(content: BlobPart, filename: string, type: string) {
 }
 
 export default function ExtractorPage() {
+  const t = useT()
   const [docs, setDocs] = useState<Doc[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [fields, setFields] = useState('')
@@ -107,7 +109,7 @@ export default function ExtractorPage() {
       const form = new FormData()
       form.append('pdf', active.file); form.append('fields', fields)
       const res = await fetch('/api/extract', { method: 'POST', body: form })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Errore durante l'estrazione.")
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || t('ext.errExtract'))
       const data = await res.json()
       updateDoc(active.id, { fields: data.fields })
     } catch (err: any) {
@@ -141,7 +143,7 @@ export default function ExtractorPage() {
         setDocs((prev) => prev.map((d) => d.id === aId ? { ...d, chat: [...history, userMsg, { role: 'assistant', content: accLocal }] } : d))
       }
     } catch {
-      setDocs((prev) => prev.map((d) => d.id === aId ? { ...d, chat: [...history, userMsg, { role: 'assistant', content: '[errore nella risposta]' }] } : d))
+      setDocs((prev) => prev.map((d) => d.id === aId ? { ...d, chat: [...history, userMsg, { role: 'assistant', content: t('ext.chatError') }] } : d))
     } finally {
       setChatStreaming(false)
     }
@@ -173,8 +175,8 @@ export default function ExtractorPage() {
     <div className="ext-page">
       <style>{EXT_CSS}</style>
       <div className="ext-header">
-        <h1>📄 Estrattore</h1>
-        <p>Estrai dati e fai domande sui tuoi PDF</p>
+        <h1>{t('ext.title')}</h1>
+        <p>{t('ext.subtitle')}</p>
       </div>
 
       {docs.length > 0 && (
@@ -194,8 +196,8 @@ export default function ExtractorPage() {
           {!active ? (
             <div className="ext-dropzone" onClick={() => inputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)) }}>
-              <p style={{ fontWeight: 600 }}>Trascina i PDF o clicca per selezionare</p>
-              <p style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>Puoi caricarne più di uno</p>
+              <p style={{ fontWeight: 600 }}>{t('ext.dropPrimary')}</p>
+              <p style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t('ext.dropSecondary')}</p>
             </div>
           ) : (
             <div className="ext-preview">
@@ -207,7 +209,7 @@ export default function ExtractorPage() {
                   <button className="btn btn-secondary" style={{ padding: '4px 10px' }} disabled={pageNum >= numPages} onClick={() => setPageNum((p) => p + 1)}>›</button>
                 </div>
               </div>
-              <div className="ext-canvas">{pageImg ? <img src={pageImg} alt={`Pagina ${pageNum}`} style={{ maxWidth: '100%', boxShadow: 'var(--shadow-md)' }} /> : <span className="spinner" />}</div>
+              <div className="ext-canvas">{pageImg ? <img src={pageImg} alt={t('ext.pageAlt', { n: pageNum })} style={{ maxWidth: '100%', boxShadow: 'var(--shadow-md)' }} /> : <span className="spinner" />}</div>
             </div>
           )}
           <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
@@ -216,20 +218,20 @@ export default function ExtractorPage() {
 
         <div className="ext-right">
           <div className="tabs">
-            <button className={`tab-btn${tab === 'extract' ? ' active' : ''}`} onClick={() => setTab('extract')}>Estrai</button>
-            <button className={`tab-btn${tab === 'chat' ? ' active' : ''}`} onClick={() => setTab('chat')}>Chat</button>
+            <button className={`tab-btn${tab === 'extract' ? ' active' : ''}`} onClick={() => setTab('extract')}>{t('ext.tabExtract')}</button>
+            <button className={`tab-btn${tab === 'chat' ? ' active' : ''}`} onClick={() => setTab('chat')}>{t('ext.tabChat')}</button>
           </div>
 
           {tab === 'extract' && (
             <div className="ext-panel">
               <div className="form-group">
-                <label className="label">Campi da estrarre</label>
-                <textarea rows={3} value={fields} onChange={(e) => setFields(e.target.value)} placeholder="es. nome, cognome, P.IVA, email, importo totale" style={{ resize: 'vertical' }} />
-                <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>Separa i campi con la virgola</p>
+                <label className="label">{t('ext.fieldsLabel')}</label>
+                <textarea rows={3} value={fields} onChange={(e) => setFields(e.target.value)} placeholder={t('ext.fieldsPlaceholder')} style={{ resize: 'vertical' }} />
+                <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('ext.fieldsHelp')}</p>
               </div>
               {error && <div className="alert alert-error">{error}</div>}
               <button className="btn btn-primary" onClick={handleExtract} disabled={!active || !fields.trim() || status === 'loading'}>
-                {status === 'loading' ? <><span className="spinner" /> Estrazione…</> : 'Estrai dati'}
+                {status === 'loading' ? <><span className="spinner" /> {t('ext.extracting')}</> : t('ext.extractBtn')}
               </button>
 
               {active?.fields && (
@@ -238,10 +240,10 @@ export default function ExtractorPage() {
                     <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => exportData('json')}>JSON</button>
                     <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => exportData('csv')}>CSV</button>
                     <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => exportData('xlsx')}>Excel</button>
-                    <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={saveToHistory}>{saved ? '✓ Salvato' : '💾 Salva in cronologia'}</button>
+                    <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={saveToHistory}>{saved ? t('ext.saved') : t('ext.saveHistory')}</button>
                   </div>
                   <table className="ext-table">
-                    <thead><tr><th>Campo</th><th>Valore</th></tr></thead>
+                    <thead><tr><th>{t('ext.colField')}</th><th>{t('ext.colValue')}</th></tr></thead>
                     <tbody>
                       {active.fields.map((f, i) => {
                         const v = validate(f.name, f.value)
@@ -265,16 +267,16 @@ export default function ExtractorPage() {
           {tab === 'chat' && (
             <div className="ext-chat">
               <div className="ext-chat-msgs">
-                {!active?.chat.length && <div style={{ color: 'var(--c-text-muted)', textAlign: 'center', marginTop: 40, fontSize: 13 }}>Fai una domanda sul documento</div>}
+                {!active?.chat.length && <div style={{ color: 'var(--c-text-muted)', textAlign: 'center', marginTop: 40, fontSize: 13 }}>{t('ext.chatEmpty')}</div>}
                 {active?.chat.map((m, i) => (
                   <div key={i} className={`msg ${m.role}`}><div className="msg-bubble">{m.content || (chatStreaming && i === active.chat.length - 1 ? '▌' : '')}</div></div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
               <div className="ext-chat-input">
-                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Scrivi un messaggio…"
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={t('ext.chatPlaceholder')}
                   onKeyDown={(e) => e.key === 'Enter' && handleChat()} disabled={!active || chatStreaming} />
-                <button className="btn btn-primary" onClick={handleChat} disabled={!active || !chatInput.trim() || chatStreaming}>Invia</button>
+                <button className="btn btn-primary" onClick={handleChat} disabled={!active || !chatInput.trim() || chatStreaming}>{t('ext.send')}</button>
               </div>
             </div>
           )}

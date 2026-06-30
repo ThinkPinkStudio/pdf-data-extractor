@@ -2,17 +2,19 @@
 
 import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useT } from '@/lib/i18n/I18nProvider'
 
-const ERROR_MESSAGES: Record<string, string> = {
-  missing_token: 'Link non valido.',
-  expired: 'Link scaduto. Richiedi un nuovo accesso.',
-  used: 'Link già utilizzato. Richiedi un nuovo accesso.',
-  not_found: 'Link non riconosciuto. Richiedi un nuovo accesso.',
+const ERROR_KEYS: Record<string, string> = {
+  missing_token: 'auth.errInvalid',
+  expired: 'auth.errExpired',
+  used: 'auth.errUsed',
+  not_found: 'auth.errNotFound',
 }
 
 function LoginForm() {
   const searchParams = useSearchParams()
   const errorParam = searchParams.get('error')
+  const t = useT()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -30,7 +32,7 @@ function LoginForm() {
       setStatus('sent')
     } else {
       const data = await res.json().catch(() => ({}))
-      setErrorMsg(data.error || "Errore durante l'invio. Riprova.")
+      setErrorMsg(data.error || t('auth.errSend'))
       setStatus('error')
     }
   }
@@ -40,22 +42,20 @@ function LoginForm() {
       <div style={{ textAlign: 'center' }}>
         <div style={{
           width: 56, height: 56, borderRadius: '50%',
-          background: 'rgba(108,99,255,0.15)',
+          background: 'rgba(233,30,140,0.15)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 26, margin: '0 auto 20px',
         }}>📧</div>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Controlla la tua email</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t('auth.checkEmail')}</h2>
         <p style={{ color: 'var(--c-text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-          Abbiamo inviato un link di accesso a<br />
-          <strong style={{ color: 'var(--c-text)' }}>{email}</strong>.<br />
-          Il link è valido per 15 minuti.
+          {t('auth.sentTo', { email })}
         </p>
         <button
           className="btn btn-secondary"
           style={{ marginTop: 24 }}
           onClick={() => setStatus('idle')}
         >
-          Usa un&apos;altra email
+          {t('auth.useAnother')}
         </button>
       </div>
     )
@@ -65,20 +65,18 @@ function LoginForm() {
     <form onSubmit={handleSubmit} style={{ width: '100%' }}>
       {(errorParam || status === 'error') && (
         <div className="alert alert-error" style={{ marginBottom: 20 }}>
-          {errorParam
-            ? (ERROR_MESSAGES[errorParam] || 'Errore di accesso.')
-            : errorMsg}
+          {errorParam ? t(ERROR_KEYS[errorParam] || 'auth.errGeneric') : errorMsg}
         </div>
       )}
 
       <div className="form-group">
-        <label className="label" htmlFor="email">Email</label>
+        <label className="label" htmlFor="email">{t('auth.email')}</label>
         <input
           id="email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="tu@azienda.it"
+          placeholder={t('auth.emailPlaceholder')}
           required
           autoFocus
           style={{ fontSize: 15, padding: '11px 14px' }}
@@ -91,13 +89,14 @@ function LoginForm() {
         style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, marginTop: 4 }}
         disabled={status === 'loading'}
       >
-        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : 'Invia link di accesso'}
+        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.sendLink')}
       </button>
     </form>
   )
 }
 
-export default function LoginPage() {
+function LoginShell() {
+  const t = useT()
   return (
     <div style={{
       minHeight: '100vh',
@@ -106,44 +105,48 @@ export default function LoginPage() {
       alignItems: 'center',
       justifyContent: 'center',
       padding: 20,
-      background: 'var(--c-bg)',
+      background: 'var(--c-bg-app)',
     }}>
-      {/* Logo / brand */}
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <div style={{
           width: 52, height: 52,
           borderRadius: 14,
-          background: 'linear-gradient(135deg, var(--c-accent) 0%, #574fd6 100%)',
+          background: 'var(--gradient-logo)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 24, margin: '0 auto 16px',
-          boxShadow: '0 4px 20px rgba(108,99,255,0.35)',
+          boxShadow: '0 4px 20px var(--c-accent-dim)',
         }}>📄</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.3px', marginBottom: 6 }}>
           PDF Data Extractor
         </h1>
         <p style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>
-          Accedi con un link sicuro via email
+          {t('auth.subtitle')}
         </p>
       </div>
 
-      {/* Card */}
       <div style={{
         width: '100%',
         maxWidth: 380,
-        background: 'var(--c-surface)',
+        background: 'var(--c-bg-card)',
         border: '1px solid var(--c-border)',
         borderRadius: 14,
         padding: '28px 28px 24px',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+        boxShadow: 'var(--shadow-lg)',
       }}>
-        <Suspense>
-          <LoginForm />
-        </Suspense>
+        <LoginForm />
       </div>
 
       <p style={{ marginTop: 20, color: 'var(--c-text-muted)', fontSize: 12 }}>
-        Solo gli utenti autorizzati possono accedere.
+        {t('auth.authorizedOnly')}
       </p>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginShell />
+    </Suspense>
   )
 }

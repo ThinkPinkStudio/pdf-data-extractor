@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface BatchResult {
   name: string
@@ -17,6 +18,7 @@ export default function BatchPage() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'done'>('idle')
   const inputRef = useRef<HTMLInputElement>(null)
   const cancelRef = useRef(false)
+  const t = useT()
 
   async function handleBatch(e: React.FormEvent) {
     e.preventDefault()
@@ -65,27 +67,27 @@ export default function BatchPage() {
   }
 
   const badge = (s: BatchResult['status']) => {
-    const map = { pending: ['In attesa', 'var(--c-text-muted)'], processing: ['In corso', 'var(--c-info)'], done: ['✓ OK', 'var(--c-success)'], error: ['✗ Errore', 'var(--c-error)'] } as const
-    const [label, color] = map[s]
-    return <span style={{ color, fontSize: 12, fontWeight: 600 }}>{label}</span>
+    const map = { pending: ['batch.stPending', 'var(--c-text-muted)'], processing: ['batch.stProcessing', 'var(--c-info)'], done: ['batch.stDone', 'var(--c-success)'], error: ['batch.stError', 'var(--c-error)'] } as const
+    const [key, color] = map[s]
+    return <span style={{ color, fontSize: 12, fontWeight: 600 }}>{t(key)}</span>
   }
 
   return (
     <>
-      <h1 className="page-title">Elaborazione Batch</h1>
+      <h1 className="page-title">{t('batch.title')}</h1>
 
       <form onSubmit={handleBatch} style={{ maxWidth: 680 }}>
         <div className="form-group">
-          <label className="label">File PDF (multipli)</label>
+          <label className="label">{t('batch.filesLabel')}</label>
           <div className="card" style={{ cursor: 'pointer', textAlign: 'center', padding: 32, borderStyle: 'dashed' }} onClick={() => inputRef.current?.click()}>
-            {files.length ? <span>{files.length} file selezionati</span> : <span style={{ color: 'var(--c-text-muted)' }}>Clicca per selezionare più PDF</span>}
+            {files.length ? <span>{t('batch.filesSelected', { n: files.length })}</span> : <span style={{ color: 'var(--c-text-muted)' }}>{t('batch.dropEmpty')}</span>}
             <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           </div>
         </div>
 
         <div className="form-group">
-          <label className="label" htmlFor="fields-batch">Campi da estrarre</label>
-          <textarea id="fields-batch" rows={3} placeholder="es. nome, cognome, importo" value={fieldsDef} onChange={(e) => setFieldsDef(e.target.value)} />
+          <label className="label" htmlFor="fields-batch">{t('batch.fieldsLabel')}</label>
+          <textarea id="fields-batch" rows={3} placeholder={t('batch.fieldsPlaceholder')} value={fieldsDef} onChange={(e) => setFieldsDef(e.target.value)} />
         </div>
 
         {status === 'loading' && (
@@ -93,25 +95,25 @@ export default function BatchPage() {
             <div style={{ height: 6, background: 'var(--c-bg-card-alt)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${progress}%`, background: 'var(--gradient-accent)', transition: 'width 0.3s' }} />
             </div>
-            <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 4 }}>{progress}% completato</p>
+            <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('batch.percent', { n: progress })}</p>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="submit" className="btn btn-primary" disabled={!files.length || !fieldsDef.trim() || status === 'loading'}>
-            {status === 'loading' ? <><span className="spinner" /> Elaborazione…</> : 'Avvia batch'}
+            {status === 'loading' ? <><span className="spinner" /> {t('batch.processing')}</> : t('batch.start')}
           </button>
-          {status === 'loading' && <button type="button" className="btn btn-secondary" onClick={() => { cancelRef.current = true }}>Annulla</button>}
-          {status === 'done' && <><button type="button" className="btn btn-secondary" onClick={exportCsv}>Esporta CSV</button><button type="button" className="btn btn-secondary" onClick={exportXlsx}>Esporta Excel</button></>}
+          {status === 'loading' && <button type="button" className="btn btn-secondary" onClick={() => { cancelRef.current = true }}>{t('batch.cancel')}</button>}
+          {status === 'done' && <><button type="button" className="btn btn-secondary" onClick={exportCsv}>{t('batch.exportCsv')}</button><button type="button" className="btn btn-secondary" onClick={exportXlsx}>{t('batch.exportXlsx')}</button></>}
         </div>
       </form>
 
       {results.length > 0 && (
         <div style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Risultati ({results.length})</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{t('batch.results', { n: results.length })}</h2>
           <div className="card" style={{ padding: 0, overflow: 'auto' }}>
             <table>
-              <thead><tr><th>File</th><th>Stato</th>{keys.map((k) => <th key={k}>{k}</th>)}</tr></thead>
+              <thead><tr><th>{t('batch.colFile')}</th><th>{t('batch.colStatus')}</th>{keys.map((k) => <th key={k}>{k}</th>)}</tr></thead>
               <tbody>
                 {results.map((r, i) => (
                   <tr key={i}>

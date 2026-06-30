@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
 import Link from 'next/link'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 function Dot({ status }: { status?: string }) {
   const color = status === 'ok' ? 'var(--c-success)' : status === 'warn' ? 'var(--c-warning)' : status === 'fail' ? 'var(--c-error)' : 'var(--c-text-muted)'
@@ -20,6 +21,7 @@ function Row({ label, status, detail }: { label: string; status?: string; detail
 }
 
 export default function DiagnosticsPage() {
+  const t = useT()
   const [data, setData] = useState<any>(null)
   const [provider, setProvider] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -40,43 +42,43 @@ export default function DiagnosticsPage() {
   const L = data?.layers || {}
   return (
     <>
-      <h1 className="page-title">Sicurezza &amp; Diagnostica</h1>
+      <h1 className="page-title">{t('diag.title')}</h1>
       <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={run} disabled={loading}>
-            {loading ? <><span className="spinner" /> Diagnostica in corso…</> : 'Esegui diagnostica'}
+            {loading ? <><span className="spinner" /> {t('diag.running')}</> : t('diag.run')}
           </button>
-          <Link href="/logs" className="btn btn-secondary">Log azioni (admin)</Link>
+          <Link href="/logs" className="btn btn-secondary">{t('diag.logsLink')}</Link>
         </div>
 
         {provider && (
           <div className="card">
-            <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Connessione provider AI</h2>
-            <Row label={provider.provider || 'Provider'} status={provider.ok ? 'ok' : 'fail'} detail={provider.message || (provider.ok ? 'OK' : 'Errore')} />
+            <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.providerSection')}</h2>
+            <Row label={provider.provider || 'Provider'} status={provider.ok ? 'ok' : 'fail'} detail={provider.message || (provider.ok ? 'OK' : t('diag.errorRow'))} />
           </div>
         )}
 
         {data && (
           <>
             <div className="card">
-              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Rete ({data.endpoint?.label} · {data.endpoint?.host || data.endpoint?.url})</h2>
+              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.networkSection', { label: data.endpoint?.label, host: data.endpoint?.host || data.endpoint?.url })}</h2>
               {L.dns && <Row label="DNS" status={L.dns.status} detail={L.dns.status === 'ok' ? `${L.dns.ips?.join(', ')} (${L.dns.ms}ms)` : L.dns.error} />}
               {L.tcp && <Row label="TCP" status={L.tcp.status} detail={L.tcp.status === 'ok' ? `${L.tcp.peer} (${L.tcp.ms}ms)` : L.tcp.error} />}
-              {L.tls && <Row label="TLS" status={L.tls.status} detail={L.tls.status !== 'fail' ? `${L.tls.protocol || ''} ${L.tls.intercepted ? '· ⚠ intercettazione TLS' : L.tls.authorized ? '· catena fidata' : '· catena non fidata'}` : L.tls.error} />}
+              {L.tls && <Row label="TLS" status={L.tls.status} detail={L.tls.status !== 'fail' ? `${L.tls.protocol || ''} ${L.tls.intercepted ? '· ' + t('diag.tlsIntercept') : L.tls.authorized ? '· ' + t('diag.chainTrusted') : '· ' + t('diag.chainUntrusted')}` : L.tls.error} />}
               {L.http && <Row label="HTTP" status={L.http.status} detail={`${L.http.httpStatus ?? ''} ${L.http.error || ''}`} />}
-              {L.error && <Row label="Errore" status="fail" detail={L.error} />}
+              {L.error && <Row label={t('diag.errorRow')} status="fail" detail={L.error} />}
             </div>
 
             <div className="card">
-              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>OCR (polizze scansionate)</h2>
-              <Row label="Tesseract" status={data.ocr?.available ? 'ok' : 'fail'} detail={data.ocr?.available ? 'Disponibile' : data.ocr?.reason || 'Non disponibile'} />
+              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.ocrSection')}</h2>
+              <Row label={t('diag.tesseract')} status={data.ocr?.available ? 'ok' : 'fail'} detail={data.ocr?.available ? t('diag.available') : data.ocr?.reason || t('diag.unavailable')} />
             </div>
 
             <div className="card">
-              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Sistema</h2>
-              <Row label="Piattaforma" detail={`${data.system?.platform} ${data.system?.arch}`} status="ok" />
-              <Row label="Node" detail={data.system?.node} status="ok" />
-              <Row label="Versione app" detail={data.system?.appVersion || 'n/d'} status="ok" />
+              <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.systemSection')}</h2>
+              <Row label={t('diag.platform')} detail={`${data.system?.platform} ${data.system?.arch}`} status="ok" />
+              <Row label={t('diag.node')} detail={data.system?.node} status="ok" />
+              <Row label={t('diag.appVersion')} detail={data.system?.appVersion || t('diag.na')} status="ok" />
             </div>
           </>
         )}

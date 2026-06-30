@@ -1,5 +1,7 @@
 'use client'
 
+import { useT } from '@/lib/i18n/I18nProvider'
+
 const C = {
   company: 'ThinkPink Studio',
   tagline: 'Soluzioni digitali su misura',
@@ -26,16 +28,17 @@ function ContactRow({ icon, children }: { icon: React.ReactNode; children: React
 }
 
 export default function ContactsPage() {
+  const t = useT()
   return (
     <>
-      <h1 className="page-title">Contatti</h1>
+      <h1 className="page-title">{t('contacts.title')}</h1>
       <div className="card" style={{ maxWidth: 560, borderRadius: 'var(--r-xl)', padding: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--c-separator)' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.png" alt="" width={52} height={52} style={{ borderRadius: 14, boxShadow: '0 4px 16px var(--c-accent-dim)' }} />
           <div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>{C.company}</div>
-            <div style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>{C.tagline}</div>
+            <div style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>{t('contacts.tagline')}</div>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>

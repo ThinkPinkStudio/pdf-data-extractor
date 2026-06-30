@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { loadPdfFromFile } from '@/lib/pdfRender'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface FieldDef { id: string; label: string; description?: string; sheet?: string }
 interface Source { file: string; page: number }
@@ -66,6 +67,7 @@ const IconExcel = () => (
 )
 
 export default function PolizzaPage() {
+  const t = useT()
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
@@ -126,7 +128,7 @@ export default function PolizzaPage() {
       const res = await fetch('/api/polizza', { method: 'POST', body: form })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || "Errore durante l'elaborazione.")
+        throw new Error(d.error || t('pol.errProcessing'))
       }
       const data = await res.json()
       setExtracted(data.values || {}); setSources(data.sources || {})
@@ -194,7 +196,7 @@ export default function PolizzaPage() {
       const ocr = await fetch('/api/polizza/ocr-status').then((r) => r.json())
       dlog(`OCR disponibile: ${ocr.available}${ocr.available ? '' : ' — ' + (ocr.reason || '')}`)
       if (!ocr.available) {
-        const msg = `OCR non disponibile sul server (${ocr.reason || 'motivo sconosciuto'}). La modalità "fascicolo intero" richiede Tesseract.`
+        const msg = t('pol.ocrUnavailable', { reason: ocr.reason || '—' })
         setVisionMsg('error'); setVisionErr(msg); setError(msg); return
       }
       const parts: string[] = []
@@ -220,7 +222,7 @@ export default function PolizzaPage() {
       }
       const fullText = parts.join('\n')
       if (pagesWithText === 0 || fullText.trim().length < 50) {
-        const msg = "L'OCR non ha prodotto testo leggibile dai documenti. Estrazione interrotta."
+        const msg = t('pol.ocrNoText')
         setVisionMsg('error'); setVisionErr(msg); setError(msg); return
       }
       const r = await fetch('/api/polizza/whole-dossier', {
@@ -230,9 +232,9 @@ export default function PolizzaPage() {
         const n = Object.keys(r.data || {}).length
         setExtracted(r.data || {}); setSources(r.sources || {})
         setVisionMsg(n === 0 ? 'error' : 'done')
-        if (n === 0) setVisionErr('Il modello non ha estratto alcun campo dal testo OCR.')
+        if (n === 0) setVisionErr(t('pol.modelNoFields'))
       } else {
-        setVisionMsg('error'); setVisionErr(r.error || 'Estrazione fascicolo fallita'); setError(r.error)
+        setVisionMsg('error'); setVisionErr(r.error || t('pol.dossierFailed')); setError(r.error)
       }
     } catch (err: any) {
       dlog('ERRORE fascicolo intero: ' + err.message); setVisionMsg('error'); setVisionErr(err.message)
@@ -252,7 +254,7 @@ export default function PolizzaPage() {
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export fallito')
       downloadBlob(await res.blob(), `${suggestedName}.xlsx`)
-      setExportMsg('✓ File Excel scaricato')
+      setExportMsg(t('pol.fileExcelDownloaded'))
     } catch (err: any) {
       setExportMsg('✗ ' + err.message)
     } finally {
@@ -266,7 +268,7 @@ export default function PolizzaPage() {
     const form = new FormData(); form.append('template', file)
     const r = await fetch('/api/polizza/template/structure', { method: 'POST', body: form }).then((x) => x.json())
     if (r.success) setTemplateStructure(r.structure)
-    else setError('Errore lettura template: ' + r.error)
+    else setError(t('pol.errTemplateRead', { msg: r.error }))
   }
   async function handlePreviewChanges() {
     if (!extracted || !templateFile) return
@@ -281,7 +283,7 @@ export default function PolizzaPage() {
       setPreviewChanges((r.changes || []).map((c: any) => ({ ...c, approved: true })))
       setShowPreview(true)
     } catch (err: any) {
-      setError('Errore preview: ' + err.message)
+      setError(t('pol.errPreview', { msg: err.message }))
     } finally {
       setLoadingPreview(false)
     }
@@ -296,7 +298,7 @@ export default function PolizzaPage() {
       const res = await fetch('/api/polizza/template/export-approved', { method: 'POST', body: form })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export fallito')
       downloadBlob(await res.blob(), templateFile.name.replace(/\.xlsx?$/i, '') + '_aggiornato.xlsx')
-      setExportMsg('✓ Gestionale aggiornato scaricato'); setShowPreview(false); setPreviewChanges(null)
+      setExportMsg(t('pol.templateUpdated')); setShowPreview(false); setPreviewChanges(null)
     } catch (err: any) {
       setExportMsg('✗ ' + err.message)
     } finally {
@@ -324,8 +326,8 @@ export default function PolizzaPage() {
       <style>{POLIZZA_CSS}</style>
 
       <div className="polizza-header">
-        <h1>🛡️ Polizze</h1>
-        <p>Estrazione automatica dati da polizze Responsabilità Civile (RCT/O/P) · fogli Excel RCT_O e RCP</p>
+        <h1>{t('pol.title')}</h1>
+        <p>{t('pol.subtitle')}</p>
       </div>
 
       <div className="polizza-body">
@@ -342,22 +344,22 @@ export default function PolizzaPage() {
               onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
             >
               <div className="dz-icon"><IconUpload /></div>
-              <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--c-text-primary)' }}>Trascina i PDF della polizza</p>
-              <p>Carica tutti i documenti: polizza, appendici, condizioni</p>
-              <button className="dz-btn" onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}>Seleziona file PDF</button>
+              <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--c-text-primary)' }}>{t('pol.dropPrimary')}</p>
+              <p>{t('pol.dropSecondary')}</p>
+              <button className="dz-btn" onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}>{t('pol.selectFiles')}</button>
               <input ref={inputRef} type="file" accept=".pdf,application/pdf" multiple style={{ display: 'none' }}
                 onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
             </div>
 
             {files.length > 0 && (
               <div>
-                <div className="section-title">Documenti caricati ({files.length})</div>
+                <div className="section-title">{t('pol.docsLoaded', { n: files.length })}</div>
                 <div className="polizza-file-list">
                   {files.map((f) => (
                     <div key={f.name + f.size} className="polizza-file-item">
                       <IconFile />
                       <span className="polizza-file-name" title={f.name}>{f.name}</span>
-                      <button className="polizza-file-remove" onClick={() => removeFile(f.name, f.size)} aria-label={`Rimuovi ${f.name}`}><IconX /></button>
+                      <button className="polizza-file-remove" onClick={() => removeFile(f.name, f.size)} aria-label={t('pol.remove', { name: f.name })}><IconX /></button>
                     </div>
                   ))}
                 </div>
@@ -366,13 +368,13 @@ export default function PolizzaPage() {
 
             {/* Template Excel */}
             <div className="polizza-template-block">
-              <div className="polizza-template-label">Gestionale Excel (opzionale)</div>
+              <div className="polizza-template-label">{t('pol.templateLabel')}</div>
               {templateFile
                 ? <div className="polizza-template-file"><IconExcel /> {templateFile.name}</div>
-                : <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>Nessun template caricato</div>}
-              {isCSA && <div style={{ fontSize: 10, color: 'var(--c-success)' }}>✓ Gestionale CSA riconosciuto — mappatura automatica</div>}
+                : <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('pol.noTemplate')}</div>}
+              {isCSA && <div style={{ fontSize: 10, color: 'var(--c-success)' }}>{t('pol.csaRecognized')}</div>}
               <button className="btn btn-secondary" style={{ fontSize: 11, padding: '6px 10px', width: '100%' }} onClick={() => tplInputRef.current?.click()}>
-                <IconExcel /> {templateFile ? 'Cambia template…' : 'Carica gestionale Excel…'}
+                <IconExcel /> {templateFile ? t('pol.changeTemplate') : t('pol.loadTemplate')}
               </button>
               <input ref={tplInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLoadTemplate(f); e.target.value = '' }} />
@@ -382,33 +384,33 @@ export default function PolizzaPage() {
           <div className="polizza-actions">
             {error && <div className="polizza-error">⚠ {error}</div>}
             <button className="btn btn-primary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleExtract} disabled={!files.length || loading} aria-busy={loading}>
-              {loading ? <><span className="spinner" /> Estrazione in corso…</> : <>⚡ Estrai dati polizza</>}
+              {loading ? <><span className="spinner" /> {t('pol.extracting')}</> : <>{t('pol.extractBtn')}</>}
             </button>
 
             {(visionExtracting || visionMsg) && (
               <div className={`vision-box ${visionMsg}`}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {visionExtracting && <span className="spinner" />}
-                  {visionMsg === 'extracting' && 'OCR/AI visivo in corso…'}
-                  {visionMsg === 'done' && '✓ OCR visivo completato'}
-                  {visionMsg === 'error' && '⚠ OCR visivo non riuscito'}
+                  {visionMsg === 'extracting' && t('pol.visionRunning')}
+                  {visionMsg === 'done' && t('pol.visionDone')}
+                  {visionMsg === 'error' && t('pol.visionError')}
                 </div>
-                {visionMsg === 'error' && visionErr && <div style={{ opacity: 0.85, marginTop: 4 }}>Motivo: {visionErr}</div>}
+                {visionMsg === 'error' && visionErr && <div style={{ opacity: 0.85, marginTop: 4 }}>{t('pol.reason', { msg: visionErr })}</div>}
               </div>
             )}
 
             {extracted && (
               <>
-                <button className="btn btn-success" style={{ width: '100%' }} onClick={handleExportNew} disabled={exporting}><IconExcel /> Esporta nuovo Excel</button>
+                <button className="btn btn-success" style={{ width: '100%' }} onClick={handleExportNew} disabled={exporting}><IconExcel /> {t('pol.exportNew')}</button>
                 {templateFile && (
                   <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handlePreviewChanges} disabled={exporting || loadingPreview}>
-                    {loadingPreview ? <span className="spinner" /> : <IconExcel />} Rivedi e popola gestionale…
+                    {loadingPreview ? <span className="spinner" /> : <IconExcel />} {t('pol.reviewTemplate')}
                   </button>
                 )}
               </>
             )}
             {(extracted || error) && (
-              <button className="btn btn-secondary" style={{ width: '100%', fontSize: 11, opacity: 0.8 }} onClick={handleDownloadLog}>📋 Scarica diagnostica</button>
+              <button className="btn btn-secondary" style={{ width: '100%', fontSize: 11, opacity: 0.8 }} onClick={handleDownloadLog}>{t('pol.downloadDiag')}</button>
             )}
             {exportMsg && <div className={`export-msg${exportMsg.startsWith('✗') ? ' error' : ''}`}>{exportMsg}</div>}
           </div>
@@ -420,27 +422,27 @@ export default function PolizzaPage() {
             {!extracted && !loading && (
               <div className="polizza-empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="52" height="52"><path d="M9 12h6M9 16h6M17 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V8l-4-6z" /></svg>
-                <h3>Nessun dato estratto</h3>
-                <p>Carica i PDF della polizza e premi «Estrai dati polizza»</p>
+                <h3>{t('pol.emptyTitle')}</h3>
+                <p>{t('pol.emptyText')}</p>
               </div>
             )}
             {loading && !extracted && (
               <div className="polizza-empty">
                 <span className="spinner" style={{ width: 28, height: 28 }} />
-                <h3>Estrazione in corso…</h3>
+                <h3>{t('pol.extracting')}</h3>
                 {progress
-                  ? <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{progress.docName}<br />File {progress.docIndex + 1}/{progress.docTotal}{progress.pageTotal > 0 && ` · Pag. ${progress.pageIndex}/${progress.pageTotal}`}</p>
-                  : <p>L&apos;AI sta analizzando i documenti</p>}
+                  ? <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{progress.docName}<br />{t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })}{progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}</p>
+                  : <p>{t('pol.analyzing')}</p>}
               </div>
             )}
             {extracted && (
               <>
                 {(extracting || visionExtracting) && progress && (
                   <div className="progress-banner">
-                    <span className="spinner" /> File {progress.docIndex + 1}/{progress.docTotal} · {progress.docName}{progress.pageTotal > 0 && ` · Pag. ${progress.pageIndex}/${progress.pageTotal}`}
+                    <span className="spinner" /> {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })} · {progress.docName}{progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
                   </div>
                 )}
-                <div className="ai-note">Risultati generati da AI — verificare sempre prima dell&apos;uso</div>
+                <div className="ai-note">{t('pol.aiNote')}</div>
                 <ExtractedTable fields={fields} data={extracted} sources={sources}
                   onUpdate={(id, val) => !extracting && !visionExtracting && setExtracted((prev) => ({ ...(prev || {}), [id]: val }))} />
               </>
@@ -459,9 +461,10 @@ export default function PolizzaPage() {
 
 // ─── Tabella risultati editabile ──────────────────────────────────────────────
 function ExtractedTable({ fields, data, sources, onUpdate }: { fields: FieldDef[]; data: Record<string, string>; sources: Record<string, Source>; onUpdate: (id: string, val: string) => void }) {
+  const t = useT()
   return (
     <table className="polizza-table">
-      <thead><tr><th style={{ width: '32%' }}>Campo</th><th>Valore estratto (modificabile)</th><th style={{ width: '22%' }}>Sorgente</th></tr></thead>
+      <thead><tr><th style={{ width: '32%' }}>{t('pol.colField')}</th><th>{t('pol.colValueEditable')}</th><th style={{ width: '22%' }}>{t('pol.colSource')}</th></tr></thead>
       <tbody>
         {fields.map((f) => {
           const val = data[f.id]
@@ -475,7 +478,7 @@ function ExtractedTable({ fields, data, sources, onUpdate }: { fields: FieldDef[
                   : <input className="editable-cell" value={val ?? ''} onChange={(e) => onUpdate(f.id, e.target.value)} aria-label={f.label} />}
               </td>
               <td style={{ fontSize: 11, color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                {src ? <span>{src.file}<br /><span style={{ opacity: 0.7 }}>pag. {src.page}</span></span> : <span style={{ fontStyle: 'italic' }}>—</span>}
+                {src ? <span>{src.file}<br /><span style={{ opacity: 0.7 }}>{t('pol.page', { n: src.page })}</span></span> : <span style={{ fontStyle: 'italic' }}>—</span>}
               </td>
             </tr>
           )
@@ -487,6 +490,7 @@ function ExtractedTable({ fields, data, sources, onUpdate }: { fields: FieldDef[
 
 // ─── Modale anteprima modifiche ───────────────────────────────────────────────
 function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }: { changes: any[]; exporting: boolean; onChange: (c: any[]) => void; onConfirm: (approved: any[]) => void; onClose: () => void }) {
+  const t = useT()
   const approved = changes.filter((c) => c.approved)
   const allChecked = approved.length === changes.length
   const toggle = (idx: number) => onChange(changes.map((c, i) => (i === idx ? { ...c, approved: !c.approved } : c)))
@@ -498,17 +502,17 @@ function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }
       <div className="mapping-modal" role="dialog" aria-modal="true">
         <div className="mapping-header">
           <div>
-            <h2>Rivedi le modifiche al gestionale</h2>
-            <p>{approved.length} di {changes.length} campi selezionati · <span style={{ color: 'var(--c-warning)' }}>{totalChanged} con valore precedente</span></p>
+            <h2>{t('pol.modalTitle')}</h2>
+            <p>{t('pol.modalSubtitle', { a: approved.length, b: changes.length, c: totalChanged })}</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={toggleAll}>{allChecked ? 'Deseleziona tutto' : 'Approva tutto'}</button>
-            <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: 12 }} onClick={onClose}>Annulla</button>
+            <button className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={toggleAll}>{allChecked ? t('pol.deselectAll') : t('pol.approveAll')}</button>
+            <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: 12 }} onClick={onClose}>{t('common.cancel')}</button>
           </div>
         </div>
         <div className="mapping-body">
           <table className="polizza-table">
-            <thead><tr><th></th><th>Campo · cella</th><th>Attuale</th><th>Nuovo</th></tr></thead>
+            <thead><tr><th></th><th>{t('pol.colFieldCell')}</th><th>{t('pol.colCurrent')}</th><th>{t('pol.colNew')}</th></tr></thead>
             <tbody>
               {changes.map((row, idx) => {
                 const isChanged = row.oldValue !== row.newValue
@@ -525,11 +529,11 @@ function ChangePreviewModal({ changes, exporting, onChange, onConfirm, onClose }
           </table>
         </div>
         <div className="mapping-footer">
-          <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{approved.length === 0 ? 'Seleziona almeno un campo' : `Verranno scritti ${approved.length} campi`}</div>
+          <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{approved.length === 0 ? t('pol.selectAtLeastOne') : t('pol.willWrite', { n: approved.length })}</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary" onClick={onClose} disabled={exporting}>Annulla</button>
+            <button className="btn btn-secondary" onClick={onClose} disabled={exporting}>{t('common.cancel')}</button>
             <button className="btn btn-success" onClick={() => onConfirm(approved)} disabled={approved.length === 0 || exporting} aria-busy={exporting}>
-              {exporting ? <span className="spinner" /> : '✓'} Conferma {approved.length} {approved.length === 1 ? 'modifica' : 'modifiche'}
+              {exporting ? <span className="spinner" /> : '✓'} {approved.length === 1 ? t('pol.confirmOne', { n: approved.length }) : t('pol.confirmMany', { n: approved.length })}
             </button>
           </div>
         </div>

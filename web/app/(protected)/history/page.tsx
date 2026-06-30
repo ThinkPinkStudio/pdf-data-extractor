@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useI18n } from '@/lib/i18n/I18nProvider'
 
 interface SessionRow {
   id: number
@@ -19,6 +20,8 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState<number | null>(null)
   const router = useRouter()
+  const { t, lang } = useI18n()
+  const locale = lang === 'en' ? 'en-GB' : 'it-IT'
 
   function load() {
     fetch('/api/history').then((r) => r.json()).then((d) => { setRows(d.sessions ?? []); setLoading(false) }).catch(() => setLoading(false))
@@ -40,7 +43,7 @@ export default function HistoryPage() {
     setRows((p) => p.filter((r) => r.id !== id))
   }
   async function clearAll() {
-    if (!confirm('Eliminare tutta la cronologia?')) return
+    if (!confirm(t('hist.confirmClear'))) return
     await fetch('/api/history', { method: 'DELETE' })
     setRows([])
   }
@@ -48,13 +51,13 @@ export default function HistoryPage() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>Cronologia</h1>
-        {rows.length > 0 && <button className="btn btn-secondary" onClick={clearAll}>Svuota tutto</button>}
+        <h1 className="page-title" style={{ margin: 0 }}>{t('hist.title')}</h1>
+        {rows.length > 0 && <button className="btn btn-secondary" onClick={clearAll}>{t('hist.clearAll')}</button>}
       </div>
-      <p style={{ color: 'var(--c-text-muted)', marginBottom: 20, fontSize: 13 }}>Sessioni di estrazione salvate — riaprile per ripristinare PDF, dati e chat.</p>
+      <p style={{ color: 'var(--c-text-muted)', marginBottom: 20, fontSize: 13 }}>{t('hist.subtitle')}</p>
 
       {loading ? <span className="spinner" />
-        : rows.length === 0 ? <p style={{ color: 'var(--c-text-muted)' }}>Nessuna sessione salvata. Salva un&apos;estrazione dall&apos;Estrattore.</p>
+        : rows.length === 0 ? <p style={{ color: 'var(--c-text-muted)' }}>{t('hist.empty')}</p>
         : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 720 }}>
             {rows.map((r) => (
@@ -62,10 +65,10 @@ export default function HistoryPage() {
                 <span style={{ width: 36, height: 36, borderRadius: 'var(--r-md)', background: 'var(--c-accent-faint)', border: '1px solid var(--c-accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--c-accent)', flexShrink: 0 }}><IconFile /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.file_name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{r.num_pages} pagine · {new Date(r.created_at * 1000).toLocaleString('it-IT')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t('hist.pages', { n: r.num_pages, date: new Date(r.created_at * 1000).toLocaleString(locale) })}</div>
                 </div>
-                <button className="btn btn-primary" style={{ padding: '7px 14px' }} onClick={() => open(r.id)} disabled={opening === r.id}>{opening === r.id ? <span className="spinner" /> : 'Apri'}</button>
-                <button className="btn btn-secondary" style={{ padding: '7px 12px' }} onClick={() => del(r.id)}>Elimina</button>
+                <button className="btn btn-primary" style={{ padding: '7px 14px' }} onClick={() => open(r.id)} disabled={opening === r.id}>{opening === r.id ? <span className="spinner" /> : t('hist.open')}</button>
+                <button className="btn btn-secondary" style={{ padding: '7px 12px' }} onClick={() => del(r.id)}>{t('hist.delete')}</button>
               </div>
             ))}
           </div>
