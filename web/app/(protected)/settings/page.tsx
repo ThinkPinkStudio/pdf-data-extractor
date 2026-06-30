@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
+import PolizzaFieldsEditor from '@/components/PolizzaFieldsEditor'
 
 interface Settings {
   llmProvider: string
@@ -63,7 +64,11 @@ export default function SettingsPage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) })
+    // I campi/profili/prompt polizza sono gestiti e salvati dall'editor dedicato:
+    // li escludiamo qui per non sovrascriverli con valori non aggiornati.
+    const { polizzaPromptExtra: _pe, ...rest } = s as unknown as Record<string, unknown>
+    void _pe
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rest) })
     setSaved(true)
   }
   async function handleTest() {
@@ -161,12 +166,11 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Toggle checked={s.polizzaOcrEnabled !== false} onChange={(v) => up('polizzaOcrEnabled', v)} label={t('set.ocrEnabled')} />
             <Toggle checked={!!s.polizzaWholeDossier} onChange={(v) => up('polizzaWholeDossier', v)} label={t('set.wholeDossier')} />
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="label">{t('set.promptExtra')}</label>
-              <textarea value={s.polizzaPromptExtra || ''} onChange={(e) => up('polizzaPromptExtra', e.target.value)} rows={3} placeholder={t('set.promptExtraPlaceholder')} style={{ resize: 'vertical' }} />
-            </div>
           </div>
         </div>
+
+        {/* Editor campi polizza + prompt + profili JSON */}
+        <PolizzaFieldsEditor />
 
         {/* Aspetto */}
         <div className="card">

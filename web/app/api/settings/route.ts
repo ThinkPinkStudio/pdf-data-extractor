@@ -28,7 +28,8 @@ export async function POST(req: NextRequest) {
   const allowed: (keyof WebSettings)[] = [
     'llmProvider', 'llmModel', 'ollamaUrl', 'openaiModel', 'anthropicModel', 'ollamaModel',
     'ollamaVisionModel', 'anthropicVisionModel', 'polizzaOcrEnabled', 'polizzaWholeDossier',
-    'polizzaPromptExtra', 'theme', 'language', 'accentColor',
+    'polizzaWholeDossierModel', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
+    'theme', 'language', 'accentColor',
   ]
   const update: Partial<WebSettings> = {}
   for (const k of allowed) {

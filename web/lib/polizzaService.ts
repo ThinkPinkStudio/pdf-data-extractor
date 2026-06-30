@@ -59,11 +59,19 @@ function llmFlags(err: unknown) {
 export async function getFieldsAndMapping() {
   const stored = await getSettings()
   const m = await svc()
-  const custom = (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields
-  const fields = custom && custom.length > 0 ? custom : m.ALL_POLIZZA_FIELDS
-  const defaultMapping = custom && custom.length > 0 ? m.buildMappingFromFields(custom) : m.CSA_MAPPING
+  // Default completi (etichetta + descrizione AI + celle Excel da CSA_MAPPING),
+  // così l'editor in Impostazioni parte dai default mappati come nel desktop.
+  const defaultFields = m.ALL_POLIZZA_FIELDS.map((f) => ({
+    ...f,
+    enabled: f.enabled !== false,
+    cells: (m.CSA_MAPPING as Record<string, { sheet: string; cell: string }[]>)[f.id] || [],
+  }))
+  const custom = stored.polizzaFields
+  const fields = custom && custom.length > 0 ? custom : defaultFields
+  const defaultMapping = custom && custom.length > 0 ? m.buildMappingFromFields(custom as PolizzaFieldDef[]) : m.CSA_MAPPING
   return {
-    fields: fields.filter((f) => f.enabled !== false),
+    fields: (fields as PolizzaFieldDef[]).filter((f) => f.enabled !== false),
+    defaultFields,
     defaultMapping,
     wholeDossier: !!stored.polizzaWholeDossier,
   }
