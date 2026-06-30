@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { getSettings, saveSettings } from '@/lib/settingsStore'
+import { getSettings, saveSettings, WebSettings } from '@/lib/settingsStore'
 import { logAction } from '@/lib/logger'
 
 export async function GET() {
@@ -8,11 +8,9 @@ export async function GET() {
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const s = await getSettings()
-  // Never return secrets to client
+  // Never return secrets to client (only whether they are set)
   return NextResponse.json({
-    llmProvider: s.llmProvider,
-    llmModel: s.llmModel,
-    ollamaUrl: s.ollamaUrl,
+    ...s,
     openaiApiKey: s.openaiApiKey ? '***' : '',
     anthropicApiKey: s.anthropicApiKey ? '***' : '',
   })
@@ -23,17 +21,23 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-
-  // Don't overwrite keys if placeholder sent
+  const body = (await req.json()) as Partial<WebSettings>
   const current = await getSettings()
-  const update = {
-    llmProvider: body.llmProvider ?? current.llmProvider,
-    llmModel: body.llmModel ?? current.llmModel,
-    ollamaUrl: body.ollamaUrl ?? current.ollamaUrl,
-    openaiApiKey: body.openaiApiKey && body.openaiApiKey !== '***' ? body.openaiApiKey : current.openaiApiKey,
-    anthropicApiKey: body.anthropicApiKey && body.anthropicApiKey !== '***' ? body.anthropicApiKey : current.anthropicApiKey,
+
+  // Campi consentiti (whitelist). I segreti non vengono sovrascritti se arriva il placeholder ***.
+  const allowed: (keyof WebSettings)[] = [
+    'llmProvider', 'llmModel', 'ollamaUrl', 'openaiModel', 'anthropicModel', 'ollamaModel',
+    'ollamaVisionModel', 'anthropicVisionModel', 'polizzaOcrEnabled', 'polizzaWholeDossier',
+    'polizzaPromptExtra', 'theme', 'language', 'accentColor',
+  ]
+  const update: Partial<WebSettings> = {}
+  for (const k of allowed) {
+    if (body[k] !== undefined) (update as Record<string, unknown>)[k] = body[k]
   }
+  if (body.openaiApiKey && body.openaiApiKey !== '***') update.openaiApiKey = body.openaiApiKey
+  if (body.anthropicApiKey && body.anthropicApiKey !== '***') update.anthropicApiKey = body.anthropicApiKey
+  // Mantieni i segreti esistenti se non aggiornati (no-op: già persistiti)
+  void current
 
   await saveSettings(update)
   await logAction({ email: session.email, action: 'settings.save', ip })

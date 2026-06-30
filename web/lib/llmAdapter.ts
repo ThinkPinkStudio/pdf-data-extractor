@@ -24,6 +24,13 @@ export async function testProviderConnection(settings: {
   return test(settings)
 }
 
+export async function ollamaStatus(baseUrl: string): Promise<{ connected: boolean; models: string[] }> {
+  const { getOllamaStatus } = await importSharedService<{
+    getOllamaStatus: (u: string) => Promise<{ connected: boolean; models: string[] }>
+  }>('llmService.js')
+  return getOllamaStatus(baseUrl)
+}
+
 export async function extractFields(pdfPath: string, fieldList: string[]): Promise<Array<{ name: string; value: string }>> {
   const llm = await importSharedService<Record<string, (...a: unknown[]) => unknown>>('llmService.js')
   const { loadPDF, searchChunks } = await importSharedService<{ loadPDF: (p: string) => Promise<{ text: string; chunks: unknown[] }>; searchChunks: (q: string, c: unknown[], k: number) => unknown[] }>('pdfService.js')

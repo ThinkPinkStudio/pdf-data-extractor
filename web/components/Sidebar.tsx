@@ -76,6 +76,8 @@ export default function Sidebar({ email }: { email: string }) {
     const saved = (localStorage.getItem('theme') as 'dark' | 'light' | null) || 'dark'
     setTheme(saved)
     document.documentElement.setAttribute('data-theme', saved)
+    const accent = localStorage.getItem('accentColor')
+    if (accent) document.documentElement.style.setProperty('--c-accent', accent)
   }, [])
 
   function toggleTheme() {
