@@ -11,6 +11,22 @@ const { version } = require('./package.json')
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    define: {
+      // Chiave API Resend iniettata a BUILD TIME (Settings → Variables/Secrets →
+      // Actions: RESEND_API_KEY). Il magic link viene spedito via API HTTPS di
+      // Resend (porta 443) invece che SMTP: passa anche dietro firewall aziendali
+      // restrittivi che bloccano le porte SMTP (25/465/587) in uscita.
+      __RESEND_API_KEY__: JSON.stringify(process.env.RESEND_API_KEY || ''),
+      // Mittente del magic link (dominio verificato su Resend). Override via env
+      // MAGIC_LINK_FROM al build.
+      __MAGIC_LINK_FROM__: JSON.stringify(
+        process.env.MAGIC_LINK_FROM || 'PDF Data Extractor <noreply@thinkpinkstudio.it>'
+      ),
+      // Domini email ammessi al login, separati da virgola (es. "csabroker.it,
+      // thinkpinkstudio.it"). '*' = qualsiasi dominio. Iniettato a build time:
+      // sul PC del cliente non esiste alcuna ALLOWED_DOMAINS d'ambiente.
+      __ALLOWED_DOMAINS__: JSON.stringify(process.env.ALLOWED_DOMAINS || '*')
+    },
     build: {
       rollupOptions: {
         external: ['pdf-parse']

@@ -7,9 +7,11 @@ import log from 'electron-log/main'
 // scarica in background e la installa al RIAVVIO dell'app (autoInstallOnAppQuit).
 // Comportamento scelto: "scarica e installa al riavvio", con notifica nativa.
 //
-// SICUREZZA: il feed di aggiornamento (build.publish) punta a una sorgente PUBBLICA
-// — nessun token/segreto finisce nel build (che sarebbe estraibile). Per repo GitHub
-// privato si usa il provider "generic" su un host pubblico (es. downloads.thinkpinkstudio.it).
+// SICUREZZA: il feed di aggiornamento (build.publish) punta al repo GitHub PUBBLICO
+// ThinkPinkStudio/pdf-data-extractor — nessun token/segreto finisce nel build (che
+// sarebbe estraibile). Il provider "github" scarica le release pubbliche senza
+// autenticazione; le richieste escono su HTTPS (443), quindi passano anche dietro i
+// firewall aziendali restrittivi.
 //
 // ROBUSTEZZA: tutto è guardato. Se electron-updater non è installato, o il feed non è
 // raggiungibile (offline/VPN), l'app continua a funzionare normalmente — l'update non
