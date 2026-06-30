@@ -1,0 +1,2 @@
+# Keep this directory so the Docker build can COPY web/public.
+# Place static assets served at the site root here.

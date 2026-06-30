@@ -17,7 +17,7 @@ export async function testProviderConnection(settings: {
 
 export async function extractFields(pdfPath: string, fieldList: string[]): Promise<Array<{ name: string; value: string }>> {
   const { loadPDF, searchChunks } = await import(`${SERVICES_PATH}/pdfService.js`)
-  const stored = getSettings()
+  const stored = await getSettings()
 
   const { text, chunks } = await loadPDF(pdfPath)
 
