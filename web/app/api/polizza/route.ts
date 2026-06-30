@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { writeFile, unlink } from 'fs/promises'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 
@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
   }
 
   const tmpPaths: string[] = []
+  // Mappa basename-temporaneo → nome originale: i file vengono salvati come
+  // polizza-<uuid>.pdf, ma il client deve poter riassociare scannedFiles ai propri
+  // File (per nome) per avviare l'OCR/vision. Senza questo, scannedFiles conterrebbe
+  // i nomi temporanei e nessun documento verrebbe elaborato.
+  const origNameByBase: Record<string, string> = {}
   const names = pdfFiles.map((f) => f.name).join(', ')
   await logAction({ email: session.email, action: 'polizza.start', resource: names, ip, userAgent })
 
@@ -38,10 +43,13 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(await pdfFile.arrayBuffer())
       await writeFile(tmpPath, buffer)
       tmpPaths.push(tmpPath)
+      origNameByBase[basename(tmpPath)] = pdfFile.name
     }
 
     const { extractPolizza } = await import('@/lib/polizzaService')
     const result = await extractPolizza(tmpPaths)
+    // Riporta i nomi originali, così il client può riassociare i file e avviare la vision.
+    result.scannedFiles = (result.scannedFiles || []).map((n) => origNameByBase[n] ?? n)
 
     await logAction({ email: session.email, action: 'polizza.complete', resource: names, ip, userAgent })
 
