@@ -4,7 +4,9 @@ import { unsealData } from 'iron-session'
 const COOKIE_NAME = 'pdf_extractor_session'
 const SESSION_PASSWORD = process.env.SESSION_SECRET || 'change-me-32-chars-minimum-secret!!'
 
-const PUBLIC_PATHS = ['/auth/login', '/auth/verify', '/api/auth/send-link', '/api/auth/verify', '/api/health']
+// '/api/extract-jobs' è esente dal redirect di sessione: fa auth a token di
+// servizio da sé (vedi lib/serviceAuth.ts), perché è chiamato macchina-a-macchina.
+const PUBLIC_PATHS = ['/auth/login', '/auth/verify', '/api/auth/send-link', '/api/auth/verify', '/api/health', '/api/extract-jobs']
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import Providers from '@/components/Providers'
+import TitleBar from '@/components/TitleBar'
 
 export const metadata: Metadata = {
   title: 'PDF Data Extractor',
@@ -9,7 +11,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="it">
-      <body>{children}</body>
+      <body>
+        <Providers>
+          <TitleBar />
+          {children}
+        </Providers>
+      </body>
     </html>
   )
 }
