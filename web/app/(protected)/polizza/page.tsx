@@ -2,34 +2,11 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { loadPdfFromFile } from '@/lib/pdfRender'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 interface FieldDef { id: string; label: string; description?: string; sheet?: string }
 interface Source { file: string; page: number }
 
-// ─── Helpers stato rolling (come desktop) ────────────────────────────────────
-function flattenRollingState(state: any): Record<string, string> {
-  const flat: Record<string, string> = {}
-  for (const [key, entry] of Object.entries(state || {})) {
-    if (entry == null) continue
-    if (typeof entry === 'object' && 'valore' in (entry as any)) {
-      const v = (entry as any).valore
-      if (v != null && v !== '') flat[key] = v
-    } else if (typeof entry === 'string' && entry !== '') {
-      flat[key] = entry
-    }
-  }
-  return flat
-}
-function buildSources(state: any): Record<string, Source> {
-  const out: Record<string, Source> = {}
-  for (const [key, entry] of Object.entries(state || {})) {
-    const e = entry as any
-    if (e && typeof e === 'object' && e.valore != null && e.valore !== '' && e.fonte) out[key] = e.fonte
-  }
-  return out
-}
 function mappingSheetNames(defaultMapping: any): string[] {
   const s = new Set<string>()
   for (const arr of Object.values(defaultMapping || {})) {
@@ -67,7 +44,6 @@ export default function PolizzaPage() {
   const [dragging, setDragging] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
   const [defaultMapping, setDefaultMapping] = useState<any>({})
-  const [wholeDossier, setWholeDossier] = useState(false)
 
   const [extracting, setExtracting] = useState(false)
   const [visionExtracting, setVisionExtracting] = useState(false)
@@ -87,14 +63,20 @@ export default function PolizzaPage() {
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
 
+  // Job server-side: id corrente + nomi file (per la lista quando i File non sono
+  // più in memoria, es. dopo riapertura/ricarica della pagina).
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobFileNames, setJobFileNames] = useState<string[]>([])
+
   const diagRef = useRef<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const tplInputRef = useRef<HTMLInputElement>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     fetch('/api/polizza/fields')
       .then((r) => r.json())
-      .then((d) => { setFields(d.fields || []); setDefaultMapping(d.defaultMapping || {}); setWholeDossier(!!d.wholeDossier) })
+      .then((d) => { setFields(d.fields || []); setDefaultMapping(d.defaultMapping || {}) })
       .catch(() => {})
   }, [])
 
@@ -125,139 +107,87 @@ export default function PolizzaPage() {
   }, [])
   const removeFile = (name: string, size: number) => setFiles((prev) => prev.filter((f) => !(f.name === name && f.size === size)))
 
-  const dlog = (m: string) => diagRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ${m}`)
 
-  // ─── Estrazione ────────────────────────────────────────────────────────────
+  // ─── Job server-side: applica uno snapshot allo stato UI ─────────────────────
+  const applySnapshot = useCallback((s: any): string | null => {
+    if (!s || s.jobId == null) return null
+    setExtracted(s.values || {})
+    setSources(s.sources || {})
+    setProgress(s.progress || null)
+    if (Array.isArray(s.fieldDefs) && s.fieldDefs.length) setFields(s.fieldDefs)
+    if (Array.isArray(s.scannedFiles)) setJobFileNames(s.scannedFiles)
+    const st = s.status as string
+    const active = st === 'queued' || st === 'running'
+    setExtracting(active)
+    setVisionExtracting(active)
+    setVisionMsg(active ? 'extracting' : st === 'done' ? 'done' : st === 'error' ? 'error' : null)
+    setVisionErr(st === 'error' ? (s.error || null) : null)
+    if (st === 'error') setError(s.error || null)
+    return st
+  }, [])
+
+  // Polling dello snapshot finché il job non è in stato terminale.
+  useEffect(() => {
+    if (!jobId) return
+    let stopped = false
+    const stop = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/polizza/job/${jobId}`)
+        if (!res.ok) { if (res.status === 404) { localStorage.removeItem('polizzaJobId'); stopped = true; stop() } return }
+        const s = await res.json()
+        if (stopped) return
+        const st = applySnapshot(s)
+        if (st === 'done' || st === 'error' || st === 'canceled') { stopped = true; stop() }
+      } catch { /* rete: riprova al prossimo tick */ }
+    }
+    tick()
+    pollRef.current = setInterval(tick, 1500)
+    return () => { stopped = true; stop() }
+  }, [jobId, applySnapshot])
+
+  // Restore all'apertura pagina: jobId salvato → o ultimo job attivo dell'utente.
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('polizzaJobId') : null
+    if (saved) { setJobId(saved); return }
+    fetch('/api/polizza/job/active').then((r) => r.json()).then((s) => {
+      if (s && s.jobId) { localStorage.setItem('polizzaJobId', s.jobId); setJobId(s.jobId) }
+    }).catch(() => {})
+  }, [])
+
+  // ─── Avvio estrazione: crea il job lato server e avvia il polling ────────────
   async function handleExtract() {
     if (!files.length) return
-    setExtracting(true); setError(null); setExtracted(null); setSources({}); setExportMsg(null)
-    setVisionMsg(null); setVisionErr(null); setProgress(null)
-    diagRef.current = []
-    dlog(`Inizio estrazione — ${files.length} file`)
+    setError(null); setExportMsg(null); setVisionErr(null)
+    setExtracted({}); setSources({}); setProgress(null)
+    setExtracting(true); setVisionExtracting(true); setVisionMsg('extracting')
+    setJobFileNames(files.map((f) => f.name))
     try {
       const form = new FormData()
       files.forEach((f) => form.append('pdf', f))
-      const res = await fetch('/api/polizza', { method: 'POST', body: form })
+      const res = await fetch('/api/polizza/job', { method: 'POST', body: form })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         throw new Error(d.error || t('pol.errProcessing'))
       }
-      const data = await res.json()
-      // Usa lo stato rolling strutturato se disponibile, altrimenti i valori piatti (come desktop)
-      const flatData = flattenRollingState(data.rollingState)
-      setExtracted(Object.keys(flatData).length > 0 ? flatData : (data.values || {}))
-      setSources(data.sources || {})
-      if (data.fieldDefs?.length) setFields(data.fieldDefs)
-      ;(data.log || []).forEach((l: string) => dlog(l))
-
-      const scannedNames: string[] = data.scannedFiles || []
-      const scannedObjs = files.filter((f) => scannedNames.includes(f.name))
-      if (scannedObjs.length) {
-        if (wholeDossier) await runWholeDossier(scannedObjs)
-        else await runVisionRolling(scannedObjs, data.rollingState || {})
-      }
+      const { jobId: id } = await res.json()
+      localStorage.setItem('polizzaJobId', id)
+      setJobId(id) // avvia il polling
     } catch (err: any) {
-      dlog(`ERRORE: ${err.message}`); setError(err.message)
-    } finally {
-      setExtracting(false); setProgress(null)
+      setError(err.message); setExtracting(false); setVisionExtracting(false); setVisionMsg('error'); setVisionErr(err.message)
     }
   }
 
-  // ─── Vision rolling (pagina per pagina) ──────────────────────────────────────
-  async function runVisionRolling(scannedObjs: File[], initialRollingState: any) {
-    setVisionExtracting(true); setVisionMsg('extracting'); setVisionErr(null)
-    // Parte dallo stato rolling strutturato del desktop ({valore, data_validita, fonte}),
-    // così il merge temporale pagina-per-pagina lato server si comporta come Electron.
-    let state = { ...(initialRollingState || {}) }
-    let consecutiveFailures = 0
-    let processed = 0
-    try {
-      for (let i = 0; i < scannedObjs.length; i++) {
-        const file = scannedObjs[i]
-        const doc = await loadPdfFromFile(file)
-        try {
-          for (let p = 1; p <= doc.numPages; p++) {
-            processed++
-            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed, receivedAt: Date.now() })
-            const png = await doc.renderPage(p)
-            const r = await fetch('/api/polizza/vision-update', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ state, imageBase64: png, pageNum: p, totalPages: doc.numPages, docName: file.name }),
-            }).then((x) => x.json())
-            if (r.success) {
-              state = r.state; consecutiveFailures = 0
-              setExtracted(flattenRollingState(state)); setSources(buildSources(state))
-              dlog(`OCR vision pag. ${p}/${doc.numPages} di ${file.name}: OK`)
-            } else {
-              consecutiveFailures++
-              dlog(`OCR vision pag. ${p}/${doc.numPages} di ${file.name}: ${r.error}`)
-              if (r.connectionError || (r.timeoutError && consecutiveFailures >= 2) || consecutiveFailures >= 3) throw new Error(r.error)
-            }
-          }
-        } finally {
-          await doc.destroy()
-        }
-      }
-      setVisionMsg('done')
-    } catch (err: any) {
-      dlog(`OCR visivo ERRORE: ${err.message}`); setVisionMsg('error'); setVisionErr(err.message)
-    } finally {
-      setVisionExtracting(false); setProgress(null)
-    }
-  }
-
-  // ─── Fascicolo intero (OCR tutte le pagine → 1 chiamata) ─────────────────────
-  async function runWholeDossier(scannedObjs: File[]) {
-    setVisionExtracting(true); setVisionMsg('extracting'); setVisionErr(null)
-    try {
-      const ocr = await fetch('/api/polizza/ocr-status').then((r) => r.json())
-      dlog(`OCR disponibile: ${ocr.available}${ocr.available ? '' : ' — ' + (ocr.reason || '')}`)
-      if (!ocr.available) {
-        const msg = t('pol.ocrUnavailable', { reason: ocr.reason || '—' })
-        setVisionMsg('error'); setVisionErr(msg); setError(msg); return
-      }
-      const parts: string[] = []
-      let pagesWithText = 0; let processed = 0
-      for (let i = 0; i < scannedObjs.length; i++) {
-        const file = scannedObjs[i]
-        const doc = await loadPdfFromFile(file)
-        let docText = ''
-        try {
-          for (let p = 1; p <= doc.numPages; p++) {
-            processed++
-            setProgress({ docIndex: i, docTotal: scannedObjs.length, pageIndex: p, pageTotal: doc.numPages, docName: file.name, totalPagesProcessed: processed, receivedAt: Date.now() })
-            const png = await doc.renderPage(p)
-            const r = await fetch('/api/polizza/ocr-page', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: png }),
-            }).then((x) => x.json())
-            if (r.success && r.text) { docText += '\n' + r.text; pagesWithText++ }
-          }
-        } finally {
-          await doc.destroy()
-        }
-        parts.push(`\n===== DOCUMENTO: ${file.name} =====\n${docText.trim()}`)
-      }
-      const fullText = parts.join('\n')
-      if (pagesWithText === 0 || fullText.trim().length < 50) {
-        const msg = t('pol.ocrNoText')
-        setVisionMsg('error'); setVisionErr(msg); setError(msg); return
-      }
-      const r = await fetch('/api/polizza/whole-dossier', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullText }),
-      }).then((x) => x.json())
-      if (r.success) {
-        const n = Object.keys(r.data || {}).length
-        setExtracted(r.data || {}); setSources(r.sources || {})
-        setVisionMsg(n === 0 ? 'error' : 'done')
-        if (n === 0) setVisionErr(t('pol.modelNoFields'))
-      } else {
-        setVisionMsg('error'); setVisionErr(r.error || t('pol.dossierFailed')); setError(r.error)
-      }
-    } catch (err: any) {
-      dlog('ERRORE fascicolo intero: ' + err.message); setVisionMsg('error'); setVisionErr(err.message)
-    } finally {
-      setVisionExtracting(false); setProgress(null)
-    }
+  // ─── Nuova polizza: annulla l'eventuale job in corso e azzera la UI ──────────
+  async function handleNewPolizza() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    const id = jobId
+    localStorage.removeItem('polizzaJobId')
+    setJobId(null); setJobFileNames([]); setFiles([])
+    setExtracted(null); setSources({}); setProgress(null)
+    setExtracting(false); setVisionExtracting(false); setVisionMsg(null); setVisionErr(null)
+    setError(null); setExportMsg(null)
+    if (id) { try { await fetch(`/api/polizza/job/${id}/cancel`, { method: 'POST' }) } catch { /* best-effort */ } }
   }
 
   // ─── Export Excel nuovo ──────────────────────────────────────────────────────
@@ -351,32 +281,37 @@ export default function PolizzaPage() {
         {/* Pannello sinistro */}
         <div className="polizza-left">
           <div className="polizza-left-inner">
-            <div
-              className={`polizza-dropzone${dragging ? ' dragging' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)) }}
-              onClick={() => inputRef.current?.click()}
-              role="button" tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
-            >
-              <div className="dz-icon"><IconUpload /></div>
-              <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--c-text-primary)' }}>{t('pol.dropPrimary')}</p>
-              <p>{t('pol.dropSecondary')}</p>
-              <button className="dz-btn" onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}>{t('pol.selectFiles')}</button>
-              <input ref={inputRef} type="file" accept=".pdf,application/pdf" multiple style={{ display: 'none' }}
-                onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
-            </div>
+            {!jobId && (
+              <div
+                className={`polizza-dropzone${dragging ? ' dragging' : ''}`}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)) }}
+                onClick={() => inputRef.current?.click()}
+                role="button" tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
+              >
+                <div className="dz-icon"><IconUpload /></div>
+                <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--c-text-primary)' }}>{t('pol.dropPrimary')}</p>
+                <p>{t('pol.dropSecondary')}</p>
+                <button className="dz-btn" onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}>{t('pol.selectFiles')}</button>
+                <input ref={inputRef} type="file" accept=".pdf,application/pdf" multiple style={{ display: 'none' }}
+                  onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
+              </div>
+            )}
 
-            {files.length > 0 && (
+            {(files.length > 0 || jobFileNames.length > 0) && (
               <div>
-                <div className="section-title">{t('pol.docsLoaded', { n: files.length })}</div>
+                <div className="section-title">{t('pol.docsLoaded', { n: files.length || jobFileNames.length })}</div>
                 <div className="polizza-file-list">
-                  {files.map((f) => (
+                  {(files.length > 0
+                    ? files.map((f) => ({ name: f.name, size: f.size, removable: !jobId }))
+                    : jobFileNames.map((n) => ({ name: n, size: 0, removable: false }))
+                  ).map((f) => (
                     <div key={f.name + f.size} className="polizza-file-item">
                       <IconFile />
                       <span className="polizza-file-name" title={f.name}>{f.name}</span>
-                      <button className="polizza-file-remove" onClick={() => removeFile(f.name, f.size)} aria-label={t('pol.remove', { name: f.name })}><IconX /></button>
+                      {f.removable && <button className="polizza-file-remove" onClick={() => removeFile(f.name, f.size)} aria-label={t('pol.remove', { name: f.name })}><IconX /></button>}
                     </div>
                   ))}
                 </div>
@@ -400,9 +335,15 @@ export default function PolizzaPage() {
 
           <div className="polizza-actions">
             {error && <div className="polizza-error">⚠ {error}</div>}
-            <button className="btn btn-primary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleExtract} disabled={!files.length || loading} aria-busy={loading}>
-              {loading ? <><span className="spinner" /> {t('pol.extracting')}</> : <>{t('pol.extractBtn')}</>}
-            </button>
+            {jobId ? (
+              <button className="btn btn-secondary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleNewPolizza}>
+                {loading ? <><span className="spinner" /> {t('pol.newPolizzaStop')}</> : t('pol.newPolizza')}
+              </button>
+            ) : (
+              <button className="btn btn-primary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleExtract} disabled={!files.length || loading} aria-busy={loading}>
+                {loading ? <><span className="spinner" /> {t('pol.extracting')}</> : <>{t('pol.extractBtn')}</>}
+              </button>
+            )}
 
             {(visionExtracting || visionMsg) && (
               <div className={`vision-box ${visionMsg}`}>
