@@ -19,9 +19,6 @@ FROM node:20-alpine AS deps
 WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json* ./
-# Lo shim locale `electron` (file:shims/electron) deve esistere PRIMA di npm ci,
-# altrimenti l'installazione della dipendenza file: fallisce.
-COPY web/shims ./shims
 # --include=dev forces devDependencies (typescript, @types/*) to install even when
 # the builder sets NODE_ENV=production — next build needs them.
 RUN npm ci --include=dev
@@ -38,8 +35,8 @@ COPY web ./
 # Shared Electron services used directly by the web API routes
 COPY src/main/services /app/src/main/services
 
-# Lingua OCR Tesseract (estrazione polizze scansionate offline). Lo shim
-# electron (web/shims/electron) cerca ita.traineddata partendo da cwd/.. → /app.
+# Lingua OCR Tesseract (estrazione polizze scansionate offline). tessLangOptions()
+# cerca ita.traineddata via TESSERACT_DATA_DIR o cwd/.. → /app (cwd runner = /app/web).
 COPY ita.traineddata /app/ita.traineddata
 
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -66,10 +63,11 @@ COPY --from=deps /app/web/node_modules ./node_modules
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/ita.traineddata /app/ita.traineddata
 
-# I servizi condivisi in /app/src fanno bare-import (electron shim, pdf-parse,
-# exceljs, tesseract.js, pdfjs-dist…). Node li risolve risalendo da /app/src:
-# esponiamo la node_modules del web a /app/node_modules così quei moduli (incluso
-# lo shim `electron` in web/node_modules) sono raggiungibili anche da /app/src.
+# I servizi condivisi in /app/src fanno bare-import di pacchetti REALI (pdf-parse,
+# exceljs, tesseract.js, pdfjs-dist). Node li risolve risalendo da /app/src:
+# esponiamo la node_modules del web a /app/node_modules così sono raggiungibili.
+# NB: electron NON è tra questi — i servizi lo caricano in modo opzionale (try/catch)
+# e nell'app web semplicemente non esiste.
 RUN ln -s /app/web/node_modules /app/node_modules
 
 USER appuser

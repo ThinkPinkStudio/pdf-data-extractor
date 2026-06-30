@@ -1,4 +1,11 @@
-import { net } from 'electron'
+// Electron è disponibile SOLO nel processo main desktop. Questi servizi girano
+// ANCHE nell'app web (Node puro), dove electron NON deve esistere: l'accesso è
+// quindi opzionale. In ESM (web) `require` non è definito → il try fallisce e
+// `net` resta undefined (il fallback Chromium è una sola ottimizzazione desktop,
+// già protetta da `net && typeof net.fetch === 'function'`). Nel bundle CJS del
+// desktop (electron-vite) `require('electron')` funziona normalmente.
+let net
+try { net = require('electron').net } catch { /* non-Electron (web): nessun fallback net */ }
 
 // ─── Client HTTP resiliente per le chiamate in uscita del processo main ──────
 //
