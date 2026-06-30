@@ -37,6 +37,18 @@ export async function initDb() {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id         SERIAL PRIMARY KEY,
+      email      TEXT NOT NULL,
+      file_name  TEXT NOT NULL,
+      num_pages  INTEGER NOT NULL DEFAULT 0,
+      pdf_base64 TEXT,
+      meta       JSONB NOT NULL DEFAULT '{}',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_email ON sessions(email);
   `)
 }
 

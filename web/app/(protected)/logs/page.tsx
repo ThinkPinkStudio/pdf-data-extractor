@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useI18n } from '@/lib/i18n/I18nProvider'
 
 interface LogEntry {
   id: number
@@ -14,6 +15,7 @@ interface LogEntry {
 }
 
 export default function LogsPage() {
+  const { t, lang } = useI18n()
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -21,22 +23,24 @@ export default function LogsPage() {
   useEffect(() => {
     fetch('/api/logs?limit=200')
       .then((r) => {
-        if (r.status === 403) throw new Error('Accesso riservato agli amministratori.')
-        if (!r.ok) throw new Error('Errore caricamento log.')
+        if (r.status === 403) throw new Error('logs.adminOnly')
+        if (!r.ok) throw new Error('logs.loadError')
         return r.json()
       })
       .then((d) => { setLogs(d.logs ?? []); setLoading(false) })
       .catch((err) => { setError(err.message); setLoading(false) })
   }, [])
 
+  const locale = lang === 'en' ? 'en-GB' : 'it-IT'
+
   return (
     <>
-      <h1 className="page-title">Log Azioni</h1>
+      <h1 className="page-title">{t('logs.title')}</h1>
 
       {loading && <span className="spinner" />}
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error">{t(error)}</div>}
       {!loading && !error && logs.length === 0 && (
-        <p style={{ color: 'var(--c-text-muted)' }}>Nessun log disponibile.</p>
+        <p style={{ color: 'var(--c-text-muted)' }}>{t('logs.empty')}</p>
       )}
 
       {logs.length > 0 && (
@@ -44,20 +48,20 @@ export default function LogsPage() {
           <table style={{ minWidth: 800 }}>
             <thead>
               <tr>
-                <th>Data/Ora</th>
-                <th>Utente</th>
-                <th>Azione</th>
-                <th>Risorsa</th>
-                <th>IP</th>
-                <th>Dati</th>
-                <th>Esito</th>
+                <th>{t('logs.colDate')}</th>
+                <th>{t('logs.colUser')}</th>
+                <th>{t('logs.colAction')}</th>
+                <th>{t('logs.colResource')}</th>
+                <th>{t('logs.colIp')}</th>
+                <th>{t('logs.colData')}</th>
+                <th>{t('logs.colOutcome')}</th>
               </tr>
             </thead>
             <tbody>
               {logs.map((l) => (
                 <tr key={l.id}>
                   <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>
-                    {new Date(l.timestamp).toLocaleString('it-IT')}
+                    {new Date(l.timestamp).toLocaleString(locale)}
                   </td>
                   <td style={{ fontSize: 12 }}>{l.email ?? '—'}</td>
                   <td><code style={{ fontSize: 11 }}>{l.action}</code></td>

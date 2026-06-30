@@ -3,11 +3,13 @@
 import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 function VerifyInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get('token')
+  const t = useT()
 
   useEffect(() => {
     if (!token) {
@@ -22,7 +24,7 @@ function VerifyInner() {
   return (
     <div style={{ textAlign: 'center' }}>
       <span className="spinner" style={{ width: 32, height: 32 }} />
-      <p style={{ marginTop: 16, color: 'var(--c-text-muted)' }}>Verifica in corso...</p>
+      <p style={{ marginTop: 16, color: 'var(--c-text-muted)' }}>{t('auth.verifying')}</p>
     </div>
   )
 }

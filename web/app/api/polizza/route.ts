@@ -22,28 +22,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
   }
 
-  const pdfFile = formData.get('pdf') as File | null
-  if (!pdfFile) {
+  // Accetta più PDF (polizza, appendici, condizioni…) caricati insieme.
+  const pdfFiles = formData.getAll('pdf').filter((f): f is File => f instanceof File)
+  if (pdfFiles.length === 0) {
     return NextResponse.json({ error: 'Nessun file PDF' }, { status: 400 })
   }
 
-  const tmpPath = join(tmpdir(), `polizza-${randomUUID()}.pdf`)
-  await logAction({ email: session.email, action: 'polizza.start', resource: pdfFile.name, ip, userAgent })
+  const tmpPaths: string[] = []
+  const names = pdfFiles.map((f) => f.name).join(', ')
+  await logAction({ email: session.email, action: 'polizza.start', resource: names, ip, userAgent })
 
   try {
-    const buffer = Buffer.from(await pdfFile.arrayBuffer())
-    await writeFile(tmpPath, buffer)
+    for (const pdfFile of pdfFiles) {
+      const tmpPath = join(tmpdir(), `polizza-${randomUUID()}.pdf`)
+      const buffer = Buffer.from(await pdfFile.arrayBuffer())
+      await writeFile(tmpPath, buffer)
+      tmpPaths.push(tmpPath)
+    }
 
     const { extractPolizza } = await import('@/lib/polizzaService')
-    const result = await extractPolizza(tmpPath)
+    const result = await extractPolizza(tmpPaths)
 
-    await logAction({ email: session.email, action: 'polizza.complete', resource: pdfFile.name, ip, userAgent })
+    await logAction({ email: session.email, action: 'polizza.complete', resource: names, ip, userAgent })
 
     return NextResponse.json(result)
   } catch (err) {
-    await logAction({ email: session.email, action: 'polizza.error', resource: pdfFile.name, success: false, ip, userAgent, metadata: { error: String(err) } })
+    await logAction({ email: session.email, action: 'polizza.error', resource: names, success: false, ip, userAgent, metadata: { error: String(err) } })
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {
-    await unlink(tmpPath).catch(() => {})
+    await Promise.all(tmpPaths.map((p) => unlink(p).catch(() => {})))
   }
 }
