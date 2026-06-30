@@ -89,6 +89,12 @@ jobs:
         run: npm run build
         env:
           UPDATE_DOWNLOAD_URL: ${{ vars.UPDATE_DOWNLOAD_URL }}
+          # Config iniettata nel bundle a build time (vedi electron.vite.config.mjs).
+          # Senza questo mapping i secret/vars del repo NON arrivano a process.env
+          # durante 'npm run build', e __RESEND_API_KEY__ verrebbe compilato vuoto.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAGIC_LINK_FROM: ${{ vars.MAGIC_LINK_FROM }}
+          ALLOWED_DOMAINS: ${{ vars.ALLOWED_DOMAINS }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
