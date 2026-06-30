@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { unsealData } from 'iron-session'
+import { publicUrl } from '@/lib/publicUrl'
 
 const COOKIE_NAME = 'pdf_extractor_session'
 const SESSION_PASSWORD = process.env.SESSION_SECRET || 'change-me-32-chars-minimum-secret!!'
@@ -27,7 +28,7 @@ export async function middleware(req: NextRequest) {
   }
 
   if (!email) {
-    const loginUrl = new URL('/auth/login', req.url)
+    const loginUrl = publicUrl(req, '/auth/login')
     loginUrl.searchParams.set('next', pathname)
     return NextResponse.redirect(loginUrl)
   }

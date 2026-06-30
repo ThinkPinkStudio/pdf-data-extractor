@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/tokens'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
+import { publicUrl } from '@/lib/publicUrl'
 
 export async function GET(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
@@ -9,14 +10,14 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? ''
 
   if (!token) {
-    return NextResponse.redirect(new URL('/auth/login?error=missing_token', req.url))
+    return NextResponse.redirect(publicUrl(req, '/auth/login?error=missing_token'))
   }
 
   const result = await verifyToken(token)
 
   if (!result.ok) {
     await logAction({ action: 'auth.verify', success: false, ip, userAgent, metadata: { reason: result.reason } })
-    return NextResponse.redirect(new URL(`/auth/login?error=${result.reason}`, req.url))
+    return NextResponse.redirect(publicUrl(req, `/auth/login?error=${result.reason}`))
   }
 
   const session = await getSession()
@@ -26,5 +27,5 @@ export async function GET(req: NextRequest) {
 
   await logAction({ email: result.email, action: 'auth.verify', success: true, ip, userAgent })
 
-  return NextResponse.redirect(new URL('/extractor', req.url))
+  return NextResponse.redirect(publicUrl(req, '/extractor'))
 }
