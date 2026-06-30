@@ -43,6 +43,11 @@ const IconActivity = () => (
     <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
   </svg>
 )
+const IconUser = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+  </svg>
+)
 const IconSun = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="5" />
@@ -64,7 +69,8 @@ const NAV = [
   { href: '/batch', label: 'Batch', icon: <IconBatch /> },
   { href: '/history', label: 'Cronologia', icon: <IconHistory /> },
   { href: '/settings', label: 'Impostazioni', icon: <IconSettings /> },
-  { href: '/logs', label: 'Sicurezza', icon: <IconActivity /> },
+  { href: '/diagnostics', label: 'Sicurezza', icon: <IconActivity /> },
+  { href: '/contacts', label: 'Contatti', icon: <IconUser /> },
 ]
 
 export default function Sidebar({ email }: { email: string }) {
