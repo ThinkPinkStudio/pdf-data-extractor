@@ -3,6 +3,17 @@ import { shell } from 'electron'
 import { randomUUID } from 'crypto'
 import { saveSession } from './session.js'
 import { logAction } from '../services/actionLogger.js'
+import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
+
+/* global __RESEND_API_KEY__ __MAGIC_LINK_FROM__ */
+// Chiave API Resend e mittente: iniettati a build time (vedi electron.vite.config.mjs).
+// Override a runtime via env (utile in sviluppo/test) ha la precedenza.
+const RESEND_API_KEY =
+  process.env.RESEND_API_KEY || (typeof __RESEND_API_KEY__ !== 'undefined' ? __RESEND_API_KEY__ : '')
+const MAGIC_LINK_FROM =
+  process.env.MAGIC_LINK_FROM ||
+  (typeof __MAGIC_LINK_FROM__ !== 'undefined' && __MAGIC_LINK_FROM__) ||
+  'PDF Data Extractor <noreply@thinkpinkstudio.it>'
 
 const pendingTokens = new Map()
 const EXPIRY_MS = 15 * 60 * 1000
@@ -109,25 +120,32 @@ export async function sendMagicLinkAndWait(email) {
   }
 }
 
+// Invia il magic link tramite l'API HTTPS di Resend (https://api.resend.com).
+// Niente SMTP dal client: la chiamata esce su 443, l'unica porta che i firewall
+// aziendali restrittivi lasciano praticamente sempre aperta. resilientFetch
+// gestisce retry sui blip di rete e, in caso di TLS inspection/proxy aziendale,
+// ricade sullo stack di rete di Chromium (proxy di sistema + CA del SO).
 async function sendEmail(email, link) {
-  const nodemailer = await import('nodemailer')
-  const transport = nodemailer.default.createTransport({
-    host: process.env.SMTP_HOST || 'localhost',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
-      : undefined,
-  })
+  if (!RESEND_API_KEY) {
+    throw new Error(
+      'Invio email non configurato: chiave Resend mancante nel build (RESEND_API_KEY).'
+    )
+  }
 
-  const from = process.env.SMTP_FROM || 'PDF Extractor <noreply@localhost>'
-
-  await transport.sendMail({
-    from,
-    to: email,
-    subject: 'Accedi a PDF Data Extractor',
-    text: `Clicca per accedere (valido 15 minuti): ${link}`,
-    html: `
+  let res
+  try {
+    res = await resilientFetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: MAGIC_LINK_FROM,
+        to: email,
+        subject: 'Accedi a PDF Data Extractor',
+        text: `Clicca per accedere (valido 15 minuti): ${link}`,
+        html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
         <h2 style="color:#e91e8c">PDF Data Extractor</h2>
         <p>Clicca per accedere. Valido <strong>15 minuti</strong>.</p>
@@ -137,7 +155,27 @@ async function sendEmail(email, link) {
         <p style="color:#bbb;font-size:11px;margin-top:16px">Se non hai richiesto questo accesso, ignora questa email.</p>
       </div>
     `,
-  })
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+  } catch (err) {
+    // Errore di rete prima ancora di una risposta HTTP: diagnosi leggibile
+    // (proxy/firewall/TLS) per il supporto.
+    throw new Error(describeNetworkError(err).message)
+  }
+
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const body = await res.json()
+      detail = body?.message || body?.error?.message || ''
+    } catch {
+      /* corpo non-JSON o vuoto */
+    }
+    throw new Error(
+      `Invio email fallito (HTTP ${res.status})${detail ? `: ${detail}` : ''}.`
+    )
+  }
 }
 
 export function closeCallbackServer() {

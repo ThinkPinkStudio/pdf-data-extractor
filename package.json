@@ -45,7 +45,7 @@
       {
         "provider": "github",
         "owner": "ThinkPinkStudio",
-        "repo": "pdf-data-extractor-releases"
+        "repo": "pdf-data-extractor"
       }
     ],
     "directories": {
