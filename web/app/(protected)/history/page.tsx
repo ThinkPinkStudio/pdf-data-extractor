@@ -1,73 +1,127 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useRouter } from 'next/navigation'
 
-interface HistoryEntry {
-  id: number
-  timestamp: string
-  email: string | null
-  action: string
-  resource: string | null
-  success: number
-}
+const IconFile = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="18" height="18">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+  </svg>
+)
+const IconTrash = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+  </svg>
+)
+const IconOpen = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="14" height="14">
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+  </svg>
+)
+
+interface SessionSummary { id: string; fileName: string; numPages: number; createdAt: string }
 
 export default function HistoryPage() {
-  const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const { t } = useTranslation()
+  const router = useRouter()
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    fetch('/api/logs?limit=100')
-      .then((r) => r.json())
-      .then((d) => {
-        setEntries(d.logs ?? [])
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
+  const load = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/history')
+      const data = await res.json()
+      setSessions(data.sessions || [])
+    } catch (err) {
+      setError((err as Error).message)
+    }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const openSession = (id: string) => router.push(`/extractor?restore=${encodeURIComponent(id)}`)
+
+  const deleteSession = async (id: string) => {
+    if (!window.confirm(t('history.confirmDelete'))) return
+    try {
+      await fetch(`/api/history/${id}`, { method: 'DELETE' })
+      setSessions((prev) => prev.filter((s) => s.id !== id))
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+  const clearAll = async () => {
+    if (!window.confirm(t('history.confirmClearAll'))) return
+    try {
+      await fetch('/api/history/clear', { method: 'POST' })
+      setSessions([])
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const formatDate = (iso: string) => {
+    if (!iso) return ''
+    try { return new Date(iso).toLocaleString() } catch { return iso }
+  }
 
   return (
     <>
-      <h1 className="page-title">Cronologia</h1>
-      <p style={{ color: 'var(--c-text-muted)', marginBottom: 20, fontSize: 13 }}>
-        Ultime azioni registrate (100 più recenti).
-      </p>
+      <div className="page-header">
+        <h1 className="page-title">{t('history.title')}</h1>
+        <p className="page-subtitle">{t('history.subtitle')}</p>
+      </div>
 
-      {loading ? (
-        <span className="spinner" />
-      ) : entries.length === 0 ? (
-        <p style={{ color: 'var(--c-text-muted)' }}>Nessuna azione registrata.</p>
-      ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Data/Ora</th>
-                <th>Utente</th>
-                <th>Azione</th>
-                <th>Risorsa</th>
-                <th>Esito</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>
-                    {new Date(e.timestamp).toLocaleString('it-IT')}
-                  </td>
-                  <td style={{ fontSize: 12 }}>{e.email ?? '—'}</td>
-                  <td><code style={{ fontSize: 11 }}>{e.action}</code></td>
-                  <td style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{e.resource ?? '—'}</td>
-                  <td>
-                    <span style={{ color: e.success ? 'var(--c-success)' : 'var(--c-danger)', fontSize: 12 }}>
-                      {e.success ? '✓' : '✗'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="page-body">
+        {error && <div className="alert alert-error" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
+
+        <div className="flex gap-2" style={{ marginBottom: 16, alignItems: 'center' }}>
+          {sessions.length > 0 && (
+            <button className="btn btn-ghost" onClick={clearAll}>
+              <IconTrash />
+              {t('history.clearAll')}
+            </button>
+          )}
         </div>
-      )}
+
+        {loading ? (
+          <div className="flex items-center" style={{ justifyContent: 'center', padding: 40 }}>
+            <div className="spinner" aria-label={t('common.loading')} />
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="empty-state">
+            <IconFile />
+            <p>{t('history.noSessions')}</p>
+          </div>
+        ) : (
+          <div className="history-list" role="list">
+            {sessions.map((session) => (
+              <div key={session.id} className="history-item card-section" role="listitem">
+                <div className="history-item-icon"><IconFile /></div>
+                <div className="history-item-info">
+                  <div className="history-item-name">{session.fileName || session.id}</div>
+                  <div className="history-item-meta text-muted text-sm">
+                    {session.numPages ? `${session.numPages} ${t('extractor.pages')} · ` : ''}
+                    {t('history.created')}: {formatDate(session.createdAt)}
+                  </div>
+                </div>
+                <div className="history-item-actions flex gap-2">
+                  <button className="btn btn-secondary" onClick={() => openSession(session.id)} aria-label={`${t('history.openSession')}: ${session.fileName}`} title={t('history.openSession')}>
+                    <IconOpen />
+                    {t('history.openSession')}
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => deleteSession(session.id)} aria-label={`${t('history.deleteSession')}: ${session.fileName}`} title={t('history.deleteSession')}>
+                    <IconTrash />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </>
   )
 }
