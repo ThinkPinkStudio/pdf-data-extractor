@@ -23,6 +23,20 @@ export interface PolizzaProfile {
   consensusPasses?: number
 }
 
+// Campi/profili di estrazione generici (pagina Estrattore), come nel desktop.
+export interface GenericField {
+  id: string
+  label: string
+  description?: string
+  type?: string
+  enabled?: boolean
+}
+export interface GenericProfile {
+  id: string
+  name: string
+  fields: GenericField[]
+}
+
 export interface WebSettings {
   llmProvider: string
   llmModel: string
@@ -42,6 +56,13 @@ export interface WebSettings {
   polizzaPromptExtra?: string
   polizzaFields?: PolizzaField[]
   polizzaProfiles?: PolizzaProfile[]
+  // Verifica/qualità polizza (usati dal servizio condiviso, polizzaService.js)
+  polizzaVerificaCampi?: string
+  polizzaVerificaModel?: string
+  polizzaConsensusPasses?: number
+  // Estrazione generica (pagina Estrattore)
+  extractions?: GenericField[]
+  profiles?: GenericProfile[]
   // Aspetto
   theme?: string
   language?: string
@@ -58,7 +79,7 @@ const DEFAULTS: WebSettings = {
 
 const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
-const JSON_KEYS = new Set(['polizzaFields', 'polizzaProfiles'])
+const JSON_KEYS = new Set(['polizzaFields', 'polizzaProfiles', 'extractions', 'profiles'])
 
 export async function getSettings(): Promise<WebSettings> {
   const { rows } = await pool.query<{ key: string; value: string }>(
@@ -88,6 +109,11 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
     polizzaFields: json<PolizzaField[]>('polizzaFields'),
     polizzaProfiles: json<PolizzaProfile[]>('polizzaProfiles'),
+    polizzaVerificaCampi: map.polizzaVerificaCampi ?? '',
+    polizzaVerificaModel: map.polizzaVerificaModel ?? '',
+    polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
+    extractions: json<GenericField[]>('extractions'),
+    profiles: json<GenericProfile[]>('profiles'),
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,
