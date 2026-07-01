@@ -1,7 +1,7 @@
 'use client'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 
@@ -38,6 +38,14 @@ export default function DiagnosticsPage() {
       setLoading(false)
     }
   }
+
+  // Esecuzione automatica al caricamento (come l'app desktop) — niente pagina vuota.
+  const autoRan = useRef(false)
+  useEffect(() => {
+    if (autoRan.current) return
+    autoRan.current = true
+    run()
+  }, [])
 
   const L = data?.layers || {}
   return (

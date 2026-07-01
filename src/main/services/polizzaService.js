@@ -12,7 +12,11 @@
 import { readFileSync, existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import { app } from 'electron'
+// Electron solo nel desktop: nell'app web (Node puro) electron NON deve esistere.
+// `app` serve unicamente a trovare ita.traineddata per l'OCR offline ed è già usato
+// con guardie; qui lo carichiamo in modo opzionale (in ESM `require` non esiste → catch).
+let app
+try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch } from './netFetch.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -1300,9 +1304,18 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 // core WASM, in Node, è già caricato via require da node_modules — niente rete.
 function tessLangOptions() {
   try {
-    const base = app && app.isPackaged ? process.resourcesPath : (app && app.getAppPath ? app.getAppPath() : process.cwd())
-    if (base && existsSync(join(base, 'ita.traineddata'))) {
-      return { langPath: base, gzip: false, cacheMethod: 'none' }
+    // Desktop: app.getAppPath()/resourcesPath. Web (no electron): TESSERACT_DATA_DIR
+    // o cwd e la sua parent (nel container ita.traineddata sta in /app, cwd=/app/web).
+    const candidates = [
+      process.env.TESSERACT_DATA_DIR,
+      app && app.isPackaged ? process.resourcesPath : (app && app.getAppPath ? app.getAppPath() : null),
+      process.cwd(),
+      join(process.cwd(), '..'),
+    ].filter(Boolean)
+    for (const base of candidates) {
+      if (existsSync(join(base, 'ita.traineddata'))) {
+        return { langPath: base, gzip: false, cacheMethod: 'none' }
+      }
     }
   } catch (_) { /* fallback CDN */ }
   return {}
