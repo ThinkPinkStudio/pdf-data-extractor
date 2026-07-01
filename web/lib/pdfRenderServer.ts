@@ -53,7 +53,11 @@ export interface ServerRenderedDoc {
 
 export async function loadPdfServer(buffer: Buffer | Uint8Array): Promise<ServerRenderedDoc> {
   const pdfjs = await getPdfjs()
-  const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
+  // pdfjs (build legacy) rifiuta i Buffer di Node e pretende un Uint8Array "puro".
+  // NB: `Buffer extends Uint8Array`, quindi un semplice `instanceof Uint8Array` non basta.
+  const data = Buffer.isBuffer(buffer)
+    ? new Uint8Array(buffer)
+    : buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
   const canvasFactory = new NodeCanvasFactory()
   // isEvalSupported:false → mitiga l'esecuzione di JS da PDF malevoli (CVE-2024-4367)
   const doc = await pdfjs.getDocument({

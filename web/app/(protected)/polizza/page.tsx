@@ -266,6 +266,11 @@ export default function PolizzaPage() {
   }
 
   const loading = extracting
+  // "Ha valori" = almeno un campo estratto. Uno snapshot con extracted={} (job appena
+  // avviato) NON conta come risultato: così mostriamo il pannello di avanzamento e non
+  // una tabella vuota.
+  const hasValues = !!extracted && Object.keys(extracted).length > 0
+  const jobActive = extracting || visionExtracting
   const isCSA = templateStructure && mappingSheetNames(defaultMapping).some((n) => Object.keys(templateStructure).includes(n))
 
   return (
@@ -377,14 +382,14 @@ export default function PolizzaPage() {
         {/* Pannello destro */}
         <div className="polizza-right">
           <div className="polizza-results">
-            {!extracted && !loading && (
+            {!hasValues && !loading && (
               <div className="polizza-empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="52" height="52"><path d="M9 12h6M9 16h6M17 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V8l-4-6z" /></svg>
                 <h3>{t('pol.emptyTitle')}</h3>
                 <p>{t('pol.emptyText')}</p>
               </div>
             )}
-            {loading && !extracted && (
+            {loading && !hasValues && (
               <div className="polizza-empty">
                 <span className="spinner" style={{ width: 28, height: 28 }} />
                 <h3>{t('pol.extracting')}</h3>
@@ -404,20 +409,22 @@ export default function PolizzaPage() {
                 ) : <p>{t('pol.analyzing')}</p>}
               </div>
             )}
-            {extracted && (
+            {hasValues && (
               <>
-                {(extracting || visionExtracting) && progress && (
+                {jobActive && (
                   <div className="progress-banner">
                     <div className="progress-bar progress-bar-thin">
-                      <div className="progress-bar-fill" style={{ width: `${Math.round((progress.docIndex / Math.max(1, progress.docTotal)) * 100)}%` }} />
+                      <div className="progress-bar-fill" style={{ width: `${progress ? Math.round((progress.docIndex / Math.max(1, progress.docTotal)) * 100) : 0}%` }} />
                     </div>
                     <div className="progress-banner-row">
                       <span className="spinner" />
                       <span>
-                        {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })} · {progress.docName}
-                        {progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
-                        {progress.totalPagesProcessed > 0 && ` · ${t('pol.pagesProcessedShort', { n: progress.totalPagesProcessed })}`}
-                        {liveSecs(progress)}
+                        {progress ? <>
+                          {t('pol.progressFile', { a: progress.docIndex + 1, b: progress.docTotal })} · {progress.docName}
+                          {progress.pageTotal > 0 && ` · ${t('pol.progressPage', { p: progress.pageIndex, t: progress.pageTotal })}`}
+                          {progress.totalPagesProcessed > 0 && ` · ${t('pol.pagesProcessedShort', { n: progress.totalPagesProcessed })}`}
+                          {liveSecs(progress)}
+                        </> : t('pol.analyzing')}
                       </span>
                     </div>
                   </div>
