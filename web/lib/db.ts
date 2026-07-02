@@ -50,11 +50,26 @@ export async function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_email ON sessions(email);
 
+    -- Batch: raggruppa N job polizza generati dall'upload ricorsivo di una cartella
+    -- (una sottocartella = un job/dossier). Permette all'utente di lanciare
+    -- l'elaborazione di un'intera alberatura e tornare più tardi a vederne l'esito.
+    CREATE TABLE IF NOT EXISTS batch_jobs (
+      id         TEXT PRIMARY KEY,
+      email      TEXT NOT NULL,
+      label      TEXT NOT NULL,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
+
     -- Job di estrazione polizza eseguiti lato server (continuano a tab chiusa,
     -- recuperabili alla riapertura, riprendibili dopo un restart del container).
     CREATE TABLE IF NOT EXISTS polizza_jobs (
       id            TEXT PRIMARY KEY,
       email         TEXT NOT NULL,
+      batch_id      TEXT REFERENCES batch_jobs(id) ON DELETE CASCADE,
+      dossier_name  TEXT,
       status        TEXT NOT NULL DEFAULT 'queued',
       whole_dossier BOOLEAN NOT NULL DEFAULT FALSE,
       scanned_files JSONB NOT NULL DEFAULT '[]',
@@ -69,8 +84,14 @@ export async function initDb() {
       updated_at    BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
 
+    -- ALTER esplicite: CREATE TABLE IF NOT EXISTS non aggiunge colonne a una tabella
+    -- polizza_jobs già esistente in produzione (deploy precedenti al batch).
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS batch_id TEXT REFERENCES batch_jobs(id) ON DELETE CASCADE;
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS dossier_name TEXT;
+
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_email ON polizza_jobs(email);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_polizza_jobs_batch ON polizza_jobs(batch_id);
 
     -- PDF di input del job (base64, come la tabella sessions): consente la ripresa
     -- del job anche dopo un riavvio, senza che il client ricarichi i file.

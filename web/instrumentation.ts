@@ -11,5 +11,14 @@ export async function register() {
       const ids = await listResumableJobs()
       for (const id of ids) startJob(id)
     } catch { /* la ripresa non deve mai bloccare il boot */ }
+
+    // Ripresa dei batch con job figli non ancora completati: l'orchestratore
+    // riprende l'elaborazione sequenziale dal job giusto (running > queued).
+    try {
+      const { listActiveBatchIds } = await import('./lib/polizzaJobStore')
+      const { startBatch } = await import('./lib/polizzaBatchWorker')
+      const batchIds = await listActiveBatchIds()
+      for (const id of batchIds) startBatch(id)
+    } catch { /* la ripresa non deve mai bloccare il boot */ }
   }
 }

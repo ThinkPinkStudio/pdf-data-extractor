@@ -42,6 +42,25 @@ export function startJob(jobId: string): void {
   }).finally(() => running.delete(jobId))
 }
 
+// Variante awaitable di startJob, usata dall'orchestratore batch per elaborare i
+// job figli in sequenza (attende il completamento di uno prima di avviare il
+// successivo). Se il job è già in esecuzione altrove nello stesso processo, attende
+// che finisca invece di duplicarne l'esecuzione.
+export async function runJobAndWait(jobId: string): Promise<void> {
+  if (running.has(jobId)) {
+    while (running.has(jobId)) await new Promise((r) => setTimeout(r, 500))
+    return
+  }
+  running.add(jobId)
+  try {
+    await runJob(jobId)
+  } catch (e: any) {
+    try { await updateJob(jobId, { status: 'error', error: String(e?.message || e) }) } catch { /* noop */ }
+  } finally {
+    running.delete(jobId)
+  }
+}
+
 async function runJob(jobId: string): Promise<void> {
   const job = await getJob(jobId)
   if (!job) return
