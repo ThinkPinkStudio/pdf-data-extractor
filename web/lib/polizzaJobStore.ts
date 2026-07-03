@@ -82,38 +82,69 @@ export async function createJob(params: {
 }
 
 // ─── Batch: raggruppa N job polizza (una sottocartella caricata = un job) ──────
-export interface BatchItemInput { dossierName: string; files: JobInputFile[] }
-
-export interface BatchRow { id: string; email: string; label: string; created_at: number; updated_at: number }
-
-export async function createBatch(params: {
+// Upload a chunk: il client crea il batch (vuoto) e poi carica un dossier alla volta
+// via addDossierToBatch, così una connessione caduta a metà perde solo il dossier in
+// corso, non l'intero batch. markUploadComplete chiude il flusso di ingresso.
+export interface BatchRow {
+  id: string
   email: string
   label: string
-  wholeDossier: boolean
-  fieldDefs: JobRow['field_defs']
-  items: BatchItemInput[]
-}): Promise<{ batchId: string; jobIds: string[] }> {
+  upload_complete: boolean
+  created_at: number
+  updated_at: number
+}
+
+export async function initBatch(params: { email: string; label: string }): Promise<string> {
   const batchId = randomUUID()
   await pool.query(
-    `INSERT INTO batch_jobs (id, email, label, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)`,
+    `INSERT INTO batch_jobs (id, email, label, upload_complete, created_at, updated_at) VALUES ($1,$2,$3,FALSE,$4,$4)`,
     [batchId, params.email, params.label, now()]
   )
+  return batchId
+}
 
-  const jobIds: string[] = []
-  for (const item of params.items) {
-    const jobId = await createJob({
-      email: params.email,
-      wholeDossier: params.wholeDossier,
-      scannedFiles: item.files.map((f) => f.file_name),
-      fieldDefs: params.fieldDefs,
-      rollingState: initRollingState(params.fieldDefs),
-      files: item.files,
-      batchId,
-      dossierName: item.dossierName,
-    })
-    jobIds.push(jobId)
-  }
-  return { batchId, jobIds }
+export async function getBatchRow(id: string): Promise<BatchRow | null> {
+  const { rows } = await pool.query<BatchRow>('SELECT * FROM batch_jobs WHERE id = $1', [id])
+  return rows[0] ?? null
+}
+
+export async function addDossierToBatch(params: {
+  batchId: string
+  email: string
+  wholeDossier: boolean
+  fieldDefs: JobRow['field_defs']
+  dossierName: string
+  files: JobInputFile[]
+}): Promise<string> {
+  return createJob({
+    email: params.email,
+    wholeDossier: params.wholeDossier,
+    scannedFiles: params.files.map((f) => f.file_name),
+    fieldDefs: params.fieldDefs,
+    rollingState: initRollingState(params.fieldDefs),
+    files: params.files,
+    batchId: params.batchId,
+    dossierName: params.dossierName,
+  })
+}
+
+export async function markUploadComplete(batchId: string): Promise<void> {
+  await pool.query(`UPDATE batch_jobs SET upload_complete = TRUE, updated_at = $1 WHERE id = $2`, [now(), batchId])
+}
+
+export async function isUploadComplete(batchId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ upload_complete: boolean }>(
+    'SELECT upload_complete FROM batch_jobs WHERE id = $1', [batchId]
+  )
+  return rows[0]?.upload_complete ?? true
+}
+
+// Al boot nessun client può più essere a metà upload verso un processo appena
+// riavviato: i batch ancora "aperti" vengono chiusi forzatamente prima di riprenderli,
+// altrimenti l'orchestratore resterebbe in attesa per sempre di dossier che non
+// arriveranno più (vedi instrumentation.ts).
+export async function forceUploadCompleteForActiveBatches(): Promise<void> {
+  await pool.query(`UPDATE batch_jobs SET upload_complete = TRUE WHERE upload_complete = FALSE`)
 }
 
 export async function getBatch(id: string): Promise<{ batch: BatchRow; jobs: JobRow[] } | null> {

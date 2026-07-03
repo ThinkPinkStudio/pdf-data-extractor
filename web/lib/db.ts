@@ -54,12 +54,15 @@ export async function initDb() {
     -- (una sottocartella = un job/dossier). Permette all'utente di lanciare
     -- l'elaborazione di un'intera alberatura e tornare più tardi a vederne l'esito.
     CREATE TABLE IF NOT EXISTS batch_jobs (
-      id         TEXT PRIMARY KEY,
-      email      TEXT NOT NULL,
-      label      TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-      updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+      id              TEXT PRIMARY KEY,
+      email           TEXT NOT NULL,
+      label           TEXT NOT NULL,
+      upload_complete BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at      BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at      BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
+
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS upload_complete BOOLEAN NOT NULL DEFAULT FALSE;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 

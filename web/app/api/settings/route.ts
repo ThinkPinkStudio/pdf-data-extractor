@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     'ollamaVisionModel', 'anthropicVisionModel', 'polizzaOcrEnabled', 'polizzaWholeDossier',
     'polizzaWholeDossierModel', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
-    'extractions', 'profiles',
+    'extractions', 'profiles', 'bulkExcludedFolderNames',
     'theme', 'language', 'accentColor',
   ]
   const update: Partial<WebSettings> = {}

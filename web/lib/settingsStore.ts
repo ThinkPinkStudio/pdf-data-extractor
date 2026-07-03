@@ -63,6 +63,9 @@ export interface WebSettings {
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]
   profiles?: GenericProfile[]
+  // Bulk (cartella intera di polizze): nomi di cartelle aggiuntivi da escludere
+  // sempre dall'enumerazione, oltre alla baseline hardcoded (vedi bulkExclusions.ts).
+  bulkExcludedFolderNames?: string
   // Aspetto
   theme?: string
   language?: string
@@ -114,6 +117,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
+    bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,
