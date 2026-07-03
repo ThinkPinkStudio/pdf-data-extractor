@@ -19,6 +19,7 @@ interface Settings {
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
   polizzaPromptExtra?: string
+  bulkExcludedFolderNames?: string
   theme?: string
   language?: string
   accentColor?: string
@@ -178,6 +179,20 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Toggle checked={s.polizzaOcrEnabled !== false} onChange={(v) => up('polizzaOcrEnabled', v)} label={t('set.ocrEnabled')} />
             <Toggle checked={!!s.polizzaWholeDossier} onChange={(v) => up('polizzaWholeDossier', v)} label={t('set.wholeDossier')} />
+          </div>
+        </div>
+
+        {/* Bulk (cartella intera di polizze) */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{t('set.bulkSection')}</h2>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="label">{t('set.bulkExcluded')}</label>
+            <input
+              value={s.bulkExcludedFolderNames || ''}
+              onChange={(e) => up('bulkExcludedFolderNames', e.target.value)}
+              placeholder={t('set.bulkExcludedPlaceholder')}
+            />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkExcludedHelp')}</p>
           </div>
         </div>
 

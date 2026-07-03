@@ -67,6 +67,8 @@ const IconMoon = () => (
 const NAV = [
   { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
   { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
+  { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
+  { href: '/polizza/jobs', key: 'nav.jobsDash', icon: <IconHistory /> },
   { href: '/batch', key: 'nav.batch', icon: <IconBatch /> },
   { href: '/history', key: 'nav.history', icon: <IconHistory /> },
   { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },
@@ -79,6 +81,13 @@ export default function Sidebar({ email }: { email: string }) {
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
+  // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.
+  const activeHref = NAV
+    .map((i) => i.href)
+    .filter((h) => pathname === h || pathname.startsWith(h + '/'))
+    .sort((a, b) => b.length - a.length)[0]
 
   useEffect(() => {
     const saved = (localStorage.getItem('theme') as 'dark' | 'light' | null) || 'dark'
@@ -118,8 +127,8 @@ export default function Sidebar({ email }: { email: string }) {
           <Link
             key={item.href}
             href={item.href}
-            className={`nav-item ${pathname.startsWith(item.href) ? 'active' : ''}`}
-            aria-current={pathname.startsWith(item.href) ? 'page' : undefined}
+            className={`nav-item ${item.href === activeHref ? 'active' : ''}`}
+            aria-current={item.href === activeHref ? 'page' : undefined}
           >
             {item.icon}
             <span>{t(item.key)}</span>

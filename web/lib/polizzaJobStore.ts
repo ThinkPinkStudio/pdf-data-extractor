@@ -1,6 +1,6 @@
 import { pool } from './db'
 import { randomUUID } from 'crypto'
-import { flattenRollingState } from './polizzaRolling'
+import { flattenRollingState, initRollingState } from './polizzaRolling'
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled'
 
@@ -23,6 +23,8 @@ export interface JobProgress {
 export interface JobRow {
   id: string
   email: string
+  batch_id: string | null
+  dossier_name: string | null
   status: JobStatus
   whole_dossier: boolean
   scanned_files: string[]
@@ -48,16 +50,19 @@ export async function createJob(params: {
   fieldDefs: JobRow['field_defs']
   rollingState: Record<string, unknown>
   files: JobInputFile[]
+  batchId?: string
+  dossierName?: string
 }): Promise<string> {
   const id = randomUUID()
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO polizza_jobs (id, email, status, whole_dossier, scanned_files, field_defs, rolling_state, created_at, updated_at)
-       VALUES ($1,$2,'queued',$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$7)`,
-      [id, params.email, params.wholeDossier, JSON.stringify(params.scannedFiles),
-        JSON.stringify(params.fieldDefs), JSON.stringify(params.rollingState || {}), now()]
+      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, rolling_state, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$9)`,
+      [id, params.email, params.batchId ?? null, params.dossierName ?? null, params.wholeDossier,
+        JSON.stringify(params.scannedFiles), JSON.stringify(params.fieldDefs),
+        JSON.stringify(params.rollingState || {}), now()]
     )
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
@@ -74,6 +79,130 @@ export async function createJob(params: {
     client.release()
   }
   return id
+}
+
+// ─── Batch: raggruppa N job polizza (una sottocartella caricata = un job) ──────
+// Upload a chunk: il client crea il batch (vuoto) e poi carica un dossier alla volta
+// via addDossierToBatch, così una connessione caduta a metà perde solo il dossier in
+// corso, non l'intero batch. markUploadComplete chiude il flusso di ingresso.
+export interface BatchRow {
+  id: string
+  email: string
+  label: string
+  upload_complete: boolean
+  created_at: number
+  updated_at: number
+}
+
+export async function initBatch(params: { email: string; label: string }): Promise<string> {
+  const batchId = randomUUID()
+  await pool.query(
+    `INSERT INTO batch_jobs (id, email, label, upload_complete, created_at, updated_at) VALUES ($1,$2,$3,FALSE,$4,$4)`,
+    [batchId, params.email, params.label, now()]
+  )
+  return batchId
+}
+
+export async function getBatchRow(id: string): Promise<BatchRow | null> {
+  const { rows } = await pool.query<BatchRow>('SELECT * FROM batch_jobs WHERE id = $1', [id])
+  return rows[0] ?? null
+}
+
+export async function addDossierToBatch(params: {
+  batchId: string
+  email: string
+  wholeDossier: boolean
+  fieldDefs: JobRow['field_defs']
+  dossierName: string
+  files: JobInputFile[]
+}): Promise<string> {
+  return createJob({
+    email: params.email,
+    wholeDossier: params.wholeDossier,
+    scannedFiles: params.files.map((f) => f.file_name),
+    fieldDefs: params.fieldDefs,
+    rollingState: initRollingState(params.fieldDefs),
+    files: params.files,
+    batchId: params.batchId,
+    dossierName: params.dossierName,
+  })
+}
+
+export async function markUploadComplete(batchId: string): Promise<void> {
+  await pool.query(`UPDATE batch_jobs SET upload_complete = TRUE, updated_at = $1 WHERE id = $2`, [now(), batchId])
+}
+
+export async function isUploadComplete(batchId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ upload_complete: boolean }>(
+    'SELECT upload_complete FROM batch_jobs WHERE id = $1', [batchId]
+  )
+  return rows[0]?.upload_complete ?? true
+}
+
+// Al boot nessun client può più essere a metà upload verso un processo appena
+// riavviato: i batch ancora "aperti" vengono chiusi forzatamente prima di riprenderli,
+// altrimenti l'orchestratore resterebbe in attesa per sempre di dossier che non
+// arriveranno più (vedi instrumentation.ts).
+export async function forceUploadCompleteForActiveBatches(): Promise<void> {
+  await pool.query(`UPDATE batch_jobs SET upload_complete = TRUE WHERE upload_complete = FALSE`)
+}
+
+export async function getBatch(id: string): Promise<{ batch: BatchRow; jobs: JobRow[] } | null> {
+  const { rows: batchRows } = await pool.query<BatchRow>('SELECT * FROM batch_jobs WHERE id = $1', [id])
+  const batch = batchRows[0]
+  if (!batch) return null
+  const { rows: jobs } = await pool.query<JobRow>(
+    'SELECT * FROM polizza_jobs WHERE batch_id = $1 ORDER BY created_at, id', [id]
+  )
+  return { batch, jobs }
+}
+
+export interface BatchSummary extends BatchRow {
+  total: number
+  queued: number
+  running: number
+  done: number
+  error: number
+  canceled: number
+}
+
+export async function listBatches(email: string): Promise<BatchSummary[]> {
+  const { rows } = await pool.query<BatchSummary>(
+    `SELECT b.*,
+       COUNT(j.id)::int AS total,
+       COUNT(j.id) FILTER (WHERE j.status = 'queued')::int AS queued,
+       COUNT(j.id) FILTER (WHERE j.status = 'running')::int AS running,
+       COUNT(j.id) FILTER (WHERE j.status = 'done')::int AS done,
+       COUNT(j.id) FILTER (WHERE j.status = 'error')::int AS error,
+       COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled
+     FROM batch_jobs b
+     LEFT JOIN polizza_jobs j ON j.batch_id = b.id
+     WHERE b.email = $1
+     GROUP BY b.id
+     ORDER BY b.created_at DESC`,
+    [email]
+  )
+  return rows
+}
+
+// Prossimo job da elaborare in un batch: prima un eventuale 'running' rimasto a metà
+// (es. dopo un restart del container, da riprendere dal suo cursor), poi i 'queued'
+// nell'ordine di creazione — per l'orchestrazione sequenziale.
+export async function getNextPendingBatchJob(batchId: string): Promise<string | null> {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM polizza_jobs WHERE batch_id = $1 AND status IN ('running','queued')
+     ORDER BY (status = 'running') DESC, created_at, id LIMIT 1`,
+    [batchId]
+  )
+  return rows[0]?.id ?? null
+}
+
+// Batch con almeno un job non ancora in stato terminale (per la ripresa al boot).
+export async function listActiveBatchIds(): Promise<string[]> {
+  const { rows } = await pool.query<{ batch_id: string }>(
+    `SELECT DISTINCT batch_id FROM polizza_jobs WHERE batch_id IS NOT NULL AND status IN ('queued','running')`
+  )
+  return rows.map((r) => r.batch_id)
 }
 
 export async function getJob(id: string): Promise<JobRow | null> {
@@ -104,9 +233,12 @@ export async function getJobFiles(id: string): Promise<{ idx: number; file_name:
   return rows
 }
 
+// Job singoli (non appartenenti a un batch) da riprendere al boot. I job figli di
+// un batch sono esclusi qui: la loro ripresa è sequenziale, guidata dall'orchestratore
+// batch (vedi listActiveBatchIds/polizzaBatchWorker), non da un avvio in parallelo.
 export async function listResumableJobs(): Promise<string[]> {
   const { rows } = await pool.query<{ id: string }>(
-    `SELECT id FROM polizza_jobs WHERE status IN ('running','queued') ORDER BY created_at`
+    `SELECT id FROM polizza_jobs WHERE status IN ('running','queued') AND batch_id IS NULL ORDER BY created_at`
   )
   return rows.map((r) => r.id)
 }
@@ -133,6 +265,8 @@ export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, 
 export function jobSnapshot(job: JobRow) {
   return {
     jobId: job.id,
+    batchId: job.batch_id,
+    dossierName: job.dossier_name,
     status: job.status,
     wholeDossier: job.whole_dossier,
     scannedFiles: job.scanned_files || [],
