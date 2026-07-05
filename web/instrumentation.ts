@@ -24,5 +24,13 @@ export async function register() {
       const batchIds = await listActiveBatchIds()
       for (const id of batchIds) startBatch(id)
     } catch { /* la ripresa non deve mai bloccare il boot */ }
+
+    // Backfill degli embeddings del corpus (chunk con colonna NULL): loop di
+    // fondo a bassa frequenza; senza pgvector o provider configurato resta in
+    // attesa e la ricerca degrada a full-text. Non bloccante.
+    try {
+      const { startEmbeddingWorker } = await import('./lib/embeddingWorker')
+      startEmbeddingWorker()
+    } catch { /* il corpus non deve mai bloccare il boot */ }
   }
 }

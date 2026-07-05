@@ -5,6 +5,7 @@ import { getFieldsAndMapping } from '@/lib/polizzaService'
 import { initRollingState } from '@/lib/polizzaRolling'
 import { createJob } from '@/lib/polizzaJobStore'
 import { startJob } from '@/lib/polizzaJobWorker'
+import { prepareCorpusFiles, linkCorpusFilesToJob } from '@/lib/corpusIngest'
 
 export const runtime = 'nodejs'
 
@@ -31,10 +32,15 @@ export async function POST(req: NextRequest) {
     const fieldDefs = (fields || []).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
     const rollingState = initRollingState(fieldDefs)
 
-    const inputFiles = await Promise.all(pdfFiles.map(async (f) => ({
-      file_name: f.name,
-      pdf_base64: Buffer.from(await f.arrayBuffer()).toString('base64'),
-    })))
+    // Corpus: dedup sha256 + metadati dal nome file (nel caricamento singolo
+    // non c'è percorso relativo).
+    const inputFiles = await prepareCorpusFiles(
+      session.email,
+      await Promise.all(pdfFiles.map(async (f) => ({
+        name: f.name,
+        buffer: Buffer.from(await f.arrayBuffer()),
+      })))
+    )
 
     const jobId = await createJob({
       email: session.email,
@@ -44,6 +50,7 @@ export async function POST(req: NextRequest) {
       rollingState,
       files: inputFiles,
     })
+    await linkCorpusFilesToJob(jobId, null, inputFiles)
 
     startJob(jobId) // fire-and-forget: continua anche a tab chiusa
     return NextResponse.json({ jobId })

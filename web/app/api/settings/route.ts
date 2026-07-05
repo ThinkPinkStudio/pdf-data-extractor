@@ -13,6 +13,7 @@ export async function GET() {
     ...s,
     openaiApiKey: s.openaiApiKey ? '***' : '',
     anthropicApiKey: s.anthropicApiKey ? '***' : '',
+    voyageApiKey: s.voyageApiKey ? '***' : '',
   })
 }
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
     'polizzaWholeDossierModel', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames',
+    'embeddingProvider', 'embeddingModel', 'embeddingDim',
     'theme', 'language', 'accentColor',
   ]
   const update: Partial<WebSettings> = {}
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
   }
   if (body.openaiApiKey && body.openaiApiKey !== '***') update.openaiApiKey = body.openaiApiKey
   if (body.anthropicApiKey && body.anthropicApiKey !== '***') update.anthropicApiKey = body.anthropicApiKey
+  if (body.voyageApiKey && body.voyageApiKey !== '***') update.voyageApiKey = body.voyageApiKey
   // Mantieni i segreti esistenti se non aggiornati (no-op: già persistiti)
   void current
 

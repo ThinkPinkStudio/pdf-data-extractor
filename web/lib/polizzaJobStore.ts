@@ -35,11 +35,31 @@ export interface JobRow {
   field_defs: { id: string; label: string; description?: string; sheet?: string }[]
   error: string | null
   logs: string[]
+  profile_id: string | null
+  profile_candidates: ProfileCandidate[]
+  profile_locked: boolean
+  rerun_from_text: boolean
   created_at: number
   updated_at: number
 }
 
-export interface JobInputFile { file_name: string; pdf_base64: string }
+export interface JobInputFile {
+  file_name: string
+  pdf_base64: string
+  // Corpus documentale: percorso relativo originale dell'upload (fonte dei
+  // metadati) e id del documento deduplicato in `documents`.
+  rel_path?: string | null
+  document_id?: string | null
+}
+
+export interface ProfileCandidate {
+  profileId?: string | null
+  profileName?: string | null
+  ramo?: string | null
+  confidence: number
+  motivo?: string
+  source: 'path' | 'llm'
+}
 
 const now = () => Math.floor(Date.now() / 1000)
 
@@ -67,8 +87,8 @@ export async function createJob(params: {
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
       await client.query(
-        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64) VALUES ($1,$2,$3,$4)`,
-        [id, i, f.file_name, f.pdf_base64]
+        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, rel_path, document_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [id, i, f.file_name, f.pdf_base64, f.rel_path ?? null, f.document_id ?? null]
       )
     }
     await client.query('COMMIT')
@@ -225,9 +245,9 @@ export async function getJobStatus(id: string): Promise<JobStatus | null> {
   return rows[0]?.status ?? null
 }
 
-export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string }[]> {
+export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string; rel_path: string | null; document_id: string | null }[]> {
   const { rows } = await pool.query(
-    'SELECT idx, file_name, pdf_base64 FROM polizza_job_files WHERE job_id = $1 ORDER BY idx',
+    'SELECT idx, file_name, pdf_base64, rel_path, document_id FROM polizza_job_files WHERE job_id = $1 ORDER BY idx',
     [id]
   )
   return rows
@@ -244,7 +264,7 @@ export async function listResumableJobs(): Promise<string[]> {
 }
 
 // Aggiornamento parziale: solo le colonne fornite. I valori JSON vengono serializzati.
-const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs'])
+const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs', 'profile_candidates'])
 export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, unknown>>): Promise<void> {
   const cols = Object.keys(patch)
   if (!cols.length) return
@@ -276,6 +296,9 @@ export function jobSnapshot(job: JobRow) {
     progress: job.progress && Object.keys(job.progress).length ? job.progress : null,
     error: job.error || null,
     logs: job.logs || [],
+    profileId: job.profile_id || null,
+    profileCandidates: job.profile_candidates || [],
+    profileLocked: !!job.profile_locked,
     updatedAt: job.updated_at,
   }
 }

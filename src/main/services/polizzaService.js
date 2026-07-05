@@ -1386,11 +1386,16 @@ function consensusDelta(deltas) {
   return out
 }
 
-async function callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, fields, source = null) {
+async function callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, fields, source = null, precomputedOcr = undefined) {
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   // #1 — OCR del testo (fonte primaria) affiancato all'immagine. Additivo: se l'OCR
   // non è disponibile, ocrBlock resta vuoto e si usa la sola immagine come prima.
-  const ocrText = settings.polizzaOcrEnabled === false ? '' : await ocrImageToText(imageBase64)
+  // Il chiamante può fornire l'OCR già calcolato (precomputedOcr, anche stringa
+  // vuota) per evitare una seconda passata Tesseract quando il testo viene anche
+  // persistito nel corpus (vedi web/lib/polizzaJobWorker.ts).
+  const ocrText = typeof precomputedOcr === 'string'
+    ? precomputedOcr
+    : (settings.polizzaOcrEnabled === false ? '' : await ocrImageToText(imageBase64))
   // ANCORAGGIO AL PERIODO: dal testo OCR ricavo (regex deterministica) il periodo a
   // cui il documento si riferisce (scadenza/periodo/decorrenza). Datando ogni valore
   // con questo periodo, per i campi che cambiano nel tempo vince sempre il documento
@@ -1603,11 +1608,16 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
  * @param {object} settings
  * @returns {object} stato aggiornato
  */
-export async function updateStateWithVisionPage(state, imageBase64, pageNum, totalPages, settings, source = null) {
-  const configuredFields = (settings.polizzaFields?.length > 0)
-    ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+// opts (opzionale): { fields, precomputedOcr }
+//  - fields: override dei campi da estrarre (es. field_defs del job quando un
+//    profilo rilevato li ha sostituiti); default: settings.polizzaFields.
+//  - precomputedOcr: testo OCR già calcolato dal chiamante (evita doppio Tesseract).
+export async function updateStateWithVisionPage(state, imageBase64, pageNum, totalPages, settings, source = null, opts = {}) {
+  const configuredFields = (Array.isArray(opts.fields) && opts.fields.length > 0)
+    ? opts.fields
+    : (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
-  return callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, activeFields, source)
+  return callRollingLLMVision(settings, state, imageBase64, pageNum, totalPages, activeFields, source, opts.precomputedOcr)
 }
 
 // ─── FASCICOLO INTERO — estrazione in UNA sola chiamata ──────────────────────
@@ -1641,8 +1651,10 @@ const WHOLE_DOSSIER_SYSTEM =
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore": "...", "documento": "nome file"}}.\n' +
   'Zero testo extra, zero markdown.'
 
-export async function extractPolizzaFromFullText(fullText, settings) {
-  const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+export async function extractPolizzaFromFullText(fullText, settings, opts = {}) {
+  const configuredFields = (Array.isArray(opts.fields) && opts.fields.length > 0)
+    ? opts.fields
+    : (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${f.description || f.label}`).join('\n')
   const promptExtra = (settings.polizzaPromptExtra || '').trim()

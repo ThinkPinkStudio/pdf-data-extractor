@@ -16,12 +16,24 @@ interface BatchSummary {
   canceled: number
 }
 
+interface ProfileCandidate {
+  profileId?: string | null
+  profileName?: string | null
+  ramo?: string | null
+  confidence: number
+  motivo?: string
+  source: 'path' | 'llm'
+}
+
 interface JobSnapshot {
   jobId: string
   dossierName: string | null
   status: string
   values: Record<string, string>
   error: string | null
+  profileId: string | null
+  profileCandidates: ProfileCandidate[]
+  profileLocked: boolean
 }
 
 function fmtDate(epochSeconds: number) {
@@ -41,6 +53,8 @@ export default function PolizzaJobsPage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<JobSnapshot[] | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([])
+  const [rerunning, setRerunning] = useState<string | null>(null)
 
   const loadBatches = useCallback(async () => {
     try {
@@ -49,6 +63,36 @@ export default function PolizzaJobsPage() {
       setBatches(d.batches || [])
     } catch { setBatches([]) }
   }, [])
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((s) => setProfiles((s.polizzaProfiles || []).map((p: any) => ({ id: p.id, name: p.name }))))
+      .catch(() => setProfiles([]))
+  }, [])
+
+  // Cambio profilo + ri-estrazione dal testo già acquisito (o dai PDF salvati).
+  async function rerunWithProfile(jobId: string, profileId: string) {
+    if (!profileId) return
+    setRerunning(jobId)
+    try {
+      const res = await fetch(`/api/polizza/job/${jobId}/rerun`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId }),
+      })
+      if (!res.ok) throw new Error()
+      if (openId) await toggleReload(openId)
+    } catch { alert(t('jobsDash.rerunFailed')) } finally { setRerunning(null) }
+  }
+
+  async function toggleReload(id: string) {
+    try {
+      const res = await fetch(`/api/polizza/batch/${id}`)
+      const d = await res.json()
+      setDetail(d.jobs || [])
+    } catch { /* mantiene la vista corrente */ }
+  }
 
   useEffect(() => {
     loadBatches()
@@ -124,6 +168,7 @@ export default function PolizzaJobsPage() {
                                 <tr>
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierName')}</th>
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierStatus')}</th>
+                                  <th style={{ fontSize: 10 }}>{t('jobsDash.dossierProfile')}</th>
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierFields')}</th>
                                 </tr>
                               </thead>
@@ -134,6 +179,15 @@ export default function PolizzaJobsPage() {
                                     <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                                       {statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                                       {j.error ? ` — ${j.error}` : ''}
+                                    </td>
+                                    <td style={{ fontSize: 12 }}>
+                                      <ProfileCell
+                                        job={j}
+                                        profiles={profiles}
+                                        busy={rerunning === j.jobId}
+                                        onRerun={(pid) => rerunWithProfile(j.jobId, pid)}
+                                        t={t}
+                                      />
                                     </td>
                                     <td style={{ fontSize: 12 }}>{Object.keys(j.values || {}).length}</td>
                                   </tr>
@@ -150,6 +204,55 @@ export default function PolizzaJobsPage() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  )
+}
+
+// Chip del profilo rilevato + cambio profilo con ri-estrazione. Il rilevamento
+// sceglie solo tra i profili salvati: se per il ramo non ne esiste uno, mostra
+// l'informazione e lascia i campi correnti.
+function ProfileCell({ job, profiles, busy, onRerun, t }: {
+  job: JobSnapshot
+  profiles: { id: string; name: string }[]
+  busy: boolean
+  onRerun: (profileId: string) => void
+  t: (k: string, v?: Record<string, string | number>) => string
+}) {
+  const [selected, setSelected] = useState('')
+  const candidates = job.profileCandidates || []
+  const top = candidates.find((c) => c.profileId) || null
+  const current = job.profileId
+    ? (profiles.find((p) => p.id === job.profileId)?.name
+      || candidates.find((c) => c.profileId === job.profileId)?.profileName
+      || job.profileId)
+    : null
+  const ramoOnly = !current && candidates.length > 0 ? candidates[0]?.ramo : null
+  const conf = top && job.profileId === top.profileId ? Math.round(top.confidence * 100) : null
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {current && (
+        <span title={candidates.map((c) => `${c.profileName || c.ramo || '—'} ${Math.round(c.confidence * 100)}% (${c.source === 'path' ? t('jobsDash.profileFromPath') : t('jobsDash.profileFromLlm')})${c.motivo ? ` — ${c.motivo}` : ''}`).join('\n')}
+          style={{ padding: '2px 8px', borderRadius: 10, background: 'var(--c-bg-card-alt)', border: '1px solid var(--c-border)', fontSize: 11, fontWeight: 600 }}>
+          {current}{conf !== null ? ` · ${conf}%` : ''}{job.profileLocked ? ' 🔒' : ''}
+        </span>
+      )}
+      {!current && ramoOnly && (
+        <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.profileRamoOnly', { ramo: ramoOnly })}</span>
+      )}
+      {!current && !ramoOnly && <span style={{ color: 'var(--c-text-muted)' }}>—</span>}
+      {profiles.length > 0 && (job.status === 'done' || job.status === 'error' || job.status === 'canceled') && (
+        <>
+          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ fontSize: 11, maxWidth: 140 }}>
+            <option value="">{t('jobsDash.profileChange')}</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 8px' }}
+            disabled={!selected || busy} onClick={() => onRerun(selected)}>
+            {busy ? '…' : t('jobsDash.rerun')}
+          </button>
+        </>
       )}
     </div>
   )

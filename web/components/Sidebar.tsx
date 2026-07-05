@@ -49,6 +49,11 @@ const IconUser = () => (
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
   </svg>
 )
+const IconChat = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+)
 const IconSun = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="5" />
@@ -69,6 +74,7 @@ const NAV = [
   { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
   { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
   { href: '/polizza/jobs', key: 'nav.jobsDash', icon: <IconHistory /> },
+  { href: '/chat', key: 'nav.chat', icon: <IconChat /> },
   { href: '/batch', key: 'nav.batch', icon: <IconBatch /> },
   { href: '/history', key: 'nav.history', icon: <IconHistory /> },
   { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },

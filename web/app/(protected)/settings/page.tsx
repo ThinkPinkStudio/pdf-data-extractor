@@ -20,6 +20,9 @@ interface Settings {
   polizzaWholeDossier?: boolean
   polizzaPromptExtra?: string
   bulkExcludedFolderNames?: string
+  embeddingProvider?: string
+  embeddingModel?: string
+  voyageApiKey?: string
   theme?: string
   language?: string
   accentColor?: string
@@ -194,6 +197,34 @@ export default function SettingsPage() {
             />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkExcludedHelp')}</p>
           </div>
+        </div>
+
+        {/* Memoria documentale: embeddings per la ricerca semantica in chat */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{t('set.embeddingSection')}</h2>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 12 }}>{t('set.embeddingHelp')}</p>
+          <div className="form-group">
+            <label className="label">{t('set.embeddingProvider')}</label>
+            <select value={s.embeddingProvider || 'ollama'} onChange={(e) => up('embeddingProvider', e.target.value)}>
+              <option value="ollama">{t('set.ollamaLocal')}</option>
+              <option value="voyage">Voyage AI</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="label">{t('set.embeddingModel')}</label>
+            <input
+              value={s.embeddingModel || ''}
+              onChange={(e) => up('embeddingModel', e.target.value)}
+              placeholder={s.embeddingProvider === 'voyage' ? 'voyage-3.5-lite' : s.embeddingProvider === 'openai' ? 'text-embedding-3-small' : 'nomic-embed-text'}
+            />
+          </div>
+          {s.embeddingProvider === 'voyage' && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="label">{t('set.apiKeyVoyage')}</label>
+              <input type="password" value={s.voyageApiKey || ''} onChange={(e) => up('voyageApiKey', e.target.value)} placeholder="pa-..." />
+            </div>
+          )}
         </div>
 
         {/* Editor campi di estrazione generici + profili */}

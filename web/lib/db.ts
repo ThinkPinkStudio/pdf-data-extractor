@@ -105,7 +105,150 @@ export async function initDb() {
       pdf_base64 TEXT NOT NULL,
       PRIMARY KEY (job_id, idx)
     );
+
+    -- ─── Corpus documentale ─────────────────────────────────────────────────
+    -- Memoria permanente di ogni PDF elaborato: testo per pagina, metadati
+    -- ricavati dal percorso di upload (agenzia/gruppo/società/ramo…) e chunk
+    -- indicizzati per la ricerca full-text e (se pgvector è attivo) semantica.
+    -- Dedup per contenuto: stesso file caricato più volte = una sola riga
+    -- documents, più righe document_links.
+    CREATE TABLE IF NOT EXISTS documents (
+      id           TEXT PRIMARY KEY,
+      email        TEXT NOT NULL,
+      sha256       TEXT NOT NULL,
+      file_name    TEXT NOT NULL,
+      num_pages    INTEGER,
+      text_status  TEXT NOT NULL DEFAULT 'pending', -- pending|partial|complete|failed
+      agenzia      TEXT,
+      gruppo       TEXT,
+      societa      TEXT,
+      stato_vigore TEXT,
+      uso          TEXT,
+      ramo         TEXT,
+      doc_type     TEXT,
+      anno         INTEGER,
+      meta         JSONB NOT NULL DEFAULT '{}',
+      created_at   BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at   BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_email_sha ON documents(email, sha256);
+    CREATE INDEX IF NOT EXISTS idx_documents_ramo     ON documents(ramo);
+    CREATE INDEX IF NOT EXISTS idx_documents_gruppo   ON documents(gruppo);
+    CREATE INDEX IF NOT EXISTS idx_documents_doc_type ON documents(doc_type);
+
+    CREATE TABLE IF NOT EXISTS document_links (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      job_id      TEXT NOT NULL REFERENCES polizza_jobs(id) ON DELETE CASCADE,
+      batch_id    TEXT REFERENCES batch_jobs(id) ON DELETE SET NULL,
+      rel_path    TEXT,
+      file_idx    INTEGER,
+      PRIMARY KEY (document_id, job_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_links_job ON document_links(job_id);
+
+    CREATE TABLE IF NOT EXISTS document_pages (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      page        INTEGER NOT NULL,
+      text        TEXT NOT NULL,
+      text_source TEXT NOT NULL DEFAULT 'tesseract', -- tesseract|embedded|vision
+      PRIMARY KEY (document_id, page)
+    );
+
+    -- Chunk per il retrieval: tsv (full-text italiano) sempre disponibile; la
+    -- colonna vettoriale viene aggiunta a runtime da ensureEmbeddingColumn()
+    -- solo se l'estensione pgvector esiste (dimensione dipendente dal modello).
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id          BIGSERIAL PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      page_from   INTEGER,
+      page_to     INTEGER,
+      text        TEXT NOT NULL,
+      tsv         tsvector GENERATED ALWAYS AS (to_tsvector('italian', text)) STORED,
+      embedding_model TEXT,
+      UNIQUE (document_id, chunk_index)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chunks_tsv ON document_chunks USING GIN (tsv);
+    CREATE INDEX IF NOT EXISTS idx_chunks_document ON document_chunks(document_id);
+
+    -- ─── Chat sul corpus ────────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS chat_conversations (
+      id         TEXT PRIMARY KEY,
+      email      TEXT NOT NULL,
+      title      TEXT,
+      filters    JSONB NOT NULL DEFAULT '{}',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_conversations_email ON chat_conversations(email);
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id              BIGSERIAL PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      role            TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      citations       JSONB NOT NULL DEFAULT '[]',
+      created_at      BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id);
+
+    -- ─── Rilevamento profilo sui job ────────────────────────────────────────
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS profile_id TEXT;
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS profile_candidates JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS profile_locked BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS rerun_from_text BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- Percorso relativo originale dell'upload (fonte dei metadati) e link al
+    -- documento del corpus corrispondente.
+    ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS rel_path TEXT;
+    ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS document_id TEXT;
   `)
+
+  // pgvector è opzionale: senza estensione l'app funziona in modalità solo
+  // full-text (nessun errore, ricerca semantica disattivata). CREATE EXTENSION
+  // richiede i privilegi del ruolo: su Coolify basta usare l'immagine
+  // pgvector/pgvector al posto di postgres.
+  try {
+    await pool.query('CREATE EXTENSION IF NOT EXISTS vector')
+    vectorAvailable = true
+  } catch {
+    const { rows } = await pool.query(`SELECT 1 FROM pg_extension WHERE extname = 'vector'`)
+    vectorAvailable = rows.length > 0
+  }
+}
+
+let vectorAvailable = false
+
+export function isVectorEnabled(): boolean {
+  return vectorAvailable
+}
+
+// Crea (o ricrea, se la dimensione del modello è cambiata) la colonna embedding
+// e l'indice HNSW. Chiamata dal worker embeddings quando conosce modello/dim:
+// HNSW e non IVFFlat perché non richiede un training set e il corpus cresce
+// in modo incrementale.
+export async function ensureEmbeddingColumn(dim: number): Promise<boolean> {
+  if (!vectorAvailable || !Number.isFinite(dim) || dim <= 0) return false
+  const { rows } = await pool.query<{ atttypmod: number }>(
+    `SELECT atttypmod FROM pg_attribute
+     WHERE attrelid = 'document_chunks'::regclass AND attname = 'embedding' AND NOT attisdropped`
+  )
+  const currentDim = rows[0]?.atttypmod // per i tipi vector atttypmod = dimensione
+  if (currentDim === dim) return true
+  if (rows.length > 0) {
+    // Dimensione cambiata (nuovo modello): gli embeddings sono dati derivati,
+    // si azzerano e il backfill li rigenera.
+    await pool.query('ALTER TABLE document_chunks DROP COLUMN embedding')
+    await pool.query(`UPDATE document_chunks SET embedding_model = NULL WHERE embedding_model IS NOT NULL`)
+  }
+  await pool.query(`ALTER TABLE document_chunks ADD COLUMN embedding vector(${dim})`)
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_chunks_hnsw ON document_chunks USING hnsw (embedding vector_cosine_ops)')
+  return true
 }
 
 export { pool }

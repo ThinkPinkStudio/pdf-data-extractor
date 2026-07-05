@@ -6,6 +6,7 @@ import { getBatchRow, addDossierToBatch, type JobInputFile } from '@/lib/polizza
 import { startBatch } from '@/lib/polizzaBatchWorker'
 import { isExcludedPath } from '@/lib/bulkExclusions'
 import { getSettings } from '@/lib/settingsStore'
+import { prepareCorpusFiles, linkCorpusFilesToJob } from '@/lib/corpusIngest'
 
 export const runtime = 'nodejs'
 
@@ -46,14 +47,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const { fields, wholeDossier } = await getFieldsAndMapping()
     const fieldDefs = (fields || []).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
-    const files: JobInputFile[] = await Promise.all(kept.map(async (k) => ({
-      file_name: k.file.name,
-      pdf_base64: Buffer.from(await k.file.arrayBuffer()).toString('base64'),
-    })))
+    // Corpus: dedup sha256 + metadati dal percorso relativo (gruppo/società/ramo…).
+    const files: JobInputFile[] = await prepareCorpusFiles(
+      session.email,
+      await Promise.all(kept.map(async (k) => ({
+        name: k.file.name,
+        buffer: Buffer.from(await k.file.arrayBuffer()),
+        relPath: k.relPath,
+      })))
+    )
 
     const jobId = await addDossierToBatch({
       batchId: params.id, email: session.email, wholeDossier: !!wholeDossier, fieldDefs, dossierName, files,
     })
+    await linkCorpusFilesToJob(jobId, params.id, files)
 
     startBatch(params.id) // idempotente: avvia/mantiene l'orchestratore del batch
     return NextResponse.json({ jobId })

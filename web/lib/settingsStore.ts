@@ -66,6 +66,12 @@ export interface WebSettings {
   // Bulk (cartella intera di polizze): nomi di cartelle aggiuntivi da escludere
   // sempre dall'enumerazione, oltre alla baseline hardcoded (vedi bulkExclusions.ts).
   bulkExcludedFolderNames?: string
+  // Embeddings per la memoria documentale (Anthropic non offre embeddings:
+  // provider dedicato — ollama | voyage | openai). Vedi embeddingsService.js.
+  embeddingProvider?: string
+  embeddingModel?: string
+  embeddingDim?: string
+  voyageApiKey?: string
   // Aspetto
   theme?: string
   language?: string
@@ -118,6 +124,10 @@ export async function getSettings(): Promise<WebSettings> {
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
+    embeddingProvider: map.embeddingProvider ?? (process.env.EMBEDDING_PROVIDER || 'ollama'),
+    embeddingModel: map.embeddingModel ?? (process.env.EMBEDDING_MODEL || ''),
+    embeddingDim: map.embeddingDim ?? '',
+    voyageApiKey: map.voyageApiKey ?? (process.env.VOYAGE_API_KEY || ''),
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,
