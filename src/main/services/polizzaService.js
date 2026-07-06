@@ -1186,6 +1186,12 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
   // grandi di un batch da 3 pagine e ha bisogno di contesto e tempi maggiori.
   const numCtx = opts.numCtx || 16384    // default: batch (3 pagine) + guida campi + risposta delta
   const timeoutMs = opts.timeoutMs || 180000
+  // opts.diag: collettore di righe di diagnostica leggibili (finisce nel log
+  // "Salva diagnostica" del renderer/web). Le statistiche di Ollama sono l'unico
+  // modo per PROVARE un troncamento del prompt: prompt_eval_count = token davvero
+  // letti dal server.
+  const diag = Array.isArray(opts.diag) ? opts.diag : null
+  const startedAt = Date.now()
   const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1212,6 +1218,23 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
     throw new Error(`Ollama rolling error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
   }
   const data = await res.json()
+  if (diag) {
+    const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+    const promptEval = data.prompt_eval_count ?? null
+    const evalCount = data.eval_count ?? null
+    diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
+      (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
+      (evalCount != null ? ` · token generati: ${evalCount}` : ''))
+    // Stima prudente dei token del prompt inviato (~3 char/token per italiano/OCR):
+    // se il server ne ha letti molti meno, il prompt è stato troncato in silenzio
+    // (la guida dei campi o parte del testo NON sono mai arrivate al modello).
+    const estPromptTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 3)
+    if (promptEval != null && estPromptTokens > 2048 && promptEval < estPromptTokens * 0.7) {
+      diag.push(`ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama ` +
+        `(letti ${promptEval} token su ~${estPromptTokens} stimati). ` +
+        `Aumenta num_ctx o riduci i documenti per chiamata.`)
+    }
+  }
   return (data.message?.content || '').trim()
 }
 
@@ -1652,13 +1675,14 @@ const WHOLE_DOSSIER_SYSTEM =
  * (prompt delta + merge date-aware: vince il periodo più recente, deterministico).
  * Ritorna la stessa shape {data, sources} della chiamata singola.
  */
-async function extractWholeDossierOllamaChunked(fullText, settings, activeFields) {
+async function extractWholeDossierOllamaChunked(fullText, settings, activeFields, diag = []) {
   const parts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
   const docs = []
   for (let i = 1; i < parts.length; i += 2) {
     docs.push({ name: parts[i].trim(), text: (parts[i + 1] || '').trim() })
   }
   if (!docs.length) docs.push({ name: null, text: String(fullText) })
+  diag.push(`Elaborazione per documento: ${docs.length} documenti, modello Ollama ${settings.ollamaModel}`)
 
   let state = initRollingState(activeFields)
   let consecutiveErrors = 0
@@ -1670,6 +1694,7 @@ async function extractWholeDossierOllamaChunked(fullText, settings, activeFields
     if (!doc.text) continue
     const docDate = extractDocumentDateString(doc.text) || null
     const source = doc.name ? { file: doc.name, page: '' } : null
+    const beforeCount = Object.keys(flattenRollingState(state)).length
     for (let off = 0; off < doc.text.length; off += MAX_CHUNK_CHARS) {
       const chunk = doc.text.slice(off, off + MAX_CHUNK_CHARS)
       try {
@@ -1678,9 +1703,14 @@ async function extractWholeDossierOllamaChunked(fullText, settings, activeFields
       } catch (err) {
         consecutiveErrors++
         console.warn(`[polizza:fascicolo] errore su "${doc.name || 'testo'}", stato invariato:`, err.message)
+        diag.push(`Errore su "${doc.name || 'testo'}" (stato invariato): ${err.message}`)
         // Provider giù o errori a raffica: inutile macinare i documenti restanti.
         if (err.isLlmConnectionError || consecutiveErrors >= 3) throw err
       }
+    }
+    const afterCount = Object.keys(flattenRollingState(state)).length
+    if (afterCount > beforeCount) {
+      diag.push(`Doc "${doc.name || 'testo'}": +${afterCount - beforeCount} campi (totale ${afterCount})`)
     }
   }
 
@@ -1689,7 +1719,8 @@ async function extractWholeDossierOllamaChunked(fullText, settings, activeFields
   for (const [k, e] of Object.entries(state)) {
     if (e?.fonte && data[k] != null && data[k] !== '') sources[k] = e.fonte
   }
-  return { data, sources }
+  diag.push(`Elaborazione per documento completata: ${Object.keys(data).length} campi validi`)
+  return { data, sources, diag }
 }
 
 export async function extractPolizzaFromFullText(fullText, settings) {
@@ -1707,10 +1738,17 @@ ${fullText}
 Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file"}}.`
 
   const provider = settings.llmProvider || 'ollama'
+  // Diagnostica leggibile della chiamata (ritornata al chiamante e mostrata nel
+  // log "Salva diagnostica"): con "0 campi estratti" deve essere possibile capire
+  // COSA è successo — modello, contesto, durata, token letti, risposta grezza.
+  const diag = []
+  diag.push(`Fascicolo intero: provider ${provider} · ${activeFields.length} campi richiesti · testo ${fullText.length} char (prompt ${userPrompt.length} char)`)
+  const startedAt = Date.now()
   let raw
   try {
     if (provider === 'anthropic') {
       const model = settings.polizzaWholeDossierModel || settings.anthropicModel || 'claude-haiku-4-5-20251001'
+      diag.push(`Anthropic: modello ${model}`)
       const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
@@ -1720,6 +1758,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Anthropic: ${res.status} ${e?.error?.message || ''}`) }
       raw = ((await res.json()).content?.[0]?.text || '').trim()
     } else if (provider === 'openai') {
+      diag.push(`OpenAI: modello ${settings.openaiModel || 'gpt-4o-mini'}`)
       const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
@@ -1752,31 +1791,54 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
         // Fuori scala anche per 128K: si degrada al rolling documento-per-documento
         // (merge date-aware deterministico, stessa pipeline dell'estrazione a pagine).
         console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > ${OLLAMA_MAX_CTX} → elaborazione per documento`)
-        return await extractWholeDossierOllamaChunked(fullText, { ...settings, ollamaModel }, activeFields)
+        diag.push(`Ollama: ~${estTokens} token stimati > ${OLLAMA_MAX_CTX} → elaborazione documento per documento`)
+        return await extractWholeDossierOllamaChunked(fullText, { ...settings, ollamaModel }, activeFields, diag)
       }
       const numCtx = Math.max(16384, Math.ceil(estTokens / 1024) * 1024)
       // 15 min: il prompt-eval di decine di migliaia di token su un modello locale
       // supera abbondantemente il timeout standard da 3 min del rolling.
       console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → num_ctx ${numCtx}`)
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 900000 })
+      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola (num_ctx ${numCtx}, timeout 15 min)`)
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 900000, diag })
     }
   } catch (err) {
-    throw classifyLlmError(err, settings)
+    const classified = classifyLlmError(err, settings)
+    classified.diag = diag
+    throw classified
   }
 
-  const parsed = parseJsonResponse(raw)
+  const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+  diag.push(`Risposta del modello in ${secs}s: ${raw.length} char`)
+
+  let parsed
+  try {
+    parsed = parseJsonResponse(raw)
+  } catch (err) {
+    diag.push(`Risposta NON parsabile come JSON. Inizio risposta grezza: ${JSON.stringify(String(raw).slice(0, 400))}`)
+    err.diag = diag
+    throw err
+  }
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const data = {}, sources = {}
+  const unknownKeys = [], discardedKeys = []
   for (const [k, e] of Object.entries(parsed || {})) {
-    if (!(k in fieldsById)) continue
+    if (!(k in fieldsById)) { unknownKeys.push(k); continue }
     const val = (e && typeof e === 'object') ? e.valore : e
     const cleaned = sanitizeFieldValue(fieldsById[k], val)
-    if (cleaned == null || cleaned === '') continue
+    if (cleaned == null || cleaned === '') { discardedKeys.push(k); continue }
     data[k] = cleaned
     const doc = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
     if (doc) sources[k] = { file: doc, page: '' }
   }
-  return { data, sources }
+  const totalKeys = Object.keys(parsed || {}).length
+  diag.push(`Analisi risposta: ${totalKeys} chiavi dal modello — ${Object.keys(data).length} campi validi` +
+    (unknownKeys.length ? ` — ${unknownKeys.length} ignorate (id inesistenti: ${unknownKeys.slice(0, 5).join(', ')}${unknownKeys.length > 5 ? ', …' : ''})` : '') +
+    (discardedKeys.length ? ` — ${discardedKeys.length} scartate da sanitizzazione (${discardedKeys.slice(0, 5).join(', ')}${discardedKeys.length > 5 ? ', …' : ''})` : ''))
+  if (Object.keys(data).length === 0) {
+    // È l'informazione chiave quando "non esce niente": COSA ha risposto il modello.
+    diag.push(`Nessun campo valido. Inizio risposta grezza del modello: ${JSON.stringify(String(raw).slice(0, 400))}`)
+  }
+  return { data, sources, diag }
 }
 
 // ─── Export Excel (nuovo file) ────────────────────────────────────────────────

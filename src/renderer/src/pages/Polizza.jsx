@@ -454,14 +454,24 @@ export default function Polizza({ visible }) {
       }
 
       const res = await window.electronAPI.polizzaExtractWholeDossier({ fullText })
+      // La diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta
+      // grezza in caso di 0 campi) arriva dal main: va TUTTA nel log salvabile.
+      for (const line of res.diag || []) dlog(line)
       if (res.success) {
         const nFields = Object.keys(res.data || {}).length
         setExtracted(res.data || {})
         setSources(res.sources || {})
         dlog(`Fascicolo intero: estratti ${nFields} campi`)
         if (nFields === 0) {
-          const msg = "Il modello non ha estratto alcun campo dal testo OCR. Controlla il log: l'OCR potrebbe aver prodotto testo di scarsa qualità, o il modello/chiave non è configurato correttamente."
-          dlog('AVVISO: ' + msg)
+          // Messaggio SPECIFICO: l'indizio più utile del diag (troncamento/risposta
+          // grezza) al posto del generico "modello/chiave non configurato".
+          const hint = (res.diag || []).find(l => l.startsWith('ATTENZIONE'))
+            || (res.diag || []).find(l => l.startsWith('Nessun campo valido'))
+            || (res.diag || []).find(l => l.startsWith('Analisi risposta'))
+          const msg = 'Il modello ha risposto ma senza campi utilizzabili.'
+            + (hint ? `\n${hint}` : '')
+            + '\nSuggerimento: i modelli locali piccoli (1B-3B, es. llama3.2) faticano sui fascicoli grandi — usa llama3.1:8b o superiore. Log completo in «Salva diagnostica».'
+          dlog('AVVISO: ' + msg.replace(/\n/g, ' | '))
           setVisionMsg('error'); setVisionErr(msg)
         } else {
           setVisionMsg(null)

@@ -750,14 +750,15 @@ ${context}
   // FASCICOLO INTERO — estrazione di TUTTI i campi dal testo completo, una chiamata
   ipcMain.handle('polizza:extractWholeDossier', async (_, { fullText }) => {
     try {
-      const { data, sources } = await extractPolizzaFromFullText(fullText, getSettings())
-      return { success: true, data, sources }
+      const { data, sources, diag } = await extractPolizzaFromFullText(fullText, getSettings())
+      return { success: true, data, sources, diag: diag || [] }
     } catch (err) {
       return {
         success: false,
         error: err.message,
         connectionError: !!err.isLlmConnectionError,
-        timeoutError: !!err.isLlmTimeout
+        timeoutError: !!err.isLlmTimeout,
+        diag: err.diag || []
       }
     }
   })

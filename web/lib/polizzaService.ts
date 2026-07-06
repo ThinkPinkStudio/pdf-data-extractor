@@ -53,7 +53,7 @@ interface PolizzaServiceModule {
   updateStateWithVisionPage: (
     state: unknown, imageBase64: string, pageNum: number, totalPages: number, settings: unknown, source: unknown
   ) => Promise<unknown>
-  extractPolizzaFromFullText: (fullText: string, settings: unknown) => Promise<{ data: Record<string, string>; sources: Record<string, PolizzaSource> }>
+  extractPolizzaFromFullText: (fullText: string, settings: unknown) => Promise<{ data: Record<string, string>; sources: Record<string, PolizzaSource>; diag?: string[] }>
   exportToNewExcel: (filePath: string, data: Record<string, string>, fieldsConfig: unknown) => Promise<void>
   readExcelStructure: (templatePath: string) => Promise<unknown>
   previewTemplateChanges: (templatePath: string, data: Record<string, string>, mapping: unknown, fieldsConfig: unknown) => Promise<unknown[]>
@@ -162,10 +162,15 @@ export async function visionUpdate(params: {
 export async function wholeDossier(fullText: string) {
   const stored = await getSettings()
   try {
-    const { data, sources } = await (await svc()).extractPolizzaFromFullText(fullText, stored)
-    return { success: true, data, sources }
+    const { data, sources, diag } = await (await svc()).extractPolizzaFromFullText(fullText, stored)
+    return { success: true, data, sources, diag: diag || [] }
   } catch (err) {
-    return { success: false, error: (err as Error).message, ...llmFlags(err) }
+    return {
+      success: false,
+      error: (err as Error).message,
+      diag: ((err as { diag?: string[] })?.diag) || [],
+      ...llmFlags(err),
+    }
   }
 }
 
