@@ -81,7 +81,8 @@ export function chunkText(text, maxChars = CHUNK_CHARS, overlap = CHUNK_OVERLAP)
 }
 
 // Embeddings via Ollama (/api/embed accetta input multipli in una chiamata).
-async function embedTexts(settings, texts) {
+// Esportata: riusata dal motore "per-campo" di polizzaService (indice in memoria).
+export async function embedTexts(settings, texts) {
   const url = (settings.ollamaUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '')
   const model = (settings.embeddingModel || '').trim() || DEFAULT_EMBED_MODEL
   const res = await resilientFetch(`${url}/api/embed`, {

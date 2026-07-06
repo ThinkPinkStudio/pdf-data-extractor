@@ -1382,6 +1382,18 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
               />
             </div>
           )}
+
+          <div className="flex gap-2" style={{ alignItems: 'center', marginTop: 14 }}>
+            <label className="toggle" title="Motore per-campo (Ollama)" style={{ margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={settings.polizzaPerField !== false}
+                onChange={e => setSettings(s => ({ ...s, polizzaPerField: e.target.checked }))}
+              />
+              <span className="toggle-track"><span className="toggle-thumb" /></span>
+            </label>
+            <span className="text-sm">Motore «una domanda per campo» (solo Ollama): recupera i passaggi rilevanti a ogni campo e pone una domanda focalizzata — più preciso in locale, fonte reale. Spento = fascicolo intero. Richiede il modello embeddings («ollama pull bge-m3»).</span>
+          </div>
         </section>
 
         <div className="sep" />

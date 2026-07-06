@@ -52,6 +52,7 @@ export interface WebSettings {
   // Configurazione Polizze
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
+  polizzaPerField?: boolean
   polizzaWholeDossierModel?: string
   polizzaPromptExtra?: string
   polizzaFields?: PolizzaField[]
@@ -91,7 +92,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set(['polizzaFields', 'polizzaProfiles', 'extractions', 'profiles'])
 
@@ -122,6 +123,7 @@ export async function getSettings(): Promise<WebSettings> {
     anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || (isClaudeModel(map.llmModel) ? map.llmModel : '') || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
+    polizzaPerField: bool('polizzaPerField', true),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
     polizzaFields: json<PolizzaField[]>('polizzaFields'),
