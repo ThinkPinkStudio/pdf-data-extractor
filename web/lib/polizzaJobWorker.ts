@@ -16,7 +16,7 @@ import {
 interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
-  extractPolizzaFromFullText: (fullText: string, settings: any) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }> }>
+  extractPolizzaFromFullText: (fullText: string, settings: any) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
@@ -196,15 +196,28 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   }
 
   try {
-    const { data, sources } = await m.extractPolizzaFromFullText(fullText, settings)
+    const { data, sources, diag } = await m.extractPolizzaFromFullText(fullText, settings)
+    // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
+    // se 0 campi): nel log del job, come su desktop.
+    for (const line of diag || []) await appendLog(job, line, logs)
     const n = Object.keys(data || {}).length
     // Converte il risultato piatto in stato rolling per lo snapshot (flatten lo riappiattisce).
     const state: Record<string, any> = {}
     for (const [k, v] of Object.entries(data || {})) if (v != null && v !== '') state[k] = { valore: v, fonte: (sources as any)?.[k] }
     await updateJob(job.id, { rolling_state: state, sources: sources || {}, progress: {} })
-    if (n === 0) await updateJob(job.id, { status: 'error', error: 'Il modello non ha estratto alcun campo dal testo OCR.' })
-    else { await appendLog(job, `Fascicolo intero: estratti ${n} campi`, logs); await updateJob(job.id, { status: 'done' }) }
+    if (n === 0) {
+      const hint = (diag || []).find((l) => l.startsWith('ATTENZIONE'))
+        || (diag || []).find((l) => l.startsWith('Nessun campo valido'))
+        || (diag || []).find((l) => l.startsWith('Analisi risposta'))
+      await updateJob(job.id, {
+        status: 'error',
+        error: 'Il modello ha risposto ma senza campi utilizzabili.'
+          + (hint ? ` ${hint}` : '')
+          + ' Suggerimento: i modelli locali piccoli (1B-3B) faticano sui fascicoli grandi — usa llama3.1:8b o superiore. Dettagli nel log del job.',
+      })
+    } else { await appendLog(job, `Fascicolo intero: estratti ${n} campi`, logs); await updateJob(job.id, { status: 'done' }) }
   } catch (err: any) {
+    for (const line of ((err?.diag as string[]) || [])) await appendLog(job, line, logs)
     await updateJob(job.id, { status: 'error', error: err.message || 'Estrazione fascicolo fallita' })
   }
 }
