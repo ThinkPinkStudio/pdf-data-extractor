@@ -16,7 +16,7 @@ import {
 interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
-  extractPolizzaFromFullText: (fullText: string, settings: any) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
+  extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
@@ -196,7 +196,13 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   }
 
   try {
-    const { data, sources, diag } = await m.extractPolizzaFromFullText(fullText, settings)
+    // Progresso dei batch AI nel job (fire-and-forget: non deve frenare l'estrazione)
+    const onProgress = ({ batch, batchTotal }: { batch: number; batchTotal: number }) => {
+      void updateJob(job.id, {
+        progress: { docIndex: batch - 1, docTotal: batchTotal, pageIndex: 0, pageTotal: 0, docName: `Analisi AI · batch ${batch}/${batchTotal}`, receivedAt: Date.now() },
+      }).catch(() => {})
+    }
+    const { data, sources, diag } = await m.extractPolizzaFromFullText(fullText, settings, onProgress)
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
     for (const line of diag || []) await appendLog(job, line, logs)

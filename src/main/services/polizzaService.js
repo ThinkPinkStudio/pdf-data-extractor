@@ -1714,13 +1714,37 @@ const WHOLE_DOSSIER_SYSTEM =
  * vengono uniti campo per campo: vince la data_validita più recente; senza date
  * il primo valore trovato resta. Ritorna la stessa shape della chiamata singola.
  */
-async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = []) {
+async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null) {
   const rawParts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
   const docs = []
   for (let i = 1; i < rawParts.length; i += 2) {
     docs.push({ name: rawParts[i].trim(), text: (rawParts[i + 1] || '').trim() })
   }
   if (!docs.length) docs.push({ name: 'documento', text: String(fullText) })
+
+  // ORDINE NEWEST-FIRST: la regola di merge è "vince il documento col periodo più
+  // recente", quindi elaborare prima i documenti recenti rende possibile fermarsi
+  // appena tutti i campi sono valorizzati (i documenti più vecchi non possono
+  // migliorare un campo già pieno). Data dal testo (regex) o, in mancanza,
+  // dall'anno a 4 cifre nel nome file (es. "quietanza 2024.pdf"); i non databili
+  // in coda, mantenendo l'ordine relativo.
+  for (let i = 0; i < docs.length; i++) {
+    const d = docs[i]
+    let ts = dateStrToTs(extractDocumentDateString(d.text) || null)
+    if (ts == null) {
+      const yearMatch = (d.name || '').match(/\b(19|20)\d{2}\b/)
+      if (yearMatch) ts = Date.UTC(parseInt(yearMatch[0], 10), 6, 1)
+    }
+    d.ts = ts
+    d.pos = i
+  }
+  docs.sort((a, b) => {
+    if (a.ts != null && b.ts != null) return b.ts - a.ts
+    if (a.ts != null) return -1
+    if (b.ts != null) return 1
+    return a.pos - b.pos
+  })
+  diag.push(`Ordine di elaborazione (dal più recente): ${docs.slice(0, 5).map(d => d.name).join(', ')}${docs.length > 5 ? ', …' : ''}`)
 
   // Budget di testo per batch: contesto del modello meno guida campi + system +
   // risposta (num_predict 3000) + margine, riconvertito in caratteri (~2,5/token).
@@ -1750,8 +1774,19 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   // best[id] = { valore, documento, ts } — vince la data più recente tra i batch
   const best = {}
   let consecutiveErrors = 0
+  // MAI PIÙ "zero dopo un'attesa": se gli errori costringono a fermarsi ma
+  // qualche campo è già stato raccolto, si restituisce il parziale con avviso.
+  const partialOrThrow = (err) => {
+    if (Object.keys(best).length > 0) {
+      diag.push(`INTERROTTO per errori ripetuti: restituisco i ${Object.keys(best).length} campi raccolti finora. Ultimo errore: ${err.message}`)
+      return true
+    }
+    return false
+  }
 
-  for (let b = 0; b < batches.length; b++) {
+  let stopped = false
+  for (let b = 0; b < batches.length && !stopped; b++) {
+    onProgress?.({ batch: b + 1, batchTotal: batches.length })
     let parsed
     try {
       const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batches[b]),
@@ -1763,7 +1798,10 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       console.warn(`[polizza:fascicolo] batch ${b + 1}/${batches.length} fallito:`, err.message)
       diag.push(`Batch ${b + 1}/${batches.length} FALLITO (si prosegue): ${err.message}`)
       // Provider giù o errori a raffica: inutile macinare i batch restanti.
-      if (err.isLlmConnectionError || consecutiveErrors >= 3) throw err
+      if (err.isLlmConnectionError || consecutiveErrors >= 3) {
+        if (partialOrThrow(err)) break
+        throw err
+      }
       continue
     }
 
@@ -1785,6 +1823,16 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       }
     }
     diag.push(`Batch ${b + 1}/${batches.length}: ${batches[b].length} char → +${added} campi (totale ${Object.keys(best).length})`)
+
+    // USCITA ANTICIPATA: coi documenti in ordine newest-first, un campo pieno non
+    // può essere migliorato dai batch successivi (più vecchi). Tutti pieni → stop.
+    if (activeFields.every(f => f.id in best)) {
+      const skipped = batches.length - (b + 1)
+      if (skipped > 0) {
+        diag.push(`Tutti i ${activeFields.length} campi valorizzati dopo il batch ${b + 1}/${batches.length}: salto i ${skipped} batch rimanenti (documenti più vecchi).`)
+      }
+      stopped = true
+    }
   }
 
   const data = {}, sources = {}
@@ -1796,7 +1844,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   return { data, sources, diag }
 }
 
-export async function extractPolizzaFromFullText(fullText, settings) {
+export async function extractPolizzaFromFullText(fullText, settings, onProgress = null) {
   const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${f.description || f.label}`).join('\n')
@@ -1863,23 +1911,23 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       // da /api/show, (2) se il fascicolo non ci sta, si spezza in batch di
       // documenti interi che ci stanno.
       const modelLimit = await getOllamaContextLimit({ ...settings, ollamaModel }, ollamaModel)
-      const maxCtx = Math.min(modelLimit || 131072, 131072)
       diag.push(`Ollama: limite contesto del modello ${ollamaModel}: ${modelLimit ? `${modelLimit} token` : 'sconosciuto (assumo 131072)'}`)
+      // TETTO PRATICO, non solo teorico: llama3.1 dichiara 128K ma su hardware
+      // consumer il prompt-eval di 60K+ token richiede 10-15+ minuti (timeout →
+      // tutto perso). Oltre ~16K token conviene sempre spezzare in batch: chiamate
+      // da ~30-60s l'una, risultati salvati batch per batch, uscita anticipata.
+      const PRACTICAL_CTX = 16384
+      const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_CTX)
       const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
-      if (estTokens > maxCtx) {
-        // Tetto per batch: anche con modelli 128K restare ≤32K tiene il KV cache
-        // in RAM/VRAM sulle macchine consumer e i tempi di prompt-eval ragionevoli.
-        const batchCtx = Math.min(maxCtx, 32768)
-        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > limite ${maxCtx} → batch di documenti (num_ctx ${batchCtx})`)
-        diag.push(`Ollama: ~${estTokens} token stimati > limite ${maxCtx} → elaborazione a batch di documenti`)
-        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag)
+      if (estTokens > batchCtx) {
+        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto pratico ${batchCtx} → batch di documenti`)
+        diag.push(`Ollama: ~${estTokens} token stimati > tetto pratico ${batchCtx} → elaborazione a batch di documenti (dal più recente, con uscita anticipata)`)
+        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress)
       }
-      const numCtx = Math.min(maxCtx, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
-      // 15 min: il prompt-eval di decine di migliaia di token su un modello locale
-      // supera abbondantemente il timeout standard da 3 min del rolling.
-      console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → num_ctx ${numCtx}`)
-      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola (num_ctx ${numCtx}, timeout 15 min)`)
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 900000, diag })
+      const numCtx = batchCtx
+      console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
+      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola (num_ctx ${numCtx})`)
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 300000, diag })
     }
   } catch (err) {
     const classified = classifyLlmError(err, settings)
