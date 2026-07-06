@@ -1957,22 +1957,29 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       // documenti interi che ci stanno.
       const modelLimit = await getOllamaContextLimit({ ...settings, ollamaModel }, ollamaModel)
       diag.push(`Ollama: limite contesto del modello ${ollamaModel}: ${modelLimit ? `${modelLimit} token` : 'sconosciuto (assumo 131072)'}`)
-      // TETTO PRATICO, non solo teorico: llama3.1 dichiara 128K ma su hardware
-      // consumer il prompt-eval di 60K+ token richiede 10-15+ minuti (timeout →
-      // tutto perso). Oltre ~16K token conviene sempre spezzare in batch: chiamate
-      // da ~30-60s l'una, risultati salvati batch per batch, uscita anticipata.
-      const PRACTICAL_CTX = 16384
-      const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_CTX)
+      // QUALITÀ PRIMA, quando è fisicamente possibile: la chiamata UNICA col
+      // quadro completo (come coi provider cloud) è ciò che dà i risultati
+      // migliori — il fascicolo tipico (~10 documenti ≈ 15-20K token) sta nei
+      // 32K di modelli come qwen2.5. Quindi: chiamata singola fino a
+      // min(limite modello, 32768) ≈ 2-4 min su hardware consumer; SOLO oltre
+      // si spezza in batch (chiamate brevi da ≤16K, guardrail, uscita
+      // anticipata) — il prompt-eval di 60K+ token richiederebbe 10-15+ minuti.
+      const SINGLE_CALL_MAX_CTX = 32768
+      const PRACTICAL_BATCH_CTX = 16384
+      const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
       const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
-      if (estTokens > batchCtx) {
-        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto pratico ${batchCtx} → batch di documenti`)
-        diag.push(`Ollama: ~${estTokens} token stimati > tetto pratico ${batchCtx} → elaborazione a batch di documenti (dal più recente, con uscita anticipata)`)
+      if (estTokens > singleCtxCap) {
+        const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_BATCH_CTX)
+        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → batch di documenti`)
+        diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
         return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress)
       }
-      const numCtx = batchCtx
+      const numCtx = Math.min(singleCtxCap, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
       console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
-      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola (num_ctx ${numCtx})`)
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 300000, diag })
+      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
+      // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
+      // 4-6 minuti; il margine evita di buttare il lavoro per un timeout.
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag })
     }
   } catch (err) {
     const classified = classifyLlmError(err, settings)
