@@ -750,7 +750,17 @@ ${context}
   // FASCICOLO INTERO — estrazione di TUTTI i campi dal testo completo, una chiamata
   ipcMain.handle('polizza:extractWholeDossier', async (_, { fullText }) => {
     try {
-      const { data, sources, diag } = await extractPolizzaFromFullText(fullText, getSettings())
+      // Progresso dei batch AI sul canale rolling già ascoltato dal renderer:
+      // l'utente vede "batch b/x" avanzare invece di uno spinner muto per minuti.
+      const onProgress = ({ batch, batchTotal }) => {
+        try {
+          mainWindow.webContents.send('polizza:rollingProgress', {
+            docIndex: batch - 1, docTotal: batchTotal, pageIndex: 0, pageTotal: 0,
+            docName: `Analisi AI · batch ${batch}/${batchTotal}`, state: {}, receivedAt: Date.now()
+          })
+        } catch (_) { /* finestra chiusa: il progresso non deve rompere l'estrazione */ }
+      }
+      const { data, sources, diag } = await extractPolizzaFromFullText(fullText, getSettings(), onProgress)
       return { success: true, data, sources, diag: diag || [] }
     } catch (err) {
       return {

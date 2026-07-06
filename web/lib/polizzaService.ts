@@ -53,7 +53,7 @@ interface PolizzaServiceModule {
   updateStateWithVisionPage: (
     state: unknown, imageBase64: string, pageNum: number, totalPages: number, settings: unknown, source: unknown
   ) => Promise<unknown>
-  extractPolizzaFromFullText: (fullText: string, settings: unknown) => Promise<{ data: Record<string, string>; sources: Record<string, PolizzaSource>; diag?: string[] }>
+  extractPolizzaFromFullText: (fullText: string, settings: unknown, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, PolizzaSource>; diag?: string[] }>
   exportToNewExcel: (filePath: string, data: Record<string, string>, fieldsConfig: unknown) => Promise<void>
   readExcelStructure: (templatePath: string) => Promise<unknown>
   previewTemplateChanges: (templatePath: string, data: Record<string, string>, mapping: unknown, fieldsConfig: unknown) => Promise<unknown[]>
