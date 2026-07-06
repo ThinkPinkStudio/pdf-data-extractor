@@ -1730,7 +1730,7 @@ function isPeriodicDocName(name) {
  * il primo valore trovato resta. Guardrail: i campi strutturali sono accettati
  * solo da documenti non periodici. Ritorna la shape della chiamata singola.
  */
-async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null) {
+async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null, consCtx = 32768) {
   const rawParts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
   const docs = []
   for (let i = 1; i < rawParts.length; i += 2) {
@@ -1810,9 +1810,15 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     return false
   }
 
+  // Il consolidamento finale (una chiamata col sottoinsieme più informativo) è
+  // previsto quando il fascicolo è stato spezzato: entra nel conteggio progresso.
+  const willConsolidate = batches.length > 1
+  const progressTotal = batches.length + (willConsolidate ? 1 : 0)
+  let abortedByErrors = false
+
   let stopped = false
   for (let b = 0; b < batches.length && !stopped; b++) {
-    onProgress?.({ batch: b + 1, batchTotal: batches.length })
+    onProgress?.({ batch: b + 1, batchTotal: progressTotal })
     // Batch di sole quietanze/regolazioni: il modello va avvisato esplicitamente
     // di NON inventare campi strutturali da questi documenti.
     const batchText = batches[b].allPeriodic
@@ -1830,7 +1836,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       diag.push(`Batch ${b + 1}/${batches.length} FALLITO (si prosegue): ${err.message}`)
       // Provider giù o errori a raffica: inutile macinare i batch restanti.
       if (err.isLlmConnectionError || consecutiveErrors >= 3) {
-        if (partialOrThrow(err)) break
+        if (partialOrThrow(err)) { abortedByErrors = true; break }
         throw err
       }
       continue
@@ -1880,6 +1886,73 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   if (guardrailDiscards) {
     diag.push(`Guardrail totale: ${guardrailDiscards} valori strutturali scartati perché attribuiti a quietanze/regolazioni (non possono contenerli).`)
   }
+
+  // ── CONSOLIDAMENTO FINALE ────────────────────────────────────────────────────
+  // I batch non hanno visione d'insieme: un modello piccolo può leggere male un
+  // valore anche da un documento legittimo (es. un premio da un'appendice
+  // spacciato per massimale). Un'ultima chiamata con il sottoinsieme PIÙ
+  // INFORMATIVO del fascicolo (polizza/appendici prima, poi i periodici più
+  // recenti, fino a ~32K) e i valori candidati da verificare dà al modello il
+  // quadro (semi-)completo — la modalità in cui i provider cloud producono il
+  // risultato corretto. Mai fatale: se fallisce restano i risultati dei batch.
+  if (willConsolidate && !abortedByErrors && Object.keys(best).length > 0) {
+    onProgress?.({ batch: progressTotal, batchTotal: progressTotal })
+    try {
+      const candidateLines = Object.entries(best)
+        .map(([k, e]) => `- ${k}: "${e.valore}"${e.documento ? ` ← ${e.documento}` : ''}`)
+        .join('\n')
+      const consHeader =
+        `[VERIFICA FINALE: qui sotto trovi i VALORI CANDIDATI raccolti in una prima passata e i documenti ` +
+        `PIÙ IMPORTANTI del fascicolo. Verifica ogni candidato sui documenti: se è corretto confermalo, se è ` +
+        `sbagliato correggilo (stesso formato JSON), ometti i campi di cui questi documenti non parlano. ` +
+        `NON inventare: massimali/franchigie/scoperti/attività SOLO da polizza/appendici/condizioni; ` +
+        `preventivo ≠ consuntivo; per i valori che cambiano nel tempo vince il periodo più recente.]\n\n` +
+        `VALORI CANDIDATI (da verificare):\n${candidateLines}\n`
+      // Corpus: documenti interi nell'ordine informativo già calcolato, finché
+      // stanno nel budget; se il primo documento da solo sfora, se ne prende l'inizio.
+      const reserveCons = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + buildUserPrompt('').length + consHeader.length) + 3000 + 512
+      const consBudgetChars = Math.max(4000, Math.floor((consCtx - reserveCons) * 2.5))
+      let corpus = ''
+      const consDocs = []
+      for (const doc of docs) {
+        if (!doc.text) continue
+        const piece = `\n===== DOCUMENTO: ${doc.name} =====\n${doc.text}`
+        if (corpus.length + piece.length <= consBudgetChars) {
+          corpus += piece
+          consDocs.push(doc.name)
+        } else if (!corpus) {
+          corpus = piece.slice(0, consBudgetChars)
+          consDocs.push(`${doc.name} (parziale)`)
+        }
+      }
+      diag.push(`Consolidamento finale: ${consDocs.length} documenti (~${estimateOllamaTokens(corpus.length)} token, num_ctx ${consCtx}): ${consDocs.slice(0, 6).join(', ')}${consDocs.length > 6 ? ', …' : ''}`)
+
+      const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(consHeader + corpus),
+        { numCtx: consCtx, timeoutMs: 600000, diag })
+      const parsed = parseJsonResponse(raw)
+
+      let corrected = 0, confirmed = 0, rejected = 0
+      for (const [k, e] of Object.entries(parsed || {})) {
+        if (!(k in fieldsById) || !(k in best)) continue // il consolidamento verifica, non aggiunge
+        const val = (e && typeof e === 'object') ? e.valore : e
+        const cleaned = sanitizeFieldValue(fieldsById[k], val)
+        if (cleaned == null || cleaned === '') continue // anti-regressione: mai svuotare un candidato
+        const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+        if (isStructuralField(fieldsById[k]) && documento && isPeriodicDocName(documento)) { rejected++; continue }
+        if (cleaned === best[k].valore) { confirmed++; if (documento) best[k].documento = documento; continue }
+        corrected++
+        const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
+          ? normalizeDateValue(e.data_validita) : null
+        best[k] = { valore: cleaned, documento: documento || best[k].documento, ts: dateStrToTs(validita) ?? best[k].ts }
+      }
+      diag.push(`Consolidamento: ${corrected} campi corretti, ${confirmed} confermati` +
+        (rejected ? `, ${rejected} correzioni respinte dal guardrail` : ''))
+    } catch (err) {
+      console.warn('[polizza:fascicolo] consolidamento fallito:', err.message)
+      diag.push(`Consolidamento FALLITO (si tengono i risultati dei batch): ${err.message}`)
+    }
+  }
+
   const data = {}, sources = {}
   for (const [k, e] of Object.entries(best)) {
     data[k] = e.valore
@@ -1972,7 +2045,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
         const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_BATCH_CTX)
         console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → batch di documenti`)
         diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
-        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress)
+        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress, singleCtxCap)
       }
       const numCtx = Math.min(singleCtxCap, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
       console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
