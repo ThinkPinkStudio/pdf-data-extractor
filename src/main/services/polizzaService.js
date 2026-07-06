@@ -1180,8 +1180,12 @@ const ROLLING_SYSTEM_PROMPT =
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
  * Ogni batch è piccolo → contesto ridotto → risparmio RAM massiccio su macchine 8-16 GB.
  */
-async function callOllamaRolling(settings, systemPrompt, userPrompt) {
+async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  // num_ctx/timeout sovrascrivibili: il "fascicolo intero" invia prompt molto più
+  // grandi di un batch da 3 pagine e ha bisogno di contesto e tempi maggiori.
+  const numCtx = opts.numCtx || 16384    // default: batch (3 pagine) + guida campi + risposta delta
+  const timeoutMs = opts.timeoutMs || 180000
   const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1194,14 +1198,14 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt) {
       stream: false,
       format: 'json',
       options: {
-        num_ctx:     16384, // batch (3 pagine) + guida campi + risposta delta
+        num_ctx:     numCtx,
         temperature: 0,
         num_predict: 3000
       }
     }),
-    // 3 min: i modelli locali possono essere lenti, soprattutto alla prima
+    // Default 3 min: i modelli locali possono essere lenti, soprattutto alla prima
     // chiamata (caricamento modello) o quando lo stato si riempie
-    signal: AbortSignal.timeout(180000)
+    signal: AbortSignal.timeout(timeoutMs)
   })
   if (!res.ok) {
     const errBody = await res.text().catch(() => '')
@@ -1252,7 +1256,7 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
  * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
-async function callRollingLLMText(settings, state, batchText, fields, docDate = null) {
+async function callRollingLLMText(settings, state, batchText, fields, docDate = null, source = null) {
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   const userPrompt =
 `CAMPI (id — nome: descrizione [valore attuale]):
@@ -1280,7 +1284,7 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const updated = parseJsonResponse(raw)
   const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
-  return mergeRollingState(state, updated, fieldsById, docDate)
+  return mergeRollingState(state, updated, fieldsById, docDate, source)
 }
 
 /**
@@ -1641,6 +1645,53 @@ const WHOLE_DOSSIER_SYSTEM =
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore": "...", "documento": "nome file"}}.\n' +
   'Zero testo extra, zero markdown.'
 
+/**
+ * Fallback per fascicoli FUORI SCALA con Ollama (stima oltre il contesto massimo):
+ * spezza il testo sui separatori "===== DOCUMENTO: nome =====" prodotti dai
+ * chiamanti e processa un documento alla volta con la pipeline rolling esistente
+ * (prompt delta + merge date-aware: vince il periodo più recente, deterministico).
+ * Ritorna la stessa shape {data, sources} della chiamata singola.
+ */
+async function extractWholeDossierOllamaChunked(fullText, settings, activeFields) {
+  const parts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
+  const docs = []
+  for (let i = 1; i < parts.length; i += 2) {
+    docs.push({ name: parts[i].trim(), text: (parts[i + 1] || '').trim() })
+  }
+  if (!docs.length) docs.push({ name: null, text: String(fullText) })
+
+  let state = initRollingState(activeFields)
+  let consecutiveErrors = 0
+  // ~15K char ≈ 5K token di testo: con guida campi e risposta sta nel num_ctx
+  // standard (16384) del rolling.
+  const MAX_CHUNK_CHARS = 15000
+
+  for (const doc of docs) {
+    if (!doc.text) continue
+    const docDate = extractDocumentDateString(doc.text) || null
+    const source = doc.name ? { file: doc.name, page: '' } : null
+    for (let off = 0; off < doc.text.length; off += MAX_CHUNK_CHARS) {
+      const chunk = doc.text.slice(off, off + MAX_CHUNK_CHARS)
+      try {
+        state = await callRollingLLMText(settings, state, chunk, activeFields, docDate, source)
+        consecutiveErrors = 0
+      } catch (err) {
+        consecutiveErrors++
+        console.warn(`[polizza:fascicolo] errore su "${doc.name || 'testo'}", stato invariato:`, err.message)
+        // Provider giù o errori a raffica: inutile macinare i documenti restanti.
+        if (err.isLlmConnectionError || consecutiveErrors >= 3) throw err
+      }
+    }
+  }
+
+  const data = flattenRollingState(state)
+  const sources = {}
+  for (const [k, e] of Object.entries(state)) {
+    if (e?.fonte && data[k] != null && data[k] !== '') sources[k] = e.fonte
+  }
+  return { data, sources }
+}
+
 export async function extractPolizzaFromFullText(fullText, settings) {
   const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
@@ -1690,7 +1741,24 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       if (!ollamaModel) {
         throw new Error('Nessun modello Ollama configurato: imposta il "Modello" nella sezione Ollama delle Impostazioni.')
       }
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt)
+      // BUG FIX: un fascicolo intero può superare di molto il num_ctx 16384 del
+      // rolling (es. 45 doc ≈ 158K char ≈ 45K token). Ollama tronca il prompt in
+      // silenzio (perde la guida dei campi) e il modello risponde {} → "0 campi
+      // estratti" senza alcun errore. Il contesto va dimensionato sul prompt.
+      // Stima prudente per l'italiano/OCR: ~3 char per token, + risposta e margine.
+      const OLLAMA_MAX_CTX = 131072  // limite dei modelli attuali (llama3.1: 128K)
+      const estTokens = Math.ceil((WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) / 3) + 3000 + 512
+      if (estTokens > OLLAMA_MAX_CTX) {
+        // Fuori scala anche per 128K: si degrada al rolling documento-per-documento
+        // (merge date-aware deterministico, stessa pipeline dell'estrazione a pagine).
+        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > ${OLLAMA_MAX_CTX} → elaborazione per documento`)
+        return await extractWholeDossierOllamaChunked(fullText, { ...settings, ollamaModel }, activeFields)
+      }
+      const numCtx = Math.max(16384, Math.ceil(estTokens / 1024) * 1024)
+      // 15 min: il prompt-eval di decine di migliaia di token su un modello locale
+      // supera abbondantemente il timeout standard da 3 min del rolling.
+      console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → num_ctx ${numCtx}`)
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 900000 })
     }
   } catch (err) {
     throw classifyLlmError(err, settings)
