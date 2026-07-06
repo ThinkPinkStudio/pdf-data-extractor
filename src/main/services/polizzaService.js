@@ -1706,13 +1706,29 @@ const WHOLE_DOSSIER_SYSTEM =
   'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
   'hai preso il valore, se presente nel testo. Zero testo extra, zero markdown.'
 
+// Campi STRUTTURALI: definiti dalla polizza base/appendici/condizioni (massimali,
+// franchigie, scoperti, attività, prodotti, qualifica, garanzie). Una quietanza o
+// una regolazione premio NON li contiene: valori attribuiti dal modello a quei
+// documenti sono misletture (importi di premio spacciati per massimali).
+function isStructuralField(field) {
+  const s = `${field?.id || ''} ${field?.label || ''} ${field?.description || ''}`
+  return /massimal|franchig|scopert|attivit|prodott|qualific|garanz/i.test(s)
+}
+
+// Documenti "periodici" (quietanze/regolazioni premio): ricchi di dati economici
+// recenti, ma privi per natura di massimali/franchigie/attività.
+function isPeriodicDocName(name) {
+  return /quietanz|regolazion/i.test(String(name || ''))
+}
+
 /**
  * Fascicoli che NON entrano nel contesto massimo del modello Ollama: il testo
  * viene spezzato in BATCH di documenti interi (separatori "===== DOCUMENTO: nome
  * =====" prodotti dai chiamanti), ogni batch passa dallo STESSO prompt whole-
- * dossier (che attribuisce già il documento sorgente e, ora, la data), e i batch
+ * dossier (che attribuisce già il documento sorgente e la data), e i batch
  * vengono uniti campo per campo: vince la data_validita più recente; senza date
- * il primo valore trovato resta. Ritorna la stessa shape della chiamata singola.
+ * il primo valore trovato resta. Guardrail: i campi strutturali sono accettati
+ * solo da documenti non periodici. Ritorna la shape della chiamata singola.
  */
 async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null) {
   const rawParts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
@@ -1722,12 +1738,13 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   }
   if (!docs.length) docs.push({ name: 'documento', text: String(fullText) })
 
-  // ORDINE NEWEST-FIRST: la regola di merge è "vince il documento col periodo più
-  // recente", quindi elaborare prima i documenti recenti rende possibile fermarsi
-  // appena tutti i campi sono valorizzati (i documenti più vecchi non possono
-  // migliorare un campo già pieno). Data dal testo (regex) o, in mancanza,
-  // dall'anno a 4 cifre nel nome file (es. "quietanza 2024.pdf"); i non databili
-  // in coda, mantenendo l'ordine relativo.
+  // ORDINE: prima per VALORE INFORMATIVO, poi per data.
+  //   Gruppo 1: polizza base / appendici / condizioni / altro — le uniche fonti dei
+  //             campi strutturali: vanno lette per prime, sempre.
+  //   Gruppo 2: regolazioni + quietanze — dati economici e date, dal più recente
+  //             (il merge per data li fa comunque vincere sui valori più vecchi).
+  // Data per documento: dal testo (regex) o dall'anno nel nome file; non databili
+  // in coda al proprio gruppo, mantenendo l'ordine relativo.
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i]
     let ts = dateStrToTs(extractDocumentDateString(d.text) || null)
@@ -1737,14 +1754,16 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     }
     d.ts = ts
     d.pos = i
+    d.periodic = isPeriodicDocName(d.name)
   }
   docs.sort((a, b) => {
+    if (a.periodic !== b.periodic) return a.periodic ? 1 : -1
     if (a.ts != null && b.ts != null) return b.ts - a.ts
     if (a.ts != null) return -1
     if (b.ts != null) return 1
     return a.pos - b.pos
   })
-  diag.push(`Ordine di elaborazione (dal più recente): ${docs.slice(0, 5).map(d => d.name).join(', ')}${docs.length > 5 ? ', …' : ''}`)
+  diag.push(`Ordine: prima polizza/appendici/condizioni, poi regolazioni/quietanze (dal più recente): ${docs.slice(0, 5).map(d => d.name).join(', ')}${docs.length > 5 ? ', …' : ''}`)
 
   // Budget di testo per batch: contesto del modello meno guida campi + system +
   // risposta (num_predict 3000) + margine, riconvertito in caratteri (~2,5/token).
@@ -1758,22 +1777,29 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   for (const doc of docs) {
     if (!doc.text) continue
     for (let off = 0; off < doc.text.length; off += budgetChars) {
-      pieces.push(`\n===== DOCUMENTO: ${doc.name} =====\n${doc.text.slice(off, off + budgetChars)}`)
+      pieces.push({ text: `\n===== DOCUMENTO: ${doc.name} =====\n${doc.text.slice(off, off + budgetChars)}`, periodic: doc.periodic })
     }
   }
-  const batches = []
-  let current = ''
+  const batches = []  // { text, allPeriodic }
+  let current = null
   for (const piece of pieces) {
-    if (current && current.length + piece.length > budgetChars) { batches.push(current); current = '' }
-    current += piece
+    if (current && current.text.length + piece.text.length > budgetChars) { batches.push(current); current = null }
+    if (!current) current = { text: '', allPeriodic: true }
+    current.text += piece.text
+    if (!piece.periodic) current.allPeriodic = false
   }
   if (current) batches.push(current)
+  // Indice dell'ultimo batch che contiene documenti del gruppo 1: prima di quel
+  // punto l'uscita anticipata è vietata (i campi strutturali arrivano da lì).
+  let lastStructuralBatch = -1
+  for (let i = 0; i < batches.length; i++) if (!batches[i].allPeriodic) lastStructuralBatch = i
   diag.push(`Batch: ${docs.length} documenti in ${batches.length} chiamate (budget ~${budgetChars} char/batch, num_ctx ${batchCtx})`)
 
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   // best[id] = { valore, documento, ts } — vince la data più recente tra i batch
   const best = {}
   let consecutiveErrors = 0
+  let guardrailDiscards = 0
   // MAI PIÙ "zero dopo un'attesa": se gli errori costringono a fermarsi ma
   // qualche campo è già stato raccolto, si restituisce il parziale con avviso.
   const partialOrThrow = (err) => {
@@ -1787,9 +1813,14 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   let stopped = false
   for (let b = 0; b < batches.length && !stopped; b++) {
     onProgress?.({ batch: b + 1, batchTotal: batches.length })
+    // Batch di sole quietanze/regolazioni: il modello va avvisato esplicitamente
+    // di NON inventare campi strutturali da questi documenti.
+    const batchText = batches[b].allPeriodic
+      ? `[NOTA: i documenti di questo blocco sono quietanze/regolazioni premio. NON contengono massimali, franchigie, scoperti né descrizioni di attività: NON compilare quei campi da questi documenti.]\n${batches[b].text}`
+      : batches[b].text
     let parsed
     try {
-      const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batches[b]),
+      const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batchText),
         { numCtx: batchCtx, timeoutMs: 600000, diag })
       parsed = parseJsonResponse(raw)
       consecutiveErrors = 0
@@ -1806,15 +1837,22 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     }
 
     let added = 0
+    let discarded = 0
     for (const [k, e] of Object.entries(parsed || {})) {
       if (!(k in fieldsById)) continue
       const val = (e && typeof e === 'object') ? e.valore : e
       const cleaned = sanitizeFieldValue(fieldsById[k], val)
       if (cleaned == null || cleaned === '') continue
+      const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+      // GUARDRAIL: un campo strutturale non può venire da una quietanza/regolazione
+      // (né da un batch fatto solo di quelle, se il modello non attribuisce il doc).
+      if (isStructuralField(fieldsById[k])) {
+        const fromPeriodic = documento ? isPeriodicDocName(documento) : batches[b].allPeriodic
+        if (fromPeriodic) { discarded++; continue }
+      }
       const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
         ? normalizeDateValue(e.data_validita) : null
       const ts = dateStrToTs(validita)
-      const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
       const existing = best[k]
       // Il valore datato più recente vince; senza data conta il primo trovato.
       if (!existing || (ts != null && (existing.ts == null || ts > existing.ts))) {
@@ -1822,19 +1860,26 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
         best[k] = { valore: cleaned, documento, ts }
       }
     }
-    diag.push(`Batch ${b + 1}/${batches.length}: ${batches[b].length} char → +${added} campi (totale ${Object.keys(best).length})`)
+    guardrailDiscards += discarded
+    diag.push(`Batch ${b + 1}/${batches.length}: ${batches[b].text.length} char → +${added} campi (totale ${Object.keys(best).length})` +
+      (discarded ? ` — guardrail: ${discarded} valori strutturali scartati (attribuiti a quietanze/regolazioni)` : ''))
 
-    // USCITA ANTICIPATA: coi documenti in ordine newest-first, un campo pieno non
-    // può essere migliorato dai batch successivi (più vecchi). Tutti pieni → stop.
-    if (activeFields.every(f => f.id in best)) {
+    // USCITA ANTICIPATA: solo DOPO aver letto tutti i batch con documenti del
+    // gruppo 1 (le fonti dei campi strutturali). Da lì in poi i batch restanti
+    // sono quietanze/regolazioni in ordine cronologico discendente: un campo
+    // pieno non può essere migliorato da un documento più vecchio.
+    if (b >= lastStructuralBatch && activeFields.every(f => f.id in best)) {
       const skipped = batches.length - (b + 1)
       if (skipped > 0) {
-        diag.push(`Tutti i ${activeFields.length} campi valorizzati dopo il batch ${b + 1}/${batches.length}: salto i ${skipped} batch rimanenti (documenti più vecchi).`)
+        diag.push(`Tutti i ${activeFields.length} campi valorizzati dopo il batch ${b + 1}/${batches.length}: salto i ${skipped} batch rimanenti (quietanze/regolazioni più vecchie).`)
       }
       stopped = true
     }
   }
 
+  if (guardrailDiscards) {
+    diag.push(`Guardrail totale: ${guardrailDiscards} valori strutturali scartati perché attribuiti a quietanze/regolazioni (non possono contenerli).`)
+  }
   const data = {}, sources = {}
   for (const [k, e] of Object.entries(best)) {
     data[k] = e.valore
@@ -1948,20 +1993,24 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
   }
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const data = {}, sources = {}
-  const unknownKeys = [], discardedKeys = []
+  const unknownKeys = [], discardedKeys = [], guardrailKeys = []
   for (const [k, e] of Object.entries(parsed || {})) {
     if (!(k in fieldsById)) { unknownKeys.push(k); continue }
     const val = (e && typeof e === 'object') ? e.valore : e
     const cleaned = sanitizeFieldValue(fieldsById[k], val)
     if (cleaned == null || cleaned === '') { discardedKeys.push(k); continue }
-    data[k] = cleaned
     const doc = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+    // GUARDRAIL: un campo strutturale (massimali, franchigie, attività…) non può
+    // venire da una quietanza/regolazione premio — è una mislettura del modello.
+    if (doc && isStructuralField(fieldsById[k]) && isPeriodicDocName(doc)) { guardrailKeys.push(k); continue }
+    data[k] = cleaned
     if (doc) sources[k] = { file: doc, page: '' }
   }
   const totalKeys = Object.keys(parsed || {}).length
   diag.push(`Analisi risposta: ${totalKeys} chiavi dal modello — ${Object.keys(data).length} campi validi` +
     (unknownKeys.length ? ` — ${unknownKeys.length} ignorate (id inesistenti: ${unknownKeys.slice(0, 5).join(', ')}${unknownKeys.length > 5 ? ', …' : ''})` : '') +
-    (discardedKeys.length ? ` — ${discardedKeys.length} scartate da sanitizzazione (${discardedKeys.slice(0, 5).join(', ')}${discardedKeys.length > 5 ? ', …' : ''})` : ''))
+    (discardedKeys.length ? ` — ${discardedKeys.length} scartate da sanitizzazione (${discardedKeys.slice(0, 5).join(', ')}${discardedKeys.length > 5 ? ', …' : ''})` : '') +
+    (guardrailKeys.length ? ` — guardrail: ${guardrailKeys.length} strutturali scartate perché attribuite a quietanze/regolazioni (${guardrailKeys.slice(0, 5).join(', ')}${guardrailKeys.length > 5 ? ', …' : ''})` : ''))
   if (Object.keys(data).length === 0) {
     // È l'informazione chiave quando "non esce niente": COSA ha risposto il modello.
     diag.push(`Nessun campo valido. Inizio risposta grezza del modello: ${JSON.stringify(String(raw).slice(0, 400))}`)
