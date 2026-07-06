@@ -1701,8 +1701,12 @@ const WHOLE_DOSSIER_SYSTEM =
   '5. Anagrafici stabili (n. polizza, P.IVA/CF, contraente): usa il valore COERENTE nella\n' +
   '   maggioranza dei documenti; ignora refusi OCR isolati.\n' +
   '6. Importi in formato italiano (3.000.000,00). Date GG/MM/AAAA.\n' +
+  '7. Per OGNI campo includi "evidenza": il frammento di testo ESATTO, copiato\n' +
+  '   letteralmente dal documento, in cui compare il valore. Se NON riesci a citare\n' +
+  '   il valore copiandolo dal documento, lo stai inventando: NON restituire quel\n' +
+  '   campo. NON usare MAI valori presi dalla guida campi o da esempi.\n' +
   'FORMATO: un solo oggetto JSON\n' +
-  '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null"}}\n' +
+  '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
   'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
   'hai preso il valore, se presente nel testo. Zero testo extra, zero markdown.'
 
@@ -1713,6 +1717,35 @@ const WHOLE_DOSSIER_SYSTEM =
 function isStructuralField(field) {
   const s = `${field?.id || ''} ${field?.label || ''} ${field?.description || ''}`
   return /massimal|franchig|scopert|attivit|prodott|qualific|garanz/i.test(s)
+}
+
+// Rimuove le clausole d'esempio dalle descrizioni dei campi ("es. 3.000.000,00",
+// "(es. 410000880)"). I modelli locali piccoli COPIANO gli esempi dal prompt
+// invece di leggere i documenti (visto sul campo: massimali "3.000.000,00" e
+// importi "240.000.000,00" identici agli esempi delle descrizioni). Per i
+// provider cloud gli esempi restano: lì aiutano e non vengono copiati.
+function stripFieldExamples(desc) {
+  return String(desc || '')
+    .replace(/\s*\(\s*es\.[^)]*\)/gi, '')      // "(es. …)" tra parentesi
+    .replace(/[,;:]?\s*\bes\.\s[^\n]*$/gim, '') // ", es. …" fino a fine riga (i numeri contengono punti)
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+// Check anti-allucinazione sugli importi (stessa logica di mergeRollingState):
+// se il valore è un importo "puro", le sue cifre devono comparire nell'evidenza
+// citata dal modello. In modalità severa (Ollama) un importo SENZA evidenza è
+// considerato inventato: meglio un campo vuoto da compilare a mano che un numero
+// sbagliato esportato in Excel.
+function passesEvidenceCheck(cleaned, entry, strict) {
+  const amount = parsePureAmount(cleaned)
+  if (amount == null) return true // non è un importo puro: testo/date passano
+  const evidenza = (entry && typeof entry === 'object' && typeof entry.evidenza === 'string' && entry.evidenza.trim())
+    ? entry.evidenza : null
+  if (!evidenza) return !strict
+  const intDigits = String(Math.trunc(Math.abs(amount)))
+  if (intDigits.length < 4) return true // importi corti: troppi falsi positivi
+  return evidenza.replace(/\D/g, '').includes(intDigits)
 }
 
 // Documenti "periodici" (quietanze/regolazioni premio): ricchi di dati economici
@@ -1844,11 +1877,15 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
 
     let added = 0
     let discarded = 0
+    let evidenceDiscarded = 0
     for (const [k, e] of Object.entries(parsed || {})) {
       if (!(k in fieldsById)) continue
       const val = (e && typeof e === 'object') ? e.valore : e
       const cleaned = sanitizeFieldValue(fieldsById[k], val)
       if (cleaned == null || cleaned === '') continue
+      // ANTI-ALLUCINAZIONE (severo, siamo su Ollama): importi solo con evidenza
+      // citata dal documento e coerente con le cifre del valore.
+      if (!passesEvidenceCheck(cleaned, e, true)) { evidenceDiscarded++; continue }
       const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
       // GUARDRAIL: un campo strutturale non può venire da una quietanza/regolazione
       // (né da un batch fatto solo di quelle, se il modello non attribuisce il doc).
@@ -1868,7 +1905,8 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     }
     guardrailDiscards += discarded
     diag.push(`Batch ${b + 1}/${batches.length}: ${batches[b].text.length} char → +${added} campi (totale ${Object.keys(best).length})` +
-      (discarded ? ` — guardrail: ${discarded} valori strutturali scartati (attribuiti a quietanze/regolazioni)` : ''))
+      (discarded ? ` — guardrail: ${discarded} valori strutturali scartati (attribuiti a quietanze/regolazioni)` : '') +
+      (evidenceDiscarded ? ` — ${evidenceDiscarded} importi scartati senza evidenza dal documento` : ''))
 
     // USCITA ANTICIPATA: solo DOPO aver letto tutti i batch con documenti del
     // gruppo 1 (le fonti dei campi strutturali). Da lì in poi i batch restanti
@@ -1937,16 +1975,24 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
         const val = (e && typeof e === 'object') ? e.valore : e
         const cleaned = sanitizeFieldValue(fieldsById[k], val)
         if (cleaned == null || cleaned === '') continue // anti-regressione: mai svuotare un candidato
+        if (cleaned === best[k].valore) { // conferma: nessun check evidenza (il valore era già passato)
+          confirmed++
+          const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+          if (documento && !(isStructuralField(fieldsById[k]) && isPeriodicDocName(documento))) best[k].documento = documento
+          continue
+        }
+        // Una CORREZIONE deve superare gli stessi controlli dei batch: evidenza
+        // per gli importi e guardrail strutturale.
+        if (!passesEvidenceCheck(cleaned, e, true)) { rejected++; continue }
         const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
         if (isStructuralField(fieldsById[k]) && documento && isPeriodicDocName(documento)) { rejected++; continue }
-        if (cleaned === best[k].valore) { confirmed++; if (documento) best[k].documento = documento; continue }
         corrected++
         const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
           ? normalizeDateValue(e.data_validita) : null
         best[k] = { valore: cleaned, documento: documento || best[k].documento, ts: dateStrToTs(validita) ?? best[k].ts }
       }
       diag.push(`Consolidamento: ${corrected} campi corretti, ${confirmed} confermati` +
-        (rejected ? `, ${rejected} correzioni respinte dal guardrail` : ''))
+        (rejected ? `, ${rejected} correzioni respinte (guardrail/evidenza)` : ''))
     } catch (err) {
       console.warn('[polizza:fascicolo] consolidamento fallito:', err.message)
       diag.push(`Consolidamento FALLITO (si tengono i risultati dei batch): ${err.message}`)
@@ -1965,7 +2011,13 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
 export async function extractPolizzaFromFullText(fullText, settings, onProgress = null) {
   const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
-  const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${f.description || f.label}`).join('\n')
+  const provider = settings.llmProvider || 'ollama'
+  // Ollama (modelli piccoli): descrizioni SENZA esempi — il modello li copierebbe
+  // nel risultato invece di leggere i documenti. Cloud: descrizioni originali.
+  const descFor = provider === 'ollama'
+    ? (f) => stripFieldExamples(f.description || f.label || f.id) || f.label || f.id
+    : (f) => f.description || f.label || f.id
+  const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${descFor(f)}`).join('\n')
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   // Riusato anche dal path a batch: stesso prompt, testo diverso per chiamata.
   const buildUserPrompt = (text) =>
@@ -1975,10 +2027,8 @@ ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n`
 TESTO DEI DOCUMENTI DEL FASCICOLO:
 ${text}
 
-Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null"}}.`
+Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}.`
   const userPrompt = buildUserPrompt(fullText)
-
-  const provider = settings.llmProvider || 'ollama'
   // Diagnostica leggibile della chiamata (ritornata al chiamante e mostrata nel
   // log "Salva diagnostica"): con "0 campi estratti" deve essere possibile capire
   // COSA è successo — modello, contesto, durata, token letti, risposta grezza.
@@ -2073,12 +2123,16 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
   }
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const data = {}, sources = {}
-  const unknownKeys = [], discardedKeys = [], guardrailKeys = []
+  const unknownKeys = [], discardedKeys = [], guardrailKeys = [], evidenceKeys = []
+  const strictEvidence = provider === 'ollama'
   for (const [k, e] of Object.entries(parsed || {})) {
     if (!(k in fieldsById)) { unknownKeys.push(k); continue }
     const val = (e && typeof e === 'object') ? e.valore : e
     const cleaned = sanitizeFieldValue(fieldsById[k], val)
     if (cleaned == null || cleaned === '') { discardedKeys.push(k); continue }
+    // ANTI-ALLUCINAZIONE: un importo deve essere citato dall'evidenza; con Ollama
+    // un importo senza evidenza è considerato inventato.
+    if (!passesEvidenceCheck(cleaned, e, strictEvidence)) { evidenceKeys.push(k); continue }
     const doc = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
     // GUARDRAIL: un campo strutturale (massimali, franchigie, attività…) non può
     // venire da una quietanza/regolazione premio — è una mislettura del modello.
@@ -2090,6 +2144,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
   diag.push(`Analisi risposta: ${totalKeys} chiavi dal modello — ${Object.keys(data).length} campi validi` +
     (unknownKeys.length ? ` — ${unknownKeys.length} ignorate (id inesistenti: ${unknownKeys.slice(0, 5).join(', ')}${unknownKeys.length > 5 ? ', …' : ''})` : '') +
     (discardedKeys.length ? ` — ${discardedKeys.length} scartate da sanitizzazione (${discardedKeys.slice(0, 5).join(', ')}${discardedKeys.length > 5 ? ', …' : ''})` : '') +
+    (evidenceKeys.length ? ` — ${evidenceKeys.length} importi scartati senza evidenza dal documento (${evidenceKeys.slice(0, 5).join(', ')}${evidenceKeys.length > 5 ? ', …' : ''})` : '') +
     (guardrailKeys.length ? ` — guardrail: ${guardrailKeys.length} strutturali scartate perché attribuite a quietanze/regolazioni (${guardrailKeys.slice(0, 5).join(', ')}${guardrailKeys.length > 5 ? ', …' : ''})` : ''))
   if (Object.keys(data).length === 0) {
     // È l'informazione chiave quando "non esce niente": COSA ha risposto il modello.
