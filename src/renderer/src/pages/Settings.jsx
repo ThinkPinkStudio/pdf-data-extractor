@@ -1102,6 +1102,7 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
             <label className="form-label" htmlFor="qdrant-url">{t('settings.qdrantUrl')}</label>
             <input
               id="qdrant-url"
+              className="form-input"
               type="text"
               value={settings.qdrantUrl || ''}
               onChange={e => setSettings(s => ({ ...s, qdrantUrl: e.target.value }))}
@@ -1114,6 +1115,7 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
             <label className="form-label" htmlFor="qdrant-collection">{t('settings.qdrantCollection')}</label>
             <input
               id="qdrant-collection"
+              className="form-input"
               type="text"
               value={settings.qdrantCollection || ''}
               onChange={e => setSettings(s => ({ ...s, qdrantCollection: e.target.value }))}
@@ -1125,6 +1127,7 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
             <label className="form-label" htmlFor="embedding-model">{t('settings.embeddingModel')}</label>
             <input
               id="embedding-model"
+              className="form-input"
               type="text"
               value={settings.embeddingModel || ''}
               onChange={e => setSettings(s => ({ ...s, embeddingModel: e.target.value }))}
