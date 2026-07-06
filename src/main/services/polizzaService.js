@@ -1656,10 +1656,10 @@ ${fullText}
 Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file"}}.`
 
   const provider = settings.llmProvider || 'ollama'
-  const model = settings.polizzaWholeDossierModel || settings.anthropicModel || 'claude-haiku-4-5-20251001'
   let raw
   try {
     if (provider === 'anthropic') {
+      const model = settings.polizzaWholeDossierModel || settings.anthropicModel || 'claude-haiku-4-5-20251001'
       const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
@@ -1678,7 +1678,19 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`OpenAI: ${res.status} ${e?.error?.message || ''}`) }
       raw = ((await res.json()).choices?.[0]?.message?.content || '').trim()
     } else {
-      raw = await callOllamaRolling({ ...settings, ollamaModel: model }, WHOLE_DOSSIER_SYSTEM, userPrompt)
+      // BUG FIX: il modello "fascicolo intero" (polizzaWholeDossierModel, default
+      // Claude) vale SOLO per il provider Anthropic. Con Ollama va usato il modello
+      // Ollama configurato, altrimenti il nome Claude finirebbe al server locale
+      // → 404 "model not found". Un override esplicito è ammesso solo se non è
+      // palesemente un modello cloud (claude-*/gpt-*).
+      const override = String(settings.polizzaWholeDossierModel || '').trim()
+      const ollamaModel = (override && !/^(claude|gpt)-/i.test(override))
+        ? override
+        : (settings.ollamaModel || '')
+      if (!ollamaModel) {
+        throw new Error('Nessun modello Ollama configurato: imposta il "Modello" nella sezione Ollama delle Impostazioni.')
+      }
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt)
     }
   } catch (err) {
     throw classifyLlmError(err, settings)

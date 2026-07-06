@@ -80,6 +80,13 @@ const DEFAULTS: WebSettings = {
   anthropicApiKey: '',
 }
 
+// Riconoscimento (euristico) dei nomi di modello cloud: serve a impedire che il
+// legacy llmModel — campo unico condiviso tra i provider — contamini i campi
+// per-provider (es. un modello Claude usato come modello Ollama → 404).
+const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
+const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
+const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
+
 const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set(['polizzaFields', 'polizzaProfiles', 'extractions', 'profiles'])
@@ -101,11 +108,14 @@ export async function getSettings(): Promise<WebSettings> {
     ollamaUrl: map.ollamaUrl ?? DEFAULTS.ollamaUrl,
     openaiApiKey: map.openaiApiKey ?? DEFAULTS.openaiApiKey,
     anthropicApiKey: map.anthropicApiKey ?? DEFAULTS.anthropicApiKey,
-    openaiModel: map.openaiModel || map.llmModel || '',
-    anthropicModel: map.anthropicModel || map.llmModel || '',
-    ollamaModel: map.ollamaModel || map.llmModel || '',
-    ollamaVisionModel: map.ollamaVisionModel || map.llmModel || '',
-    anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || map.llmModel || '',
+    // Fallback dal legacy llmModel SOLO se il nome è compatibile col provider:
+    // llmModel è condiviso tra i provider nella UI, quindi può contenere un nome
+    // Claude/GPT che, passato a Ollama, produce 404 "model not found" (e viceversa).
+    openaiModel: map.openaiModel || (isGptModel(map.llmModel) ? map.llmModel : '') || '',
+    anthropicModel: map.anthropicModel || (isClaudeModel(map.llmModel) ? map.llmModel : '') || '',
+    ollamaModel: map.ollamaModel || (isCloudModel(map.llmModel) ? '' : map.llmModel) || '',
+    ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(map.llmModel) ? '' : map.llmModel) || '',
+    anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || (isClaudeModel(map.llmModel) ? map.llmModel : '') || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
