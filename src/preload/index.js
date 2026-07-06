@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openPDFDialog: () => ipcRenderer.invoke('dialog:openPDF'),
   openMultiplePDFsDialog: () => ipcRenderer.invoke('dialog:openMultiplePDFs'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:openFolder'),
+  openPDFsInFolderDialog: () => ipcRenderer.invoke('dialog:openPDFsInFolder'),
   loadPDF: (filePath) => ipcRenderer.invoke('pdf:load', filePath),
   removePDF: (id) => ipcRenderer.invoke('pdf:remove', id),
   getDocuments: () => ipcRenderer.invoke('pdf:getDocuments'),

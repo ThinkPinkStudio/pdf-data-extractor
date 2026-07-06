@@ -3,6 +3,7 @@ import { writeFile, copyFile, mkdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
+import { listPdfFilesRecursive } from '../services/pdfFolderScan.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
 import { runDeepDiagnostics, buildHumanReport } from '../services/netDiagnostics.js'
@@ -107,6 +108,19 @@ export function registerHandlers(ipcMain, mainWindow, initialSession = null) {
     })
     if (result.canceled || !result.filePaths.length) return null
     return result.filePaths[0]
+  })
+
+  // "Seleziona cartella" per Polizze/Batch: sceglie una cartella e ritorna tutti
+  // i PDF contenuti (ricorsivo), così non serve selezionare 80 file a mano.
+  ipcMain.handle('dialog:openPDFsInFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Seleziona la cartella con i PDF',
+      properties: ['openDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    const folder = result.filePaths[0]
+    const { paths, truncated } = listPdfFilesRecursive(folder)
+    return { folder, paths, truncated }
   })
 
   ipcMain.handle('pdf:load', async (_, filePath) => {

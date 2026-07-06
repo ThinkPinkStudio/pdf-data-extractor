@@ -86,6 +86,7 @@
     "noResults": "No results available",
     "fileCount": "{{count}} files",
     "addFiles": "Add files",
+    "addFolder": "Add folder",
     "clearFiles": "Remove all",
     "completed": "Completed",
     "processingFile": "Processing {{fileName}}…"
