@@ -18,6 +18,7 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch } from './netFetch.js'
+import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -2006,6 +2007,217 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   }
   diag.push(`Elaborazione a batch completata: ${Object.keys(data).length} campi validi`)
   return { data, sources, diag }
+}
+
+// ─── MOTORE "UNA DOMANDA PER CAMPO" (RAG per-campo, Ollama locale) ───────────
+//
+// Cambio di paradigma: invece di chiedere a un modello piccolo di compilare 24
+// campi leggendo 45 documenti (compito in cui annega: copia esempi, spaccia
+// premi per massimali, inventa), si recuperano i pochi frammenti pertinenti a
+// OGNI campo e si pone UNA domanda focalizzata. I modelli locali sono affidabili
+// sul compito piccolo. La FONTE (file+pagina) viene dai metadati del chunk
+// recuperato, non dal modello → attribuzioni non inventabili, colonna "pag."
+// finalmente popolata.
+
+// Campi economici che cambiano nel tempo (premi/tassi/importi/imposte/parametri):
+// il valore giusto è quello del documento più recente → boost per anno.
+function isPeriodicEconomicField(field) {
+  if (isStructuralField(field)) return false
+  const s = `${field?.id || ''} ${field?.label || ''}`
+  return /premio|tasso|imposta|importo|parametro|preventiv/i.test(s)
+}
+
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
+  return (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0
+}
+
+// Recupero top-k per coseno, con filtro opzionale sui tipi documento e boost
+// (piccolo) per l'anno recente sui campi economici.
+function cosineTopK(queryVec, chunks, { docTypes = null, k = 6, recencyBoost = false } = {}) {
+  const maxYear = recencyBoost
+    ? chunks.reduce((m, c) => Math.max(m, c.doc_year || 0), 0)
+    : 0
+  const scored = []
+  for (const c of chunks) {
+    if (docTypes && !docTypes.includes(c.doc_type)) continue
+    let score = cosineSim(queryVec, c.vector)
+    if (recencyBoost && c.doc_year && maxYear) {
+      // fino a +0,05 per il documento più recente: separa i pari-merito senza
+      // scavalcare un match semantico forte.
+      score += 0.05 * (c.doc_year / maxYear)
+    }
+    scored.push({ c, score })
+  }
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, k).map(s => s.c)
+}
+
+const PERFIELD_SYSTEM =
+  'Sei un estrattore di UN SINGOLO dato da documenti assicurativi italiani.\n' +
+  'Ricevi il NOME e la DESCRIZIONE di un campo e alcuni ESTRATTI di documenti.\n' +
+  'REGOLE TASSATIVE:\n' +
+  '1. Restituisci il valore del campo SOLO se è ESPLICITAMENTE presente negli estratti.\n' +
+  '2. Se gli estratti non contengono il valore, rispondi esattamente {} — è il caso\n' +
+  '   NORMALE e corretto. Non forzare, non dedurre, NON inventare.\n' +
+  '3. NON usare MAI numeri o testi presi dalla descrizione del campo o da esempi:\n' +
+  '   devono provenire dagli estratti dei documenti.\n' +
+  '4. "evidenza" = il frammento di testo ESATTO, copiato letteralmente dagli\n' +
+  '   estratti, in cui compare il valore. Se non riesci a citarlo, stai inventando:\n' +
+  '   rispondi {}.\n' +
+  '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  'FORMATO: un solo oggetto JSON {"valore": "...", "evidenza": "testo esatto copiato"}\n' +
+  'oppure {} se il valore non è presente. Zero testo extra, zero markdown.'
+
+/**
+ * Estrazione "per campo": indice in memoria (embeddings locali via Ollama) +
+ * una domanda focalizzata per ogni campo. Ritorna la stessa shape della chiamata
+ * singola { data, sources, diag }. Ripiega su extractPolizzaFromFullText se gli
+ * embeddings non sono disponibili.
+ */
+export async function extractPolizzaPerField(docs, fullText, settings, onProgress = null) {
+  const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  const diag = []
+  diag.push(`Motore per-campo: ${activeFields.length} campi, ${docs.length} documenti`)
+
+  // 1. Indice in memoria: chunk di ogni pagina con metadati (file, pagina, tipo, anno).
+  const chunks = []
+  for (const d of docs || []) {
+    const name = d?.name || 'documento.pdf'
+    const docType = classifyDocType(name)
+    const docYear = detectDocYear(name, (d?.pages || []).join('\n'))
+    ;(d?.pages || []).forEach((pageText, pIdx) => {
+      for (const t of chunkText(pageText)) {
+        chunks.push({ text: t, file: name, page: pIdx + 1, doc_type: docType, doc_year: docYear })
+      }
+    })
+  }
+  if (!chunks.length) {
+    diag.push('Nessun testo OCR: ripiego su fascicolo intero')
+    return extractPolizzaFromFullText(fullText, settings, onProgress)
+  }
+
+  // 2. Embedding dei chunk (una passata a lotti) + delle query dei campi.
+  const EMBED_BATCH = 32
+  try {
+    for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+      const batch = chunks.slice(i, i + EMBED_BATCH)
+      const vecs = await embedTexts(settings, batch.map(c => c.text))
+      batch.forEach((c, j) => { c.vector = vecs[j] })
+    }
+  } catch (err) {
+    diag.push(`Embeddings non disponibili (${err.message}): ripiego su fascicolo intero. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
+    const fb = await extractPolizzaFromFullText(fullText, settings, onProgress)
+    return { ...fb, diag: [...diag, ...(fb.diag || [])] }
+  }
+  diag.push(`Indice in memoria: ${chunks.length} chunk (modello embeddings ${settings.embeddingModel || 'bge-m3'})`)
+
+  const queries = activeFields.map(f => `${f.label}. ${stripFieldExamples(f.description || f.label || f.id)}`)
+  let queryVecs
+  try {
+    queryVecs = []
+    for (let i = 0; i < queries.length; i += EMBED_BATCH) {
+      queryVecs.push(...await embedTexts(settings, queries.slice(i, i + EMBED_BATCH)))
+    }
+  } catch (err) {
+    diag.push(`Embedding query fallito (${err.message}): ripiego su fascicolo intero.`)
+    const fb = await extractPolizzaFromFullText(fullText, settings, onProgress)
+    return { ...fb, diag: [...diag, ...(fb.diag || [])] }
+  }
+
+  // 3-6. Una domanda per campo.
+  const STRUCT_DOCTYPES = ['polizza', 'appendice', 'condizioni', 'altro']
+  const CONTEXT_CHARS = 2500
+  const data = {}, sources = {}
+  let valued = 0, evidenceDropped = 0, absent = 0
+  let consecutiveErrors = 0
+  const verList = String(settings.polizzaVerificaCampi || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  const isFlagged = (f) => verList.some(v => v === String(f.id).toLowerCase() || v === String(f.label || '').toLowerCase() || (v.length >= 3 && String(f.label || '').toLowerCase().includes(v)))
+
+  for (let i = 0; i < activeFields.length; i++) {
+    const f = activeFields[i]
+    onProgress?.({ field: i + 1, fieldTotal: activeFields.length })
+
+    const opts = isStructuralField(f)
+      ? { docTypes: STRUCT_DOCTYPES, k: 6 }
+      : { docTypes: null, k: 6, recencyBoost: isPeriodicEconomicField(f) }
+    let hits = cosineTopK(queryVecs[i], chunks, opts)
+    // Campo strutturale senza hit tra i documenti "buoni": nessun ripiego sulle
+    // quietanze/regolazioni (è proprio ciò che vogliamo evitare) → campo assente.
+    if (!hits.length) { absent++; continue }
+
+    let ctx = '', used = []
+    for (const h of hits) {
+      const block = `[${h.file} · pag. ${h.page}]\n${h.text}`
+      if (ctx.length + block.length > CONTEXT_CHARS && ctx) break
+      ctx += (ctx ? '\n---\n' : '') + block
+      used.push(h)
+    }
+    const desc = stripFieldExamples(f.description || f.label || f.id)
+    const userPrompt =
+`CAMPO: ${f.label}
+DESCRIZIONE: ${desc}
+
+ESTRATTI DEI DOCUMENTI:
+${ctx}
+
+Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} oppure {} se gli estratti non contengono il valore.`
+
+    const askOnce = async () => parseJsonResponse(
+      await callOllamaRolling(settings, PERFIELD_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000 })
+    )
+
+    let entry
+    try {
+      entry = await askOnce()
+      // Consenso opzionale per i campi flaggati (stesso contesto, voto di maggioranza).
+      if (isFlagged(f)) {
+        const passes = Math.max(2, Math.min(5, parseInt(settings.polizzaConsensusPasses, 10) || 3))
+        const deltas = [{ [f.id]: entry }]
+        for (let p = 1; p < passes; p++) deltas.push({ [f.id]: await askOnce() })
+        entry = consensusDelta(deltas)[f.id] || {}
+      }
+      consecutiveErrors = 0
+    } catch (err) {
+      consecutiveErrors++
+      diag.push(`Campo "${f.id}": errore (${err.message})`)
+      if (err.isLlmConnectionError || consecutiveErrors >= 3) {
+        diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(data).length} campi raccolti finora.`)
+        break
+      }
+      continue
+    }
+
+    const val = (entry && typeof entry === 'object') ? entry.valore : entry
+    const cleaned = sanitizeFieldValue(f, val)
+    if (cleaned == null || cleaned === '') { absent++; continue }
+    if (!passesEvidenceCheck(cleaned, entry, true)) { evidenceDropped++; continue }
+
+    data[f.id] = cleaned
+    // Fonte dai METADATI del chunk che contiene l'evidenza (non dal modello).
+    const evid = (entry && typeof entry.evidenza === 'string') ? entry.evidenza.replace(/\s+/g, ' ').trim() : ''
+    const src = (evid && used.find(h => h.text.replace(/\s+/g, ' ').includes(evid.slice(0, 40)))) || used[0]
+    if (src) sources[f.id] = { file: src.file, page: src.page }
+    valued++
+  }
+
+  diag.push(`Per-campo: ${valued} valorizzati, ${evidenceDropped} scartati senza evidenza, ${absent} assenti su ${activeFields.length}`)
+  return { data, sources, diag }
+}
+
+/**
+ * Dispatcher del fascicolo: sceglie il motore in base al provider e alle
+ * impostazioni. Ollama + docs disponibili + motore per-campo attivo → per-campo;
+ * altrimenti la chiamata unica/batch storica (cloud, fallback, motore spento).
+ */
+export async function extractPolizzaFromDocs(docs, fullText, settings, onProgress = null) {
+  const provider = settings.llmProvider || 'ollama'
+  if (provider === 'ollama' && Array.isArray(docs) && docs.length && settings.polizzaPerField !== false) {
+    return extractPolizzaPerField(docs, fullText, settings, onProgress)
+  }
+  return extractPolizzaFromFullText(fullText, settings, onProgress)
 }
 
 export async function extractPolizzaFromFullText(fullText, settings, onProgress = null) {

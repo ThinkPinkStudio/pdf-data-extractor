@@ -18,6 +18,7 @@ interface Settings {
   anthropicVisionModel?: string
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
+  polizzaPerField?: boolean
   polizzaPromptExtra?: string
   bulkExcludedFolderNames?: string
   qdrantUrl?: string
@@ -182,6 +183,8 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Toggle checked={s.polizzaOcrEnabled !== false} onChange={(v) => up('polizzaOcrEnabled', v)} label={t('set.ocrEnabled')} />
             <Toggle checked={!!s.polizzaWholeDossier} onChange={(v) => up('polizzaWholeDossier', v)} label={t('set.wholeDossier')} />
+            <Toggle checked={s.polizzaPerField !== false} onChange={(v) => up('polizzaPerField', v)} label={t('set.perField')} />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.perFieldHelp')}</p>
           </div>
         </div>
 

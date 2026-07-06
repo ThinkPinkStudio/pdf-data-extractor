@@ -17,6 +17,7 @@ interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
   extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
+  extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
@@ -202,13 +203,18 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   }
 
   try {
-    // Progresso dei batch AI nel job (fire-and-forget: non deve frenare l'estrazione)
-    const onProgress = ({ batch, batchTotal }: { batch: number; batchTotal: number }) => {
+    // Progresso nel job (fire-and-forget): "campo b/x" (motore per-campo) o
+    // "batch b/x" (fascicolo intero).
+    const onProgress = (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => {
+      const cur = p.field ?? p.batch ?? 0, tot = p.fieldTotal ?? p.batchTotal ?? 0
+      const label = p.field != null ? `Campo ${cur}/${tot}` : `Analisi AI · batch ${cur}/${tot}`
       void updateJob(job.id, {
-        progress: { docIndex: batch - 1, docTotal: batchTotal, pageIndex: 0, pageTotal: 0, docName: `Analisi AI · batch ${batch}/${batchTotal}`, receivedAt: Date.now() },
+        progress: { docIndex: cur - 1, docTotal: tot, pageIndex: 0, pageTotal: 0, docName: label, receivedAt: Date.now() },
       }).catch(() => {})
     }
-    const { data, sources, diag } = await m.extractPolizzaFromFullText(fullText, settings, onProgress)
+    // Dispatcher: con Ollama + motore per-campo attivo usa il RAG per-campo
+    // (indice in memoria), altrimenti la chiamata unica/batch storica.
+    const { data, sources, diag } = await m.extractPolizzaFromDocs(docsForIndex, fullText, settings, onProgress)
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
     for (const line of diag || []) await appendLog(job, line, logs)

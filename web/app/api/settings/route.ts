@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const allowed: (keyof WebSettings)[] = [
     'llmProvider', 'llmModel', 'ollamaUrl', 'openaiModel', 'anthropicModel', 'ollamaModel',
     'ollamaVisionModel', 'anthropicVisionModel', 'polizzaOcrEnabled', 'polizzaWholeDossier',
-    'polizzaWholeDossierModel', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
+    'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames',
     'qdrantUrl', 'qdrantCollection', 'embeddingModel',

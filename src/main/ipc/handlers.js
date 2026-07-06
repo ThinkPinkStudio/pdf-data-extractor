@@ -49,6 +49,7 @@ import {
   CSA_MAPPING,
   ocrPageText,
   extractPolizzaFromFullText,
+  extractPolizzaFromDocs,
   probeOcr
 } from '../services/polizzaService.js'
 import { basename } from 'path'
@@ -749,19 +750,22 @@ ${context}
   })
 
   // FASCICOLO INTERO — estrazione di TUTTI i campi dal testo completo, una chiamata
-  ipcMain.handle('polizza:extractWholeDossier', async (_, { fullText }) => {
+  ipcMain.handle('polizza:extractWholeDossier', async (_, { fullText, docs }) => {
     try {
-      // Progresso dei batch AI sul canale rolling già ascoltato dal renderer:
-      // l'utente vede "batch b/x" avanzare invece di uno spinner muto per minuti.
-      const onProgress = ({ batch, batchTotal }) => {
+      // Progresso sul canale rolling già ascoltato dal renderer: l'utente vede
+      // "batch b/x" (fascicolo intero) o "campo b/x" (motore per-campo) avanzare
+      // invece di uno spinner muto.
+      const onProgress = (p) => {
         try {
+          const cur = p.field ?? p.batch, tot = p.fieldTotal ?? p.batchTotal
+          const label = p.field != null ? `Campo ${cur}/${tot}` : `Analisi AI · batch ${cur}/${tot}`
           mainWindow.webContents.send('polizza:rollingProgress', {
-            docIndex: batch - 1, docTotal: batchTotal, pageIndex: 0, pageTotal: 0,
-            docName: `Analisi AI · batch ${batch}/${batchTotal}`, state: {}, receivedAt: Date.now()
+            docIndex: cur - 1, docTotal: tot, pageIndex: 0, pageTotal: 0,
+            docName: label, state: {}, receivedAt: Date.now()
           })
         } catch (_) { /* finestra chiusa: il progresso non deve rompere l'estrazione */ }
       }
-      const { data, sources, diag } = await extractPolizzaFromFullText(fullText, getSettings(), onProgress)
+      const { data, sources, diag } = await extractPolizzaFromDocs(docs, fullText, getSettings(), onProgress)
       return { success: true, data, sources, diag: diag || [] }
     } catch (err) {
       return {

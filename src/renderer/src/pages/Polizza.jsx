@@ -462,7 +462,7 @@ export default function Polizza({ visible }) {
         return
       }
 
-      const res = await window.electronAPI.polizzaExtractWholeDossier({ fullText })
+      const res = await window.electronAPI.polizzaExtractWholeDossier({ fullText, docs: docsForIndex })
       // La diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta
       // grezza in caso di 0 campi) arriva dal main: va TUTTA nel log salvabile.
       for (const line of res.diag || []) dlog(line)
