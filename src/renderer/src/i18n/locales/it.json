@@ -86,6 +86,7 @@
     "noResults": "Nessun risultato disponibile",
     "fileCount": "{{count}} file",
     "addFiles": "Aggiungi file",
+    "addFolder": "Aggiungi cartella",
     "clearFiles": "Rimuovi tutti",
     "completed": "Completato",
     "processingFile": "Elaborazione {{fileName}}…"

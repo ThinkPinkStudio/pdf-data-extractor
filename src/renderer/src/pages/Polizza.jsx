@@ -238,6 +238,21 @@ export default function Polizza({ visible }) {
     if (paths?.length) addFilePaths(paths)
   }
 
+  // "Seleziona cartella": aggiunge in un colpo solo tutti i PDF della cartella
+  // scelta (ricorsivo) — indispensabile per i fascicoli con decine di documenti.
+  const openFolderPicker = async () => {
+    const res = await window.electronAPI.openPDFsInFolderDialog()
+    if (!res) return
+    if (!res.paths?.length) {
+      setError(`Nessun PDF trovato nella cartella selezionata${res.folder ? ` (${res.folder})` : ''}.`)
+      return
+    }
+    setError(res.truncated
+      ? `La cartella contiene troppi PDF: aggiunti solo i primi ${res.paths.length}.`
+      : null)
+    addFilePaths(res.paths)
+  }
+
   const removeFile = (path) => setFiles(prev => prev.filter(f => f.path !== path))
 
   // ─── Estrazione rolling ──────────────────────────────────────────────────────
@@ -1172,10 +1187,15 @@ export default function Polizza({ visible }) {
               <p style={{ fontWeight: 600, fontSize: '13px', color: 'var(--c-text-primary)' }}>
                 Trascina i PDF della polizza
               </p>
-              <p>Carica tutti i documenti: polizza, appendici, condizioni</p>
-              <button className="dz-btn" onClick={e => { e.stopPropagation(); openFilePicker() }}>
-                Seleziona file PDF
-              </button>
+              <p>Carica tutti i documenti: polizza, appendici, condizioni.<br />Puoi selezionare più file insieme (Ctrl/Cmd+click) o un&apos;intera cartella.</p>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className="dz-btn" onClick={e => { e.stopPropagation(); openFilePicker() }}>
+                  Seleziona file PDF
+                </button>
+                <button className="dz-btn" onClick={e => { e.stopPropagation(); openFolderPicker() }}>
+                  Seleziona cartella
+                </button>
+              </div>
             </div>
 
             {/* Lista file caricati */}

@@ -94,13 +94,13 @@ export default function Batch() {
   }
 
   const addFolder = async () => {
-    const folderPath = await window.electronAPI.openFolderDialog()
-    if (!folderPath) return
-    // We can't directly enumerate folder contents from renderer; just show a note
-    // The main handler will have to enumerate. For now pass folder as special entry.
-    // Instead use dialog:openMultiplePDFs which supports multiSelections.
-    // Since we can't enumerate folder from renderer, we inform user to use "Select PDFs" instead.
-    alert(t('batch.selectFiles'))
+    const res = await window.electronAPI.openPDFsInFolderDialog()
+    if (!res?.paths?.length) return
+    const newFiles = res.paths.map(p => ({ path: p, name: p.split(/[\\/]/).pop() }))
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.path))
+      return [...prev, ...newFiles.filter(f => !existing.has(f.path))]
+    })
   }
 
   const removeFile = (path) => {
@@ -192,6 +192,10 @@ export default function Batch() {
             <button className="btn btn-secondary" onClick={addFiles} disabled={running}>
               <IconFile />
               {t('batch.addFiles')}
+            </button>
+            <button className="btn btn-secondary" onClick={addFolder} disabled={running}>
+              <IconFile />
+              {t('batch.addFolder')}
             </button>
             {files.length > 0 && (
               <button className="btn btn-ghost" onClick={clearFiles} disabled={running}>
