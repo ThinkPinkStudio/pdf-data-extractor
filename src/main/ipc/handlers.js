@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadPDF, searchChunks } from '../services/pdfService.js'
 import { listPdfFilesRecursive } from '../services/pdfFolderScan.js'
+import { isVectorIndexEnabled, indexDossierPages, searchVector, probeQdrant } from '../services/vectorIndexService.js'
 import { getSettings, saveSettings } from '../services/settingsService.js'
 import { resilientFetch, describeNetworkError } from '../services/netFetch.js'
 import { runDeepDiagnostics, buildHumanReport } from '../services/netDiagnostics.js'
@@ -777,6 +778,35 @@ ${context}
   ipcMain.handle('polizza:ocrStatus', async () => {
     try { return await probeOcr(getSettings()) }
     catch (err) { return { available: false, reason: err.message } }
+  })
+
+  // ─── Indice vettoriale (Qdrant + embeddings Ollama) ────────────────────────
+
+  // Indicizza le pagine OCR di un dossier. No-op se qdrantUrl non è configurato.
+  ipcMain.handle('vector:indexDossier', async (_, { dossierName, files }) => {
+    const settings = getSettings()
+    if (!isVectorIndexEnabled(settings)) return { success: false, skipped: true }
+    try {
+      const { chunks, collection } = await indexDossierPages({ dossierName, files }, settings)
+      return { success: true, chunks, collection }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('vector:search', async (_, { query, dossier, docType, year, limit }) => {
+    try {
+      const results = await searchVector({ query, dossier, docType, year, limit }, getSettings())
+      return { success: true, results }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('vector:probe', async () => {
+    const settings = getSettings()
+    if (!isVectorIndexEnabled(settings)) return { enabled: false, available: false }
+    return { enabled: true, ...(await probeQdrant(settings)) }
   })
 
   // Scrive il log di UNA estrazione su disco (electron-log + file dedicato), così al

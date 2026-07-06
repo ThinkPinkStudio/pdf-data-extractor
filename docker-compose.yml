@@ -9,8 +9,14 @@ services:
       - "${PORT:-3000}:3000"
     env_file:
       - web/.env
+    environment:
+      # Indice vettoriale: punta al servizio qdrant incluso. Il valore salvato
+      # nelle Impostazioni (se presente) vince su questo default.
+      QDRANT_URL: http://qdrant:6333
     volumes:
       - pdf_data:/data
+    depends_on:
+      - qdrant
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
@@ -19,6 +25,16 @@ services:
       retries: 3
       start_period: 15s
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
 volumes:
   pdf_data:
+    driver: local
+  qdrant_data:
     driver: local

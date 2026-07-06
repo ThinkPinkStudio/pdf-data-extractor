@@ -161,6 +161,9 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   }
 
   const parts: string[] = []
+  // Pagine per documento (testo OCR): servono all'indice vettoriale, che salva
+  // ogni chunk con file+pagina come metadati.
+  const docsForIndex: { name: string; pages: string[] }[] = []
   let totalPagesProcessed = 0
   let pagesWithText = 0
   for (let d = 0; d < files.length; d++) {
@@ -171,22 +174,25 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
     const totalPages = doc.numPages
     let docText = ''
+    const docPages: string[] = []
     try {
       for (let p = 1; p <= totalPages; p++) {
         if (await isCanceled(job.id)) return
         totalPagesProcessed++
         await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: p, pageTotal: totalPages, docName, totalPagesProcessed, receivedAt: Date.now() } })
         let png: string
-        try { png = await doc.renderPage(p) } catch (err: any) { await appendLog(job, `SKIP pagina ${p} di "${docName}": ${err.message}`, logs); continue }
+        try { png = await doc.renderPage(p) } catch (err: any) { await appendLog(job, `SKIP pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push(''); continue }
         try {
           const text = await m.ocrPageText(png, settings)
+          docPages.push(text || '')
           if (text) { docText += '\n' + text; pagesWithText++ }
-        } catch (err: any) { await appendLog(job, `OCR pagina ${p} di "${docName}": ${err.message}`, logs) }
+        } catch (err: any) { await appendLog(job, `OCR pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push('') }
       }
     } finally {
       await doc.destroy()
     }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+    docsForIndex.push({ name: docName, pages: docPages })
   }
 
   const fullText = parts.join('\n')
@@ -225,5 +231,24 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   } catch (err: any) {
     for (const line of ((err?.diag as string[]) || [])) await appendLog(job, line, logs)
     await updateJob(job.id, { status: 'error', error: err.message || 'Estrazione fascicolo fallita' })
+  }
+
+  // Indicizzazione vettoriale (Qdrant): ADDITIVA e mai fatale — l'estrazione è già
+  // conclusa; un errore qui va solo a log. Attiva solo con qdrantUrl configurato.
+  try {
+    const vec = await importSharedService<{
+      isVectorIndexEnabled: (s: any) => boolean
+      indexDossierPages: (args: any, s: any, log?: (m: string) => void) => Promise<{ chunks: number; collection: string }>
+    }>('vectorIndexService.js')
+    if (vec.isVectorIndexEnabled(settings)) {
+      await appendLog(job, 'Indice vettoriale: indicizzazione in corso…', logs)
+      const { chunks, collection } = await vec.indexDossierPages(
+        { dossierName: job.dossier_name || job.id, files: docsForIndex },
+        settings
+      )
+      await appendLog(job, `Indice vettoriale: ${chunks} chunk salvati nella collezione "${collection}"`, logs)
+    }
+  } catch (err: any) {
+    await appendLog(job, `Indice vettoriale NON aggiornato (non fatale): ${err.message}`, logs)
   }
 }
