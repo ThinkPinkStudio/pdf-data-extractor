@@ -29,6 +29,10 @@ const defaultSettings = {
   webhookEnabled: false,
   webhookPort: 3847,
   webhookToken: '',
+  // Indice vettoriale (Qdrant locale + embeddings Ollama). Vuoto = disattivato.
+  qdrantUrl: '',
+  qdrantCollection: 'documenti',
+  embeddingModel: 'bge-m3',
   // Privacy / data retention
   sessionRetentionDays: 90,
   // Notifications

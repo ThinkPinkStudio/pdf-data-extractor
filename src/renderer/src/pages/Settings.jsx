@@ -1094,6 +1094,49 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
 
         <div className="sep" />
 
+        {/* Indice vettoriale (Qdrant + embeddings Ollama) */}
+        <section className="card-section" aria-labelledby="section-vector">
+          <h2 className="section-title" id="section-vector">{t('settings.sectionVector')}</h2>
+          <p className="section-desc">{t('settings.sectionVectorDesc')}</p>
+          <div className="form-group">
+            <label className="form-label" htmlFor="qdrant-url">{t('settings.qdrantUrl')}</label>
+            <input
+              id="qdrant-url"
+              type="text"
+              value={settings.qdrantUrl || ''}
+              onChange={e => setSettings(s => ({ ...s, qdrantUrl: e.target.value }))}
+              placeholder="http://127.0.0.1:6333"
+              aria-label={t('settings.qdrantUrl')}
+            />
+            <p className="text-muted text-sm">{t('settings.qdrantUrlHelp')}</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="qdrant-collection">{t('settings.qdrantCollection')}</label>
+            <input
+              id="qdrant-collection"
+              type="text"
+              value={settings.qdrantCollection || ''}
+              onChange={e => setSettings(s => ({ ...s, qdrantCollection: e.target.value }))}
+              placeholder="documenti"
+              aria-label={t('settings.qdrantCollection')}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="embedding-model">{t('settings.embeddingModel')}</label>
+            <input
+              id="embedding-model"
+              type="text"
+              value={settings.embeddingModel || ''}
+              onChange={e => setSettings(s => ({ ...s, embeddingModel: e.target.value }))}
+              placeholder="bge-m3"
+              aria-label={t('settings.embeddingModel')}
+            />
+            <p className="text-muted text-sm">{t('settings.embeddingModelHelp')}</p>
+          </div>
+        </section>
+
+        <div className="sep" />
+
         {/* Webhook */}
         <section className="card-section" aria-labelledby="section-webhook">
           <h2 className="section-title" id="section-webhook">{t('settings.sectionWebhook')}</h2>

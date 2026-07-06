@@ -388,6 +388,9 @@ export default function Polizza({ visible }) {
     }
 
     const parts = []
+    // Pagine per documento (testo OCR): servono all'indice vettoriale (Qdrant),
+    // che salva ogni chunk con file+pagina come metadati.
+    const docsForIndex = []
     let totalPagesProcessed = 0
     let ocrPagesWithText = 0
     let docsRead = 0
@@ -405,6 +408,7 @@ export default function Polizza({ visible }) {
         const totalPages = doc.numPages
         let docText = ''
         let docOcrPages = 0
+        const docPages = []
         for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
           totalPagesProcessed++
           setRollingProgress({ docIndex: sfIdx, docTotal: scannedFilesList.length, pageIndex: pageNum, pageTotal: totalPages, docName, totalPagesProcessed, state: {}, receivedAt: Date.now() })
@@ -436,13 +440,15 @@ export default function Polizza({ visible }) {
           } catch (err) { dlog(`SKIP pagina ${pageNum} di "${docName}": render fallito (${err.message})`); continue }
           try {
             const ocr = await window.electronAPI.polizzaOcrPage({ imageBase64 })
+            docPages.push(ocr.success && ocr.text ? ocr.text : '')
             if (ocr.success && ocr.text) { docText += '\n' + ocr.text; ocrPagesWithText++; docOcrPages++ }
             else if (!ocr.success) { dlog(`OCR fallito pagina ${pageNum} di "${docName}": ${ocr.error || 'n/d'}`) }
-          } catch (e) { dlog(`OCR eccezione pagina ${pageNum} di "${docName}": ${e.message}`) }
+          } catch (e) { docPages.push(''); dlog(`OCR eccezione pagina ${pageNum} di "${docName}": ${e.message}`) }
         }
         try { doc.destroy() } catch (_) {}
         dlog(`Doc "${docName}": ${docOcrPages}/${totalPages} pagine con testo, ${docText.trim().length} char`)
         parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+        docsForIndex.push({ name: docName, pages: docPages })
       }
 
       const fullText = parts.join('\n')
@@ -483,6 +489,15 @@ export default function Polizza({ visible }) {
         dlog(`ERRORE estrazione fascicolo: ${res.error || 'n/d'}${res.connectionError ? ' [rete]' : ''}${res.timeoutError ? ' [timeout]' : ''}`)
         setVisionMsg('error'); setVisionErr(res.error || 'Estrazione fascicolo fallita'); setError(res.error || 'Estrazione fascicolo fallita')
       }
+
+      // Indice vettoriale (Qdrant): ADDITIVO e mai fatale. L'OCR è già fatto:
+      // se configurato, i chunk con metadati finiscono in Qdrant per la ricerca.
+      try {
+        const dossierName = scannedFilesList[0]?.path?.split(/[\\/]/).slice(-2, -1)[0] || 'dossier'
+        const idx = await window.electronAPI.vectorIndexDossier({ dossierName, files: docsForIndex })
+        if (idx?.success) dlog(`Indice vettoriale: ${idx.chunks} chunk salvati nella collezione "${idx.collection}"`)
+        else if (idx && !idx.skipped) dlog(`Indice vettoriale NON aggiornato (non fatale): ${idx.error || 'n/d'}`)
+      } catch (e) { dlog(`Indice vettoriale NON aggiornato (non fatale): ${e.message}`) }
     } catch (err) {
       dlog('ERRORE non gestito fascicolo intero: ' + err.message)
       setVisionMsg('error'); setVisionErr(err.message); setError(err.message)

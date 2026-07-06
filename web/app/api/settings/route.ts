@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
     'polizzaWholeDossierModel', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames',
+    'qdrantUrl', 'qdrantCollection', 'embeddingModel',
     'theme', 'language', 'accentColor',
   ]
   const update: Partial<WebSettings> = {}

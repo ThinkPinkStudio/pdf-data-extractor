@@ -20,6 +20,9 @@ interface Settings {
   polizzaWholeDossier?: boolean
   polizzaPromptExtra?: string
   bulkExcludedFolderNames?: string
+  qdrantUrl?: string
+  qdrantCollection?: string
+  embeddingModel?: string
   theme?: string
   language?: string
   accentColor?: string
@@ -193,6 +196,25 @@ export default function SettingsPage() {
               placeholder={t('set.bulkExcludedPlaceholder')}
             />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkExcludedHelp')}</p>
+          </div>
+        </div>
+
+        {/* Indice vettoriale (Qdrant + embeddings Ollama) */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{t('set.vectorSection')}</h2>
+          <div className="form-group">
+            <label className="label">{t('set.qdrantUrl')}</label>
+            <input value={s.qdrantUrl || ''} onChange={(e) => up('qdrantUrl', e.target.value)} placeholder="http://qdrant:6333" />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.qdrantUrlHelp')}</p>
+          </div>
+          <div className="form-group">
+            <label className="label">{t('set.qdrantCollection')}</label>
+            <input value={s.qdrantCollection || ''} onChange={(e) => up('qdrantCollection', e.target.value)} placeholder="documenti" />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="label">{t('set.embeddingModel')}</label>
+            <input value={s.embeddingModel || ''} onChange={(e) => up('embeddingModel', e.target.value)} placeholder="bge-m3" />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.embeddingModelHelp')}</p>
           </div>
         </div>
 

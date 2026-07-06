@@ -64,12 +64,19 @@ const IconMoon = () => (
   </svg>
 )
 
+const IconSearch = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+)
+
 const NAV = [
   { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
   { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
   { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
   { href: '/polizza/jobs', key: 'nav.jobsDash', icon: <IconHistory /> },
   { href: '/batch', key: 'nav.batch', icon: <IconBatch /> },
+  { href: '/archive', key: 'nav.archive', icon: <IconSearch /> },
   { href: '/history', key: 'nav.history', icon: <IconHistory /> },
   { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },
   { href: '/diagnostics', key: 'nav.security', icon: <IconActivity /> },

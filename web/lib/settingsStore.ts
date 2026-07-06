@@ -66,6 +66,10 @@ export interface WebSettings {
   // Bulk (cartella intera di polizze): nomi di cartelle aggiuntivi da escludere
   // sempre dall'enumerazione, oltre alla baseline hardcoded (vedi bulkExclusions.ts).
   bulkExcludedFolderNames?: string
+  // Indice vettoriale (Qdrant locale + embeddings Ollama). Vuoto = disattivato.
+  qdrantUrl?: string
+  qdrantCollection?: string
+  embeddingModel?: string
   // Aspetto
   theme?: string
   language?: string
@@ -128,6 +132,11 @@ export async function getSettings(): Promise<WebSettings> {
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
+    // Default dall'ambiente (docker-compose imposta QDRANT_URL); il valore
+    // salvato nelle Impostazioni vince sempre.
+    qdrantUrl: map.qdrantUrl ?? (process.env.QDRANT_URL || ''),
+    qdrantCollection: map.qdrantCollection || 'documenti',
+    embeddingModel: map.embeddingModel || 'bge-m3',
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,
