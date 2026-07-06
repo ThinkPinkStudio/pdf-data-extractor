@@ -356,6 +356,9 @@ export default function Polizza({ visible }) {
     setVisionExtracting(true)
     setVisionMsg('extracting')
     setVisionErr(null)
+    // Azzera anche l'errore di pagina: un errore stantio di un run precedente
+    // finirebbe altrimenti nel file diagnostica come "=== ERRORE FINALE ===".
+    setError(null)
 
     const dlog = (m) => diagLogsRef.current.push(`[${new Date().toTimeString().slice(0, 8)}] ${m}`)
 
