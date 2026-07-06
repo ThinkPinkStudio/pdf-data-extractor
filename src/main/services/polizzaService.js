@@ -1176,6 +1176,42 @@ const ROLLING_SYSTEM_PROMPT =
   'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}'
 
+// Stima token per testo italiano/OCR con i tokenizer dei modelli locali.
+// Misurato sul campo: 164.472 char = 64.402 token reali → ~2,55 char/token.
+// Il vecchio /3 sottostimava e faceva credere che il prompt entrasse nel contesto.
+function estimateOllamaTokens(chars) {
+  return Math.ceil(chars / 2.5)
+}
+
+// Limite di contesto REALE del modello (n_ctx_train), da /api/show. Se num_ctx lo
+// supera, Ollama lo riduce e TRONCA il prompt in silenzio tenendo la coda: la
+// guida dei campi (in testa) si perde e il modello risponde spazzatura. Quindi il
+// limite va letto PRIMA di dimensionare la chiamata. Cache per url|modello.
+const ollamaCtxLimitCache = new Map()
+async function getOllamaContextLimit(settings, model) {
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const key = `${url}|${model}`
+  if (ollamaCtxLimitCache.has(key)) return ollamaCtxLimitCache.get(key)
+  let limit = null
+  try {
+    const res = await resilientFetch(`${url}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(10000)
+    })
+    if (res.ok) {
+      const info = (await res.json())?.model_info || {}
+      // La chiave è prefissata dall'architettura (es. "qwen2.context_length")
+      for (const [k, v] of Object.entries(info)) {
+        if (k.endsWith('.context_length') && Number.isFinite(v) && v > 0) { limit = v; break }
+      }
+    }
+  } catch { /* server datato o modello mancante: si procede senza limite noto */ }
+  ollamaCtxLimitCache.set(key, limit)
+  return limit
+}
+
 /**
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
  * Ogni batch è piccolo → contesto ridotto → risparmio RAM massiccio su macchine 8-16 GB.
@@ -1225,10 +1261,10 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
       (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
       (evalCount != null ? ` · token generati: ${evalCount}` : ''))
-    // Stima prudente dei token del prompt inviato (~3 char/token per italiano/OCR):
+    // Stima dei token del prompt inviato (~2,5 char/token per italiano/OCR):
     // se il server ne ha letti molti meno, il prompt è stato troncato in silenzio
     // (la guida dei campi o parte del testo NON sono mai arrivate al modello).
-    const estPromptTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 3)
+    const estPromptTokens = estimateOllamaTokens(systemPrompt.length + userPrompt.length)
     if (promptEval != null && estPromptTokens > 2048 && promptEval < estPromptTokens * 0.7) {
       diag.push(`ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama ` +
         `(letti ${promptEval} token su ~${estPromptTokens} stimati). ` +
@@ -1665,61 +1701,98 @@ const WHOLE_DOSSIER_SYSTEM =
   '5. Anagrafici stabili (n. polizza, P.IVA/CF, contraente): usa il valore COERENTE nella\n' +
   '   maggioranza dei documenti; ignora refusi OCR isolati.\n' +
   '6. Importi in formato italiano (3.000.000,00). Date GG/MM/AAAA.\n' +
-  'FORMATO: un solo oggetto JSON {"id_campo": {"valore": "...", "documento": "nome file"}}.\n' +
-  'Zero testo extra, zero markdown.'
+  'FORMATO: un solo oggetto JSON\n' +
+  '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null"}}\n' +
+  'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
+  'hai preso il valore, se presente nel testo. Zero testo extra, zero markdown.'
 
 /**
- * Fallback per fascicoli FUORI SCALA con Ollama (stima oltre il contesto massimo):
- * spezza il testo sui separatori "===== DOCUMENTO: nome =====" prodotti dai
- * chiamanti e processa un documento alla volta con la pipeline rolling esistente
- * (prompt delta + merge date-aware: vince il periodo più recente, deterministico).
- * Ritorna la stessa shape {data, sources} della chiamata singola.
+ * Fascicoli che NON entrano nel contesto massimo del modello Ollama: il testo
+ * viene spezzato in BATCH di documenti interi (separatori "===== DOCUMENTO: nome
+ * =====" prodotti dai chiamanti), ogni batch passa dallo STESSO prompt whole-
+ * dossier (che attribuisce già il documento sorgente e, ora, la data), e i batch
+ * vengono uniti campo per campo: vince la data_validita più recente; senza date
+ * il primo valore trovato resta. Ritorna la stessa shape della chiamata singola.
  */
-async function extractWholeDossierOllamaChunked(fullText, settings, activeFields, diag = []) {
-  const parts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
+async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = []) {
+  const rawParts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
   const docs = []
-  for (let i = 1; i < parts.length; i += 2) {
-    docs.push({ name: parts[i].trim(), text: (parts[i + 1] || '').trim() })
+  for (let i = 1; i < rawParts.length; i += 2) {
+    docs.push({ name: rawParts[i].trim(), text: (rawParts[i + 1] || '').trim() })
   }
-  if (!docs.length) docs.push({ name: null, text: String(fullText) })
-  diag.push(`Elaborazione per documento: ${docs.length} documenti, modello Ollama ${settings.ollamaModel}`)
+  if (!docs.length) docs.push({ name: 'documento', text: String(fullText) })
 
-  let state = initRollingState(activeFields)
-  let consecutiveErrors = 0
-  // ~15K char ≈ 5K token di testo: con guida campi e risposta sta nel num_ctx
-  // standard (16384) del rolling.
-  const MAX_CHUNK_CHARS = 15000
+  // Budget di testo per batch: contesto del modello meno guida campi + system +
+  // risposta (num_predict 3000) + margine, riconvertito in caratteri (~2,5/token).
+  const reserveTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + buildUserPrompt('').length) + 3000 + 512
+  const budgetChars = Math.max(4000, Math.floor((batchCtx - reserveTokens) * 2.5))
 
+  // Pezzi = documenti interi (con la loro intestazione); i documenti più grandi
+  // del budget vengono spezzati mantenendo l'intestazione, così l'attribuzione
+  // "documento" del modello resta corretta.
+  const pieces = []
   for (const doc of docs) {
     if (!doc.text) continue
-    const docDate = extractDocumentDateString(doc.text) || null
-    const source = doc.name ? { file: doc.name, page: '' } : null
-    const beforeCount = Object.keys(flattenRollingState(state)).length
-    for (let off = 0; off < doc.text.length; off += MAX_CHUNK_CHARS) {
-      const chunk = doc.text.slice(off, off + MAX_CHUNK_CHARS)
-      try {
-        state = await callRollingLLMText(settings, state, chunk, activeFields, docDate, source)
-        consecutiveErrors = 0
-      } catch (err) {
-        consecutiveErrors++
-        console.warn(`[polizza:fascicolo] errore su "${doc.name || 'testo'}", stato invariato:`, err.message)
-        diag.push(`Errore su "${doc.name || 'testo'}" (stato invariato): ${err.message}`)
-        // Provider giù o errori a raffica: inutile macinare i documenti restanti.
-        if (err.isLlmConnectionError || consecutiveErrors >= 3) throw err
+    for (let off = 0; off < doc.text.length; off += budgetChars) {
+      pieces.push(`\n===== DOCUMENTO: ${doc.name} =====\n${doc.text.slice(off, off + budgetChars)}`)
+    }
+  }
+  const batches = []
+  let current = ''
+  for (const piece of pieces) {
+    if (current && current.length + piece.length > budgetChars) { batches.push(current); current = '' }
+    current += piece
+  }
+  if (current) batches.push(current)
+  diag.push(`Batch: ${docs.length} documenti in ${batches.length} chiamate (budget ~${budgetChars} char/batch, num_ctx ${batchCtx})`)
+
+  const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
+  // best[id] = { valore, documento, ts } — vince la data più recente tra i batch
+  const best = {}
+  let consecutiveErrors = 0
+
+  for (let b = 0; b < batches.length; b++) {
+    let parsed
+    try {
+      const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batches[b]),
+        { numCtx: batchCtx, timeoutMs: 600000, diag })
+      parsed = parseJsonResponse(raw)
+      consecutiveErrors = 0
+    } catch (err) {
+      consecutiveErrors++
+      console.warn(`[polizza:fascicolo] batch ${b + 1}/${batches.length} fallito:`, err.message)
+      diag.push(`Batch ${b + 1}/${batches.length} FALLITO (si prosegue): ${err.message}`)
+      // Provider giù o errori a raffica: inutile macinare i batch restanti.
+      if (err.isLlmConnectionError || consecutiveErrors >= 3) throw err
+      continue
+    }
+
+    let added = 0
+    for (const [k, e] of Object.entries(parsed || {})) {
+      if (!(k in fieldsById)) continue
+      const val = (e && typeof e === 'object') ? e.valore : e
+      const cleaned = sanitizeFieldValue(fieldsById[k], val)
+      if (cleaned == null || cleaned === '') continue
+      const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
+        ? normalizeDateValue(e.data_validita) : null
+      const ts = dateStrToTs(validita)
+      const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
+      const existing = best[k]
+      // Il valore datato più recente vince; senza data conta il primo trovato.
+      if (!existing || (ts != null && (existing.ts == null || ts > existing.ts))) {
+        if (!existing) added++
+        best[k] = { valore: cleaned, documento, ts }
       }
     }
-    const afterCount = Object.keys(flattenRollingState(state)).length
-    if (afterCount > beforeCount) {
-      diag.push(`Doc "${doc.name || 'testo'}": +${afterCount - beforeCount} campi (totale ${afterCount})`)
-    }
+    diag.push(`Batch ${b + 1}/${batches.length}: ${batches[b].length} char → +${added} campi (totale ${Object.keys(best).length})`)
   }
 
-  const data = flattenRollingState(state)
-  const sources = {}
-  for (const [k, e] of Object.entries(state)) {
-    if (e?.fonte && data[k] != null && data[k] !== '') sources[k] = e.fonte
+  const data = {}, sources = {}
+  for (const [k, e] of Object.entries(best)) {
+    data[k] = e.valore
+    if (e.documento) sources[k] = { file: e.documento, page: '' }
   }
-  diag.push(`Elaborazione per documento completata: ${Object.keys(data).length} campi validi`)
+  diag.push(`Elaborazione a batch completata: ${Object.keys(data).length} campi validi`)
   return { data, sources, diag }
 }
 
@@ -1728,14 +1801,16 @@ export async function extractPolizzaFromFullText(fullText, settings) {
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${f.description || f.label}`).join('\n')
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
-  const userPrompt =
+  // Riusato anche dal path a batch: stesso prompt, testo diverso per chiamata.
+  const buildUserPrompt = (text) =>
 `CAMPI DA ESTRARRE (id — nome: descrizione):
 ${fieldLines}
 ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}
 TESTO DEI DOCUMENTI DEL FASCICOLO:
-${fullText}
+${text}
 
-Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file"}}.`
+Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null"}}.`
+  const userPrompt = buildUserPrompt(fullText)
 
   const provider = settings.llmProvider || 'ollama'
   // Diagnostica leggibile della chiamata (ritornata al chiamante e mostrata nel
@@ -1780,21 +1855,26 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       if (!ollamaModel) {
         throw new Error('Nessun modello Ollama configurato: imposta il "Modello" nella sezione Ollama delle Impostazioni.')
       }
-      // BUG FIX: un fascicolo intero può superare di molto il num_ctx 16384 del
-      // rolling (es. 45 doc ≈ 158K char ≈ 45K token). Ollama tronca il prompt in
-      // silenzio (perde la guida dei campi) e il modello risponde {} → "0 campi
-      // estratti" senza alcun errore. Il contesto va dimensionato sul prompt.
-      // Stima prudente per l'italiano/OCR: ~3 char per token, + risposta e margine.
-      const OLLAMA_MAX_CTX = 131072  // limite dei modelli attuali (llama3.1: 128K)
-      const estTokens = Math.ceil((WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) / 3) + 3000 + 512
-      if (estTokens > OLLAMA_MAX_CTX) {
-        // Fuori scala anche per 128K: si degrada al rolling documento-per-documento
-        // (merge date-aware deterministico, stessa pipeline dell'estrazione a pagine).
-        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > ${OLLAMA_MAX_CTX} → elaborazione per documento`)
-        diag.push(`Ollama: ~${estTokens} token stimati > ${OLLAMA_MAX_CTX} → elaborazione documento per documento`)
-        return await extractWholeDossierOllamaChunked(fullText, { ...settings, ollamaModel }, activeFields, diag)
+      // BUG FIX: un fascicolo intero può superare di molto il contesto del modello
+      // (es. 45 doc ≈ 158K char ≈ 64K token vs qwen2.5 = 32K). Se num_ctx supera
+      // n_ctx_train, Ollama lo riduce e TRONCA il prompt in silenzio tenendo la
+      // coda: la guida dei campi si perde e il modello risponde spazzatura →
+      // "0 campi" senza errori. Quindi: (1) si legge il limite REALE del modello
+      // da /api/show, (2) se il fascicolo non ci sta, si spezza in batch di
+      // documenti interi che ci stanno.
+      const modelLimit = await getOllamaContextLimit({ ...settings, ollamaModel }, ollamaModel)
+      const maxCtx = Math.min(modelLimit || 131072, 131072)
+      diag.push(`Ollama: limite contesto del modello ${ollamaModel}: ${modelLimit ? `${modelLimit} token` : 'sconosciuto (assumo 131072)'}`)
+      const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
+      if (estTokens > maxCtx) {
+        // Tetto per batch: anche con modelli 128K restare ≤32K tiene il KV cache
+        // in RAM/VRAM sulle macchine consumer e i tempi di prompt-eval ragionevoli.
+        const batchCtx = Math.min(maxCtx, 32768)
+        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > limite ${maxCtx} → batch di documenti (num_ctx ${batchCtx})`)
+        diag.push(`Ollama: ~${estTokens} token stimati > limite ${maxCtx} → elaborazione a batch di documenti`)
+        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag)
       }
-      const numCtx = Math.max(16384, Math.ceil(estTokens / 1024) * 1024)
+      const numCtx = Math.min(maxCtx, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
       // 15 min: il prompt-eval di decine di migliaia di token su un modello locale
       // supera abbondantemente il timeout standard da 3 min del rolling.
       console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → num_ctx ${numCtx}`)
