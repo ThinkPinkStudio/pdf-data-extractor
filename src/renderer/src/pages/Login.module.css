@@ -122,6 +122,48 @@
   cursor: not-allowed;
 }
 
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-muted);
+  margin: 16px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--c-border);
+}
+
+.btnSecondary {
+  width: 100%;
+  padding: 11px 20px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-input);
+  color: var(--c-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+
+.btnSecondary:hover:not(:disabled) {
+  border-color: var(--c-border-focus);
+}
+
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .error {
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid var(--c-error);

@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── Auth (Magic Link) ──────────────────────────────────────────────────
   authGetSession: () => ipcRenderer.invoke('auth:getSession'),
   authSendMagicLink: (email) => ipcRenderer.invoke('auth:sendMagicLink', { email }),
+  authStartSso: () => ipcRenderer.invoke('auth:startSso'),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
 
   // ─── Action Log ─────────────────────────────────────────────────────────

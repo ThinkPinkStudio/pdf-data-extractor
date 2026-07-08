@@ -14,6 +14,10 @@ const ERROR_KEYS: Record<string, string> = {
 function LoginForm() {
   const searchParams = useSearchParams()
   const errorParam = searchParams.get('error')
+  const nextParam = searchParams.get('next')
+  const ssoStartHref = nextParam
+    ? `/api/auth/sso-start?next=${encodeURIComponent(nextParam)}`
+    : '/api/auth/sso-start'
   const t = useT()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
@@ -91,6 +95,24 @@ function LoginForm() {
       >
         {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.sendLink')}
       </button>
+
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        margin: '16px 0', fontSize: 11, textTransform: 'uppercase',
+        letterSpacing: '0.06em', color: 'var(--c-text-muted)',
+      }}>
+        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
+        {t('auth.or')}
+        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
+      </div>
+
+      <a
+        href={ssoStartHref}
+        className="btn btn-secondary"
+        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, textAlign: 'center', display: 'block' }}
+      >
+        {t('auth.ssoButton')}
+      </a>
     </form>
   )
 }
