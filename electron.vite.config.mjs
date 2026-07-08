@@ -32,7 +32,10 @@ export default defineConfig(({ mode }) => {
         ),
         // Domini email ammessi al login, separati da virgola (es. "csabroker.it,
         // thinkpinkstudio.it"). '*' = qualsiasi dominio.
-        __ALLOWED_DOMAINS__: JSON.stringify(env.ALLOWED_DOMAINS || '*')
+        __ALLOWED_DOMAINS__: JSON.stringify(env.ALLOWED_DOMAINS || '*'),
+        // Base URL del release-distributor, che fa da identity provider (SSO)
+        // per il login con account condiviso. Override via SSO_BASE_URL.
+        __SSO_BASE_URL__: JSON.stringify(env.SSO_BASE_URL || 'https://downloads.thinkpinkstudio.it')
       },
       build: {
         rollupOptions: {

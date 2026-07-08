@@ -54,6 +54,7 @@ import {
 } from '../services/polizzaService.js'
 import { basename } from 'path'
 import { sendMagicLinkAndWait } from '../auth/magicLink.js'
+import { startSsoLoginAndWait } from '../auth/sso.js'
 import { loadSession as loadAuthSession, saveSession as saveAuthSession, clearSession } from '../auth/session.js'
 import { logAction, getActionLogPath } from '../services/actionLogger.js'
 
@@ -965,6 +966,20 @@ ${context}
       return { success: true, email: authedEmail }
     } catch (err) {
       logAction({ email, action: 'auth.login', success: false, metadata: { error: err.message } })
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Login con account condiviso (SSO): apre il browser sull'identity provider
+  // e attende il callback loopback. La password non passa mai da questa app.
+  ipcMain.handle('auth:startSso', async () => {
+    try {
+      const authedEmail = await startSsoLoginAndWait()
+      currentSession = await saveAuthSession(authedEmail)
+      logAction({ email: authedEmail, action: 'auth.login', metadata: { source: 'electron', method: 'sso' } })
+      return { success: true, email: authedEmail }
+    } catch (err) {
+      logAction({ action: 'auth.login', success: false, metadata: { error: err.message, method: 'sso' } })
       return { success: false, error: err.message }
     }
   })

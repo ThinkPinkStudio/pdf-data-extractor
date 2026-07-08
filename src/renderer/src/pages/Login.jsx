@@ -3,7 +3,7 @@ import styles from './Login.module.css'
 
 export default function Login({ onLoginSuccess }) {
   const [email, setEmail] = useState('')
-  const [status, setStatus] = useState('idle') // idle | sending | error
+  const [status, setStatus] = useState('idle') // idle | sending | sso | error
   const [errorMsg, setErrorMsg] = useState('')
 
   async function handleSubmit(e) {
@@ -22,6 +22,23 @@ export default function Login({ onLoginSuccess }) {
     } else {
       setStatus('error')
       setErrorMsg(result.error || 'Errore durante l\'invio del link.')
+    }
+  }
+
+  async function handleSso() {
+    setStatus('sso')
+    setErrorMsg('')
+
+    const result = await window.electronAPI.authStartSso()
+
+    if (result.success) {
+      onLoginSuccess(result.email)
+    } else if (result.error?.includes('Timeout')) {
+      setStatus('error')
+      setErrorMsg('Timeout: nessun accesso ricevuto entro il limite. Riprova.')
+    } else {
+      setStatus('error')
+      setErrorMsg(result.error || 'Errore durante l\'accesso condiviso.')
     }
   }
 
@@ -45,6 +62,14 @@ export default function Login({ onLoginSuccess }) {
               Clicca il link nella tua email — questa finestra si aggiornerà automaticamente.
             </p>
           </div>
+        ) : status === 'sso' ? (
+          <div className={styles.waiting}>
+            <div className={styles.spinner} />
+            <p className={styles.waitingText}>Completa l'accesso nel browser</p>
+            <p className={styles.waitingHint}>
+              Abbiamo aperto la pagina di accesso condiviso — questa finestra si aggiornerà automaticamente.
+            </p>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className={styles.form}>
             {status === 'error' && (
@@ -65,6 +90,10 @@ export default function Login({ onLoginSuccess }) {
             </div>
             <button type="submit" className={styles.btn} disabled={status === 'sending'}>
               Invia link di accesso
+            </button>
+            <div className={styles.divider}>oppure</div>
+            <button type="button" className={styles.btnSecondary} onClick={handleSso}>
+              Accedi con account condiviso
             </button>
           </form>
         )}

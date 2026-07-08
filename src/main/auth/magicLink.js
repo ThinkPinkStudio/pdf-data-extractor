@@ -21,53 +21,39 @@ const EXPIRY_MS = 15 * 60 * 1000
 let callbackServer = null
 let callbackPort = null
 
-function isAllowedDomain(email) {
+// Loopback callback routes keyed by pathname. The magic-link route is
+// registered below; the SSO flow (auth/sso.js) registers /sso/callback on the
+// same ephemeral server so both share one port.
+const routes = new Map()
+
+export function registerCallbackRoute(pathname, handler) {
+  routes.set(pathname, handler)
+}
+
+export function isAllowedDomain(email) {
   if (ALLOWED_DOMAINS === '*') return true
   const domain = email.toLowerCase().split('@')[1] ?? ''
   return ALLOWED_DOMAINS.split(',').map((d) => d.trim().toLowerCase()).includes(domain)
 }
 
-async function ensureCallbackServer() {
+export async function ensureCallbackServer() {
   if (callbackServer) return callbackPort
 
   return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
       const url = new URL(req.url, 'http://localhost')
-      if (url.pathname !== '/auth/callback') {
+      const handler = routes.get(url.pathname)
+      if (!handler) {
         res.writeHead(404)
         res.end('Not found')
         return
       }
-
-      const token = url.searchParams.get('token')
-      if (!token || !pendingTokens.has(token)) {
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end('<h2>Link non valido o già utilizzato.</h2><p>Puoi chiudere questa finestra.</p>')
-        return
+      try {
+        await handler(req, res, url)
+      } catch {
+        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end('<h2>Errore interno.</h2><p>Puoi chiudere questa finestra.</p>')
       }
-
-      const entry = pendingTokens.get(token)
-      if (Date.now() > entry.expiresAt) {
-        pendingTokens.delete(token)
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end("<h2>Link scaduto.</h2><p>Richiedi un nuovo accesso dall'app.</p>")
-        return
-      }
-
-      pendingTokens.delete(token)
-      await saveSession(entry.email)
-      logAction({ email: entry.email, action: 'auth.verify', metadata: { source: 'electron' } })
-
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(`
-        <html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f0f1a;color:#e8e8f0">
-          <h2 style="color:#e91e8c">Accesso effettuato!</h2>
-          <p>Puoi chiudere questa finestra e tornare all'applicazione.</p>
-          <script>setTimeout(() => window.close(), 2000)</script>
-        </body></html>
-      `)
-
-      entry.resolve(entry.email)
     })
 
     server.listen(0, '127.0.0.1', () => {
@@ -79,6 +65,39 @@ async function ensureCallbackServer() {
     server.on('error', reject)
   })
 }
+
+// Magic-link callback (unchanged behavior, now a registered route handler).
+registerCallbackRoute('/auth/callback', async (req, res, url) => {
+  const token = url.searchParams.get('token')
+  if (!token || !pendingTokens.has(token)) {
+    res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end('<h2>Link non valido o già utilizzato.</h2><p>Puoi chiudere questa finestra.</p>')
+    return
+  }
+
+  const entry = pendingTokens.get(token)
+  if (Date.now() > entry.expiresAt) {
+    pendingTokens.delete(token)
+    res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end("<h2>Link scaduto.</h2><p>Richiedi un nuovo accesso dall'app.</p>")
+    return
+  }
+
+  pendingTokens.delete(token)
+  await saveSession(entry.email)
+  logAction({ email: entry.email, action: 'auth.verify', metadata: { source: 'electron' } })
+
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+  res.end(`
+    <html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f0f1a;color:#e8e8f0">
+      <h2 style="color:#e91e8c">Accesso effettuato!</h2>
+      <p>Puoi chiudere questa finestra e tornare all'applicazione.</p>
+      <script>setTimeout(() => window.close(), 2000)</script>
+    </body></html>
+  `)
+
+  entry.resolve(entry.email)
+})
 
 export async function sendMagicLinkAndWait(email) {
   if (!isAllowedDomain(email)) {
