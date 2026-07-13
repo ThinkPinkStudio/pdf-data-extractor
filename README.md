@@ -89,6 +89,12 @@ npx electron-builder --linux   # pacchettizza per Linux
 
 Gli artefatti finiscono in `dist/`.
 
+### Deploy della web app
+
+La parte web si deploya su **Coolify con build pack Dockerfile** (unico metodo
+supportato). Istruzioni complete, variabili d'ambiente e note per il deploy
+solo‑IP/VPN: vedi [`DEPLOY.md`](./DEPLOY.md).
+
 ---
 
 ## Struttura del progetto
