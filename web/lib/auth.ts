@@ -7,11 +7,25 @@ export interface SessionData {
   loginAt: number
 }
 
+/**
+ * Se il cookie di sessione deve avere il flag `Secure` (inviato solo su HTTPS).
+ *
+ * Default: attivo in produzione. MA in un deploy raggiungibile solo via IP/VPN
+ * in HTTP puro (senza TLS) il browser scarterebbe un cookie `Secure`, causando
+ * un loop infinito di login. In quel caso imposta `COOKIE_SECURE=false`.
+ * Con `COOKIE_SECURE=true` lo forzi anche fuori produzione.
+ */
+export function cookieSecure(): boolean {
+  const v = process.env.COOKIE_SECURE
+  if (v !== undefined) return v === 'true'
+  return process.env.NODE_ENV === 'production'
+}
+
 export const SESSION_OPTIONS: SessionOptions = {
   cookieName: 'pdf_extractor_session',
   password: process.env.SESSION_SECRET || 'change-me-32-chars-minimum-secret!!',
   cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure(),
     maxAge: parseInt(process.env.SESSION_MAX_AGE_SECONDS || '604800', 10),
     httpOnly: true,
     sameSite: 'lax',
@@ -47,7 +61,7 @@ export async function getSession(): Promise<SessionData & { save: () => Promise<
     const maxAge = (SESSION_OPTIONS.cookieOptions?.maxAge as number) ?? 604800
     cookieStore.set(COOKIE_NAME, sealed, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: cookieSecure(),
       sameSite: 'lax',
       maxAge,
       path: '/',
