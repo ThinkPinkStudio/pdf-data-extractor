@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPublicOrigin } from '@/lib/publicUrl'
+import { cookieSecure } from '@/lib/auth'
 
 // Avvia il login con account condiviso (SSO): reindirizza l'utente alla pagina
 // di login del release-distributor (identity provider), in stile OAuth. La
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
   const res = NextResponse.redirect(authorizeUrl)
   const cookieOpts = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure(),
     sameSite: 'lax' as const,
     path: '/',
     maxAge: 600, // 10 minuti per completare il login

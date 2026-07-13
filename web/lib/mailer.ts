@@ -15,14 +15,46 @@ function createTransport() {
   })
 }
 
+interface Email {
+  from: string
+  to: string
+  subject: string
+  text: string
+  html: string
+}
+
+/**
+ * Invia via Resend HTTP API (https://api.resend.com/emails). Usa solo HTTPS in
+ * uscita (porta 443), utile su server VPN dove le porte SMTP sono chiuse.
+ * `from` deve usare un dominio verificato su Resend (o onboarding@resend.dev in test).
+ */
+async function sendViaResend(apiKey: string, mail: Email) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: mail.from,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Resend API ${res.status}: ${body}`)
+  }
+}
+
 export async function sendMagicLink(email: string, token: string) {
   const baseUrl = process.env.MAGIC_LINK_BASE_URL || 'http://localhost:3000'
   const link = `${baseUrl}/auth/verify?token=${token}`
   const from = process.env.SMTP_FROM || 'PDF Extractor <noreply@localhost>'
 
-  const transport = createTransport()
-
-  await transport.sendMail({
+  const mail: Email = {
     from,
     to: email,
     subject: 'Accedi a PDF Data Extractor',
@@ -41,5 +73,15 @@ export async function sendMagicLink(email: string, token: string) {
         <p style="color:#bbb;font-size:11px;margin-top:16px;">Se non hai richiesto questo accesso, ignora questa email.</p>
       </div>
     `,
-  })
+  }
+
+  // Resend (HTTP API) ha la precedenza se configurato: niente SMTP da gestire e
+  // funziona anche dove le porte 465/587 sono chiuse. Altrimenti fallback SMTP.
+  const resendKey = process.env.RESEND_API_KEY
+  if (resendKey) {
+    await sendViaResend(resendKey, mail)
+    return
+  }
+
+  await createTransport().sendMail(mail)
 }
