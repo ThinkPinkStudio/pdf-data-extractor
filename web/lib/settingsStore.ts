@@ -107,20 +107,27 @@ export async function getSettings(): Promise<WebSettings> {
     try { return JSON.parse(map[k]) as T } catch { return undefined }
   }
 
+  // Default dall'ambiente (env di Coolify/docker) per i parametri LLM: il valore
+  // salvato nelle Impostazioni (UI) vince SEMPRE; l'env fa da default quando il DB
+  // non ha ancora un valore per quella chiave. Rispecchia il pattern di QDRANT_URL
+  // più sotto. Senza questo, OLLAMA_URL/LLM_PROVIDER/LLM_MODEL (documentati in
+  // DEPLOY.md e .env.example) venivano ignorati e si usava sempre localhost:11434.
+  const llmModel = map.llmModel ?? (process.env.LLM_MODEL || DEFAULTS.llmModel)
+
   return {
-    llmProvider: map.llmProvider ?? DEFAULTS.llmProvider,
-    llmModel: map.llmModel ?? DEFAULTS.llmModel,
-    ollamaUrl: map.ollamaUrl ?? DEFAULTS.ollamaUrl,
-    openaiApiKey: map.openaiApiKey ?? DEFAULTS.openaiApiKey,
-    anthropicApiKey: map.anthropicApiKey ?? DEFAULTS.anthropicApiKey,
+    llmProvider: map.llmProvider ?? (process.env.LLM_PROVIDER || DEFAULTS.llmProvider),
+    llmModel,
+    ollamaUrl: map.ollamaUrl ?? (process.env.OLLAMA_URL || DEFAULTS.ollamaUrl),
+    openaiApiKey: map.openaiApiKey ?? (process.env.OPENAI_API_KEY || DEFAULTS.openaiApiKey),
+    anthropicApiKey: map.anthropicApiKey ?? (process.env.ANTHROPIC_API_KEY || DEFAULTS.anthropicApiKey),
     // Fallback dal legacy llmModel SOLO se il nome è compatibile col provider:
     // llmModel è condiviso tra i provider nella UI, quindi può contenere un nome
     // Claude/GPT che, passato a Ollama, produce 404 "model not found" (e viceversa).
-    openaiModel: map.openaiModel || (isGptModel(map.llmModel) ? map.llmModel : '') || '',
-    anthropicModel: map.anthropicModel || (isClaudeModel(map.llmModel) ? map.llmModel : '') || '',
-    ollamaModel: map.ollamaModel || (isCloudModel(map.llmModel) ? '' : map.llmModel) || '',
-    ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(map.llmModel) ? '' : map.llmModel) || '',
-    anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || (isClaudeModel(map.llmModel) ? map.llmModel : '') || '',
+    openaiModel: map.openaiModel || (isGptModel(llmModel) ? llmModel : '') || '',
+    anthropicModel: map.anthropicModel || (isClaudeModel(llmModel) ? llmModel : '') || '',
+    ollamaModel: map.ollamaModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
+    ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
+    anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || (isClaudeModel(llmModel) ? llmModel : '') || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
     polizzaPerField: bool('polizzaPerField', true),
