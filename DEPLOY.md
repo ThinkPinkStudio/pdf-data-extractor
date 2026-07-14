@@ -83,7 +83,67 @@ porte SMTP (465/587) siano aperte in uscita dal server — spesso **non** lo son
 | `ADMIN_EMAILS` | *(nessuno)* | Email con accesso ai log. |
 | `LOG_LEVEL` | `info` | |
 | `RELEASE_DISTRIBUTOR_URL` | `https://downloads.thinkpinkstudio.it` | Identity provider dell'SSO. **Da dentro la VPN non è raggiungibile** → il login SSO non funziona; usa il magic link. |
-| `LLM_PROVIDER` / `LLM_MODEL` / `OLLAMA_URL` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | — | Configurabili anche dalla UI Impostazioni. |
+| `LLM_PROVIDER` | `ollama` | Provider di default (`ollama` / `openai` / `anthropic`). |
+| `LLM_MODEL` | `llama3` | Modello di default per il provider scelto. |
+| `OLLAMA_URL` | `http://<IP>:11434` | URL del server Ollama. Vedi §2b per il valore corretto su Coolify. |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | — | Solo se usi provider cloud. |
+
+> Questi valori LLM fanno da **default iniziale**: appena li salvi dalla UI
+> Impostazioni, il valore nel DB vince sull'env (identico comportamento di `QDRANT_URL`).
+
+---
+
+## 2b. Puntare all'Ollama interno al progetto Coolify
+
+Nel progetto l'Ollama gira come **service separato** (`ollama-with-open-webui`),
+quindi è una risorsa Coolify diversa dall'app web. Due risorse Coolify stanno di
+default su **reti Docker diverse**: l'app web **non** raggiunge Ollama col nome
+container finché non le metti in comunicazione. Due modi:
+
+### Modo consigliato (solo‑IP, il più semplice): via IP dell'host
+
+Coerente col resto del deploy (tutto va per IP). Pubblichi la porta di Ollama
+sull'host e punti l'app lì.
+
+1. Nel service `ollama-with-open-webui` → **Edit Compose File**, sul servizio
+   `ollama` aggiungi una porta pubblicata e forza il bind su tutte le interfacce:
+   ```yaml
+   services:
+     ollama:
+       # ...
+       ports:
+         - "11434:11434"
+       environment:
+         - OLLAMA_HOST=0.0.0.0
+   ```
+   Salva e **Restart** il service.
+2. Verifica dalla VPN: `http://<IP>:11434/api/tags` deve rispondere con la lista modelli.
+3. Nell'app web, tab **Environment Variables**, imposta:
+   ```
+   OLLAMA_URL=http://<IP>:11434
+   ```
+   (es. `http://192.168.37.10:11434`). **Redeploy** dell'app.
+
+### Modo alternativo: rete condivisa Coolify (senza pubblicare porte)
+
+1. In **entrambe** le risorse (app web *e* service Ollama), tab **Advanced** →
+   attiva **Connect To Predefined Network**. Le mette sulla rete `coolify` condivisa.
+2. Trova il nome del container Ollama (tab del service, o `docker ps` dal Terminal
+   Coolify: cerca `ollama-...`).
+3. Nell'app web imposta `OLLAMA_URL=http://<nome-container-ollama>:11434` e redeploy.
+
+> Se prima settavi `OLLAMA_URL` e "non cambiava niente": era un bug — l'env non
+> veniva letta e si usava sempre `localhost:11434` (= il container dell'app, dove
+> Ollama non c'è). Ora l'env viene applicata come default.
+
+### Scaricare il modello in Ollama
+
+Ollama parte **vuoto**. Dal Terminal del service Ollama (o via Open WebUI):
+```
+ollama pull llama3          # o il modello che usi in LLM_MODEL
+ollama pull bge-m3          # embeddings, se usi l'indice vettoriale Qdrant
+```
+Senza il modello scaricato, l'estrazione risponde `404 model not found`.
 
 ---
 
