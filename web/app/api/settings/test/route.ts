@@ -8,21 +8,19 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Use submitted settings (with fallback to stored)
+  // Solo Ollama (OpenAI/Anthropic rimossi dal prodotto).
   const body = await req.json().catch(() => ({}))
   const stored = await getSettings()
   const settings = {
-    llmProvider: body.llmProvider ?? stored.llmProvider,
+    llmProvider: 'ollama',
     ollamaUrl: body.ollamaUrl ?? stored.ollamaUrl,
-    openaiApiKey: body.openaiApiKey && body.openaiApiKey !== '***' ? body.openaiApiKey : stored.openaiApiKey,
-    anthropicApiKey: body.anthropicApiKey && body.anthropicApiKey !== '***' ? body.anthropicApiKey : stored.anthropicApiKey,
     llmModel: body.llmModel ?? stored.llmModel,
   }
 
   try {
     const { testProviderConnection } = await import('@/lib/llmAdapter')
     const result = await testProviderConnection(settings)
-    await logAction({ email: session.email, action: 'settings.test_connection', ip, metadata: { provider: settings.llmProvider, ok: result.ok } })
+    await logAction({ email: session.email, action: 'settings.test_connection', ip, metadata: { provider: 'ollama', ok: result.ok } })
     return NextResponse.json(result)
   } catch (err) {
     return NextResponse.json({ ok: false, message: String(err) }, { status: 500 })
