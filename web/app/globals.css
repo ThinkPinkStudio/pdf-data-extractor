@@ -125,6 +125,18 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px var(--c-accent-faint);
 }
 input::placeholder, textarea::placeholder { color: var(--c-text-muted); }
+/* Reset per checkbox/radio: la regola generica sopra (width:100%, padding, border)
+   li stirerebbe a rettangoli giganti. */
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+input[type="checkbox"]:focus, input[type="radio"]:focus { box-shadow: none; }
+input[type="color"] { padding: 2px; }
 
 /* ─── Buttons ────────────────────────────────────────────────────────── */
 button, .btn {
@@ -367,6 +379,43 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   line-height: 1.2;
   margin-bottom: 20px;
 }
+
+/* ─── Hub / launcher ─────────────────────────────────────────────────── */
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 26px 24px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  text-decoration: none;
+  color: var(--c-text-primary);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+  min-height: 190px;
+}
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--c-accent-dim);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+}
+.hub-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-md);
+  background: var(--c-accent-faint);
+  color: var(--c-accent);
+}
+.hub-card-icon svg { width: 28px; height: 28px; }
+.hub-card-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+.hub-card-desc { font-size: 13px; color: var(--c-text-secondary); line-height: 1.45; flex: 1; }
+.hub-card-cta { font-size: 13px; font-weight: 600; color: var(--c-accent); margin-top: 4px; }
 
 /* ─── Spinner ────────────────────────────────────────────────────────── */
 .spinner {

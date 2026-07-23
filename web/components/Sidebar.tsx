@@ -69,8 +69,46 @@ const IconSearch = () => (
     <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 )
+const IconGrid = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+)
+const IconCompare = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="7" height="16" rx="1" /><rect x="14" y="4" width="7" height="16" rx="1" />
+    <line x1="10" y1="9" x2="14" y2="9" /><line x1="10" y1="15" x2="14" y2="15" />
+  </svg>
+)
+const IconForm = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 2h6a1 1 0 0 1 1 1v1h1a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V3a1 1 0 0 1 1-1z" />
+    <line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="13" y2="16" />
+  </svg>
+)
+const IconCalendar = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+)
+const IconBook = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+  </svg>
+)
+const IconHome = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+  </svg>
+)
 
-const NAV = [
+/* ─── Sezioni separate: ogni sezione ha il proprio menu e le proprie
+       Impostazioni. La sidebar mostra SOLO il menu della sezione corrente. ── */
+type NavItem = { href: string; key: string; icon: React.ReactNode }
+type Section = 'extractor' | 'compare' | 'adesioni' | 'hub'
+
+const NAV_EXTRACTOR: NavItem[] = [
   { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
   { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
   { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
@@ -83,11 +121,52 @@ const NAV = [
   { href: '/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
 
+const NAV_COMPARE: NavItem[] = [
+  { href: '/compare', key: 'nav.cmpCompare', icon: <IconCompare /> },
+  { href: '/compare/search', key: 'nav.cmpSearch', icon: <IconSearch /> },
+  { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconBatch /> },
+  { href: '/compare/settings', key: 'nav.cmpSettings', icon: <IconSettings /> },
+  { href: '/compare/contacts', key: 'nav.contacts', icon: <IconUser /> },
+]
+
+const NAV_ADESIONI: NavItem[] = [
+  { href: '/adesioni', key: 'nav.adAdesioni', icon: <IconForm /> },
+  { href: '/adesioni/records', key: 'nav.adRecords', icon: <IconHistory /> },
+  { href: '/adesioni/scadenze', key: 'nav.adScadenze', icon: <IconCalendar /> },
+  { href: '/adesioni/registro', key: 'nav.adRegistro', icon: <IconBook /> },
+  { href: '/adesioni/settings', key: 'nav.adSettings', icon: <IconSettings /> },
+  { href: '/adesioni/contacts', key: 'nav.contacts', icon: <IconUser /> },
+]
+
+const NAV_HUB: NavItem[] = [
+  { href: '/extractor', key: 'nav.secExtractor', icon: <IconPDF /> },
+  { href: '/compare', key: 'nav.secCompare', icon: <IconCompare /> },
+  { href: '/adesioni', key: 'nav.secAdesioni', icon: <IconForm /> },
+]
+
+function sectionFor(pathname: string): Section {
+  if (pathname === '/hub') return 'hub'
+  if (pathname === '/compare' || pathname.startsWith('/compare/')) return 'compare'
+  if (pathname === '/adesioni' || pathname.startsWith('/adesioni/')) return 'adesioni'
+  return 'extractor'
+}
+
+const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem[] }> = {
+  extractor: { name: 'PDF Extractor', subKey: 'nav.subExtractor', nav: NAV_EXTRACTOR },
+  compare: { name: 'Portafoglio Compare', subKey: 'nav.subCompare', nav: NAV_COMPARE },
+  adesioni: { name: 'CSA Adesioni', subKey: 'nav.subAdesioni', nav: NAV_ADESIONI },
+  hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
+}
+
 export default function Sidebar({ email }: { email: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  const section = sectionFor(pathname)
+  const meta = SECTION_META[section]
+  const NAV = meta.nav
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.
@@ -123,13 +202,19 @@ export default function Sidebar({ email }: { email: string }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.png" alt="" aria-hidden width={36} height={36} className="logo-img" />
           <div className="logo-text">
-            <span className="logo-name">PDF Extractor</span>
-            <span className="logo-sub">EXTRACTOR</span>
+            <span className="logo-name">{meta.name}</span>
+            <span className="logo-sub">{t(meta.subKey)}</span>
           </div>
         </div>
       </div>
 
       <nav className="sidebar-nav" aria-label={t('nav.ariaMain')}>
+        {section !== 'hub' && (
+          <Link href="/hub" className="nav-item" style={{ color: 'var(--c-text-muted)', marginBottom: 4 }}>
+            <IconHome />
+            <span>{t('nav.backHub')}</span>
+          </Link>
+        )}
         {NAV.map((item) => (
           <Link
             key={item.href}

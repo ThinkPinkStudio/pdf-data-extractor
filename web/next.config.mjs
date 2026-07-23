@@ -20,7 +20,7 @@ const nextConfig = {
   },
   // Next.js 14 uses experimental.serverComponentsExternalPackages
   experimental: {
-    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs', 'tesseract.js', 'jszip', '@napi-rs/canvas'],
+    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs', 'tesseract.js', 'jszip', '@napi-rs/canvas', 'playwright', 'playwright-core', 'docxtemplater', 'pizzip', 'pdf-lib', 'ssh2-sftp-client', 'basic-ftp'],
     instrumentationHook: true,
   },
 }

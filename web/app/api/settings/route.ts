@@ -32,6 +32,12 @@ export async function POST(req: NextRequest) {
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames',
     'qdrantUrl', 'qdrantCollection', 'embeddingModel',
+    'compareMatchKeys', 'compareFuzzyMinOverlap', 'compareFuzzyBroadEnabled',
+    'compareFuzzyMinOverlapBroad', 'compareSearchConditions', 'compareBothMatchConditions',
+    'compareBothFilterConditions', 'compareProfiles',
+    'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniDateOffsetDays',
+    'adesioniExportNotify', 'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',
+    'adesioniTemplateId', 'adesioniTemplateHtml', 'adesioniAttachments',
     'theme', 'language', 'accentColor',
   ]
   const update: Partial<WebSettings> = {}

@@ -1,4 +1,5 @@
 import { pool } from './db'
+import type { MatchKey, Condition, CompareConfig } from './compare/engine'
 
 export interface PolizzaField {
   id: string
@@ -71,6 +72,30 @@ export interface WebSettings {
   qdrantUrl?: string
   qdrantCollection?: string
   embeddingModel?: string
+  // Portafoglio Compare (sezione separata: confronto di due Excel). Nessun LLM.
+  compareMatchKeys?: MatchKey[]
+  compareFuzzyMinOverlap?: number
+  compareFuzzyBroadEnabled?: boolean
+  compareFuzzyMinOverlapBroad?: number
+  compareSearchConditions?: Condition[]
+  compareBothMatchConditions?: Condition[]
+  compareBothFilterConditions?: Condition[]
+  compareProfiles?: Record<string, CompareConfig>
+  // CSA Adesioni (sezione separata: moduli AXA da Excel). Nessun LLM.
+  // Campi/questionario/prezzi: se non impostati, si usano i default da tracciato.js.
+  adesioniFields?: unknown[]
+  adesioniIdd?: unknown[]
+  adesioniPrezzi?: Record<string, unknown>
+  adesioniDateOffsetDays?: number
+  adesioniExportNotify?: Record<string, unknown>
+  adesioniSmtp?: Record<string, unknown>
+  adesioniFtpStaging?: Record<string, unknown>
+  adesioniFtpProd?: Record<string, unknown>
+  adesioniProfiles?: Record<string, unknown>
+  // Template HTML del modulo ('default' | 'custom') + HTML personalizzato; allegati PDF.
+  adesioniTemplateId?: string
+  adesioniTemplateHtml?: string
+  adesioniAttachments?: Array<{ name: string; dataBase64: string }>
   // Aspetto
   theme?: string
   language?: string
@@ -92,9 +117,16 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
-const JSON_KEYS = new Set(['polizzaFields', 'polizzaProfiles', 'extractions', 'profiles'])
+const JSON_KEYS = new Set([
+  'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
+  'compareMatchKeys', 'compareSearchConditions', 'compareBothMatchConditions',
+  'compareBothFilterConditions', 'compareProfiles',
+  'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniExportNotify',
+  'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',
+  'adesioniAttachments',
+])
 
 export async function getSettings(): Promise<WebSettings> {
   const { rows } = await pool.query<{ key: string; value: string }>(
@@ -146,6 +178,28 @@ export async function getSettings(): Promise<WebSettings> {
     qdrantUrl: map.qdrantUrl ?? (process.env.QDRANT_URL || ''),
     qdrantCollection: map.qdrantCollection || 'documenti',
     embeddingModel: map.embeddingModel || 'bge-m3',
+    // Portafoglio Compare — tutta configurazione persistita nel DB (nessun default env).
+    compareMatchKeys: json<MatchKey[]>('compareMatchKeys'),
+    compareFuzzyMinOverlap: map.compareFuzzyMinOverlap ? parseInt(map.compareFuzzyMinOverlap, 10) || 4 : 4,
+    compareFuzzyBroadEnabled: bool('compareFuzzyBroadEnabled', true),
+    compareFuzzyMinOverlapBroad: map.compareFuzzyMinOverlapBroad ? parseInt(map.compareFuzzyMinOverlapBroad, 10) || 6 : 6,
+    compareSearchConditions: json<Condition[]>('compareSearchConditions'),
+    compareBothMatchConditions: json<Condition[]>('compareBothMatchConditions'),
+    compareBothFilterConditions: json<Condition[]>('compareBothFilterConditions'),
+    compareProfiles: json<Record<string, CompareConfig>>('compareProfiles'),
+    // CSA Adesioni — configurazione persistita nel DB (default applicati lato config.ts).
+    adesioniFields: json<unknown[]>('adesioniFields'),
+    adesioniIdd: json<unknown[]>('adesioniIdd'),
+    adesioniPrezzi: json<Record<string, unknown>>('adesioniPrezzi'),
+    adesioniDateOffsetDays: map.adesioniDateOffsetDays ? parseInt(map.adesioniDateOffsetDays, 10) || 0 : 0,
+    adesioniExportNotify: json<Record<string, unknown>>('adesioniExportNotify'),
+    adesioniSmtp: json<Record<string, unknown>>('adesioniSmtp'),
+    adesioniFtpStaging: json<Record<string, unknown>>('adesioniFtpStaging'),
+    adesioniFtpProd: json<Record<string, unknown>>('adesioniFtpProd'),
+    adesioniProfiles: json<Record<string, unknown>>('adesioniProfiles'),
+    adesioniTemplateId: map.adesioniTemplateId || 'default',
+    adesioniTemplateHtml: map.adesioniTemplateHtml ?? '',
+    adesioniAttachments: json<Array<{ name: string; dataBase64: string }>>('adesioniAttachments'),
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,
