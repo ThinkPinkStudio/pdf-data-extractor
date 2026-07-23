@@ -27,8 +27,12 @@ export default function ContactsCard() {
       <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>Sviluppato da ThinkPink Studio</p>
       <div className="card" style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-accent)', letterSpacing: '-0.5px' }}>ThinkPink Studio</div>
-          <div style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>Soluzioni digitali su misura</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/csa-logo.png" alt="ThinkPink Studio" width={44} height={44} style={{ borderRadius: 10, objectFit: 'contain', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-accent)', letterSpacing: '-0.5px' }}>ThinkPink Studio</div>
+            <div style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>Soluzioni digitali su misura</div>
+          </div>
         </div>
         <div style={{ borderTop: '1px solid var(--c-border)', margin: '4px 0 16px' }} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

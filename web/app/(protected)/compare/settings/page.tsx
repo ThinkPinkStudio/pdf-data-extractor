@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
-import { TRANSFORM_OPTIONS, defaultMatchKeys, type CompareConfig, type MatchKey, type Transform, type Workbook } from '@/lib/compare/engine'
+import { TRANSFORM_OPTIONS, defaultMatchKeys, defaultCompareConfig, workbookColumns, type CompareConfig, type MatchKey, type Transform, type Workbook } from '@/lib/compare/engine'
 
 export default function CompareSettingsPage() {
   const { config, saveConfig, fileA, fileB } = useCompare()
@@ -11,6 +11,17 @@ export default function CompareSettingsPage() {
   const [saved, setSaved] = useState(false)
   const [profiles, setProfiles] = useState<Record<string, CompareConfig>>({})
   const [profileName, setProfileName] = useState('')
+  const [profileMsg, setProfileMsg] = useState('')
+  const flashProfile = (m: string) => { setProfileMsg(m); setTimeout(() => setProfileMsg(''), 2500) }
+
+  // Ripristina TUTTI i criteri (chiavi + fuzzy + condizioni ricerca/in-entrambi).
+  function resetAll() {
+    const d = defaultCompareConfig()
+    setKeys(d.matchKeys)
+    setFuzzy({ min: d.fuzzyMinOverlap, broad: d.fuzzyBroadEnabled, broadMin: d.fuzzyMinOverlapBroad })
+    saveConfig(d)
+    flashProfile('Criteri ripristinati ai valori predefiniti.')
+  }
 
   useEffect(() => { setKeys(config.matchKeys); setFuzzy({ min: config.fuzzyMinOverlap, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad }) }, [config])
   useEffect(() => {
@@ -55,15 +66,17 @@ export default function CompareSettingsPage() {
     if (!name) return
     await saveProfiles({ ...profiles, [name]: currentConfig() })
     setProfileName('')
+    flashProfile(`Profilo «${name}» salvato.`)
   }
   function loadProfile(name: string) {
     const p = profiles[name]
-    if (p) { setKeys(p.matchKeys || defaultMatchKeys()); setFuzzy({ min: p.fuzzyMinOverlap, broad: p.fuzzyBroadEnabled, broadMin: p.fuzzyMinOverlapBroad }); saveConfig(p) }
+    if (p) { setKeys(p.matchKeys || defaultMatchKeys()); setFuzzy({ min: p.fuzzyMinOverlap, broad: p.fuzzyBroadEnabled, broadMin: p.fuzzyMinOverlapBroad }); saveConfig(p); flashProfile(`Profilo «${name}» caricato.`) }
   }
   async function deleteProfile(name: string) {
     const next = { ...profiles }
     delete next[name]
     await saveProfiles(next)
+    flashProfile(`Profilo «${name}» eliminato.`)
   }
   function exportProfiles() {
     const blob = new Blob([JSON.stringify(profiles, null, 2)], { type: 'application/json' })
@@ -89,43 +102,48 @@ export default function CompareSettingsPage() {
 
   return (
     <>
-      <h1 className="page-title">Configurazione confronto</h1>
+      <h1 className="page-title">Configurazione Criteri</h1>
       <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 18 }}>
 
         {/* Match keys */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700 }}>Chiavi di corrispondenza</h2>
-            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setKeys([...keys, { label: 'Nuova chiave', columnA: '', columnB: '', sheetA: '', sheetB: '', enabled: true, transform: 'none' }])}>+ Aggiungi</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700 }}>Chiavi di abbinamento</h2>
+            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setKeys([...keys, { label: 'Nuova chiave', columnA: '', columnB: '', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'none' }])}>+ Aggiungi</button>
           </div>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>Applicate nell&apos;ordine indicato: la prima chiave attiva con corrispondenza determina l&apos;abbinamento.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {keys.map((k, i) => (
-              <div key={i} className="card" style={{ background: 'var(--c-bg-card-alt)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 150px auto', gap: 8, alignItems: 'center' }}>
-                  <input type="checkbox" checked={k.enabled !== false} onChange={(e) => updKey(i, { enabled: e.target.checked })} title="Abilitata" aria-label="Chiave abilitata" />
-                  <input value={k.label} onChange={(e) => updKey(i, { label: e.target.value })} placeholder="Etichetta" />
-                  <input value={k.columnA ?? k.column ?? ''} onChange={(e) => updKey(i, { columnA: e.target.value })} placeholder="Colonna A" />
-                  <input value={k.columnB ?? k.column ?? ''} onChange={(e) => updKey(i, { columnB: e.target.value })} placeholder="Colonna B" />
-                  <select value={k.transform || 'none'} onChange={(e) => updKey(i, { transform: e.target.value as Transform })}>
-                    {TRANSFORM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, -1)} title="Su">↑</button>
-                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, 1)} title="Giù">↓</button>
-                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setKeys(keys.filter((_, idx) => idx !== i))} title="Rimuovi">✕</button>
+            {keys.map((k, i) => {
+              const same = k.sameColumn !== false
+              const setCol = (side: 'a' | 'b', v: string) => same ? updKey(i, { columnA: v, columnB: v }) : updKey(i, side === 'a' ? { columnA: v } : { columnB: v })
+              const setSheet = (side: 'a' | 'b', v: string) => same ? updKey(i, { sheetA: v, sheetB: v }) : updKey(i, side === 'a' ? { sheetA: v } : { sheetB: v })
+              const toggleSame = (v: boolean) => updKey(i, v ? { sameColumn: true, columnB: k.columnA ?? k.column ?? '', sheetB: k.sheetA ?? '' } : { sameColumn: false })
+              return (
+                <div key={i} className="card" style={{ background: 'var(--c-bg-card-alt)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 150px auto', gap: 8, alignItems: 'center' }}>
+                    <input type="checkbox" checked={k.enabled !== false} onChange={(e) => updKey(i, { enabled: e.target.checked })} title="Abilitata" aria-label="Chiave abilitata" />
+                    <input value={k.label} onChange={(e) => updKey(i, { label: e.target.value })} placeholder="Etichetta" />
+                    <select value={k.transform || 'none'} onChange={(e) => updKey(i, { transform: e.target.value as Transform })} aria-label="Trasformazione">
+                      {TRANSFORM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, -1)} title="Su">↑</button>
+                      <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, 1)} title="Giù">↓</button>
+                      <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setKeys(keys.filter((_, idx) => idx !== i))} title="Rimuovi">✕</button>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <input type="checkbox" checked={same} onChange={(e) => toggleSame(e.target.checked)} /> Stessa colonna in entrambi i file
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+                    <ColField label={same ? 'Nome colonna' : 'Colonna File A'} wb={fileA?.wb ?? null} sheet={k.sheetA} value={k.columnA ?? k.column ?? ''} onSet={(v) => setCol('a', v)} />
+                    <SheetField label={same ? 'Foglio (opz.)' : 'Foglio File A (opz.)'} wb={fileA?.wb ?? null} value={k.sheetA || ''} onSet={(v) => setSheet('a', v)} />
+                    {!same && <ColField label="Colonna File B" wb={fileB?.wb ?? null} sheet={k.sheetB} value={k.columnB ?? ''} onSet={(v) => setCol('b', v)} />}
+                    {!same && <SheetField label="Foglio File B (opz.)" wb={fileB?.wb ?? null} value={k.sheetB || ''} onSet={(v) => setSheet('b', v)} />}
                   </div>
                 </div>
-                {/* Foglio A/B: mostrati solo per file multi-foglio caricati */}
-                {(hasSheets(fileA?.wb) || hasSheets(fileB?.wb)) && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                    <span />
-                    <SheetSelect wb={fileA?.wb ?? null} value={k.sheetA || ''} onSet={(v) => updKey(i, { sheetA: v })} label="Foglio A" />
-                    <SheetSelect wb={fileB?.wb ?? null} value={k.sheetB || ''} onSet={(v) => updKey(i, { sheetB: v })} label="Foglio B" />
-                    <span />
-                  </div>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
           <button className="btn btn-secondary" style={{ fontSize: 12, marginTop: 10 }} onClick={() => setKeys(defaultMatchKeys())}>Ripristina predefinite</button>
         </div>
@@ -172,25 +190,50 @@ export default function CompareSettingsPage() {
               ))}
             </div>
           )}
+          {profileMsg && <div className="alert alert-success" style={{ marginTop: 12 }}>{profileMsg}</div>}
         </div>
 
         {saved && <div className="alert alert-success">Configurazione salvata.</div>}
-        <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={save}>Salva configurazione</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={save}>Salva configurazione</button>
+          <button className="btn btn-secondary" onClick={resetAll}>Ripristina tutti i criteri</button>
+        </div>
       </div>
     </>
   )
 }
 
-function hasSheets(wb?: Workbook | null): boolean {
-  return !!wb && wb.sheetNames.length > 1
+// Campo Colonna: dropdown popolato dalle colonne del file (foglio scelto) se
+// caricato, altrimenti input libero.
+function ColField({ label, wb, sheet, value, onSet }: { label: string; wb: Workbook | null; sheet?: string; value: string; onSet: (v: string) => void }) {
+  const cols = workbookColumns(wb, sheet)
+  return (
+    <label style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{label}
+      {cols.length ? (
+        <select value={value} onChange={(e) => onSet(e.target.value)}>
+          <option value="">— seleziona colonna —</option>
+          {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      ) : (
+        <input value={value} onChange={(e) => onSet(e.target.value)} placeholder="Nome colonna" />
+      )}
+    </label>
+  )
 }
 
-function SheetSelect({ wb, value, onSet, label }: { wb: Workbook | null; value: string; onSet: (v: string) => void; label: string }) {
-  if (!hasSheets(wb)) return <span />
+// Campo Foglio: dropdown dei fogli del file (sempre visibile, con "(1° foglio)")
+// se il file è caricato; altrimenti input libero.
+function SheetField({ label, wb, value, onSet }: { label: string; wb: Workbook | null; value: string; onSet: (v: string) => void }) {
   return (
-    <select value={value} onChange={(e) => onSet(e.target.value)} aria-label={label} title={label}>
-      <option value="">{label}: (1° foglio)</option>
-      {wb!.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
-    </select>
+    <label style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{label}
+      {wb && wb.sheetNames.length ? (
+        <select value={value} onChange={(e) => onSet(e.target.value)}>
+          <option value="">(1° foglio)</option>
+          {wb.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      ) : (
+        <input value={value} onChange={(e) => onSet(e.target.value)} placeholder="(1° foglio)" />
+      )}
+    </label>
   )
 }

@@ -48,16 +48,17 @@ export default function CompareSearchPage() {
 
   function exportXls() {
     if (!results) return
-    // Include ANCHE le righe di A senza riscontro (come nel desktop), con Esito.
+    // Come il desktop: righe con match → A: … / B: … (nessun Esito); righe senza
+    // match → A: … + colonna Esito (ultima). Foglio 'Differenze'.
     const rows: Row[] = []
     results.forEach(({ rowA, matches }) => {
       if (!matches.length) {
-        rows.push({ Esito: 'Nessuna corrispondenza', ...prefix(rowA, 'A: ') })
+        rows.push({ ...prefix(rowA, 'A: '), Esito: 'Nessuna corrispondenza' })
       } else {
-        matches.forEach((m) => rows.push({ Esito: 'Corrispondenza', ...prefix(rowA, 'A: '), ...prefix(m, 'B: ') }))
+        matches.forEach((m) => rows.push({ ...prefix(rowA, 'A: '), ...prefix(m, 'B: ') }))
       }
     })
-    downloadRows(rows, 'ricerca_inclusione.xlsx', 'Ricerca')
+    downloadRows(rows, 'ricerca_inclusione.xlsx')
   }
 
   const withMatches = results ? results.filter((r) => r.matches.length) : []
@@ -78,7 +79,7 @@ export default function CompareSearchPage() {
 
   return (
     <>
-      <h1 className="page-title">Ricerca</h1>
+      <h1 className="page-title">Ricerca per Inclusione</h1>
       <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
         Per ogni riga del File A, trova le righe del File B che soddisfano le condizioni.
       </p>

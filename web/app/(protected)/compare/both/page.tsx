@@ -49,30 +49,33 @@ export default function CompareBothPage() {
 
   function exportXls() {
     if (!pairs) return
+    // Colonne uniformi su tutte le coppie (unione) e prefissi 'A: '/'B: ' come desktop.
     const rows = pairs.map(({ rowA, rowB }) => {
       const out: Row = {}
-      for (const [k, v] of Object.entries(rowA)) out['A_' + k] = v
-      for (const [k, v] of Object.entries(rowB)) out['B_' + k] = v
+      colsA.forEach((c) => { out['A: ' + c] = rowA[c] ?? '' })
+      colsB.forEach((c) => { out['B: ' + c] = rowB[c] ?? '' })
       return out
     })
-    downloadRows(rows, 'in_entrambi.xlsx', 'InEntrambi')
+    downloadRows(rows, 'corrispondenze_entrambi.xlsx')
   }
 
   return (
     <>
-      <h1 className="page-title">In Entrambi</h1>
+      <h1 className="page-title">Righe in Entrambi i File</h1>
       <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
         Trova coppie di righe presenti in entrambi i file secondo le condizioni di match; le condizioni di filtro (opzionali) restringono i risultati.
       </p>
       <CompareFileBar />
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Condizioni di match</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Condizioni di abbinamento</h2>
+        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>Le celle vuote non soddisfano mai una condizione (nemmeno «Diverso da»).</p>
         <CompareConditions conditions={matchConds} onChange={setMatchConds} modes={BOTH_MODE_OPTIONS} />
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Condizioni di filtro (opzionali)</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Condizioni di filtro (facoltative)</h2>
+        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>Restringono gli abbinamenti: es. «Diverso da» per trovare coppie con un valore cambiato.</p>
         {filterConds.length === 0 ? (
           <button className="btn btn-secondary" onClick={() => setFilterConds([{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'not_equals', transform: 'none', connector: 'AND' }])}>
             + Aggiungi filtro
@@ -98,8 +101,8 @@ export default function CompareBothPage() {
             <table>
               <thead>
                 <tr>
-                  {colsA.map((c) => <th key={'a' + c}>A · {c}</th>)}
-                  {colsB.map((c) => <th key={'b' + c}>B · {c}</th>)}
+                  {colsA.map((c) => <th key={'a' + c}>A: {c}</th>)}
+                  {colsB.map((c) => <th key={'b' + c}>B: {c}</th>)}
                 </tr>
               </thead>
               <tbody>
