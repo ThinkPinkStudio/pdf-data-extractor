@@ -105,6 +105,27 @@ export async function initDb() {
       pdf_base64 TEXT NOT NULL,
       PRIMARY KEY (job_id, idx)
     );
+
+    -- CSA Adesioni: archivio dei record generati. Il record completo vive in JSONB;
+    -- alcune colonne sono denormalizzate per ricerca e scadenze.
+    CREATE TABLE IF NOT EXISTS adesioni_records (
+      id             TEXT PRIMARY KEY,
+      email          TEXT NOT NULL,
+      cognome        TEXT,
+      nome           TEXT,
+      codice_fiscale TEXT,
+      targa          TEXT,
+      identificativo TEXT,
+      data_inizio    TEXT,
+      data_fine      TEXT,
+      tipo_movimento TEXT,
+      data           JSONB NOT NULL DEFAULT '{}',
+      created_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_adesioni_email  ON adesioni_records(email);
+    CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);
   `)
 }
 

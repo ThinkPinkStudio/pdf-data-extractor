@@ -1,0 +1,102 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useCompare } from '@/lib/compare/CompareProvider'
+import CompareFileBar from '@/components/CompareFileBar'
+import CompareConditions from '@/components/CompareConditions'
+import { runBothMatch, sheetRows, BOTH_MODE_OPTIONS, type Condition, type Row } from '@/lib/compare/engine'
+import { downloadRows } from '@/lib/compare/xlsx'
+
+export default function CompareBothPage() {
+  const { fileA, fileB, config, saveConfig } = useCompare()
+  const [matchConds, setMatchConds] = useState<Condition[]>(config.bothMatchConditions)
+  const [filterConds, setFilterConds] = useState<Condition[]>(config.bothFilterConditions)
+  const [pairs, setPairs] = useState<Array<{ rowA: Row; rowB: Row }> | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => { setMatchConds(config.bothMatchConditions); setFilterConds(config.bothFilterConditions) }, [config.bothMatchConditions, config.bothFilterConditions])
+
+  function run() {
+    if (!fileA || !fileB) return
+    const entries = [...matchConds, ...filterConds]
+    const dataA = sheetRows(fileA.wb, entries, 'a')
+    const dataB = sheetRows(fileB.wb, entries, 'b')
+    setPairs(runBothMatch(dataA, dataB, matchConds.filter((c) => c.columnA && c.columnB), filterConds.filter((c) => c.columnA && c.columnB)))
+  }
+
+  async function saveConds() {
+    await saveConfig({ ...config, bothMatchConditions: matchConds, bothFilterConditions: filterConds })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+  }
+
+  function exportXls() {
+    if (!pairs) return
+    const rows = pairs.map(({ rowA, rowB }) => {
+      const out: Row = {}
+      for (const [k, v] of Object.entries(rowA)) out['A_' + k] = v
+      for (const [k, v] of Object.entries(rowB)) out['B_' + k] = v
+      return out
+    })
+    downloadRows(rows, 'in_entrambi.xlsx', 'InEntrambi')
+  }
+
+  return (
+    <>
+      <h1 className="page-title">In Entrambi</h1>
+      <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
+        Trova coppie di righe presenti in entrambi i file secondo le condizioni di match; le condizioni di filtro (opzionali) restringono i risultati.
+      </p>
+      <CompareFileBar />
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Condizioni di match</h2>
+        <CompareConditions conditions={matchConds} onChange={setMatchConds} modes={BOTH_MODE_OPTIONS} />
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Condizioni di filtro (opzionali)</h2>
+        {filterConds.length === 0 ? (
+          <button className="btn btn-secondary" onClick={() => setFilterConds([{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'not_equals', transform: 'none', connector: 'AND' }])}>
+            + Aggiungi filtro
+          </button>
+        ) : (
+          <CompareConditions conditions={filterConds} onChange={setFilterConds} modes={BOTH_MODE_OPTIONS} />
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB}>Trova</button>
+        <button className="btn btn-secondary" onClick={saveConds}>Salva condizioni</button>
+        {saved && <span style={{ color: 'var(--c-success)', fontSize: 13 }}>Salvato ✓</span>}
+        {pairs && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
+        {pairs && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{pairs.length}</strong> coppie</span>}
+      </div>
+
+      {pairs && (
+        <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
+          {pairs.length === 0 ? (
+            <div style={{ padding: 28, textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna coppia trovata.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  {Object.keys(pairs[0].rowA).map((c) => <th key={'a' + c}>A · {c}</th>)}
+                  {Object.keys(pairs[0].rowB).map((c) => <th key={'b' + c}>B · {c}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {pairs.map(({ rowA, rowB }, i) => (
+                  <tr key={i}>
+                    {Object.keys(pairs[0].rowA).map((c) => <td key={'a' + c}>{String(rowA[c] ?? '')}</td>)}
+                    {Object.keys(pairs[0].rowB).map((c) => <td key={'b' + c}>{String(rowB[c] ?? '')}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </>
+  )
+}

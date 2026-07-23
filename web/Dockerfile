@@ -13,10 +13,18 @@
 # The image mirrors the repo layout: the web app lives at /app/web and the shared
 # services at /app/src, so /app/web/lib/* -> ../../src/main/services resolves the
 # same way it does in the source tree.
+#
+# Base: Debian slim (glibc), NON Alpine. Il rendering PDF di CSA Adesioni usa
+# Chromium via Playwright, che richiede glibc e le librerie di sistema installate
+# più sotto con `playwright install --with-deps chromium`.
 
 # ─── Stage 1: install web dependencies ───────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20-bookworm-slim AS deps
 WORKDIR /app/web
+
+# Il browser di Playwright si installa nello stage runner (con le sue dipendenze
+# di sistema): qui si salta il download del postinstall.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY web/package.json web/package-lock.json* ./
 # --include=dev forces devDependencies (typescript, @types/*) to install even when
@@ -24,8 +32,9 @@ COPY web/package.json web/package-lock.json* ./
 RUN npm ci --include=dev
 
 # ─── Stage 2: build the Next.js web app ──────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app/web
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY --from=deps /app/web/node_modules ./node_modules
 
@@ -43,20 +52,24 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ─── Stage 3: production runner ──────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 WORKDIR /app/web
-
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Percorso condiviso dei browser Playwright (leggibile dall'utente non privilegiato).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Standalone Next.js output
 COPY --from=builder /app/web/.next/standalone ./
 COPY --from=builder /app/web/.next/static ./.next/static
 COPY --from=builder /app/web/public ./public
 
-# pg/nodemailer are pure JS — no native rebuild needed
+# Asset di CSA Adesioni (template docx, template HTML del modulo, DIP, logo):
+# letti a runtime via process.cwd()/assets/adesioni. Lo standalone non li include.
+COPY --from=builder /app/web/assets ./assets
+
+# pg/nodemailer/exceljs/docxtemplater/pdf-lib/playwright sono JS — no rebuild nativo
 COPY --from=deps /app/web/node_modules ./node_modules
 
 # Shared Electron services (kept at /app/src so cwd/../src/main/services resolves)
@@ -66,10 +79,16 @@ COPY --from=builder /app/ita.traineddata /app/ita.traineddata
 # I servizi condivisi in /app/src fanno bare-import di pacchetti REALI (pdf-parse,
 # exceljs, tesseract.js, pdfjs-dist). Node li risolve risalendo da /app/src:
 # esponiamo la node_modules del web a /app/node_modules così sono raggiungibili.
-# NB: electron NON è tra questi — i servizi lo caricano in modo opzionale (try/catch)
-# e nell'app web semplicemente non esiste.
 RUN ln -s /app/web/node_modules /app/node_modules
 
+# Chromium + dipendenze di sistema per il rendering PDF (Playwright). Eseguito da
+# root (apt) prima di passare all'utente non privilegiato; i binari restano
+# leggibili/eseguibili da tutti.
+RUN npx playwright install --with-deps chromium \
+    && chmod -R a+rx /ms-playwright \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 USER appuser
 
 EXPOSE 3000

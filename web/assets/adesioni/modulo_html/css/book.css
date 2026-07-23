@@ -1,0 +1,255 @@
+@font-face{font-family:"Calibri";font-style:normal;font-weight:400;src:url(../fonts/Carlito-Regular.ttf);}
+@font-face{font-family:"Calibri";font-style:italic;font-weight:400;src:url(../fonts/Carlito-Italic.ttf);}
+@font-face{font-family:"Calibri";font-style:normal;font-weight:700;src:url(../fonts/Carlito-Bold.ttf);}
+@font-face{font-family:"Calibri";font-style:italic;font-weight:700;src:url(../fonts/Carlito-BoldItalic.ttf);}
+@font-face{font-family:"Carlito";font-style:normal;font-weight:400;src:url(../fonts/Carlito-Regular.ttf);}
+@font-face{font-family:"Carlito";font-style:italic;font-weight:400;src:url(../fonts/Carlito-Italic.ttf);}
+@font-face{font-family:"Carlito";font-style:normal;font-weight:700;src:url(../fonts/Carlito-Bold.ttf);}
+@font-face{font-family:"Helvetica";font-style:normal;font-weight:400;src:url(../fonts/Carlito-Regular.ttf);}
+@font-face{font-family:"Helvetica";font-style:normal;font-weight:700;src:url(../fonts/Carlito-Bold.ttf);}
+/* unvisited link */
+a:link {
+    color: inherit;
+}
+
+/* visited link */
+a:visited {
+    color: inherit;
+}
+
+/* mouse over link */
+a:hover {
+    color: inherit;
+}
+
+/* selected link */
+a:active {
+    color: inherit;
+}
+
+body{
+	hyphens: none;
+	-webkit-hyphens: none;
+}
+a{
+	text-decoration: none;
+}
+p{
+	margin: 0px;
+}
+sub{
+	vertical-align: -10%;
+	font-size: 67%;
+}
+sup{
+	vertical-align: 33%;
+	font-size: 67%;
+}
+td{
+	overflow: hidden;
+}
+
+
+
+.s1{
+	background: transparent;
+}
+.tc1{
+	vertical-align: middle;
+	position: relative;
+	padding: 0 0;
+	border: 0.50px solid #000000;
+	background: #D9D9D9;
+	white-space: pre;
+	text-align: center;
+}
+.tc2{
+	vertical-align: middle;
+	position: relative;
+	padding: 0 0;
+	border: 0.50px solid #000000;
+	background: transparent;
+	white-space: pre;
+	text-align: left;
+}
+.tc3{
+	vertical-align: middle;
+	position: relative;
+	padding: 0 0;
+	border: 0.50px solid #000000;
+	background: transparent;
+	white-space: pre;
+	text-align: center;
+}
+.p1{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 11.000px;
+	font-family: "Calibri", "Carlito";
+	color: #000000;
+	letter-spacing: 0.000em;
+	text-transform: none;
+	font-variant: normal;
+	text-align: left;
+	text-indent: 0;
+	-webkit-text-stroke-color: initial;
+	-webkit-text-stroke-width: initial;
+	text-shadow: none;
+}
+.p2{
+	text-align: center;
+}
+.p3{
+	font-size: 3.000px;
+}
+.p4{
+	font-style: italic;
+	font-size: 10.000px;
+	text-align: center;
+}
+.p5{
+	font-size: 10.000px;
+	white-space: pre;
+	text-align: justify;
+}
+.p6{
+	font-weight: 700;
+	font-size: 8.000px;
+	font-family: "Helvetica";
+	text-align: center;
+}
+.p7{
+	font-weight: 700;
+	font-size: 8.000px;
+	font-family: "Helvetica";
+}
+.p8{
+	font-size: 8.000px;
+	font-family: "Helvetica";
+}
+.p9{
+	font-size: 8.000px;
+	font-family: "Helvetica";
+	text-align: center;
+}
+.p10{
+	white-space: pre;
+	text-align: justify;
+}
+.p11{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 11.000px;
+	font-family: "Calibri", "Carlito";
+	color: #000000;
+	letter-spacing: 0.000em;
+	text-transform: none;
+	font-variant: normal;
+	text-align: left;
+	text-indent: 0;
+	text-shadow: none;
+}
+.p12{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 10.000px;
+	font-family: "Calibri", "Carlito";
+	color: #000000;
+	letter-spacing: 0.000em;
+	text-transform: none;
+	font-variant: normal;
+	white-space: pre;
+	text-align: justify;
+	text-indent: 0;
+	text-shadow: none;
+}
+.c1{
+	font-size: 1px;
+}
+.c2{
+	font-size: 11.000px;
+	background: transparent;
+}
+.c3{
+	font-style: normal;
+	font-weight: 700;
+	font-stretch: normal;
+	font-family: "Calibri", "Carlito";
+}
+.c4{
+	color: #0000FF;
+}
+.c5{
+	font-size: 3.000px;
+	background: transparent;
+}
+.c6{
+	font-style: italic;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 10.000px;
+	font-family: "Calibri", "Carlito";
+}
+.c7{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 12.000px;
+	font-family: "Verdana";
+}
+.c8{
+	font-size: 10.000px;
+}
+.c9{
+	font-style: normal;
+	font-weight: 700;
+	font-stretch: normal;
+	font-size: 8.000px;
+	font-family: "Helvetica";
+	text-shadow: none;
+}
+.c10{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 8.000px;
+	font-family: "Helvetica";
+	text-shadow: none;
+}
+.c11{
+	font-style: normal;
+	font-weight: 400;
+	font-stretch: normal;
+	font-size: 10.000px;
+	font-family: "Calibri", "Carlito";
+	color: #000000;
+	font-variant: normal;
+	text-shadow: none;
+}
+.c12{
+	font-size: 10.000px;
+	background: transparent;
+}
+.c13{
+	font-size: 11.000px;
+}
+.body {
+}
+.underline {
+	text-decoration: underline;
+}
+.orientation-opposed .underline {
+	text-decoration: overline;
+}
+.strikethrough {
+	text-decoration: line-through;
+}
+.underline-strikethrough {
+	text-decoration: underline line-through;
+}
+.orientation-opposed .underline-strikethrough {
+	text-decoration: overline line-through;
+}
