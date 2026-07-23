@@ -17,6 +17,11 @@ export interface AdesioniFullSettings extends AdesioniConfig {
 
 const MASK = '***'
 
+// Maschera tutti i segreti di un profilo FTP: password, passphrase e chiave privata.
+function maskFtp(f: FtpConfig): FtpConfig {
+  return { ...f, pass: f.pass ? MASK : '', passphrase: f.passphrase ? MASK : '', privateKey: f.privateKey ? MASK : '' }
+}
+
 function defaultSmtp(): SmtpConfig {
   return {
     host: process.env.SMTP_HOST || '',
@@ -72,8 +77,8 @@ export async function getAdesioniSettingsMasked() {
     exportNotify: full.exportNotify,
     smtp: { ...full.smtp, pass: full.smtp.pass ? MASK : '' },
     ftp: {
-      staging: { ...full.ftp.staging, pass: full.ftp.staging.pass ? MASK : '', passphrase: full.ftp.staging.passphrase ? MASK : '' },
-      prod: { ...full.ftp.prod, pass: full.ftp.prod.pass ? MASK : '', passphrase: full.ftp.prod.passphrase ? MASK : '' },
+      staging: maskFtp(full.ftp.staging),
+      prod: maskFtp(full.ftp.prod),
     },
   }
 }
@@ -103,7 +108,7 @@ export async function saveAdesioniSettings(patch: {
   if (patch.dateOffsetDays !== undefined) update.adesioniDateOffsetDays = patch.dateOffsetDays
   if (patch.exportNotify) update.adesioniExportNotify = patch.exportNotify
   if (patch.smtp) update.adesioniSmtp = unmaskSecret(patch.smtp as unknown as Record<string, unknown>, s.adesioniSmtp, ['pass'])
-  if (patch.ftp?.staging) update.adesioniFtpStaging = unmaskSecret(patch.ftp.staging as unknown as Record<string, unknown>, s.adesioniFtpStaging, ['pass', 'passphrase'])
-  if (patch.ftp?.prod) update.adesioniFtpProd = unmaskSecret(patch.ftp.prod as unknown as Record<string, unknown>, s.adesioniFtpProd, ['pass', 'passphrase'])
+  if (patch.ftp?.staging) update.adesioniFtpStaging = unmaskSecret(patch.ftp.staging as unknown as Record<string, unknown>, s.adesioniFtpStaging, ['pass', 'passphrase', 'privateKey'])
+  if (patch.ftp?.prod) update.adesioniFtpProd = unmaskSecret(patch.ftp.prod as unknown as Record<string, unknown>, s.adesioniFtpProd, ['pass', 'passphrase', 'privateKey'])
   await saveSettings(update)
 }

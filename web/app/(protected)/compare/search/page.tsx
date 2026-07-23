@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
 import CompareConditions from '@/components/CompareConditions'
@@ -12,19 +12,24 @@ const SEARCH_MODES: { value: 'contains' | 'equals'; label: string }[] = [
   { value: 'equals', label: 'Uguale a' },
 ]
 
+type Filter = 'all' | 'with' | 'without'
+
 export default function CompareSearchPage() {
   const { fileA, fileB, config, saveConfig } = useCompare()
   const [conditions, setConditions] = useState<Condition[]>(config.searchConditions)
   const [results, setResults] = useState<Array<{ rowA: Row; matches: Row[] }> | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => { setConditions(config.searchConditions) }, [config.searchConditions])
 
   function run() {
     if (!fileA || !fileB) return
-    const dataA = sheetRows(fileA.wb, conditions, 'a')
-    const dataB = sheetRows(fileB.wb, conditions, 'b')
-    setResults(runInclusionSearch(dataA, dataB, conditions.filter((c) => c.columnA && c.columnB)))
+    const active = conditions.filter((c) => c.columnA && c.columnB)
+    const dataA = sheetRows(fileA.wb, active, 'a')
+    const dataB = sheetRows(fileB.wb, active, 'b')
+    setResults(runInclusionSearch(dataA, dataB, active))
+    setFilter('all')
   }
 
   async function saveConds() {
@@ -35,15 +40,33 @@ export default function CompareSearchPage() {
 
   function exportXls() {
     if (!results) return
+    // Include ANCHE le righe di A senza riscontro (come nel desktop), con Esito.
     const rows: Row[] = []
     results.forEach(({ rowA, matches }) => {
-      if (!matches.length) return
-      matches.forEach((m) => rows.push({ ...prefix(rowA, 'A_'), ...prefix(m, 'B_') }))
+      if (!matches.length) {
+        rows.push({ Esito: 'Nessuna corrispondenza', ...prefix(rowA, 'A: ') })
+      } else {
+        matches.forEach((m) => rows.push({ Esito: 'Corrispondenza', ...prefix(rowA, 'A: '), ...prefix(m, 'B: ') }))
+      }
     })
     downloadRows(rows, 'ricerca_inclusione.xlsx', 'Ricerca')
   }
 
   const withMatches = results ? results.filter((r) => r.matches.length) : []
+  const withoutMatches = results ? results.filter((r) => !r.matches.length) : []
+  const shown = useMemo(() => {
+    if (!results) return []
+    if (filter === 'with') return withMatches
+    if (filter === 'without') return withoutMatches
+    return results
+  }, [results, filter, withMatches, withoutMatches])
+
+  // Unione delle colonne su TUTTI i match (dati eterogenei allineati per nome).
+  const matchColumns = useMemo(() => {
+    const set = new Set<string>()
+    withMatches.forEach(({ matches }) => matches.forEach((m) => Object.keys(m).forEach((k) => set.add(k))))
+    return Array.from(set)
+  }, [withMatches])
 
   return (
     <>
@@ -62,35 +85,51 @@ export default function CompareSearchPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB}>Cerca</button>
         {results && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
-        {results && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{withMatches.length}</strong> righe A con corrispondenze</span>}
+        {results && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{results.length}</strong> righe A analizzate · <strong>{withMatches.length}</strong> con riscontro · <strong>{withoutMatches.length}</strong> senza</span>}
       </div>
 
       {results && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {withMatches.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna corrispondenza.</div>
-          ) : (
-            withMatches.map(({ rowA, matches }, i) => (
-              <div key={i} className="card">
-                <div style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Riga A · {matches.length} corrispondenze</div>
-                <div style={{ fontSize: 13, marginBottom: 10 }}>{Object.entries(rowA).map(([k, v]) => `${k}: ${v ?? ''}`).join('  ·  ')}</div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table>
-                    <thead><tr>{Object.keys(matches[0]).map((c) => <th key={c}>{c}</th>)}</tr></thead>
-                    <tbody>
-                      {matches.map((m, j) => (
-                        <tr key={j}>{Object.keys(matches[0]).map((c) => <td key={c}>{String(m[c] ?? '')}</td>)}</tr>
-                      ))}
-                    </tbody>
-                  </table>
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {([
+              ['all', `Tutte (${results.length})`],
+              ['with', `Con riscontro (${withMatches.length})`],
+              ['without', `Senza riscontro (${withoutMatches.length})`],
+            ] as [Filter, string][]).map(([f, label]) => (
+              <button key={f} className={`btn ${filter === f ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 13, padding: '6px 12px' }} onClick={() => setFilter(f)}>{label}</button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {shown.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna riga in questa categoria.</div>
+            ) : (
+              shown.map(({ rowA, matches }, i) => (
+                <div key={i} className="card">
+                  <div style={{ fontSize: 12, color: matches.length ? 'var(--c-text-muted)' : 'var(--c-warning)', marginBottom: 6, textTransform: 'uppercase' }}>
+                    Riga A · {matches.length ? `${matches.length} corrispondenze` : 'nessuna corrispondenza'}
+                  </div>
+                  <div style={{ fontSize: 13, marginBottom: matches.length ? 10 : 0 }}>{Object.entries(rowA).map(([k, v]) => `${k}: ${v ?? ''}`).join('  ·  ')}</div>
+                  {matches.length > 0 && (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table>
+                        <thead><tr>{matchColumns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+                        <tbody>
+                          {matches.map((m, j) => (
+                            <tr key={j}>{matchColumns.map((c) => <td key={c}>{String(m[c] ?? '')}</td>)}</tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))
-          )}
-        </div>
+              ))
+            )}
+          </div>
+        </>
       )}
     </>
   )

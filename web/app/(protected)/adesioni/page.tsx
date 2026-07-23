@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import AdesioniRecordForm, { type AdesioniRecord } from '@/components/AdesioniRecordForm'
 import { defaultAdesioniConfig, type AdesioniConfig } from '@/lib/adesioni/config'
-// Moduli puri (browser-safe): validazione e numerazione progressiva.
+// Moduli puri (browser-safe): validazione, numerazione progressiva, premio.
 import { validateRecord } from '@/lib/adesioni/recordMapper.js'
 import { nextIdentificativo } from '@/lib/adesioni/numbering.js'
+import { premioFor } from '@/lib/adesioni/premioService.js'
+
+const NUM_KEY = 'adesioni_next_id'
 
 type Mode = 'manual' | 'flusso'
 
@@ -24,14 +27,22 @@ export default function AdesioniPage() {
     fetch('/api/adesioni/config').then((r) => r.json()).then((c) => { if (c && c.fields) setConfig(c) }).catch(() => {})
   }, [])
 
-  // Precompila i campi 'fixed' quando la config è pronta.
+  // Precompila i campi 'fixed' quando la config è pronta; se in manuale l'identificativo
+  // è vuoto, propone il prossimo numero suggerito (persistito nel browser).
   useEffect(() => {
     setRecord((prev) => {
       const next = { ...prev }
       for (const f of config.fields) if (f.type === 'fixed' && next[f.id] == null) next[f.id] = f.fixed
+      if (!next.identificativo) {
+        const suggested = typeof window !== 'undefined' ? localStorage.getItem(NUM_KEY) : null
+        if (suggested) next.identificativo = suggested
+      }
       return next
     })
   }, [config])
+
+  // Premio calcolato dal codice configurazione (mostrato in tempo reale).
+  const premio = premioFor(String(record.codice_configurazione ?? ''), config.prezzi, record) as { pacchetto: string; premio: string }
 
   function validateNow(r: AdesioniRecord): boolean {
     const { errors: errs, valid } = validateRecord(r, config.fields) as { errors: Record<string, string>; valid: boolean }
@@ -98,9 +109,13 @@ export default function AdesioniPage() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || 'Errore salvataggio')
       setMsg({ ok: true, text: 'Record salvato in archivio.' })
-      // Suggerimento numerazione progressiva sul prossimo identificativo.
+      // Numerazione progressiva: avanza il suggerimento e lo persiste nel browser.
       const cur = String(record.identificativo || '')
-      if (cur) setRecord((prev) => ({ ...prev, identificativo: nextIdentificativo(cur) }))
+      if (cur) {
+        const nxt = nextIdentificativo(cur)
+        localStorage.setItem(NUM_KEY, nxt)
+        setRecord((prev) => ({ ...prev, identificativo: nxt }))
+      }
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
     } finally {
@@ -137,6 +152,13 @@ export default function AdesioniPage() {
       {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
 
       <AdesioniRecordForm config={config} record={record} errors={errors} onChange={setRecord} />
+
+      {(premio.premio || premio.pacchetto) && (
+        <div className="card" style={{ marginTop: 16, display: 'flex', gap: 24, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>Pacchetto: <strong style={{ color: 'var(--c-text-primary)' }}>{premio.pacchetto || '—'}</strong></span>
+          <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>Premio: <strong style={{ color: 'var(--c-accent)' }}>€ {premio.premio || '—'}</strong></span>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={generate} disabled={busy}>

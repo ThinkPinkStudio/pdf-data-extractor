@@ -1,11 +1,13 @@
 'use client'
 
 import { useCompare } from '@/lib/compare/CompareProvider'
-import { workbookColumns, TRANSFORM_OPTIONS, type Condition, type CondMode } from '@/lib/compare/engine'
+import { workbookColumns, TRANSFORM_OPTIONS, type Condition, type CondMode, type Workbook } from '@/lib/compare/engine'
 
-// Editor di una lista di condizioni (colonna A/B, foglio, modalità, trasformazione,
-// connettore AND/OR). Condiviso tra Ricerca e In Entrambi. Le colonne disponibili
-// sono derivate dai file caricati; se non caricati, si usa un input libero.
+// Editor di una lista di condizioni (colonna A/B, foglio A/B, modalità,
+// trasformazione, connettore AND/OR). Condiviso tra Ricerca e In Entrambi. Le
+// colonne disponibili derivano dal foglio scelto dei file caricati; se non
+// caricati, si usa un input libero. Il selettore Foglio compare solo quando il
+// file ha più di un foglio (multi-foglio), come nel desktop.
 export default function CompareConditions({
   conditions,
   onChange,
@@ -18,8 +20,7 @@ export default function CompareConditions({
   const { fileA, fileB } = useCompare()
 
   function update(i: number, patch: Partial<Condition>) {
-    const next = conditions.map((c, idx) => (idx === i ? { ...c, ...patch } : c))
-    onChange(next)
+    onChange(conditions.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
   }
   function remove(i: number) {
     const next = conditions.filter((_, idx) => idx !== i)
@@ -29,11 +30,22 @@ export default function CompareConditions({
     onChange([...conditions, { columnA: '', columnB: '', sheetA: '', sheetB: '', mode: modes[0].value, transform: 'none', connector: 'AND' }])
   }
 
-  const colsA = workbookColumns(fileA?.wb ?? null)
-  const colsB = workbookColumns(fileB?.wb ?? null)
+  const SheetSelect = ({ wb, value, onSet }: { wb: Workbook | null; value: string; onSet: (v: string) => void }) => {
+    if (!wb || wb.sheetNames.length <= 1) return null
+    return (
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="label">Foglio</label>
+        <select value={value} onChange={(e) => onSet(e.target.value)}>
+          <option value="">(1° foglio)</option>
+          {wb.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+    )
+  }
 
-  const ColSelect = ({ value, cols, onSet }: { value: string; cols: string[]; onSet: (v: string) => void }) =>
-    cols.length ? (
+  const ColSelect = ({ wb, sheet, value, onSet }: { wb: Workbook | null; sheet?: string; value: string; onSet: (v: string) => void }) => {
+    const cols = workbookColumns(wb, sheet)
+    return cols.length ? (
       <select value={value} onChange={(e) => onSet(e.target.value)}>
         <option value="">— seleziona colonna —</option>
         {cols.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -41,6 +53,7 @@ export default function CompareConditions({
     ) : (
       <input value={value} onChange={(e) => onSet(e.target.value)} placeholder="Nome colonna" />
     )
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -52,14 +65,16 @@ export default function CompareConditions({
               <button type="button" className={`btn ${cond.connector === 'OR' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 12, padding: '3px 12px' }} onClick={() => update(i, { connector: 'OR' })}>O</button>
             </div>
           )}
-          <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr)) auto', gap: 10, alignItems: 'end' }}>
+          <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr)) auto', gap: 10, alignItems: 'end', overflowX: 'auto' }}>
+            <SheetSelect wb={fileA?.wb ?? null} value={cond.sheetA || ''} onSet={(v) => update(i, { sheetA: v })} />
             <div className="form-group" style={{ margin: 0 }}>
               <label className="label">Colonna A</label>
-              <ColSelect value={cond.columnA} cols={colsA} onSet={(v) => update(i, { columnA: v })} />
+              <ColSelect wb={fileA?.wb ?? null} sheet={cond.sheetA} value={cond.columnA} onSet={(v) => update(i, { columnA: v })} />
             </div>
+            <SheetSelect wb={fileB?.wb ?? null} value={cond.sheetB || ''} onSet={(v) => update(i, { sheetB: v })} />
             <div className="form-group" style={{ margin: 0 }}>
               <label className="label">Colonna B</label>
-              <ColSelect value={cond.columnB} cols={colsB} onSet={(v) => update(i, { columnB: v })} />
+              <ColSelect wb={fileB?.wb ?? null} sheet={cond.sheetB} value={cond.columnB} onSet={(v) => update(i, { columnB: v })} />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="label">Modalità</label>

@@ -29,7 +29,9 @@ export default function AdesioniRecordsPage() {
 
   const load = useCallback((query = '') => {
     fetch('/api/adesioni/records' + (query ? `?q=${encodeURIComponent(query)}` : ''))
-      .then((r) => r.json()).then((d) => setRows(d.records || [])).catch(() => {})
+      .then((r) => { if (!r.ok) throw new Error(); return r.json() })
+      .then((d) => setRows(d.records || []))
+      .catch(() => setMsg({ ok: false, text: 'Impossibile caricare i record.' }))
   }, [])
 
   useEffect(() => {

@@ -126,6 +126,7 @@ const NAV_COMPARE: NavItem[] = [
   { href: '/compare/search', key: 'nav.cmpSearch', icon: <IconSearch /> },
   { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconBatch /> },
   { href: '/compare/settings', key: 'nav.cmpSettings', icon: <IconSettings /> },
+  { href: '/compare/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
 
 const NAV_ADESIONI: NavItem[] = [
@@ -134,6 +135,7 @@ const NAV_ADESIONI: NavItem[] = [
   { href: '/adesioni/scadenze', key: 'nav.adScadenze', icon: <IconCalendar /> },
   { href: '/adesioni/registro', key: 'nav.adRegistro', icon: <IconBook /> },
   { href: '/adesioni/settings', key: 'nav.adSettings', icon: <IconSettings /> },
+  { href: '/adesioni/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
 
 const NAV_HUB: NavItem[] = [

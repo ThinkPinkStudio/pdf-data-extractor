@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
-import { TRANSFORM_OPTIONS, defaultMatchKeys, type CompareConfig, type MatchKey, type Transform } from '@/lib/compare/engine'
+import { TRANSFORM_OPTIONS, defaultMatchKeys, type CompareConfig, type MatchKey, type Transform, type Workbook } from '@/lib/compare/engine'
 
 export default function CompareSettingsPage() {
-  const { config, saveConfig } = useCompare()
+  const { config, saveConfig, fileA, fileB } = useCompare()
   const [keys, setKeys] = useState<MatchKey[]>(config.matchKeys)
   const [fuzzy, setFuzzy] = useState({ min: config.fuzzyMinOverlap, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad })
   const [saved, setSaved] = useState(false)
@@ -76,8 +76,15 @@ export default function CompareSettingsPage() {
     if (!file) return
     try {
       const parsed = JSON.parse(await file.text())
-      await saveProfiles({ ...profiles, ...parsed })
-    } catch { /* ignore */ }
+      // Interop col desktop: se il JSON è una SINGOLA config (ha matchKeys) lo si
+      // importa come profilo nominato dal file. Altrimenti è un dizionario di profili.
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as CompareConfig).matchKeys)) {
+        const name = file.name.replace(/\.json$/i, '') || 'importato'
+        await saveProfiles({ ...profiles, [name]: parsed as CompareConfig })
+      } else {
+        await saveProfiles({ ...profiles, ...(parsed as Record<string, CompareConfig>) })
+      }
+    } catch { /* file non valido: ignora */ }
   }
 
   return (
@@ -93,19 +100,30 @@ export default function CompareSettingsPage() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {keys.map((k, i) => (
-              <div key={i} className="card" style={{ background: 'var(--c-bg-card-alt)', display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 150px auto', gap: 8, alignItems: 'center' }}>
-                <input type="checkbox" checked={k.enabled !== false} onChange={(e) => updKey(i, { enabled: e.target.checked })} title="Abilitata" />
-                <input value={k.label} onChange={(e) => updKey(i, { label: e.target.value })} placeholder="Etichetta" />
-                <input value={k.columnA ?? k.column ?? ''} onChange={(e) => updKey(i, { columnA: e.target.value })} placeholder="Colonna A" />
-                <input value={k.columnB ?? k.column ?? ''} onChange={(e) => updKey(i, { columnB: e.target.value })} placeholder="Colonna B" />
-                <select value={k.transform || 'none'} onChange={(e) => updKey(i, { transform: e.target.value as Transform })}>
-                  {TRANSFORM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, -1)} title="Su">↑</button>
-                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, 1)} title="Giù">↓</button>
-                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setKeys(keys.filter((_, idx) => idx !== i))} title="Rimuovi">✕</button>
+              <div key={i} className="card" style={{ background: 'var(--c-bg-card-alt)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 150px auto', gap: 8, alignItems: 'center' }}>
+                  <input type="checkbox" checked={k.enabled !== false} onChange={(e) => updKey(i, { enabled: e.target.checked })} title="Abilitata" aria-label="Chiave abilitata" />
+                  <input value={k.label} onChange={(e) => updKey(i, { label: e.target.value })} placeholder="Etichetta" />
+                  <input value={k.columnA ?? k.column ?? ''} onChange={(e) => updKey(i, { columnA: e.target.value })} placeholder="Colonna A" />
+                  <input value={k.columnB ?? k.column ?? ''} onChange={(e) => updKey(i, { columnB: e.target.value })} placeholder="Colonna B" />
+                  <select value={k.transform || 'none'} onChange={(e) => updKey(i, { transform: e.target.value as Transform })}>
+                    {TRANSFORM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, -1)} title="Su">↑</button>
+                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => move(i, 1)} title="Giù">↓</button>
+                    <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setKeys(keys.filter((_, idx) => idx !== i))} title="Rimuovi">✕</button>
+                  </div>
                 </div>
+                {/* Foglio A/B: mostrati solo per file multi-foglio caricati */}
+                {(hasSheets(fileA?.wb) || hasSheets(fileB?.wb)) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                    <span />
+                    <SheetSelect wb={fileA?.wb ?? null} value={k.sheetA || ''} onSet={(v) => updKey(i, { sheetA: v })} label="Foglio A" />
+                    <SheetSelect wb={fileB?.wb ?? null} value={k.sheetB || ''} onSet={(v) => updKey(i, { sheetB: v })} label="Foglio B" />
+                    <span />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -160,5 +178,19 @@ export default function CompareSettingsPage() {
         <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={save}>Salva configurazione</button>
       </div>
     </>
+  )
+}
+
+function hasSheets(wb?: Workbook | null): boolean {
+  return !!wb && wb.sheetNames.length > 1
+}
+
+function SheetSelect({ wb, value, onSet, label }: { wb: Workbook | null; value: string; onSet: (v: string) => void; label: string }) {
+  if (!hasSheets(wb)) return <span />
+  return (
+    <select value={value} onChange={(e) => onSet(e.target.value)} aria-label={label} title={label}>
+      <option value="">{label}: (1° foglio)</option>
+      {wb!.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+    </select>
   )
 }

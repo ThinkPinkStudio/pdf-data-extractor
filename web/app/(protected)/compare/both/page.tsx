@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
 import CompareConditions from '@/components/CompareConditions'
@@ -23,6 +23,11 @@ export default function CompareBothPage() {
     const dataB = sheetRows(fileB.wb, entries, 'b')
     setPairs(runBothMatch(dataA, dataB, matchConds.filter((c) => c.columnA && c.columnB), filterConds.filter((c) => c.columnA && c.columnB)))
   }
+
+  // Unione colonne su TUTTE le coppie (allineamento per nome anche con dati eterogenei).
+  const colsA = useMemo(() => unionCols(pairs, 'rowA'), [pairs])
+  const colsB = useMemo(() => unionCols(pairs, 'rowB'), [pairs])
+  const distinctA = useMemo(() => (pairs ? new Set(pairs.map((p) => JSON.stringify(p.rowA))).size : 0), [pairs])
 
   async function saveConds() {
     await saveConfig({ ...config, bothMatchConditions: matchConds, bothFilterConditions: filterConds })
@@ -70,7 +75,7 @@ export default function CompareBothPage() {
         <button className="btn btn-secondary" onClick={saveConds}>Salva condizioni</button>
         {saved && <span style={{ color: 'var(--c-success)', fontSize: 13 }}>Salvato ✓</span>}
         {pairs && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
-        {pairs && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{pairs.length}</strong> coppie</span>}
+        {pairs && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{pairs.length}</strong> coppie · <strong>{distinctA}</strong> righe distinte di A</span>}
       </div>
 
       {pairs && (
@@ -81,15 +86,15 @@ export default function CompareBothPage() {
             <table>
               <thead>
                 <tr>
-                  {Object.keys(pairs[0].rowA).map((c) => <th key={'a' + c}>A · {c}</th>)}
-                  {Object.keys(pairs[0].rowB).map((c) => <th key={'b' + c}>B · {c}</th>)}
+                  {colsA.map((c) => <th key={'a' + c}>A · {c}</th>)}
+                  {colsB.map((c) => <th key={'b' + c}>B · {c}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {pairs.map(({ rowA, rowB }, i) => (
                   <tr key={i}>
-                    {Object.keys(pairs[0].rowA).map((c) => <td key={'a' + c}>{String(rowA[c] ?? '')}</td>)}
-                    {Object.keys(pairs[0].rowB).map((c) => <td key={'b' + c}>{String(rowB[c] ?? '')}</td>)}
+                    {colsA.map((c) => <td key={'a' + c}>{String(rowA[c] ?? '')}</td>)}
+                    {colsB.map((c) => <td key={'b' + c}>{String(rowB[c] ?? '')}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -99,4 +104,10 @@ export default function CompareBothPage() {
       )}
     </>
   )
+}
+
+function unionCols(pairs: Array<{ rowA: Row; rowB: Row }> | null, side: 'rowA' | 'rowB'): string[] {
+  const set = new Set<string>()
+  ;(pairs || []).forEach((p) => Object.keys(p[side]).forEach((k) => set.add(k)))
+  return Array.from(set)
 }

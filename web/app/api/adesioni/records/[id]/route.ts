@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getRecord, updateRecord, deleteRecord } from '@/lib/adesioni/recordsStore'
+import { getAdesioniConfig } from '@/lib/adesioni/serverConfig'
+import { validateRecord } from '@/lib/adesioni/recordMapper.js'
 
 export const runtime = 'nodejs'
 
@@ -18,6 +20,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = (await req.json()) as { record?: Record<string, unknown> }
   if (!body.record) return NextResponse.json({ error: 'Record mancante' }, { status: 400 })
+  const config = await getAdesioniConfig()
+  const { valid, errors } = validateRecord(body.record, config.fields) as { valid: boolean; errors: Record<string, string> }
+  if (!valid) return NextResponse.json({ error: 'Dati non validi', errors }, { status: 400 })
   const row = await updateRecord(params.id, session.email, body.record)
   if (!row) return NextResponse.json({ error: 'Non trovato' }, { status: 404 })
   await logAction({ email: session.email, action: 'adesioni.record.update', resource: params.id })

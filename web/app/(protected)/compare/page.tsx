@@ -13,7 +13,7 @@ export default function ComparePage() {
   const [result, setResult] = useState<CompareResult | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
 
-  const enabledKeys = useMemo(() => config.matchKeys.filter((k) => k.enabled !== false), [config.matchKeys])
+  const enabledKeys = useMemo(() => config.matchKeys.filter((k) => k.enabled !== false && (k.columnA || k.columnB || k.column)), [config.matchKeys])
 
   function run() {
     if (!fileA || !fileB) return
@@ -25,6 +25,20 @@ export default function ComparePage() {
     })
     setResult(res)
     setFilter('all')
+  }
+
+  // Decisione su una coppia "da verificare": accettata = stessa entità (nessuna
+  // differenza, si rimuove); rifiutata = entità diverse (le righe diventano
+  // "Solo in A"/"Solo in B", cioè diffA/diffB).
+  function decide(idx: number, kind: 'accept' | 'reject') {
+    setResult((r) => {
+      if (!r) return r
+      const pair = r.fuzzy[idx]
+      if (!pair) return r
+      const fuzzy = r.fuzzy.filter((_, i) => i !== idx)
+      if (kind === 'accept') return { ...r, fuzzy }
+      return { ...r, fuzzy, diffA: [...r.diffA, pair.rowA], diffB: [...r.diffB, pair.rowB] }
+    })
   }
 
   const countA = result ? result.onlyA.length + result.diffA.length : 0
@@ -49,10 +63,12 @@ export default function ComparePage() {
   function exportXls() {
     if (!result) return
     const rows = [
-      ...[...result.onlyA, ...result.diffA].map((r) => ({ Origine: 'A', ...r })),
-      ...[...result.onlyB, ...result.diffB].map((r) => ({ Origine: 'B', ...r })),
+      ...result.onlyA.map((r) => ({ Origine: 'Solo in A', ...r })),
+      ...result.diffA.map((r) => ({ Origine: 'Verificato — diverso (A)', ...r })),
+      ...result.onlyB.map((r) => ({ Origine: 'Solo in B', ...r })),
+      ...result.diffB.map((r) => ({ Origine: 'Verificato — diverso (B)', ...r })),
     ]
-    downloadRows(rows, 'comparazione.xlsx')
+    downloadRows(rows, 'differenze_portafogli.xlsx')
   }
 
   return (
@@ -92,7 +108,7 @@ export default function ComparePage() {
           </div>
 
           {filter === 'fuzzy' ? (
-            <FuzzyList result={result} />
+            <FuzzyList result={result} onDecide={decide} />
           ) : (
             <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
               {tableRows.length === 0 ? (
@@ -123,9 +139,9 @@ export default function ComparePage() {
   )
 }
 
-function FuzzyList({ result }: { result: CompareResult }) {
+function FuzzyList({ result, onDecide }: { result: CompareResult; onDecide: (idx: number, kind: 'accept' | 'reject') => void }) {
   if (!result.fuzzy.length) {
-    return <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna coppia da verificare.</div>
+    return <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna coppia da verificare — tutte le decisioni sono state prese.</div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -133,8 +149,14 @@ function FuzzyList({ result }: { result: CompareResult }) {
         const cols = Array.from(new Set([...Object.keys(pair.rowA), ...Object.keys(pair.rowB)]))
         return (
           <div key={idx} className="card">
-            <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 8, textTransform: 'uppercase' }}>
-              Coppia da verificare · match {pair.kind === 'broad' ? 'ampio' : 'per chiave'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--c-text-muted)', textTransform: 'uppercase' }}>
+                Coppia da verificare · match {pair.kind === 'broad' ? 'ampio' : 'per chiave'}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'accept')}>✓ Stessa polizza</button>
+                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'reject')}>✗ Polizze diverse</button>
+              </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table>
@@ -142,13 +164,17 @@ function FuzzyList({ result }: { result: CompareResult }) {
                   <tr><th>Campo</th><th>A</th><th>B</th></tr>
                 </thead>
                 <tbody>
-                  {cols.map((c) => (
-                    <tr key={c}>
-                      <td style={{ color: 'var(--c-text-muted)' }}>{c}</td>
-                      <td>{String(pair.rowA[c] ?? '')}</td>
-                      <td>{String(pair.rowB[c] ?? '')}</td>
-                    </tr>
-                  ))}
+                  {cols.map((c) => {
+                    const va = String(pair.rowA[c] ?? '')
+                    const vb = String(pair.rowB[c] ?? '')
+                    return (
+                      <tr key={c}>
+                        <td style={{ color: 'var(--c-text-muted)' }}>{c}</td>
+                        <td style={va !== vb ? { color: 'var(--c-warning)' } : undefined}>{va}</td>
+                        <td style={va !== vb ? { color: 'var(--c-warning)' } : undefined}>{vb}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
