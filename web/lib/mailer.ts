@@ -29,24 +29,53 @@ interface Email {
  * `from` deve usare un dominio verificato su Resend (o onboarding@resend.dev in test).
  */
 async function sendViaResend(apiKey: string, mail: Email) {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: mail.from,
-      to: mail.to,
-      subject: mail.subject,
-      text: mail.text,
-      html: mail.html,
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Resend API ${res.status}: ${body}`)
+  let res: Response
+  try {
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: mail.from,
+        to: mail.to,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      }),
+    })
+  } catch (e) {
+    throw new Error(`Resend non raggiungibile (rete/HTTPS in uscita bloccata?): ${(e as Error).message}`)
   }
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '')
+    let msg = raw
+    let name = ''
+    try { const j = JSON.parse(raw); msg = j.message || raw; name = j.name || '' } catch { /* raw */ }
+    throw new Error(`Resend ${res.status}${name ? ` [${name}]` : ''}: ${explainResend(res.status, name, msg, mail.from)}`)
+  }
+}
+
+// Traduce gli errori più comuni di Resend in un messaggio azionabile in italiano,
+// includendo sempre il testo originale dell'API.
+function explainResend(status: number, name: string, message: string, from: string): string {
+  const m = `${name} ${message}`.toLowerCase()
+  const domain = (from.match(/<([^>]+)>/)?.[1] || from).split('@')[1] || '(sconosciuto)'
+  if (status === 401 || /api key|unauthorized|invalid.*key/.test(m)) {
+    return `RESEND_API_KEY non valida o revocata. — Dettaglio: ${message}`
+  }
+  if (status === 403 && /domain is not verified|not verified|verify a domain/.test(m)) {
+    return `Il dominio del mittente "${domain}" NON è verificato su Resend. Verifica il dominio su Resend (Domains) oppure imposta SMTP_FROM su un dominio verificato. — Dettaglio: ${message}`
+  }
+  if (status === 403 && /testing|own email|only send/.test(m)) {
+    return `In modalità test Resend può inviare SOLO all'indirizzo del proprietario dell'account (mittente onboarding@resend.dev). Verifica un tuo dominio e usa SMTP_FROM con quel dominio per inviare ad altri destinatari. — Dettaglio: ${message}`
+  }
+  if (status === 422 || /validation/.test(m)) {
+    return `Richiesta rifiutata (dati mittente/destinatario). Controlla il formato di SMTP_FROM (es. "Nome <noreply@tuodominio.it>"). — Dettaglio: ${message}`
+  }
+  if (status === 429) return `Limite di invio Resend superato (rate limit). Riprova tra poco. — Dettaglio: ${message}`
+  return message || `Errore ${status}`
 }
 
 export async function sendMagicLink(email: string, token: string) {

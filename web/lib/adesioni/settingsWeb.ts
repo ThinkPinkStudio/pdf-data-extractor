@@ -9,10 +9,14 @@ export interface SmtpConfig { host: string; port: number; secure: boolean; user:
 export interface FtpConfig { protocol: 'ftp' | 'ftps' | 'sftp'; host: string; port: number; user: string; pass: string; secure: boolean; dir: string; privateKey: string; passphrase: string }
 export interface ExportNotify { enabled: boolean; sharedEmail: string; mode: 'user' | 'shared' | 'both' }
 
+export interface Attachment { name: string; dataBase64: string }
 export interface AdesioniFullSettings extends AdesioniConfig {
   smtp: SmtpConfig
   ftp: { staging: FtpConfig; prod: FtpConfig }
   exportNotify: ExportNotify
+  templateId: string
+  templateHtml: string
+  attachments: Attachment[]
 }
 
 const MASK = '***'
@@ -63,6 +67,9 @@ export async function getAdesioniFullSettings(): Promise<AdesioniFullSettings> {
       prod: { ...defaultFtp('prod'), ...(s.adesioniFtpProd as Partial<FtpConfig> | undefined) },
     },
     exportNotify: { ...defaultExportNotify(), ...(s.adesioniExportNotify as Partial<ExportNotify> | undefined) },
+    templateId: s.adesioniTemplateId || 'default',
+    templateHtml: s.adesioniTemplateHtml || '',
+    attachments: Array.isArray(s.adesioniAttachments) ? s.adesioniAttachments : [],
   }
 }
 
@@ -80,6 +87,9 @@ export async function getAdesioniSettingsMasked() {
       staging: maskFtp(full.ftp.staging),
       prod: maskFtp(full.ftp.prod),
     },
+    templateId: full.templateId,
+    templateHtml: full.templateHtml,
+    attachments: full.attachments,
   }
 }
 
@@ -99,6 +109,9 @@ export async function saveAdesioniSettings(patch: {
   exportNotify?: ExportNotify
   smtp?: SmtpConfig
   ftp?: { staging?: FtpConfig; prod?: FtpConfig }
+  templateId?: string
+  templateHtml?: string
+  attachments?: Attachment[]
 }) {
   const s = await getSettings()
   const update: Record<string, unknown> = {}
@@ -107,6 +120,9 @@ export async function saveAdesioniSettings(patch: {
   if (patch.prezzi) update.adesioniPrezzi = patch.prezzi
   if (patch.dateOffsetDays !== undefined) update.adesioniDateOffsetDays = patch.dateOffsetDays
   if (patch.exportNotify) update.adesioniExportNotify = patch.exportNotify
+  if (patch.templateId !== undefined) update.adesioniTemplateId = patch.templateId
+  if (patch.templateHtml !== undefined) update.adesioniTemplateHtml = patch.templateHtml
+  if (patch.attachments !== undefined) update.adesioniAttachments = patch.attachments
   if (patch.smtp) update.adesioniSmtp = unmaskSecret(patch.smtp as unknown as Record<string, unknown>, s.adesioniSmtp, ['pass'])
   if (patch.ftp?.staging) update.adesioniFtpStaging = unmaskSecret(patch.ftp.staging as unknown as Record<string, unknown>, s.adesioniFtpStaging, ['pass', 'passphrase', 'privateKey'])
   if (patch.ftp?.prod) update.adesioniFtpProd = unmaskSecret(patch.ftp.prod as unknown as Record<string, unknown>, s.adesioniFtpProd, ['pass', 'passphrase', 'privateKey'])

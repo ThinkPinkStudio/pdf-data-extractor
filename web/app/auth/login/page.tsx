@@ -22,21 +22,30 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [errorDetail, setErrorDetail] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setStatus('loading')
     setErrorMsg('')
-    const res = await fetch('/api/auth/send-link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    })
-    if (res.ok) {
-      setStatus('sent')
-    } else {
-      const data = await res.json().catch(() => ({}))
-      setErrorMsg(data.error || t('auth.errSend'))
+    setErrorDetail('')
+    try {
+      const res = await fetch('/api/auth/send-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (res.ok) {
+        setStatus('sent')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setErrorMsg(data.error || t('auth.errSend'))
+        setErrorDetail(data.detail || '')
+        setStatus('error')
+      }
+    } catch (err) {
+      setErrorMsg(t('auth.errSend'))
+      setErrorDetail((err as Error).message)
       setStatus('error')
     }
   }
@@ -69,7 +78,8 @@ function LoginForm() {
     <form onSubmit={handleSubmit} style={{ width: '100%' }}>
       {(errorParam || status === 'error') && (
         <div className="alert alert-error" style={{ marginBottom: 20 }}>
-          {errorParam ? t(ERROR_KEYS[errorParam] || 'auth.errGeneric') : errorMsg}
+          <div style={{ fontWeight: 600 }}>{errorParam ? t(ERROR_KEYS[errorParam] || 'auth.errGeneric') : errorMsg}</div>
+          {errorDetail && <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9, wordBreak: 'break-word' }}>{errorDetail}</div>}
         </div>
       )}
 

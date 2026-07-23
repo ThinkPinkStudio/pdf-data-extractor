@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const q = req.nextUrl.searchParams.get('q') || undefined
-  const rows = await listRecords(session.email, q)
+  const st = req.nextUrl.searchParams.get('status')
+  const status = st === 'pending' || st === 'archived' ? st : undefined
+  const rows = await listRecords(q, status)
   return NextResponse.json({ records: rows })
 }
 

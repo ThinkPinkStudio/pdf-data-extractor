@@ -54,7 +54,11 @@ export function flussoRowToRecord(rowByHeader, fields, idd) {
     if (f.type === 'fixed') { record[f.id] = f.fixed; continue }
     if (!f.flussoCol) { record[f.id] = ''; continue }
     const raw = norm[normHeader(f.flussoCol)]
-    record[f.id] = raw == null ? '' : (f.type === 'date' ? toTrackDate(raw) : (raw instanceof Date ? toTrackDate(raw) : String(raw)))
+    let val = raw == null ? '' : (f.type === 'date' ? toTrackDate(raw) : (raw instanceof Date ? toTrackDate(raw) : String(raw)))
+    // Excel spesso legge i codici come numeri e perde gli zeri iniziali (00001 → 1).
+    // Per i campi select con option a larghezza fissa, ripristina lo zero-padding.
+    if (f.type === 'select' && Array.isArray(f.options) && val !== '') val = coerceOption(val, f.options)
+    record[f.id] = val
   }
   // questionario: legge le coppie CODICE DOMANDA i / CODICE RISPOSTA i
   for (let i = 1; i <= idd.length + 5; i++) {
@@ -65,6 +69,23 @@ export function flussoRowToRecord(rowByHeader, fields, idd) {
     }
   }
   return record
+}
+
+/**
+ * Coerce di un valore all'option di un select. Se combacia già, lo restituisce.
+ * Altrimenti, per valori numerici, prova lo zero-padding alla larghezza di ciascuna
+ * option (es. '1' → '00001'). Se nessuna combacia, restituisce il valore originale.
+ */
+function coerceOption(val, options) {
+  const s = String(val).trim()
+  if (options.some(o => String(o.value) === s)) return s
+  if (/^\d+$/.test(s)) {
+    for (const o of options) {
+      const ov = String(o.value)
+      if (/^\d+$/.test(ov) && s.padStart(ov.length, '0') === ov) return ov
+    }
+  }
+  return s
 }
 
 /** Validazione PURA di un record secondo le definizioni dei campi. Ritorna { errors: {id:msg} }. */

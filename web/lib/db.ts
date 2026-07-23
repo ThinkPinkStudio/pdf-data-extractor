@@ -124,8 +124,14 @@ export async function initDb() {
       updated_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
 
+    -- Archivio CONDIVISO: saved_by traccia l'operatore; status gestisce il ciclo
+    -- di vita (pending → archived all'export). email resta per retrocompatibilità.
+    ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS saved_by TEXT;
+    ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+
     CREATE INDEX IF NOT EXISTS idx_adesioni_email  ON adesioni_records(email);
     CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);
+    CREATE INDEX IF NOT EXISTS idx_adesioni_status ON adesioni_records(status);
   `)
 }
 

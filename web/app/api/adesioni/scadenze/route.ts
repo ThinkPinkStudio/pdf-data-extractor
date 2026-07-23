@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 export async function GET() {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rows = await listRecords(session.email)
+  const rows = await listRecords()
   const groups = groupByExpiry(rows) as { past: unknown[]; current: unknown[]; next: unknown[] }
   return NextResponse.json(groups)
 }

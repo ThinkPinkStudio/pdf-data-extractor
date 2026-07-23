@@ -32,8 +32,10 @@ export async function POST(req: NextRequest) {
     await sendMagicLink(email, token)
     logAction({ email, action: 'auth.send_link', success: true, ip, userAgent })
   } catch (err) {
-    logAction({ email, action: 'auth.send_link', success: false, ip, userAgent, metadata: { error: String(err) } })
-    return NextResponse.json({ error: 'Errore invio email' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : String(err)
+    logAction({ email, action: 'auth.send_link', success: false, ip, userAgent, metadata: { error: detail } })
+    // Tool interno autenticato: si mostra il motivo REALE per non lasciare l'utente al buio.
+    return NextResponse.json({ error: 'Invio email non riuscito', detail }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

@@ -92,6 +92,10 @@ export interface WebSettings {
   adesioniFtpStaging?: Record<string, unknown>
   adesioniFtpProd?: Record<string, unknown>
   adesioniProfiles?: Record<string, unknown>
+  // Template HTML del modulo ('default' | 'custom') + HTML personalizzato; allegati PDF.
+  adesioniTemplateId?: string
+  adesioniTemplateHtml?: string
+  adesioniAttachments?: Array<{ name: string; dataBase64: string }>
   // Aspetto
   theme?: string
   language?: string
@@ -121,6 +125,7 @@ const JSON_KEYS = new Set([
   'compareBothFilterConditions', 'compareProfiles',
   'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniExportNotify',
   'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',
+  'adesioniAttachments',
 ])
 
 export async function getSettings(): Promise<WebSettings> {
@@ -192,6 +197,9 @@ export async function getSettings(): Promise<WebSettings> {
     adesioniFtpStaging: json<Record<string, unknown>>('adesioniFtpStaging'),
     adesioniFtpProd: json<Record<string, unknown>>('adesioniFtpProd'),
     adesioniProfiles: json<Record<string, unknown>>('adesioniProfiles'),
+    adesioniTemplateId: map.adesioniTemplateId || 'default',
+    adesioniTemplateHtml: map.adesioniTemplateHtml ?? '',
+    adesioniAttachments: json<Array<{ name: string; dataBase64: string }>>('adesioniAttachments'),
     theme: map.theme,
     language: map.language,
     accentColor: map.accentColor,

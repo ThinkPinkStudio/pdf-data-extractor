@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const years = body.years || 1
   if (!ids.length) return NextResponse.json({ error: 'Nessun record selezionato' }, { status: 400 })
 
-  const rows = await getRecordsByIds(ids, session.email)
+  const rows = await getRecordsByIds(ids)
   const created = []
   for (const row of rows) {
     const rec = { ...row.data } as Record<string, unknown>

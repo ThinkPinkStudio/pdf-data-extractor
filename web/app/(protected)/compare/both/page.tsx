@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
 import CompareConditions from '@/components/CompareConditions'
-import { runBothMatch, sheetRows, BOTH_MODE_OPTIONS, type Condition, type Row } from '@/lib/compare/engine'
+import { sheetRows, BOTH_MODE_OPTIONS, type Condition, type Row } from '@/lib/compare/engine'
+import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
 export default function CompareBothPage() {
@@ -13,15 +14,26 @@ export default function CompareBothPage() {
   const [filterConds, setFilterConds] = useState<Condition[]>(config.bothFilterConditions)
   const [pairs, setPairs] = useState<Array<{ rowA: Row; rowB: Row }> | null>(null)
   const [saved, setSaved] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => { setMatchConds(config.bothMatchConditions); setFilterConds(config.bothFilterConditions) }, [config.bothMatchConditions, config.bothFilterConditions])
 
-  function run() {
+  async function run() {
     if (!fileA || !fileB) return
     const entries = [...matchConds, ...filterConds]
     const dataA = sheetRows(fileA.wb, entries, 'a')
     const dataB = sheetRows(fileB.wb, entries, 'b')
-    setPairs(runBothMatch(dataA, dataB, matchConds.filter((c) => c.columnA && c.columnB), filterConds.filter((c) => c.columnA && c.columnB)))
+    setBusy(true)
+    try {
+      const res = await runInWorker<Array<{ rowA: Row; rowB: Row }>>({
+        kind: 'both', dataA, dataB,
+        matchConds: matchConds.filter((c) => c.columnA && c.columnB),
+        filterConds: filterConds.filter((c) => c.columnA && c.columnB),
+      })
+      setPairs(res)
+    } finally {
+      setBusy(false)
+    }
   }
 
   // Unione colonne su TUTTE le coppie (allineamento per nome anche con dati eterogenei).
@@ -71,7 +83,7 @@ export default function CompareBothPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB}>Trova</button>
+        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB || busy}>{busy ? <><span className="spinner" /> Elaborazione…</> : 'Trova'}</button>
         <button className="btn btn-secondary" onClick={saveConds}>Salva condizioni</button>
         {saved && <span style={{ color: 'var(--c-success)', fontSize: 13 }}>Salvato ✓</span>}
         {pairs && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}

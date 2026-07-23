@@ -97,6 +97,16 @@ export default function AdesioniPage() {
     }
   }
 
+  // Numerazione progressiva: avanza il suggerimento e lo persiste nel browser.
+  function advanceNumbering() {
+    const cur = String(record.identificativo || '')
+    if (cur) {
+      const nxt = nextIdentificativo(cur)
+      localStorage.setItem(NUM_KEY, nxt)
+      setRecord((prev) => ({ ...prev, identificativo: nxt }))
+    }
+  }
+
   async function save() {
     if (!validateNow(record)) return
     setBusy(true); setMsg(null)
@@ -109,13 +119,27 @@ export default function AdesioniPage() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || 'Errore salvataggio')
       setMsg({ ok: true, text: 'Record salvato in archivio.' })
-      // Numerazione progressiva: avanza il suggerimento e lo persiste nel browser.
-      const cur = String(record.identificativo || '')
-      if (cur) {
-        const nxt = nextIdentificativo(cur)
-        localStorage.setItem(NUM_KEY, nxt)
-        setRecord((prev) => ({ ...prev, identificativo: nxt }))
-      }
+      advanceNumbering()
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Azione unica (come il desktop): salva in archivio E genera i documenti.
+  async function generateAndSave() {
+    if (!validateNow(record)) return
+    setBusy(true); setMsg(null)
+    try {
+      const sres = await fetch('/api/adesioni/records', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record }) })
+      const sd = await sres.json()
+      if (!sres.ok) throw new Error(sd.error || 'Errore salvataggio')
+      const gres = await fetch('/api/adesioni/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records: [record], pdf: true }) })
+      if (!gres.ok) throw new Error((await gres.json()).error || 'Errore generazione')
+      downloadBlob(await gres.blob(), 'adesione.zip')
+      setMsg({ ok: true, text: 'Record salvato e documenti generati (docx + PDF + tracciato).' })
+      advanceNumbering()
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
     } finally {
@@ -161,10 +185,11 @@ export default function AdesioniPage() {
       )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={generate} disabled={busy}>
-          {busy ? <><span className="spinner" /> Generazione…</> : 'Genera modulo (docx + PDF + tracciato)'}
+        <button className="btn btn-primary" onClick={generateAndSave} disabled={busy}>
+          {busy ? <><span className="spinner" /> Elaborazione…</> : 'Genera e salva'}
         </button>
-        <button className="btn btn-secondary" onClick={save} disabled={busy}>Salva in archivio</button>
+        <button className="btn btn-secondary" onClick={generate} disabled={busy}>Solo genera (docx + PDF + tracciato)</button>
+        <button className="btn btn-secondary" onClick={save} disabled={busy}>Solo salva in archivio</button>
       </div>
     </>
   )

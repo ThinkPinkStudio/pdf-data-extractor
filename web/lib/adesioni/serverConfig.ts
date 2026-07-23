@@ -20,3 +20,18 @@ export async function getAdesioniConfig(): Promise<AdesioniConfig> {
 export function adesioniAssetPath(...parts: string[]): string {
   return path.join(process.cwd(), 'assets', 'adesioni', ...parts)
 }
+
+// Config di rendering (template HTML + allegati) — server-only, usata da pdfRender.
+export interface RenderConfig {
+  templateId: string
+  templateHtml: string
+  attachments: Array<{ name: string; dataBase64: string }>
+}
+export async function getRenderConfig(): Promise<RenderConfig> {
+  const s = await getSettings()
+  return {
+    templateId: s.adesioniTemplateId || 'default',
+    templateHtml: s.adesioniTemplateHtml || '',
+    attachments: Array.isArray(s.adesioniAttachments) ? s.adesioniAttachments : [],
+  }
+}

@@ -15,18 +15,27 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = (await req.json()) as { target?: 'staging' | 'prod'; ids?: string[]; test?: boolean }
+  const body = (await req.json()) as { target?: 'staging' | 'prod'; ids?: string[]; test?: boolean; profile?: Record<string, unknown> }
   const target = body.target === 'prod' ? 'prod' : 'staging'
   const full = await getAdesioniFullSettings()
   const profile = full.ftp[target]
 
   try {
     if (body.test) {
-      const res = await testFtp(profile)
+      // Test coi valori correnti del form (se inviati): i segreti mascherati '***'
+      // ricadono su quelli salvati, così si testa ciò che si vede a schermo.
+      let testProfile = profile
+      if (body.profile) {
+        const merged = { ...profile, ...body.profile } as unknown as Record<string, unknown>
+        const base = profile as unknown as Record<string, unknown>
+        for (const k of ['pass', 'passphrase', 'privateKey']) if (merged[k] === '***') merged[k] = base[k]
+        testProfile = merged as unknown as typeof profile
+      }
+      const res = await testFtp(testProfile)
       return NextResponse.json(res)
     }
 
-    const rows = body.ids && body.ids.length ? await getRecordsByIds(body.ids, session.email) : await listRecords(session.email)
+    const rows = body.ids && body.ids.length ? await getRecordsByIds(body.ids) : await listRecords()
     const buffer = await writeTrackBuffer(rows.map((r) => r.data), full)
     const filename = `tracciato_${target}.xlsx`
     const up = await uploadBufferToFtp(profile, buffer, filename)

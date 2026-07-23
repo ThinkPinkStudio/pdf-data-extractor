@@ -125,6 +125,18 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px var(--c-accent-faint);
 }
 input::placeholder, textarea::placeholder { color: var(--c-text-muted); }
+/* Reset per checkbox/radio: la regola generica sopra (width:100%, padding, border)
+   li stirerebbe a rettangoli giganti. */
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+input[type="checkbox"]:focus, input[type="radio"]:focus { box-shadow: none; }
+input[type="color"] { padding: 2px; }
 
 /* ─── Buttons ────────────────────────────────────────────────────────── */
 button, .btn {

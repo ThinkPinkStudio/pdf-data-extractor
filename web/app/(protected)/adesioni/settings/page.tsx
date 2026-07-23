@@ -1,18 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { SmtpConfig, FtpConfig, ExportNotify } from '@/lib/adesioni/settingsWeb'
-import { defaultAdesioniConfig, type AdesioniField, type PrezzoRow } from '@/lib/adesioni/config'
+import type { SmtpConfig, FtpConfig, ExportNotify, Attachment } from '@/lib/adesioni/settingsWeb'
+import { type AdesioniField, type PrezzoRow, type IddQuestion } from '@/lib/adesioni/config'
+import { isValidExpr } from '@/lib/adesioni/expr.js'
+import AdesioniFieldsEditor from '@/components/AdesioniFieldsEditor'
 
 interface FullSettings {
   fields: AdesioniField[]
+  idd: IddQuestion[]
   prezzi: Record<string, PrezzoRow>
   dateOffsetDays: number
   exportNotify: ExportNotify
   smtp: SmtpConfig
   ftp: { staging: FtpConfig; prod: FtpConfig }
+  templateId: string
+  templateHtml: string
+  attachments: Attachment[]
 }
-type Preset = { fields: AdesioniField[]; prezzi: Record<string, PrezzoRow>; dateOffsetDays: number }
+type Preset = Partial<FullSettings>
 
 export default function AdesioniSettingsPage() {
   const [s, setS] = useState<FullSettings | null>(null)
@@ -21,10 +27,12 @@ export default function AdesioniSettingsPage() {
   const [ftpTest, setFtpTest] = useState<Record<string, { ok: boolean; text: string }>>({})
   const [presets, setPresets] = useState<Record<string, Preset>>({})
   const [presetName, setPresetName] = useState('')
+  const [placeholders, setPlaceholders] = useState<string[]>([])
 
   useEffect(() => {
     fetch('/api/adesioni/settings').then((r) => { if (!r.ok) throw new Error(); return r.json() }).then(setS).catch(() => setLoadErr(true))
     fetch('/api/settings').then((r) => r.json()).then((d) => { if (d.adesioniProfiles) setPresets(d.adesioniProfiles) }).catch(() => {})
+    fetch('/api/adesioni/template').then((r) => r.json()).then((d) => setPlaceholders([...(d.docxPlaceholders || []), ...(d.htmlPlaceholders || [])])).catch(() => {})
   }, [])
 
   if (loadErr) return <><h1 className="page-title">Configurazioni</h1><div className="alert alert-error">Impossibile caricare le impostazioni. Ricarica la pagina o verifica la connessione al server.</div></>
@@ -40,7 +48,7 @@ export default function AdesioniSettingsPage() {
   async function testFtp(kind: 'staging' | 'prod') {
     setFtpTest((t) => ({ ...t, [kind]: { ok: false, text: 'Verifica…' } }))
     try {
-      const res = await fetch('/api/adesioni/ftp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: kind, test: true }) })
+      const res = await fetch('/api/adesioni/ftp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: kind, test: true, profile: s!.ftp[kind] }) })
       const d = await res.json()
       setFtpTest((t) => ({ ...t, [kind]: res.ok && d.ok ? { ok: true, text: `Connesso · ${d.dir || ''}` } : { ok: false, text: d.error || 'Connessione fallita' } }))
     } catch (e) {
@@ -55,11 +63,22 @@ export default function AdesioniSettingsPage() {
   }
   async function saveAsPreset() {
     const name = presetName.trim(); if (!name) return
-    await savePresets({ ...presets, [name]: { fields: s!.fields, prezzi: s!.prezzi, dateOffsetDays: s!.dateOffsetDays } })
+    // Snapshot completo (esclusi i segreti SMTP/FTP).
+    await savePresets({ ...presets, [name]: { fields: s!.fields, idd: s!.idd, prezzi: s!.prezzi, dateOffsetDays: s!.dateOffsetDays, templateId: s!.templateId, templateHtml: s!.templateHtml, attachments: s!.attachments } })
     setPresetName('')
   }
   function loadPreset(name: string) {
-    const p = presets[name]; if (p) setS({ ...s!, fields: p.fields, prezzi: p.prezzi, dateOffsetDays: p.dateOffsetDays })
+    const p = presets[name]; if (!p) return
+    setS({
+      ...s!,
+      fields: p.fields ?? s!.fields,
+      idd: p.idd ?? s!.idd,
+      prezzi: p.prezzi ?? s!.prezzi,
+      dateOffsetDays: p.dateOffsetDays ?? s!.dateOffsetDays,
+      templateId: p.templateId ?? s!.templateId,
+      templateHtml: p.templateHtml ?? s!.templateHtml,
+      attachments: p.attachments ?? s!.attachments,
+    })
   }
   async function deletePreset(name: string) { const n = { ...presets }; delete n[name]; await savePresets(n) }
   function exportPresets() {
@@ -69,9 +88,6 @@ export default function AdesioniSettingsPage() {
   async function importPresets(file: File | undefined) {
     if (!file) return
     try { await savePresets({ ...presets, ...JSON.parse(await file.text()) }) } catch { /* ignora */ }
-  }
-  function resetFields() {
-    if (confirm('Ripristinare i campi predefiniti? Le personalizzazioni ai campi andranno perse.')) setS({ ...s!, fields: defaultAdesioniConfig().fields })
   }
 
   return (
@@ -91,7 +107,10 @@ export default function AdesioniSettingsPage() {
                     <td style={{ fontFamily: 'var(--font-mono)' }}>{code}</td>
                     <td><input value={s.prezzi[code].pacchetto || ''} onChange={(e) => upPrezzo(code, { pacchetto: e.target.value })} style={{ width: 80 }} aria-label={`Pacchetto ${code}`} /></td>
                     <td><input value={s.prezzi[code].premio || ''} onChange={(e) => upPrezzo(code, { premio: e.target.value })} style={{ width: 90 }} aria-label={`Premio ${code}`} /></td>
-                    <td><input value={s.prezzi[code].formula || ''} onChange={(e) => upPrezzo(code, { formula: e.target.value })} placeholder="es. premio * 2" aria-label={`Formula ${code}`} /></td>
+                    <td>
+                      <input value={s.prezzi[code].formula || ''} onChange={(e) => upPrezzo(code, { formula: e.target.value })} placeholder="es. premio * 2" aria-label={`Formula ${code}`} style={s.prezzi[code].formula && !isValidExpr(s.prezzi[code].formula, { premio: 0 }) ? { borderColor: 'var(--c-error)' } : undefined} />
+                      {s.prezzi[code].formula && !isValidExpr(s.prezzi[code].formula, { premio: 0 }) && <span style={{ fontSize: 11, color: 'var(--c-error)' }}>Formula non valida</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -109,25 +128,63 @@ export default function AdesioniSettingsPage() {
           </div>
         </div>
 
-        {/* Campi maschera */}
+        {/* Campi maschera — editor completo */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700 }}>Campi della maschera</h2>
-            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={resetFields}>Ripristina predefiniti</button>
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Campi della maschera</h2>
+          <AdesioniFieldsEditor fields={s.fields} onChange={(f) => setS({ ...s, fields: f })} placeholders={placeholders} />
+        </div>
+
+        {/* Template HTML del modulo */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Template del modulo (PDF)</h2>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+              <input type="radio" name="tpl" checked={s.templateId !== 'custom'} onChange={() => setS({ ...s, templateId: 'default' })} /> Predefinito (AXA)
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+              <input type="radio" name="tpl" checked={s.templateId === 'custom'} onChange={() => setS({ ...s, templateId: 'custom' })} /> Personalizzato
+            </label>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 80px 90px', gap: 8, fontSize: 11, color: 'var(--c-text-muted)', textTransform: 'uppercase' }}>
-              <span>Attivo</span><span>Etichetta</span><span>Obblig.</span><span>Max</span>
+          {s.templateId === 'custom' && (
+            <>
+              <label className="btn btn-secondary" style={{ cursor: 'pointer', marginBottom: 8 }}>
+                Carica HTML del modulo
+                <input type="file" accept=".html,.xhtml,.htm" style={{ display: 'none' }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, templateHtml: await f.text() }) }} />
+              </label>
+              <textarea value={s.templateHtml} onChange={(e) => setS({ ...s, templateHtml: e.target.value })} rows={6} style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 11 }} placeholder="HTML del modulo con segnaposto {{campo}}…" />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>I riferimenti relativi (font/immagini) risolvono agli asset del template predefinito. Usa i segnaposto <code>{'{{campo}}'}</code>.</p>
+            </>
+          )}
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>Segnaposto rilevati nel template attivo: {placeholders.length ? placeholders.join(', ') : '—'}</p>
+        </div>
+
+        {/* Allegati PDF */}
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700 }}>Allegati PDF</h2>
+            <label className="btn btn-secondary" style={{ cursor: 'pointer', fontSize: 12, padding: '4px 10px' }}>
+              + Aggiungi PDF
+              <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={async (e) => {
+                const f = e.target.files?.[0]; if (!f) return
+                const b64 = btoa(String.fromCharCode(...new Uint8Array(await f.arrayBuffer())))
+                setS({ ...s, attachments: [...s.attachments, { name: f.name, dataBase64: b64 }] })
+              }} />
+            </label>
+          </div>
+          {s.attachments.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--c-text-muted)', margin: 0 }}>Nessun allegato personalizzato: verrà accodato il DIP incluso.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {s.attachments.map((a, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ flex: 1, fontSize: 14 }}>{i + 1}. {a.name}</span>
+                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} disabled={i === 0} onClick={() => { const n = [...s.attachments];[n[i - 1], n[i]] = [n[i], n[i - 1]]; setS({ ...s, attachments: n }) }} title="Su">↑</button>
+                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} disabled={i === s.attachments.length - 1} onClick={() => { const n = [...s.attachments];[n[i + 1], n[i]] = [n[i], n[i + 1]]; setS({ ...s, attachments: n }) }} title="Giù">↓</button>
+                  <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setS({ ...s, attachments: s.attachments.filter((_, j) => j !== i) })} title="Rimuovi">✕</button>
+                </div>
+              ))}
             </div>
-            {s.fields.map((f, i) => (
-              <div key={f.id} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 80px 90px', gap: 8, alignItems: 'center' }}>
-                <input type="checkbox" checked={f.enabled !== false} onChange={(e) => setS({ ...s, fields: s.fields.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x) })} aria-label={`${f.label} attivo`} />
-                <input value={f.label} onChange={(e) => setS({ ...s, fields: s.fields.map((x, j) => j === i ? { ...x, label: e.target.value } : x) })} aria-label="Etichetta campo" />
-                <input type="checkbox" checked={!!f.required} disabled={f.type === 'fixed'} onChange={(e) => setS({ ...s, fields: s.fields.map((x, j) => j === i ? { ...x, required: e.target.checked } : x) })} aria-label={`${f.label} obbligatorio`} />
-                <input type="number" value={f.maxLength ?? ''} placeholder="—" onChange={(e) => setS({ ...s, fields: s.fields.map((x, j) => j === i ? { ...x, maxLength: e.target.value ? parseInt(e.target.value, 10) : undefined } : x) })} style={{ width: 80 }} aria-label="Lunghezza massima" />
-              </div>
-            ))}
-          </div>
+          )}
         </div>
 
         {/* SMTP */}
@@ -169,7 +226,7 @@ export default function AdesioniSettingsPage() {
               <button className="btn btn-secondary" onClick={() => testFtp(kind)}>Testa connessione</button>
               {ftpTest[kind] && <span style={{ fontSize: 12, color: ftpTest[kind].ok ? 'var(--c-success)' : 'var(--c-error)' }}>{ftpTest[kind].text}</span>}
             </div>
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>Salva prima le modifiche: il test usa la configurazione salvata sul server.</p>
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>Il test usa i valori qui sopra; le password lasciate a «•••» usano quelle già salvate.</p>
           </div>
         ))}
 

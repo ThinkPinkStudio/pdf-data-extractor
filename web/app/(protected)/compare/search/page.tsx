@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
 import CompareConditions from '@/components/CompareConditions'
-import { runInclusionSearch, sheetRows, type Condition, type Row } from '@/lib/compare/engine'
+import { sheetRows, type Condition, type Row } from '@/lib/compare/engine'
+import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
 const SEARCH_MODES: { value: 'contains' | 'equals'; label: string }[] = [
@@ -20,16 +21,23 @@ export default function CompareSearchPage() {
   const [results, setResults] = useState<Array<{ rowA: Row; matches: Row[] }> | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [saved, setSaved] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => { setConditions(config.searchConditions) }, [config.searchConditions])
 
-  function run() {
+  async function run() {
     if (!fileA || !fileB) return
     const active = conditions.filter((c) => c.columnA && c.columnB)
     const dataA = sheetRows(fileA.wb, active, 'a')
     const dataB = sheetRows(fileB.wb, active, 'b')
-    setResults(runInclusionSearch(dataA, dataB, active))
-    setFilter('all')
+    setBusy(true)
+    try {
+      const res = await runInWorker<Array<{ rowA: Row; matches: Row[] }>>({ kind: 'search', dataA, dataB, conditions: active })
+      setResults(res)
+      setFilter('all')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function saveConds() {
@@ -86,7 +94,7 @@ export default function CompareSearchPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB}>Cerca</button>
+        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB || busy}>{busy ? <><span className="spinner" /> Elaborazione…</> : 'Cerca'}</button>
         {results && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
         {results && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}><strong>{results.length}</strong> righe A analizzate · <strong>{withMatches.length}</strong> con riscontro · <strong>{withoutMatches.length}</strong> senza</span>}
       </div>

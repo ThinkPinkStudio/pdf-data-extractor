@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-interface Log { id: number; timestamp: string; action: string; resource: string | null; metadata: string | null; success: boolean }
+interface Log { id: number; timestamp: string; email: string | null; action: string; resource: string | null; metadata: string | null; success: boolean }
 
 export default function AdesioniRegistroPage() {
   const [logs, setLogs] = useState<Log[]>([])
@@ -12,10 +12,10 @@ export default function AdesioniRegistroPage() {
   }, [])
 
   function exportCsv() {
-    const head = ['timestamp', 'action', 'resource', 'metadata', 'success']
+    const head = ['timestamp', 'operatore', 'action', 'resource', 'metadata', 'success']
     const lines = [head.join(',')]
     logs.forEach((l) => {
-      lines.push([l.timestamp, l.action, l.resource || '', (l.metadata || '').replace(/"/g, '""'), l.success].map((v) => `"${String(v)}"`).join(','))
+      lines.push([l.timestamp, l.email || '', l.action, l.resource || '', (l.metadata || '').replace(/"/g, '""'), l.success].map((v) => `"${String(v)}"`).join(','))
     })
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -35,11 +35,12 @@ export default function AdesioniRegistroPage() {
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna voce nel registro.</div>
         ) : (
           <table>
-            <thead><tr><th>Data/ora</th><th>Azione</th><th>Risorsa</th><th>Dettagli</th><th>Esito</th></tr></thead>
+            <thead><tr><th>Data/ora</th><th>Operatore</th><th>Azione</th><th>Risorsa</th><th>Dettagli</th><th>Esito</th></tr></thead>
             <tbody>
               {logs.map((l) => (
                 <tr key={l.id}>
                   <td>{new Date(l.timestamp).toLocaleString('it-IT')}</td>
+                  <td style={{ fontSize: 12 }}>{l.email || '—'}</td>
                   <td>{l.action}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{l.resource || ''}</td>
                   <td style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{l.metadata || ''}</td>

@@ -70,10 +70,12 @@ export default function AdesioniRecordForm({
         </div>
       ))}
 
-      {isA && config.idd.length > 0 && (
+      {config.idd.length > 0 && (
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Questionario IDD</h2>
-          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>Compilato solo per Tipo movimento = A (Attivazione).</p>
+          <p style={{ fontSize: 12, color: isA ? 'var(--c-text-muted)' : 'var(--c-warning)', marginTop: 0, marginBottom: 14 }}>
+            {isA ? 'Le risposte finiscono nel tracciato (Tipo movimento = A).' : 'Compilabile, ma le risposte finiscono nel tracciato solo con Tipo movimento = A.'}
+          </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {config.idd.map((q) => (
               <div className="form-group" key={q.domanda} style={{ margin: 0 }}>
