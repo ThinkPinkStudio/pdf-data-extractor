@@ -1,10 +1,11 @@
 // Web Worker per i calcoli O(nA·nB) di Ricerca e In Entrambi: girano fuori dal
 // main thread così la tab non si blocca su portafogli grandi.
-import { runInclusionSearch, runBothMatch, type Row, type Condition } from './engine'
+import { compare, runInclusionSearch, runBothMatch, type Row, type Condition, type MatchKey } from './engine'
 
 type Req =
   | { kind: 'search'; dataA: Row[]; dataB: Row[]; conditions: Condition[] }
   | { kind: 'both'; dataA: Row[]; dataB: Row[]; matchConds: Condition[]; filterConds: Condition[] }
+  | { kind: 'compare'; dataA: Row[]; dataB: Row[]; keys: MatchKey[]; minOverlap: number; broadOpts: { enabled: boolean; minOverlap: number } }
 
 const ctx = self as unknown as Worker
 
@@ -13,8 +14,10 @@ ctx.onmessage = (e: MessageEvent<Req>) => {
   try {
     if (msg.kind === 'search') {
       ctx.postMessage({ ok: true, result: runInclusionSearch(msg.dataA, msg.dataB, msg.conditions) })
-    } else {
+    } else if (msg.kind === 'both') {
       ctx.postMessage({ ok: true, result: runBothMatch(msg.dataA, msg.dataB, msg.matchConds, msg.filterConds) })
+    } else {
+      ctx.postMessage({ ok: true, result: compare(msg.dataA, msg.dataB, msg.keys, msg.minOverlap, msg.broadOpts) })
     }
   } catch (err) {
     ctx.postMessage({ ok: false, error: (err as Error).message })

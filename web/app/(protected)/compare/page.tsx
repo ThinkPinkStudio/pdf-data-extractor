@@ -3,27 +3,42 @@
 import { useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
-import { compare, sheetRows, type CompareResult, type Row } from '@/lib/compare/engine'
+import { sheetRows, type CompareResult, type Row } from '@/lib/compare/engine'
+import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
 type Filter = 'all' | 'only-a' | 'only-b' | 'fuzzy'
 
 export default function ComparePage() {
-  const { fileA, fileB, config } = useCompare()
+  const { fileA, fileB, setFileA, setFileB, config } = useCompare()
   const [result, setResult] = useState<CompareResult | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  const [busy, setBusy] = useState(false)
 
-  const enabledKeys = useMemo(() => config.matchKeys.filter((k) => k.enabled !== false && (k.columnA || k.columnB || k.column)), [config.matchKeys])
+  const enabledKeys = useMemo(() => config.matchKeys.filter((k) => k.enabled !== false && (k.columnA || k.column)), [config.matchKeys])
 
-  function run() {
+  async function run() {
     if (!fileA || !fileB) return
     const dataA = sheetRows(fileA.wb, enabledKeys, 'a')
     const dataB = sheetRows(fileB.wb, enabledKeys, 'b')
-    const res = compare(dataA, dataB, enabledKeys, config.fuzzyMinOverlap, {
-      enabled: config.fuzzyBroadEnabled,
-      minOverlap: config.fuzzyMinOverlapBroad,
-    })
-    setResult(res)
+    setBusy(true)
+    try {
+      const res = await runInWorker<CompareResult>({
+        kind: 'compare', dataA, dataB, keys: enabledKeys,
+        minOverlap: config.fuzzyMinOverlap,
+        broadOpts: { enabled: config.fuzzyBroadEnabled, minOverlap: config.fuzzyMinOverlapBroad },
+      })
+      setResult(res)
+      setFilter('all')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function reset() {
+    setFileA(null)
+    setFileB(null)
+    setResult(null)
     setFilter('all')
   }
 
@@ -62,22 +77,25 @@ export default function ComparePage() {
 
   function exportXls() {
     if (!result) return
+    const fa = fileA?.name || 'File A'
+    const fb = fileB?.name || 'File B'
     const rows = [
-      ...result.onlyA.map((r) => ({ Origine: 'Solo in A', ...r })),
-      ...result.diffA.map((r) => ({ Origine: 'Verificato — diverso (A)', ...r })),
-      ...result.onlyB.map((r) => ({ Origine: 'Solo in B', ...r })),
-      ...result.diffB.map((r) => ({ Origine: 'Verificato — diverso (B)', ...r })),
+      ...result.onlyA.map((r) => ({ Origine: `Solo in A (${fa})`, ...r })),
+      ...result.diffA.map((r) => ({ Origine: `Solo in A — verificato (${fa})`, ...r })),
+      ...result.onlyB.map((r) => ({ Origine: `Solo in B (${fb})`, ...r })),
+      ...result.diffB.map((r) => ({ Origine: `Solo in B — verificato (${fb})`, ...r })),
     ]
     downloadRows(rows, 'differenze_portafogli.xlsx')
   }
 
   return (
     <>
-      <h1 className="page-title">Comparazione</h1>
+      <h1 className="page-title">Comparazione Portafogli</h1>
       <CompareFileBar />
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB}>Confronta</button>
+        <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB || busy}>{busy ? <><span className="spinner" /> Analisi in corso…</> : 'Confronta'}</button>
+        {(fileA || fileB || result) && <button className="btn btn-secondary" onClick={reset}>Azzera</button>}
         {result && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
         {result && (
           <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>
@@ -86,6 +104,12 @@ export default function ComparePage() {
           </span>
         )}
       </div>
+
+      {!result && !busy && (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: 40 }}>
+          Carica i due file e premi <strong>Confronta</strong> per iniziare la comparazione.
+        </div>
+      )}
 
       {result && (
         <>
@@ -124,7 +148,7 @@ export default function ComparePage() {
                   <tbody>
                     {tableRows.map((row, i) => (
                       <tr key={i}>
-                        <td><span style={{ color: row.__source === 'A' ? 'var(--c-info)' : 'var(--c-accent)', fontWeight: 700 }}>{row.__source}</span></td>
+                        <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: row.__source === 'A' ? 'var(--c-info)' : 'var(--c-accent)', fontWeight: 700 }}>{row.__source}</span> <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>— {row.__source === 'A' ? (fileA?.name || 'File A') : (fileB?.name || 'File B')}</span></td>
                         {columns.map((c) => <td key={c} title={String(row[c] ?? '')}>{String(row[c] ?? '')}</td>)}
                       </tr>
                     ))}
@@ -149,11 +173,13 @@ function FuzzyList({ result, onDecide }: { result: CompareResult; onDecide: (idx
         const cols = Array.from(new Set([...Object.keys(pair.rowA), ...Object.keys(pair.rowB)]))
         return (
           <div key={idx} className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: 'var(--c-text-muted)', textTransform: 'uppercase' }}>
-                Coppia da verificare · match {pair.kind === 'broad' ? 'ampio' : 'per chiave'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                {pair.kind === 'broad'
+                  ? '🔎 Corrispondenza estesa (solo lettere/numeri, tutte le colonne) — verificare manualmente'
+                  : 'Corrispondenza parziale — verificare manualmente'}
               </span>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                 <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'accept')}>✓ Stessa polizza</button>
                 <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'reject')}>✗ Polizze diverse</button>
               </div>
