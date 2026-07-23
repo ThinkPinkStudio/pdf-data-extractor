@@ -8,12 +8,8 @@ export async function GET() {
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const s = await getSettings()
-  // Never return secrets to client (only whether they are set)
-  return NextResponse.json({
-    ...s,
-    openaiApiKey: s.openaiApiKey ? '***' : '',
-    anthropicApiKey: s.anthropicApiKey ? '***' : '',
-  })
+  // Solo Ollama: nessuna API key cloud da esporre.
+  return NextResponse.json(s)
 }
 
 export async function POST(req: NextRequest) {
@@ -26,8 +22,9 @@ export async function POST(req: NextRequest) {
 
   // Campi consentiti (whitelist). I segreti non vengono sovrascritti se arriva il placeholder ***.
   const allowed: (keyof WebSettings)[] = [
-    'llmProvider', 'llmModel', 'ollamaUrl', 'openaiModel', 'anthropicModel', 'ollamaModel',
-    'ollamaVisionModel', 'anthropicVisionModel', 'polizzaOcrEnabled', 'polizzaWholeDossier',
+    // Solo Ollama: chiavi OpenAI/Anthropic rimosse dalla whitelist.
+    'llmProvider', 'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
+    'polizzaOcrEnabled', 'polizzaWholeDossier',
     'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames',
@@ -44,9 +41,6 @@ export async function POST(req: NextRequest) {
   for (const k of allowed) {
     if (body[k] !== undefined) (update as Record<string, unknown>)[k] = body[k]
   }
-  if (body.openaiApiKey && body.openaiApiKey !== '***') update.openaiApiKey = body.openaiApiKey
-  if (body.anthropicApiKey && body.anthropicApiKey !== '***') update.anthropicApiKey = body.anthropicApiKey
-  // Mantieni i segreti esistenti se non aggiornati (no-op: già persistiti)
   void current
 
   await saveSettings(update)

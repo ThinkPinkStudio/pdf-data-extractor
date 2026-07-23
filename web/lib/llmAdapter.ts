@@ -46,30 +46,7 @@ export async function extractFields(pdfPath: string, fieldList: string[]): Promi
 
   const contextChunks = searchChunks(fieldList.join(' '), chunks, 6)
 
-  // Modelli per-provider (già derivati con fallback "sicuro" da settingsStore):
-  // MAI passare il legacy llmModel condiviso a un provider diverso da quello per
-  // cui è stato scritto (es. modello Claude inviato a Ollama → 404).
-  if (stored.llmProvider === 'openai') {
-    const result = (await llm.extractDataOpenAI(
-      stored.openaiApiKey,
-      stored.openaiModel || 'gpt-4o-mini',
-      fields,
-      contextChunks
-    )) as Record<string, string>
-    return fieldList.map((name) => ({ name, value: result[name] ?? '' }))
-  }
-
-  if (stored.llmProvider === 'anthropic') {
-    const result = (await llm.extractDataAnthropic(
-      stored.anthropicApiKey,
-      stored.anthropicModel || 'claude-haiku-4-5-20251001',
-      fields,
-      contextChunks
-    )) as Record<string, string>
-    return fieldList.map((name) => ({ name, value: result[name] ?? '' }))
-  }
-
-  // Ollama default
+  // Solo Ollama (OpenAI/Anthropic rimossi dal prodotto).
   const result = (await llm.extractData(
     stored.ollamaUrl || 'http://localhost:11434',
     stored.ollamaModel || 'llama3',

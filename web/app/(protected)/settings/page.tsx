@@ -9,13 +9,8 @@ interface Settings {
   llmProvider: string
   llmModel: string
   ollamaUrl: string
-  openaiApiKey: string
-  anthropicApiKey: string
-  openaiModel?: string
-  anthropicModel?: string
   ollamaModel?: string
   ollamaVisionModel?: string
-  anthropicVisionModel?: string
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
   polizzaPerField?: boolean
@@ -31,7 +26,7 @@ interface Settings {
 
 const DEFAULTS: Settings = {
   llmProvider: 'ollama', llmModel: '', ollamaUrl: 'http://localhost:11434',
-  openaiApiKey: '', anthropicApiKey: '', polizzaOcrEnabled: true, polizzaWholeDossier: false,
+  polizzaOcrEnabled: true, polizzaWholeDossier: false,
 }
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -54,7 +49,7 @@ export default function SettingsPage() {
   const [s, setS] = useState<Settings>(DEFAULTS)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ provider: string; ok: boolean; msg: string } | null>(null)
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [ollama, setOllama] = useState<{ connected: boolean; models: string[] } | null>(null)
 
   useEffect(() => {
@@ -64,7 +59,7 @@ export default function SettingsPage() {
   const checkOllama = useCallback((url: string) => {
     fetch('/api/settings/ollama-status?url=' + encodeURIComponent(url)).then((r) => r.json()).then(setOllama).catch(() => setOllama({ connected: false, models: [] }))
   }, [])
-  useEffect(() => { if (s.llmProvider === 'ollama' && s.ollamaUrl) checkOllama(s.ollamaUrl) }, [s.llmProvider, s.ollamaUrl, checkOllama])
+  useEffect(() => { if (s.ollamaUrl) checkOllama(s.ollamaUrl) }, [s.ollamaUrl, checkOllama])
 
   function up<K extends keyof Settings>(k: K, v: Settings[K]) { setS((p) => ({ ...p, [k]: v })); setSaved(false); setTestResult(null) }
 
@@ -81,100 +76,64 @@ export default function SettingsPage() {
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rest) })
     setSaved(true)
   }
-  async function handleTest(provider?: string) {
-    const prov = provider || s.llmProvider
+  async function handleTest() {
     setTesting(true); setTestResult(null)
-    const res = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...s, llmProvider: prov }) })
+    const res = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ llmProvider: 'ollama', ollamaUrl: s.ollamaUrl, llmModel: s.ollamaModel || s.llmModel }) })
     const d = await res.json()
-    setTestResult({ provider: prov, ok: d.ok, msg: d.message || (d.ok ? t('set.connOk') : t('set.connFail')) })
+    setTestResult({ ok: d.ok, msg: d.message || (d.ok ? t('set.connOk') : t('set.connFail')) })
     setTesting(false)
   }
-
-  const isCloud = s.llmProvider === 'openai' || s.llmProvider === 'anthropic'
 
   return (
     <>
       <h1 className="page-title">{t('set.title')}</h1>
       <form onSubmit={handleSave} style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Provider LLM */}
+        {/* Provider LLM — SOLO Ollama (locale) */}
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{t('set.providerSection')}</h2>
+
           <div className="form-group">
-            <label className="label">{t('set.provider')}</label>
-            <select value={s.llmProvider} onChange={(e) => up('llmProvider', e.target.value)}>
-              <option value="ollama">{t('set.ollamaLocal')}</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </div>
-          {isCloud && (
-            <div className="alert alert-error" style={{ marginBottom: 16 }}>
-              {t('set.gdprWarning')}
+            <label className="label">{t('set.ollamaUrl')}</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="url" value={s.ollamaUrl} onChange={(e) => up('ollamaUrl', e.target.value)} placeholder="http://localhost:11434" />
+              <button type="button" className="btn btn-secondary" onClick={() => checkOllama(s.ollamaUrl)} style={{ flexShrink: 0 }}>{t('set.verify')}</button>
             </div>
-          )}
-
-          {s.llmProvider === 'ollama' && (
-            <>
-              <div className="form-group">
-                <label className="label">{t('set.ollamaUrl')}</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input type="url" value={s.ollamaUrl} onChange={(e) => up('ollamaUrl', e.target.value)} placeholder="http://localhost:11434" />
-                  <button type="button" className="btn btn-secondary" onClick={() => checkOllama(s.ollamaUrl)} style={{ flexShrink: 0 }}>{t('set.verify')}</button>
-                </div>
-                {ollama && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: ollama.connected ? 'var(--c-success)' : 'var(--c-error)' }} />
-                    {ollama.connected ? t('set.connected', { n: ollama.models.length }) : t('set.notReachable')}
-                  </div>
-                )}
+            {ollama && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: ollama.connected ? 'var(--c-success)' : 'var(--c-error)' }} />
+                {ollama.connected ? t('set.connected', { n: ollama.models.length }) : t('set.notReachable')}
               </div>
-              <div className="form-group">
-                <label className="label">{t('set.textModel')}</label>
-                {ollama?.models?.length
-                  ? <select value={s.ollamaModel || s.llmModel} onChange={(e) => { up('ollamaModel', e.target.value); up('llmModel', e.target.value) }}>
-                      <option value="">{t('set.selectPlaceholder')}</option>
-                      {ollama.models.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  : <input value={s.ollamaModel || s.llmModel} onChange={(e) => { up('ollamaModel', e.target.value); up('llmModel', e.target.value) }} placeholder="es. llama3" />}
-              </div>
-              <div className="form-group">
-                <label className="label">{t('set.visionModelOllama')}</label>
-                <input value={s.ollamaVisionModel || ''} onChange={(e) => up('ollamaVisionModel', e.target.value)} placeholder="es. llama3.2-vision" />
-              </div>
-            </>
-          )}
-
-          {s.llmProvider === 'openai' && (
-            <>
-              <div className="form-group"><label className="label">{t('set.apiKeyOpenAI')}</label>
-                <input type="password" value={s.openaiApiKey} onChange={(e) => up('openaiApiKey', e.target.value)} placeholder="sk-..." /></div>
-              <div className="form-group"><label className="label">{t('set.model')}</label>
-                <input value={s.openaiModel || s.llmModel} onChange={(e) => { up('openaiModel', e.target.value); up('llmModel', e.target.value) }} placeholder="es. gpt-4o" /></div>
-            </>
-          )}
-
-          {s.llmProvider === 'anthropic' && (
-            <>
-              <div className="form-group"><label className="label">{t('set.apiKeyAnthropic')}</label>
-                <input type="password" value={s.anthropicApiKey} onChange={(e) => up('anthropicApiKey', e.target.value)} placeholder="sk-ant-..." /></div>
-              <div className="form-group"><label className="label">{t('set.model')}</label>
-                <input value={s.anthropicModel || s.llmModel} onChange={(e) => { up('anthropicModel', e.target.value); up('llmModel', e.target.value) }} placeholder="es. claude-sonnet-4-6" /></div>
-              <div className="form-group"><label className="label">{t('set.visionModelOcr')}</label>
-                <input value={s.anthropicVisionModel || ''} onChange={(e) => up('anthropicVisionModel', e.target.value)} placeholder="es. claude-sonnet-4-6" /></div>
-            </>
-          )}
-
-          {testResult && <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`}>{testResult.provider.toUpperCase()}: {testResult.msg}</div>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => handleTest()} disabled={testing}>
-              {testing ? <><span className="spinner" /> {t('set.testing')}</> : t('set.testConn')}
-            </button>
-            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('set.testProviderHint')}</span>
-            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('ollama')} disabled={testing}>Ollama</button>
-            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('openai')} disabled={testing}>OpenAI</button>
-            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleTest('anthropic')} disabled={testing}>Anthropic</button>
+            )}
           </div>
+
+          <div className="form-group">
+            <label className="label">{t('set.textModel')}</label>
+            {ollama?.models?.length
+              ? <select value={s.ollamaModel || s.llmModel} onChange={(e) => { up('ollamaModel', e.target.value); up('llmModel', e.target.value) }}>
+                  <option value="">{t('set.selectPlaceholder')}</option>
+                  {ollama.models.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              : <input value={s.ollamaModel || s.llmModel} onChange={(e) => { up('ollamaModel', e.target.value); up('llmModel', e.target.value) }} placeholder="es. llama3.1" />}
+          </div>
+
+          <div className="form-group">
+            <label className="label">{t('set.visionModelOllama')}</label>
+            {ollama?.models?.length
+              ? <select value={s.ollamaVisionModel || ''} onChange={(e) => up('ollamaVisionModel', e.target.value)}>
+                  <option value="">{t('set.selectPlaceholder')}</option>
+                  {ollama.models.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              : <input value={s.ollamaVisionModel || ''} onChange={(e) => up('ollamaVisionModel', e.target.value)} placeholder="es. qwen2.5vl" />}
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>
+              Consigliato per l&apos;OCR dei PDF scansionati: <code>qwen2.5vl</code> (oppure <code>minicpm-v</code>, <code>llava</code>). Nota: <code>llama3.2-vision</code> non è caricabile dalle versioni recenti di Ollama (architettura <code>mllama</code> non più supportata).
+            </p>
+          </div>
+
+          {testResult && <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`}>{testResult.msg}</div>}
+          <button type="button" className="btn btn-secondary" onClick={() => handleTest()} disabled={testing}>
+            {testing ? <><span className="spinner" /> {t('set.testing')}</> : t('set.testConn')}
+          </button>
         </div>
 
         {/* Polizze */}

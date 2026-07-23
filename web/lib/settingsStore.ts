@@ -147,7 +147,10 @@ export async function getSettings(): Promise<WebSettings> {
   const llmModel = map.llmModel ?? (process.env.LLM_MODEL || DEFAULTS.llmModel)
 
   return {
-    llmProvider: map.llmProvider ?? (process.env.LLM_PROVIDER || DEFAULTS.llmProvider),
+    // Solo Ollama: OpenAI/Anthropic rimossi dal prodotto. Il provider è forzato
+    // così tutti i rami cloud (adapter, diagnostica, servizi condivisi) non vengono
+    // mai eseguiti, a prescindere da valori legacy salvati o env.
+    llmProvider: 'ollama',
     llmModel,
     ollamaUrl: map.ollamaUrl ?? (process.env.OLLAMA_URL || DEFAULTS.ollamaUrl),
     openaiApiKey: map.openaiApiKey ?? (process.env.OPENAI_API_KEY || DEFAULTS.openaiApiKey),
