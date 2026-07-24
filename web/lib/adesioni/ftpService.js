@@ -151,6 +151,64 @@ async function ftpUpload(profile, protocol, localPath, onProgress) {
 // ─── SFTP (ssh2-sftp-client) ────────────────────────────────────────────────
 // La chiave privata può essere in formato OpenSSH (PEM) o PuTTY (.ppk): ssh2
 // riconosce entrambi. Se cifrata, serve la passphrase.
+//
+// Molti server SFTP "vecchi" (come ftp.ip-assistance.it) offrono solo algoritmi
+// legacy nell'handshake SSH: la libreria Node `ssh2` di default NON li accetta e
+// la negoziazione non converge → il client resta in attesa fino al readyTimeout
+// e l'errore che si vede è un generico "timeout" (mai un handshake fallito
+// esplicito). Lo stesso server risponde a phpseclib perché quest'ultimo è molto
+// più permissivo. Qui riproduciamo quella permissività elencando esplicitamente
+// gli algoritmi: i moderni PRIMA (preferiti quando il server li supporta), i
+// legacy come fallback. Così un solo profilo funziona sia coi server nuovi sia
+// con quelli vecchi.
+const SSH_ALGORITHMS = {
+  kex: [
+    'curve25519-sha256',
+    'curve25519-sha256@libssh.org',
+    'ecdh-sha2-nistp256',
+    'ecdh-sha2-nistp384',
+    'ecdh-sha2-nistp521',
+    'diffie-hellman-group-exchange-sha256',
+    'diffie-hellman-group14-sha256',
+    'diffie-hellman-group16-sha512',
+    'diffie-hellman-group18-sha512',
+    // legacy (server vecchi)
+    'diffie-hellman-group14-sha1',
+    'diffie-hellman-group-exchange-sha1',
+    'diffie-hellman-group1-sha1'
+  ],
+  serverHostKey: [
+    'ssh-ed25519',
+    'ecdsa-sha2-nistp256',
+    'ecdsa-sha2-nistp384',
+    'ecdsa-sha2-nistp521',
+    'rsa-sha2-512',
+    'rsa-sha2-256',
+    // legacy (server vecchi)
+    'ssh-rsa',
+    'ssh-dss'
+  ],
+  cipher: [
+    'aes128-gcm@openssh.com',
+    'aes256-gcm@openssh.com',
+    'aes128-ctr',
+    'aes192-ctr',
+    'aes256-ctr',
+    // legacy (server vecchi)
+    'aes128-cbc',
+    'aes192-cbc',
+    'aes256-cbc',
+    '3des-cbc'
+  ],
+  hmac: [
+    'hmac-sha2-256',
+    'hmac-sha2-512',
+    // legacy (server vecchi)
+    'hmac-sha1',
+    'hmac-sha1-96'
+  ]
+}
+
 function sftpConnectOptions(profile, protocol) {
   const key = String(profile.privateKey || '').trim()
   return {
@@ -160,7 +218,10 @@ function sftpConnectOptions(profile, protocol) {
     password: profile.pass || undefined,
     privateKey: key || undefined,
     passphrase: profile.passphrase || undefined,
-    readyTimeout: 20000
+    // Negoziazione permissiva (moderni + legacy) per i server SFTP datati.
+    algorithms: SSH_ALGORITHMS,
+    // Server lenti al key-exchange: diamo più margine prima di dichiarare timeout.
+    readyTimeout: 30000
   }
 }
 
