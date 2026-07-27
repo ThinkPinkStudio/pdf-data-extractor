@@ -46,10 +46,11 @@ export async function renderModuloPdf(record: Record<string, unknown>, config: A
   const logo = logoDataUri()
   if (logo) data.__logoDataUri = logo
 
-  // Pagine da renderizzare: template custom (una pagina) o predefinito (multi-pagina).
+  // Pagine da renderizzare: HTML risolto (custom o template di libreria, una
+  // pagina) o predefinito multi-pagina (bundle) quando l'HTML è vuoto.
   const tmpFiles: string[] = []
   let pagePaths: string[]
-  if (extras.templateId === 'custom' && extras.templateHtml.trim()) {
+  if (extras.templateHtml.trim()) {
     const baseHref = pathToFileURL(adesioniAssetPath('modulo_html') + path.sep).href
     const tmp = path.join(os.tmpdir(), `csa-modulo-${Date.now()}-${Math.round(process.hrtime()[1])}.xhtml`)
     writeFileSync(tmp, injectBase(extras.templateHtml, baseHref))

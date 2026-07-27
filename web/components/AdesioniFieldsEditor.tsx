@@ -1,6 +1,7 @@
 'use client'
 
 import { defaultAdesioniConfig, type AdesioniField, type AdesioniOption } from '@/lib/adesioni/config'
+import { classifyFieldDocx, unmappedPlaceholders } from '@/lib/adesioni/templateScan.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const FIELD_TYPES = ['text', 'number', 'date', 'email', 'phone', 'select', 'fixed']
@@ -29,6 +30,15 @@ export default function AdesioniFieldsEditor({
       return { value: value.trim(), label: (rest.join('=') || value).trim() }
     })
   const optionsToText = (opts?: AdesioniOption[]) => (opts || []).map((o) => `${o.value}=${o.label}`).join('\n')
+
+  // Badge di stato del "Segnaposto modulo" rispetto al template attivo.
+  const badgeFor = (docx: AdesioniField['docx']) => {
+    const status = classifyFieldDocx(docx, placeholders) as 'ok' | 'mismatch' | 'unset'
+    if (status === 'ok') return { color: 'var(--c-success)', text: t('ad.fieldsEditor.badgeOk') }
+    if (status === 'mismatch') return { color: 'var(--c-error)', text: t('ad.fieldsEditor.badgeMismatch') }
+    return { color: 'var(--c-text-muted)', text: t('ad.fieldsEditor.badgeUnset') }
+  }
+  const unmapped = unmappedPlaceholders(placeholders, fields) as string[]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -59,6 +69,7 @@ export default function AdesioniFieldsEditor({
             </label>
             <label style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('ad.fieldsEditor.docx')}
               <input list="docx-placeholders" value={f.docx ?? ''} onChange={(e) => upd(i, { docx: e.target.value || null })} placeholder={t('ad.fieldsEditor.noneM')} />
+              <span style={{ display: 'inline-block', marginTop: 3, fontSize: 10, fontWeight: 600, color: badgeFor(f.docx).color }}>● {badgeFor(f.docx).text}</span>
             </label>
           </div>
 
@@ -83,6 +94,12 @@ export default function AdesioniFieldsEditor({
           )}
         </div>
       ))}
+
+      {placeholders.length > 0 && (
+        <p style={{ fontSize: 11, color: unmapped.length ? 'var(--c-error)' : 'var(--c-text-muted)', margin: 0 }}>
+          {unmapped.length ? <>{t('ad.fieldsEditor.unmappedTitle')} {unmapped.join(', ')}</> : t('ad.fieldsEditor.unmappedNone')}
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-secondary" onClick={add}>{t('ad.fieldsEditor.addField')}</button>

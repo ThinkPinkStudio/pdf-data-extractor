@@ -453,6 +453,10 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.registro.act.adesioni.export.append': 'Export tracciato (in coda)',
     'ad.registro.act.adesioni.ftp.upload': 'Caricamento FTP',
     'ad.registro.act.adesioni.settings.save': 'Salvataggio configurazione',
+    'ad.registro.act.adesioni.presets.save': 'Preset salvato',
+    'ad.registro.act.adesioni.presets.apply': 'Preset applicato',
+    'ad.registro.act.adesioni.presets.delete': 'Preset eliminato',
+    'ad.registro.act.adesioni.presets.import': 'Preset importato',
 
     // Configurazioni
     'ad.settings.subtitle': 'Personalizza campi, mappature, prezzi e accesso',
@@ -509,7 +513,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.settings.notifyBoth': 'Entrambi',
     'ad.settings.sharedPlaceholder': 'ufficio@dominio.it',
     'ad.settings.presetsTitle': 'Preset di configurazione',
-    'ad.settings.presetsHint': 'Salva/richiama campi, premi e offset date (i segreti SMTP/FTP non sono inclusi nei preset).',
+    'ad.settings.presetsHint': 'Salva/richiama l\'intera configurazione (campi, premi, date, template, SMTP/FTP). I segreti restano sul server e vengono azzerati nell\'export JSON.',
     'ad.settings.presetName': 'Nome preset',
     'ad.settings.savePreset': 'Salva come preset',
     'ad.settings.noPresets': 'Nessun preset salvato.',
@@ -553,6 +557,12 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.fieldsEditor.optionsLabel': 'Opzioni (una per riga, formato',
     'ad.fieldsEditor.addField': '+ Aggiungi campo',
     'ad.fieldsEditor.resetDefaults': 'Ripristina predefiniti',
+    'ad.fieldsEditor.badgeOk': 'Segnaposto valido',
+    'ad.fieldsEditor.badgeMismatch': 'Assente nel template',
+    'ad.fieldsEditor.badgeUnset': 'Nessun segnaposto',
+    'ad.fieldsEditor.unmappedTitle': 'Segnaposto del template non coperti da alcun campo:',
+    'ad.fieldsEditor.unmappedNone': 'Tutti i segnaposto del template sono coperti dai campi.',
+    'ad.settings.importTemplate': 'Importa template',
   },
 
   en: {
@@ -993,6 +1003,10 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.registro.act.adesioni.export.append': 'Track export (append)',
     'ad.registro.act.adesioni.ftp.upload': 'FTP upload',
     'ad.registro.act.adesioni.settings.save': 'Configuration saved',
+    'ad.registro.act.adesioni.presets.save': 'Preset saved',
+    'ad.registro.act.adesioni.presets.apply': 'Preset applied',
+    'ad.registro.act.adesioni.presets.delete': 'Preset deleted',
+    'ad.registro.act.adesioni.presets.import': 'Preset imported',
 
     // Settings
     'ad.settings.subtitle': 'Customize fields, mappings, prices and access',
@@ -1049,7 +1063,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.settings.notifyBoth': 'Both',
     'ad.settings.sharedPlaceholder': 'office@company.com',
     'ad.settings.presetsTitle': 'Configuration presets',
-    'ad.settings.presetsHint': 'Save/recall fields, premiums and date offset (SMTP/FTP secrets are not included in presets).',
+    'ad.settings.presetsHint': 'Save/recall the whole configuration (fields, premiums, dates, template, SMTP/FTP). Secrets stay on the server and are redacted in the JSON export.',
     'ad.settings.presetName': 'Preset name',
     'ad.settings.savePreset': 'Save as preset',
     'ad.settings.noPresets': 'No saved presets.',
@@ -1093,5 +1107,11 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.fieldsEditor.optionsLabel': 'Options (one per line, format',
     'ad.fieldsEditor.addField': '+ Add field',
     'ad.fieldsEditor.resetDefaults': 'Restore defaults',
+    'ad.fieldsEditor.badgeOk': 'Valid placeholder',
+    'ad.fieldsEditor.badgeMismatch': 'Missing in template',
+    'ad.fieldsEditor.badgeUnset': 'No placeholder',
+    'ad.fieldsEditor.unmappedTitle': 'Template placeholders not covered by any field:',
+    'ad.fieldsEditor.unmappedNone': 'All template placeholders are covered by fields.',
+    'ad.settings.importTemplate': 'Import template',
   },
 }

@@ -19,7 +19,14 @@ interface FullSettings {
   templateHtml: string
   attachments: Attachment[]
 }
-type Preset = Partial<FullSettings>
+interface TemplateEntry { id: string; name: string; builtin: boolean; placeholders: string[] }
+
+// Scansione client dei segnaposto {{campo}} in un HTML (per l'anteprima immediata).
+function scanClient(html: string): string[] {
+  const set = new Set<string>()
+  for (const m of String(html || '').matchAll(/\{\{(\w+)\}\}/g)) set.add(m[1])
+  return Array.from(set)
+}
 
 export default function AdesioniSettingsPage() {
   const t = useT()
@@ -27,14 +34,15 @@ export default function AdesioniSettingsPage() {
   const [loadErr, setLoadErr] = useState(false)
   const [saved, setSaved] = useState(false)
   const [ftpTest, setFtpTest] = useState<Record<string, { ok: boolean; text: string }>>({})
-  const [presets, setPresets] = useState<Record<string, Preset>>({})
+  const [presetList, setPresetList] = useState<{ name: string; savedAt: string }[]>([])
+  const [presetActive, setPresetActive] = useState('')
   const [presetName, setPresetName] = useState('')
-  const [placeholders, setPlaceholders] = useState<string[]>([])
+  const [templates, setTemplates] = useState<TemplateEntry[]>([])
 
   useEffect(() => {
     fetch('/api/adesioni/settings').then((r) => { if (!r.ok) throw new Error(); return r.json() }).then(setS).catch(() => setLoadErr(true))
-    fetch('/api/settings').then((r) => r.json()).then((d) => { if (d.adesioniProfiles) setPresets(d.adesioniProfiles) }).catch(() => {})
-    fetch('/api/adesioni/template').then((r) => r.json()).then((d) => setPlaceholders([...(d.docxPlaceholders || []), ...(d.htmlPlaceholders || [])])).catch(() => {})
+    fetch('/api/adesioni/presets').then((r) => r.json()).then((d) => { setPresetList(d.presets || []); setPresetActive(d.active || '') }).catch(() => {})
+    fetch('/api/adesioni/template').then((r) => r.json()).then((d) => setTemplates(d.templates || [])).catch(() => {})
   }, [])
 
   if (loadErr) return <><h1 className="page-title">{t('nav.adSettings')}</h1><div className="alert alert-error">{t('ad.settings.loadError')}</div></>
@@ -42,6 +50,13 @@ export default function AdesioniSettingsPage() {
 
   const upFtp = (kind: 'staging' | 'prod', patch: Partial<FtpConfig>) => setS({ ...s, ftp: { ...s.ftp, [kind]: { ...s.ftp[kind], ...patch } } })
   const upPrezzo = (code: string, patch: Partial<PrezzoRow>) => setS({ ...s, prezzi: { ...s.prezzi, [code]: { ...s.prezzi[code], ...patch } } })
+
+  // Segnaposto del TEMPLATE ATTIVO (calcolati lato client per anteprima immediata):
+  // custom → scansione dell'HTML inline; predefinito/libreria → inventario noto.
+  const activePlaceholders: string[] = s.templateId === 'custom'
+    ? scanClient(s.templateHtml)
+    : (templates.find((x) => x.id === s.templateId)?.placeholders
+      ?? templates.find((x) => x.builtin)?.placeholders ?? [])
 
   async function save() {
     const res = await fetch('/api/adesioni/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) })
@@ -58,38 +73,47 @@ export default function AdesioniSettingsPage() {
     }
   }
 
-  // ─── Preset (adesioniProfiles) ───────────────────────────────────────────
-  async function savePresets(next: Record<string, Preset>) {
-    setPresets(next)
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adesioniProfiles: next }) })
-  }
+  // ─── Preset di configurazione (server-side, con SMTP/FTP) ─────────────────
   async function saveAsPreset() {
     const name = presetName.trim(); if (!name) return
-    // Snapshot completo (esclusi i segreti SMTP/FTP).
-    await savePresets({ ...presets, [name]: { fields: s!.fields, idd: s!.idd, prezzi: s!.prezzi, dateOffsetDays: s!.dateOffsetDays, templateId: s!.templateId, templateHtml: s!.templateHtml, attachments: s!.attachments } })
-    setPresetName('')
+    await save() // persiste prima le impostazioni correnti, poi ne fa lo snapshot
+    const res = await fetch('/api/adesioni/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', name }) })
+    const d = await res.json(); setPresetList(d.presets || []); setPresetActive(d.active || name); setPresetName('')
   }
-  function loadPreset(name: string) {
-    const p = presets[name]; if (!p) return
-    setS({
-      ...s!,
-      fields: p.fields ?? s!.fields,
-      idd: p.idd ?? s!.idd,
-      prezzi: p.prezzi ?? s!.prezzi,
-      dateOffsetDays: p.dateOffsetDays ?? s!.dateOffsetDays,
-      templateId: p.templateId ?? s!.templateId,
-      templateHtml: p.templateHtml ?? s!.templateHtml,
-      attachments: p.attachments ?? s!.attachments,
-    })
+  async function loadPreset(name: string) {
+    const res = await fetch('/api/adesioni/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apply', name }) })
+    const d = await res.json()
+    if (d.settings) setS(d.settings as FullSettings)
+    setPresetList(d.presets || []); setPresetActive(d.active || name)
   }
-  async function deletePreset(name: string) { const n = { ...presets }; delete n[name]; await savePresets(n) }
-  function exportPresets() {
-    const blob = new Blob([JSON.stringify(presets, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'preset_adesioni.json'; a.click(); URL.revokeObjectURL(url)
+  async function deletePreset(name: string) {
+    const res = await fetch('/api/adesioni/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', name }) })
+    const d = await res.json(); setPresetList(d.presets || []); setPresetActive(d.active || '')
   }
-  async function importPresets(file: File | undefined) {
+  function exportPreset(name: string) {
+    window.open(`/api/adesioni/presets?export=${encodeURIComponent(name)}`, '_blank')
+  }
+  async function importPreset(file: File | undefined) {
     if (!file) return
-    try { await savePresets({ ...presets, ...JSON.parse(await file.text()) }) } catch { /* ignora */ }
+    try {
+      const preset = JSON.parse(await file.text())
+      const res = await fetch('/api/adesioni/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'import', preset }) })
+      const d = await res.json(); setPresetList(d.presets || []); setPresetActive(d.active || '')
+    } catch { /* ignora */ }
+  }
+
+  // ─── Libreria template HTML ───────────────────────────────────────────────
+  async function importTemplate(file: File | undefined) {
+    if (!file) return
+    const html = await file.text()
+    const name = file.name.replace(/\.(x?html?|htm)$/i, '')
+    const res = await fetch('/api/adesioni/template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'import', name, html }) })
+    const d = await res.json(); setTemplates(d.templates || [])
+  }
+  async function removeTemplate(id: string) {
+    const res = await fetch('/api/adesioni/template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })
+    const d = await res.json(); setTemplates(d.templates || [])
+    if (s!.templateId === id) setS({ ...s!, templateId: 'default' })
   }
 
   return (
@@ -134,23 +158,32 @@ export default function AdesioniSettingsPage() {
         {/* Campi maschera — editor completo */}
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>{t('ad.settings.fieldsTitle')}</h2>
-          <AdesioniFieldsEditor fields={s.fields} onChange={(f) => setS({ ...s, fields: f })} placeholders={placeholders} />
+          <AdesioniFieldsEditor fields={s.fields} onChange={(f) => setS({ ...s, fields: f })} placeholders={activePlaceholders} />
         </div>
 
         {/* Template HTML del modulo */}
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('ad.settings.templateTitle')}</h2>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-              <input type="radio" name="tpl" checked={s.templateId !== 'custom'} onChange={() => setS({ ...s, templateId: 'default' })} /> {t('ad.settings.templateDefault')}
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-              <input type="radio" name="tpl" checked={s.templateId === 'custom'} onChange={() => setS({ ...s, templateId: 'custom' })} /> {t('ad.settings.templateCustom')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {templates.map((tpl) => (
+              <label key={tpl.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                <input type="radio" name="tpl" checked={s.templateId === tpl.id} onChange={() => setS({ ...s, templateId: tpl.id })} />
+                <span style={{ flex: 1 }}>{tpl.builtin ? t('ad.settings.templateDefault') : tpl.name}</span>
+                {!tpl.builtin && <button className="btn btn-secondary" style={{ fontSize: 12, padding: '2px 8px' }} onClick={() => removeTemplate(tpl.id)}>{t('ad.btn.delete')}</button>}
+              </label>
+            ))}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+              <input type="radio" name="tpl" checked={s.templateId === 'custom'} onChange={() => setS({ ...s, templateId: 'custom' })} />
+              <span style={{ flex: 1 }}>{t('ad.settings.templateCustom')}</span>
             </label>
           </div>
+          <label className="btn btn-secondary" style={{ cursor: 'pointer', marginBottom: 8 }}>
+            {t('ad.settings.importTemplate')}
+            <input type="file" accept=".html,.xhtml,.htm" style={{ display: 'none' }} onChange={(e) => { importTemplate(e.target.files?.[0]); e.target.value = '' }} />
+          </label>
           {s.templateId === 'custom' && (
             <>
-              <label className="btn btn-secondary" style={{ cursor: 'pointer', marginBottom: 8 }}>
+              <label className="btn btn-secondary" style={{ cursor: 'pointer', marginBottom: 8, marginLeft: 8 }}>
                 {t('ad.settings.loadHtml')}
                 <input type="file" accept=".html,.xhtml,.htm" style={{ display: 'none' }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setS({ ...s, templateHtml: await f.text() }) }} />
               </label>
@@ -158,7 +191,7 @@ export default function AdesioniSettingsPage() {
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('ad.settings.templateRelHint')} <code>{'{{campo}}'}</code>.</p>
             </>
           )}
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>{t('ad.settings.placeholdersDetected')} {placeholders.length ? placeholders.join(', ') : '—'}</p>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>{t('ad.settings.placeholdersDetected')} {activePlaceholders.length ? activePlaceholders.join(', ') : '—'}</p>
         </div>
 
         {/* Allegati PDF */}
@@ -254,18 +287,18 @@ export default function AdesioniSettingsPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder={t('ad.settings.presetName')} style={{ flex: 1, minWidth: 180 }} aria-label={t('ad.settings.presetName')} />
             <button className="btn btn-secondary" onClick={saveAsPreset}>{t('ad.settings.savePreset')}</button>
-            <button className="btn btn-secondary" onClick={exportPresets}>{t('set.exportJson')}</button>
-            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>{t('set.importJson')}<input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => importPresets(e.target.files?.[0])} /></label>
+            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>{t('set.importJson')}<input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => { importPreset(e.target.files?.[0]); e.target.value = '' }} /></label>
           </div>
-          {Object.keys(presets).length === 0 ? (
+          {presetList.length === 0 ? (
             <p style={{ fontSize: 13, color: 'var(--c-text-muted)', margin: 0 }}>{t('ad.settings.noPresets')}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.keys(presets).map((name) => (
-                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ flex: 1, fontSize: 14 }}>{name}</span>
-                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => loadPreset(name)}>{t('ad.settings.loadPreset')}</button>
-                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => deletePreset(name)}>{t('ad.btn.delete')}</button>
+              {presetList.map((p) => (
+                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: p.name === presetActive ? 700 : 400 }}>{p.name}{p.name === presetActive ? ' ●' : ''}</span>
+                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => loadPreset(p.name)}>{t('ad.settings.loadPreset')}</button>
+                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => exportPreset(p.name)}>{t('set.exportJson')}</button>
+                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => deletePreset(p.name)}>{t('ad.btn.delete')}</button>
                 </div>
               ))}
             </div>
