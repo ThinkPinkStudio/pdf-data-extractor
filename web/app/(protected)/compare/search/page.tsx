@@ -80,10 +80,10 @@ export default function CompareSearchPage() {
   return (
     <>
       <h1 className="page-title">Ricerca per Inclusione</h1>
-      <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
-        Per ogni riga del File A, trova le righe del File B che soddisfano le condizioni.
+      <p className="view-subtitle">
+        Cerca, per ogni riga del File A, le righe del File B che corrispondono ai criteri configurati.
       </p>
-      <CompareFileBar />
+      <CompareFileBar variant="chips" />
 
       <div className="card" style={{ marginBottom: 18 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Condizioni</h2>
@@ -103,13 +103,15 @@ export default function CompareSearchPage() {
       {results && (
         <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {([
-              ['all', `Tutte (${results.length})`],
-              ['with', `Con riscontro (${withMatches.length})`],
-              ['without', `Senza riscontro (${withoutMatches.length})`],
-            ] as [Filter, string][]).map(([f, label]) => (
-              <button key={f} className={`btn ${filter === f ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 13, padding: '6px 12px' }} onClick={() => setFilter(f)}>{label}</button>
-            ))}
+            <div className="filter-tabs">
+              {([
+                ['all', `Tutte (${results.length})`],
+                ['with', `Con riscontro (${withMatches.length})`],
+                ['without', `Senza riscontro (${withoutMatches.length})`],
+              ] as [Filter, string][]).map(([f, label]) => (
+                <button key={f} className={`tab-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{label}</button>
+              ))}
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

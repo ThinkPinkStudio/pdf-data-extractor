@@ -6,8 +6,8 @@ import { workbookColumns, TRANSFORM_OPTIONS, type Condition, type CondMode, type
 // Editor di una lista di condizioni (colonna A/B, foglio A/B, modalità,
 // trasformazione, connettore AND/OR). Condiviso tra Ricerca e In Entrambi. Le
 // colonne disponibili derivano dal foglio scelto dei file caricati; se non
-// caricati, si usa un input libero. Il selettore Foglio compare solo quando il
-// file ha più di un foglio (multi-foglio), come nel desktop.
+// caricati, si usa un input libero. Il selettore Foglio è SEMPRE presente (come
+// nel desktop): con file assente o mono-foglio mostra solo "(1° foglio)".
 export default function CompareConditions({
   conditions,
   onChange,
@@ -30,18 +30,15 @@ export default function CompareConditions({
     onChange([...conditions, { columnA: '', columnB: '', sheetA: '', sheetB: '', mode: modes[0].value, transform: 'none', connector: 'AND' }])
   }
 
-  const SheetSelect = ({ wb, value, onSet }: { wb: Workbook | null; value: string; onSet: (v: string) => void }) => {
-    if (!wb || wb.sheetNames.length <= 1) return null
-    return (
-      <div className="form-group" style={{ margin: 0 }}>
-        <label className="label">Foglio</label>
-        <select value={value} onChange={(e) => onSet(e.target.value)}>
-          <option value="">(1° foglio)</option>
-          {wb.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </div>
-    )
-  }
+  const SheetSelect = ({ wb, side, value, onSet }: { wb: Workbook | null; side: 'A' | 'B'; value: string; onSet: (v: string) => void }) => (
+    <div className="form-group" style={{ margin: 0 }}>
+      <label className="label">Foglio {side} (opz.)</label>
+      <select value={value} onChange={(e) => onSet(e.target.value)} disabled={!wb}>
+        <option value="">(1° foglio)</option>
+        {wb?.sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+    </div>
+  )
 
   const ColSelect = ({ wb, sheet, value, onSet }: { wb: Workbook | null; sheet?: string; value: string; onSet: (v: string) => void }) => {
     const cols = workbookColumns(wb, sheet)
@@ -66,14 +63,14 @@ export default function CompareConditions({
             </div>
           )}
           <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr)) auto', gap: 10, alignItems: 'end', overflowX: 'auto' }}>
-            <SheetSelect wb={fileA?.wb ?? null} value={cond.sheetA || ''} onSet={(v) => update(i, { sheetA: v })} />
+            <SheetSelect wb={fileA?.wb ?? null} side="A" value={cond.sheetA || ''} onSet={(v) => update(i, { sheetA: v })} />
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="label">Colonna A</label>
+              <label className="label">Colonna File A</label>
               <ColSelect wb={fileA?.wb ?? null} sheet={cond.sheetA} value={cond.columnA} onSet={(v) => update(i, { columnA: v })} />
             </div>
-            <SheetSelect wb={fileB?.wb ?? null} value={cond.sheetB || ''} onSet={(v) => update(i, { sheetB: v })} />
+            <SheetSelect wb={fileB?.wb ?? null} side="B" value={cond.sheetB || ''} onSet={(v) => update(i, { sheetB: v })} />
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="label">Colonna B</label>
+              <label className="label">Colonna File B</label>
               <ColSelect wb={fileB?.wb ?? null} sheet={cond.sheetB} value={cond.columnB} onSet={(v) => update(i, { columnB: v })} />
             </div>
             <div className="form-group" style={{ margin: 0 }}>

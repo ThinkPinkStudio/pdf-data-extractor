@@ -67,10 +67,10 @@ export default function CompareBothPage() {
   return (
     <>
       <h1 className="page-title">Righe in Entrambi i File</h1>
-      <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
+      <p className="view-subtitle">
         Trova coppie di righe presenti in entrambi i file secondo le condizioni di match; le condizioni di filtro (opzionali) restringono i risultati.
       </p>
-      <CompareFileBar />
+      <CompareFileBar variant="chips" />
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Condizioni di abbinamento</h2>
@@ -106,8 +106,8 @@ export default function CompareBothPage() {
             <table>
               <thead>
                 <tr>
-                  {colsA.map((c) => <th key={'a' + c}>A: {c}</th>)}
-                  {colsB.map((c) => <th key={'b' + c}>B: {c}</th>)}
+                  {colsA.map((c) => <th key={'a' + c} className="col-a">A: {c}</th>)}
+                  {colsB.map((c) => <th key={'b' + c} className="col-b">B: {c}</th>)}
                 </tr>
               </thead>
               <tbody>

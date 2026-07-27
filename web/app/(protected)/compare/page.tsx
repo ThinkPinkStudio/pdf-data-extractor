@@ -88,9 +88,13 @@ export default function ComparePage() {
     downloadRows(rows, 'differenze_portafogli.xlsx')
   }
 
+  const fa = fileA?.name || 'File A'
+  const fb = fileB?.name || 'File B'
+
   return (
     <>
       <h1 className="page-title">Comparazione Portafogli</h1>
+      <p className="view-subtitle">Carica due file Excel per trovare le polizze non coincidenti.</p>
       <CompareFileBar />
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
@@ -106,33 +110,40 @@ export default function ComparePage() {
       </div>
 
       {!result && !busy && (
-        <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: 40 }}>
-          Carica i due file e premi <strong>Confronta</strong> per iniziare la comparazione.
+        <div className="state-box">
+          <svg viewBox="0 0 24 24"><path d="M9 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M15 3h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4M9 3v18M15 3v18" /></svg>
+          <p>Carica i due file per iniziare la comparazione.</p>
         </div>
+      )}
+
+      {busy && !result && (
+        <div className="state-box"><span className="spinner-lg" /><p>Analisi in corso…</p></div>
       )}
 
       {result && (
         <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {([
-              ['all', `Tutte (${countA + countB})`],
-              ['only-a', `Solo in A (${countA})`],
-              ['only-b', `Solo in B (${countB})`],
-              ['fuzzy', `Da verificare${fuzzyCount ? ` (${fuzzyCount})` : ''}`],
-            ] as [Filter, string][]).map(([f, label]) => (
-              <button
-                key={f}
-                className={`btn ${filter === f ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ fontSize: 13, padding: '6px 12px' }}
-                onClick={() => setFilter(f)}
-              >
-                {label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="filter-tabs">
+              {([
+                ['all', `Tutte (${countA + countB})`, false],
+                ['only-a', `Solo in A (${countA})`, false],
+                ['only-b', `Solo in B (${countB})`, false],
+                ['fuzzy', 'Da verificare', true],
+              ] as [Filter, string, boolean][]).map(([f, label, isFuzzy]) => (
+                <button
+                  key={f}
+                  className={`tab-btn ${isFuzzy ? 'tab-btn--fuzzy' : ''} ${filter === f ? 'active' : ''}`}
+                  onClick={() => setFilter(f)}
+                >
+                  {label}
+                  {isFuzzy && fuzzyCount ? <span className="tab-badge">{fuzzyCount}</span> : null}
+                </button>
+              ))}
+            </div>
           </div>
 
           {filter === 'fuzzy' ? (
-            <FuzzyList result={result} onDecide={decide} />
+            <FuzzyList result={result} onDecide={decide} fileAName={fa} fileBName={fb} />
           ) : (
             <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
               {tableRows.length === 0 ? (
@@ -147,8 +158,11 @@ export default function ComparePage() {
                   </thead>
                   <tbody>
                     {tableRows.map((row, i) => (
-                      <tr key={i}>
-                        <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: row.__source === 'A' ? 'var(--c-info)' : 'var(--c-accent)', fontWeight: 700 }}>{row.__source}</span> <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>— {row.__source === 'A' ? (fileA?.name || 'File A') : (fileB?.name || 'File B')}</span></td>
+                      <tr key={i} className={row.__source === 'A' ? 'row-only-a' : 'row-only-b'}>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <span className={`badge-origin ${row.__source === 'A' ? 'badge-a' : 'badge-b'}`}>{row.__source}</span>
+                          <span style={{ color: 'var(--c-text-muted)', fontSize: 12, marginLeft: 6 }}>— {row.__source === 'A' ? fa : fb}</span>
+                        </td>
                         {columns.map((c) => <td key={c} title={String(row[c] ?? '')}>{String(row[c] ?? '')}</td>)}
                       </tr>
                     ))}
@@ -163,46 +177,51 @@ export default function ComparePage() {
   )
 }
 
-function FuzzyList({ result, onDecide }: { result: CompareResult; onDecide: (idx: number, kind: 'accept' | 'reject') => void }) {
+function FuzzyList({ result, onDecide, fileAName, fileBName }: { result: CompareResult; onDecide: (idx: number, kind: 'accept' | 'reject') => void; fileAName: string; fileBName: string }) {
   if (!result.fuzzy.length) {
-    return <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna coppia da verificare — tutte le decisioni sono state prese.</div>
+    return (
+      <div className="fuzzy-empty">
+        <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="#2E7D32" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+        Nessuna coppia da verificare — tutte le decisioni sono state prese.
+      </div>
+    )
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="fuzzy-list">
       {result.fuzzy.map((pair, idx) => {
         const cols = Array.from(new Set([...Object.keys(pair.rowA), ...Object.keys(pair.rowB)]))
         return (
-          <div key={idx} className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                {pair.kind === 'broad'
-                  ? '🔎 Corrispondenza estesa (solo lettere/numeri, tutte le colonne) — verificare manualmente'
-                  : 'Corrispondenza parziale — verificare manualmente'}
-              </span>
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'accept')}>✓ Stessa polizza</button>
-                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onDecide(idx, 'reject')}>✗ Polizze diverse</button>
+          <div key={idx} className={`fuzzy-pair ${pair.kind === 'broad' ? 'fuzzy-pair--broad' : ''}`}>
+            <div className="fuzzy-pair-rows">
+              <div className="fuzzy-pair-side fuzzy-pair-side--a">
+                <div className="fuzzy-pair-label">A — {fileAName}</div>
+                <div className="fuzzy-pair-data">
+                  {cols.map((c) => (
+                    <div className="fuzzy-field" key={c}>
+                      <span className="fuzzy-field-name" title={c}>{c}</span>
+                      <span className="fuzzy-field-val" title={String(pair.rowA[c] ?? '')}>{String(pair.rowA[c] ?? '')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="fuzzy-pair-side fuzzy-pair-side--b">
+                <div className="fuzzy-pair-label">B — {fileBName}</div>
+                <div className="fuzzy-pair-data">
+                  {cols.map((c) => (
+                    <div className="fuzzy-field" key={c}>
+                      <span className="fuzzy-field-name" title={c}>{c}</span>
+                      <span className="fuzzy-field-val" title={String(pair.rowB[c] ?? '')}>{String(pair.rowB[c] ?? '')}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table>
-                <thead>
-                  <tr><th>Campo</th><th>A</th><th>B</th></tr>
-                </thead>
-                <tbody>
-                  {cols.map((c) => {
-                    const va = String(pair.rowA[c] ?? '')
-                    const vb = String(pair.rowB[c] ?? '')
-                    return (
-                      <tr key={c}>
-                        <td style={{ color: 'var(--c-text-muted)' }}>{c}</td>
-                        <td style={va !== vb ? { color: 'var(--c-warning)' } : undefined}>{va}</td>
-                        <td style={va !== vb ? { color: 'var(--c-warning)' } : undefined}>{vb}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div className="fuzzy-pair-actions">
+              <button className="btn-fuzzy btn-fuzzy-same" onClick={() => onDecide(idx, 'accept')}>✓ Stessa polizza</button>
+              <button className="btn-fuzzy btn-fuzzy-diff" onClick={() => onDecide(idx, 'reject')}>✗ Polizze diverse</button>
+              <span className="fuzzy-pair-hint">
+                {pair.kind === 'broad' ? '🔎 Corrispondenza estesa — verificare manualmente' : 'Corrispondenza parziale — verificare manualmente'}
+              </span>
             </div>
           </div>
         )
