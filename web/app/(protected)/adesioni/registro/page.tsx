@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Log { id: number; timestamp: string; email: string | null; action: string; resource: string | null; metadata: string | null; success: boolean }
 
 export default function AdesioniRegistroPage() {
+  const t = useT()
   const [logs, setLogs] = useState<Log[]>([])
 
   useEffect(() => {
@@ -26,16 +28,19 @@ export default function AdesioniRegistroPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>Registro</h1>
-        <button className="btn btn-secondary" onClick={exportCsv} disabled={!logs.length}>Esporta CSV</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <h1 className="page-title" style={{ margin: 0 }}>{t('nav.adRegistro')}</h1>
+          <p className="view-subtitle" style={{ margin: '4px 0 0' }}>{t('ad.registro.subtitle')}</p>
+        </div>
+        <button className="btn btn-secondary" onClick={exportCsv} disabled={!logs.length}>{t('batch.exportCsv')}</button>
       </div>
       <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
         {logs.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna voce nel registro.</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-muted)' }}>{t('ad.registro.empty')}</div>
         ) : (
           <table>
-            <thead><tr><th>Data/ora</th><th>Operatore</th><th>Azione</th><th>Risorsa</th><th>Dettagli</th><th>Esito</th></tr></thead>
+            <thead><tr><th>{t('ad.registro.colDate')}</th><th>{t('ad.registro.colOperator')}</th><th>{t('ad.registro.colAction')}</th><th>{t('ad.registro.colResource')}</th><th>{t('ad.registro.colDetails')}</th><th>{t('ad.registro.colResult')}</th></tr></thead>
             <tbody>
               {logs.map((l) => (
                 <tr key={l.id}>

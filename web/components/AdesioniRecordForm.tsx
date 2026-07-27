@@ -1,15 +1,16 @@
 'use client'
 
 import type { AdesioniConfig, AdesioniField } from '@/lib/adesioni/config'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 export type AdesioniRecord = Record<string, unknown> & { idd?: Record<string, string> }
 
-const GROUP_LABELS: Record<string, string> = {
-  polizza: 'Dati polizza',
-  contraente: 'Aderente',
-  veicolo: 'Veicolo',
-  copertura: 'Copertura',
-  contatti: 'Contatti',
+const GROUP_LABEL_KEYS: Record<string, string> = {
+  polizza: 'ad.form.groupPolizza',
+  contraente: 'ad.form.groupContraente',
+  veicolo: 'ad.form.groupVeicolo',
+  copertura: 'ad.form.groupCopertura',
+  contatti: 'ad.form.groupContatti',
 }
 const GROUP_ORDER = ['polizza', 'contraente', 'veicolo', 'copertura', 'contatti']
 
@@ -24,6 +25,7 @@ export default function AdesioniRecordForm({
   errors: Record<string, string>
   onChange: (r: AdesioniRecord) => void
 }) {
+  const t = useT()
   const set = (id: string, value: unknown) => onChange({ ...record, [id]: value })
   const setIdd = (domanda: string, value: string) => onChange({ ...record, idd: { ...(record.idd || {}), [domanda]: value } })
 
@@ -41,20 +43,20 @@ export default function AdesioniRecordForm({
         </label>
         {f.type === 'select' ? (
           <select {...common} onChange={(e) => set(f.id, e.target.value)} style={err ? { borderColor: 'var(--c-error)' } : undefined}>
-            <option value="">— seleziona —</option>
+            <option value="">{t('set.selectPlaceholder')}</option>
             {(f.options || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         ) : (
           <input
             {...common}
             type={f.type === 'email' ? 'email' : f.type === 'number' ? 'text' : 'text'}
-            placeholder={f.type === 'date' ? 'GG/MM/AAAA' : ''}
+            placeholder={f.type === 'date' ? t('ad.form.datePlaceholder') : ''}
             maxLength={f.maxLength}
             onChange={(e) => set(f.id, e.target.value)}
             style={err ? { borderColor: 'var(--c-error)' } : undefined}
           />
         )}
-        {err && <span style={{ fontSize: 11, color: 'var(--c-error)' }}>{errLabel(err, f)}</span>}
+        {err && <span style={{ fontSize: 11, color: 'var(--c-error)' }}>{errLabel(err, f, t)}</span>}
       </div>
     )
   }
@@ -63,7 +65,7 @@ export default function AdesioniRecordForm({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {groups.map((g) => (
         <div key={g} className="card">
-          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>{GROUP_LABELS[g] || g}</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>{GROUP_LABEL_KEYS[g] ? t(GROUP_LABEL_KEYS[g]) : g}</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 16px' }}>
             {config.fields.filter((f) => f.group === g && f.enabled !== false).map(field)}
           </div>
@@ -72,16 +74,16 @@ export default function AdesioniRecordForm({
 
       {config.idd.length > 0 && (
         <div className="card">
-          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Questionario IDD</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('ad.form.iddTitle')}</h2>
           <p style={{ fontSize: 12, color: isA ? 'var(--c-text-muted)' : 'var(--c-warning)', marginTop: 0, marginBottom: 14 }}>
-            {isA ? 'Le risposte finiscono nel tracciato (Tipo movimento = A).' : 'Compilabile, ma le risposte finiscono nel tracciato solo con Tipo movimento = A.'}
+            {isA ? t('ad.form.iddNoteA') : t('ad.form.iddNoteNotA')}
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {config.idd.map((q) => (
               <div className="form-group" key={q.domanda} style={{ margin: 0 }}>
                 <label className="label">{q.label}</label>
                 <select value={(record.idd || {})[q.domanda] || ''} onChange={(e) => setIdd(q.domanda, e.target.value)}>
-                  <option value="">— seleziona —</option>
+                  <option value="">{t('set.selectPlaceholder')}</option>
                   {q.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
@@ -93,14 +95,14 @@ export default function AdesioniRecordForm({
   )
 }
 
-function errLabel(code: string, f: AdesioniField): string {
+function errLabel(code: string, f: AdesioniField, t: (key: string, vars?: Record<string, string | number>) => string): string {
   switch (code) {
-    case 'required': return 'Campo obbligatorio'
-    case 'maxlen': return `Massimo ${f.maxLength} caratteri`
-    case 'date': return 'Formato data: GG/MM/AAAA'
-    case 'number': return 'Numero non valido'
-    case 'email': return 'Email non valida'
-    case 'select': return 'Valore non ammesso'
-    default: return 'Valore non valido'
+    case 'required': return t('ad.form.errRequired')
+    case 'maxlen': return t('ad.form.errMaxlen', { n: f.maxLength ?? 0 })
+    case 'date': return t('ad.form.errDate')
+    case 'number': return t('ad.form.errNumber')
+    case 'email': return t('ad.form.errEmail')
+    case 'select': return t('ad.form.errSelect')
+    default: return t('ad.form.errDefault')
   }
 }
