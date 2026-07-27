@@ -445,6 +445,14 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.registro.colResource': 'Risorsa',
     'ad.registro.colDetails': 'Dettagli',
     'ad.registro.colResult': 'Esito',
+    'ad.registro.act.adesioni.record.create': 'Salvataggio record',
+    'ad.registro.act.adesioni.record.update': 'Modifica record',
+    'ad.registro.act.adesioni.record.delete': 'Eliminazione record',
+    'ad.registro.act.adesioni.record.renew': 'Rinnovo (+1 anno)',
+    'ad.registro.act.adesioni.export.new': 'Export tracciato .xlsx',
+    'ad.registro.act.adesioni.export.append': 'Export tracciato (in coda)',
+    'ad.registro.act.adesioni.ftp.upload': 'Caricamento FTP',
+    'ad.registro.act.adesioni.settings.save': 'Salvataggio configurazione',
 
     // Configurazioni
     'ad.settings.subtitle': 'Personalizza campi, mappature, prezzi e accesso',
@@ -977,6 +985,14 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.registro.colResource': 'Resource',
     'ad.registro.colDetails': 'Details',
     'ad.registro.colResult': 'Result',
+    'ad.registro.act.adesioni.record.create': 'Record saved',
+    'ad.registro.act.adesioni.record.update': 'Record edited',
+    'ad.registro.act.adesioni.record.delete': 'Record deleted',
+    'ad.registro.act.adesioni.record.renew': 'Renewal (+1 year)',
+    'ad.registro.act.adesioni.export.new': 'Track export .xlsx',
+    'ad.registro.act.adesioni.export.append': 'Track export (append)',
+    'ad.registro.act.adesioni.ftp.upload': 'FTP upload',
+    'ad.registro.act.adesioni.settings.save': 'Configuration saved',
 
     // Settings
     'ad.settings.subtitle': 'Customize fields, mappings, prices and access',

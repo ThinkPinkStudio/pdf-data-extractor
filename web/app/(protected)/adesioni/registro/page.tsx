@@ -13,6 +13,14 @@ export default function AdesioniRegistroPage() {
     fetch('/api/adesioni/registro').then((r) => r.json()).then((d) => setLogs(d.logs || [])).catch(() => {})
   }, [])
 
+  // Etichetta leggibile dell'azione (parità con Registro.jsx del desktop):
+  // se non c'è una traduzione dedicata, mostra il codice grezzo.
+  function actionLabel(action: string): string {
+    const key = `ad.registro.act.${action}`
+    const label = t(key)
+    return label === key ? action : label
+  }
+
   function exportCsv() {
     const head = ['timestamp', 'operatore', 'action', 'resource', 'metadata', 'success']
     const lines = [head.join(',')]
@@ -46,7 +54,7 @@ export default function AdesioniRegistroPage() {
                 <tr key={l.id}>
                   <td>{new Date(l.timestamp).toLocaleString('it-IT')}</td>
                   <td style={{ fontSize: 12 }}>{l.email || '—'}</td>
-                  <td>{l.action}</td>
+                  <td>{actionLabel(l.action)}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{l.resource || ''}</td>
                   <td style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{l.metadata || ''}</td>
                   <td>{l.success ? '✓' : '✕'}</td>
