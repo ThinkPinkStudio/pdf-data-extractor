@@ -367,6 +367,12 @@ export const messages: Record<Lang, Record<string, string>> = {
 
     // Adesioni (main)
     'ad.adesioni.subtitle': 'Compila il Modulo di Adesione a mano o dal flusso Excel',
+    'ad.adesioni.numberingTitle': 'Numerazione',
+    'ad.adesioni.numberingNext': 'Prossimo identificativo',
+    'ad.adesioni.numberingNone': 'nessuna serie impostata',
+    'ad.adesioni.numberingSeedPlaceholder': 'Es. W0000001',
+    'ad.adesioni.numberingSet': 'Imposta numero iniziale',
+    'ad.adesioni.numberingSaved': 'Numerazione impostata.',
     'ad.adesioni.tabManual': 'Inserimento manuale',
     'ad.adesioni.tabFlusso': 'Importa flusso Excel',
     'ad.adesioni.loadFlusso': 'Carica flusso .xlsx',
@@ -893,6 +899,12 @@ export const messages: Record<Lang, Record<string, string>> = {
 
     // Enrollments (main)
     'ad.adesioni.subtitle': 'Fill the Adhesion Form manually or from the Excel flow',
+    'ad.adesioni.numberingTitle': 'Numbering',
+    'ad.adesioni.numberingNext': 'Next identifier',
+    'ad.adesioni.numberingNone': 'no series set',
+    'ad.adesioni.numberingSeedPlaceholder': 'e.g. W0000001',
+    'ad.adesioni.numberingSet': 'Set starting number',
+    'ad.adesioni.numberingSaved': 'Numbering set.',
     'ad.adesioni.tabManual': 'Manual entry',
     'ad.adesioni.tabFlusso': 'Import Excel flow',
     'ad.adesioni.loadFlusso': 'Load .xlsx flow',
