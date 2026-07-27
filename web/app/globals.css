@@ -380,6 +380,14 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-bottom: 20px;
 }
 
+/* Sottotitolo delle viste (view-subtitle come nell'app desktop) */
+.view-subtitle {
+  color: var(--c-text-secondary);
+  margin-top: -14px;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
 /* ─── Hub / launcher ─────────────────────────────────────────────────── */
 .hub-card {
   display: flex;

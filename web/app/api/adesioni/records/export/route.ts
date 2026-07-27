@@ -6,6 +6,7 @@ import { getAdesioniFullSettings } from '@/lib/adesioni/settingsWeb'
 import { listRecords, getRecordsByIds, archiveRecords } from '@/lib/adesioni/recordsStore'
 import { writeTrackBuffer, appendTrackBuffer } from '@/lib/adesioni/xlsxTracciato'
 import { resolveNotifyRecipients, sendExportSummary } from '@/lib/adesioni/mail'
+import { v4 as uuidv4 } from 'uuid'
 
 export const runtime = 'nodejs'
 
@@ -19,6 +20,8 @@ export async function POST(req: NextRequest) {
 
   const config = await getAdesioniConfig()
   const ct = req.headers.get('content-type') || ''
+  // Identificativo del lotto di export (traccia su ogni record archiviato).
+  const batchId = uuidv4()
 
   try {
     if (ct.includes('multipart/form-data')) {
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
       const rows = ids.length ? await getRecordsByIds(ids) : await listRecords()
       const existing = Buffer.from(await file.arrayBuffer())
       const { buffer } = await appendTrackBuffer(rows.map((r) => r.data), existing, config)
-      if (!reexport) await archiveRecords(rows.map((r) => r.id))
+      if (!reexport) await archiveRecords(rows.map((r) => r.id), batchId)
       await notify(session.email, buffer, rows.length, 'export-append')
       await logAction({ email: session.email, action: 'adesioni.export.append', metadata: { count: rows.length, reexport } })
       return xlsxResponse(buffer, 'tracciato_aggiornato.xlsx')
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as { ids?: string[]; reexport?: boolean }
     const rows = body.ids && body.ids.length ? await getRecordsByIds(body.ids) : await listRecords()
     const buffer = await writeTrackBuffer(rows.map((r) => r.data), config)
-    if (!body.reexport) await archiveRecords(rows.map((r) => r.id))
+    if (!body.reexport) await archiveRecords(rows.map((r) => r.id), batchId)
     await notify(session.email, buffer, rows.length, 'export')
     await logAction({ email: session.email, action: 'adesioni.export.new', metadata: { count: rows.length, reexport: !!body.reexport } })
     return xlsxResponse(buffer, 'tracciato.xlsx')

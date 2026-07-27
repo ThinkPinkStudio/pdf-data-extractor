@@ -3,6 +3,7 @@
 import path from 'path'
 import { getSettings } from '../settingsStore'
 import { DEFAULT_FIELDS, DEFAULT_IDD, DEFAULT_PREZZI } from './tracciato.js'
+import { getTemplateHtml } from './templatesStore'
 import type { AdesioniConfig, AdesioniField, IddQuestion, PrezzoRow } from './config'
 
 export async function getAdesioniConfig(): Promise<AdesioniConfig> {
@@ -22,6 +23,8 @@ export function adesioniAssetPath(...parts: string[]): string {
 }
 
 // Config di rendering (template HTML + allegati) — server-only, usata da pdfRender.
+// `templateHtml` è l'HTML EFFETTIVO risolto: 'custom' → HTML inline; id libreria
+// → HTML del template; 'default' → '' (si usa il bundle assets/modulo_html).
 export interface RenderConfig {
   templateId: string
   templateHtml: string
@@ -29,9 +32,13 @@ export interface RenderConfig {
 }
 export async function getRenderConfig(): Promise<RenderConfig> {
   const s = await getSettings()
+  const templateId = s.adesioniTemplateId || 'default'
+  let templateHtml = ''
+  if (templateId === 'custom') templateHtml = s.adesioniTemplateHtml || ''
+  else if (templateId !== 'default') templateHtml = await getTemplateHtml(templateId)
   return {
-    templateId: s.adesioniTemplateId || 'default',
-    templateHtml: s.adesioniTemplateHtml || '',
+    templateId,
+    templateHtml,
     attachments: Array.isArray(s.adesioniAttachments) ? s.adesioniAttachments : [],
   }
 }

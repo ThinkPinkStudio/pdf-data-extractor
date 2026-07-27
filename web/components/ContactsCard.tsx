@@ -20,7 +20,16 @@ const ROWS: { icon: React.ReactNode; text: string }[] = [
   { icon: <IconGlobe />, text: 'www.thinkpinkstudio.it' },
 ]
 
-export default function ContactsCard() {
+export default function ContactsCard({
+  logoSrc = '/csa-logo.png',
+  logoSize = 44,
+  logoRounded = 10,
+}: {
+  logoSrc?: string
+  logoSize?: number
+  /** raggio bordo logo: numero (px) o '50%' per il cerchio (stile Compare desktop). */
+  logoRounded?: number | string
+} = {}) {
   return (
     <>
       <h1 className="page-title">Contatti</h1>
@@ -28,7 +37,7 @@ export default function ContactsCard() {
       <div className="card" style={{ maxWidth: 520 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/csa-logo.png" alt="ThinkPink Studio" width={44} height={44} style={{ borderRadius: 10, objectFit: 'contain', flexShrink: 0 }} />
+          <img src={logoSrc} alt="ThinkPink Studio" width={logoSize} height={logoSize} style={{ borderRadius: logoRounded, objectFit: 'contain', flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-accent)', letterSpacing: '-0.5px' }}>ThinkPink Studio</div>
             <div style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>Soluzioni digitali su misura</div>

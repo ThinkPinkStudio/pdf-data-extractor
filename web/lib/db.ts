@@ -128,6 +128,9 @@ export async function initDb() {
     -- di vita (pending → archived all'export). email resta per retrocompatibilità.
     ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS saved_by TEXT;
     ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+    -- Traccia dell'export (parità desktop archiveRecords): lotto e data export.
+    ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS exported_at BIGINT;
+    ALTER TABLE adesioni_records ADD COLUMN IF NOT EXISTS export_batch TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_adesioni_email  ON adesioni_records(email);
     CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);

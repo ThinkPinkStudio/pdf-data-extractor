@@ -46,7 +46,7 @@ attivare SSL, e cambiare `COOKIE_SECURE=true` + `MAGIC_LINK_BASE_URL=https://<do
 | `COOKIE_SECURE` | `false` | **`false` su HTTP/IP** (senza TLS), altrimenti loop di login. `true` dietro reverse proxy HTTPS. |
 | `MAGIC_LINK_BASE_URL` | `http://<IP>:3000` | Deve combaciare **esattamente** con come l'utente raggiunge l'app dal browser. `http` (non `https`) e IP:porta reali. Finisce nel link del magic link. |
 | `SESSION_SECRET` | *(random ≥32 caratteri)* | Segreto per cifrare il cookie di sessione. Cambialo. |
-| `ALLOWED_DOMAINS` | `azienda.it,partner.it` | Domini email autorizzati, separati da virgola. `*` = tutti. Se il dominio del cliente non è incluso, il login viene **negato in silenzio** (per evitare email enumeration l'API risponde comunque `ok`). |
+| `ALLOWED_DOMAINS` | `azienda.it,partner.it` | Domini email autorizzati, separati da virgola. **Obbligatorio**: se mancante o vuoto **nessun login è ammesso** (fail-closed, come l'app desktop). `*` = tutti, ma solo se impostato **esplicitamente**. Se il dominio del cliente non è incluso, il login viene **negato in silenzio** (per evitare email enumeration l'API risponde comunque `ok`). |
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/pdfextractor` | PostgreSQL **esterno**, gestito manualmente. Obbligatorio: `initDb()` gira al boot e crea le tabelle. |
 | `QDRANT_URL` | `http://host:6333` | Qdrant **esterno**, gestito manualmente. |
 

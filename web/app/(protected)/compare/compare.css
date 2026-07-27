@@ -1,0 +1,236 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Portafoglio Compare — tema CHIARO originale (scoped)
+
+   La sezione Compare deriva dall'app desktop "Portafoglio Compare" (repo
+   csa-xsl-cfr), che ha un tema CHIARO con accento malva #C8477A. La webapp usa
+   invece un unico design system scuro. Qui riportiamo la sola sezione Compare
+   al look originale rimappando, sul sottoalbero `.compare-scope`, i token
+   --c-* del hub alla palette chiara. Le pagine esistenti usano quei token,
+   quindi tornano al look originale senza modifiche al markup.
+
+   Sono definiti anche i token originali (--pink, --bg, --only-a-*, ...) usati
+   dalle classi strutturali portate qui sotto (badge, righe colorate, pannelli
+   fuzzy, file-card, ecc.).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Il pannello contenuti (fuori dallo scope) viene schiarito quando ospita la
+   sezione Compare. */
+.main-content:has(.compare-scope) { background: #f8f7f9; }
+
+.compare-scope {
+  /* ─ Override dei token del hub → palette chiara originale ─ */
+  --c-bg-app:       #f8f7f9;
+  --c-bg-content:   #ffffff;
+  --c-bg-card:      #ffffff;
+  --c-bg-card-alt:  #f8f7f9;
+  --c-bg-hover:     #fff0f5;
+  --c-bg-input:     #ffffff;
+  --c-bg-active:    rgba(200, 71, 122, 0.10);
+
+  --c-accent:       #c8477a;
+  --c-accent-hover: #9e2f5a;
+  --c-accent-dim:   rgba(200, 71, 122, 0.25);
+  --c-accent-faint: rgba(200, 71, 122, 0.08);
+
+  --c-text-primary:   #1e1a22;
+  --c-text-secondary: #6b6474;
+  --c-text-muted:     #a89fb0;
+  --c-text-accent:    #c8477a;
+  --c-text-on-accent: #ffffff;
+
+  --c-border:       #ebebed;
+  --c-border-focus: #e8769c;
+  --c-separator:    #f2f0f4;
+
+  --c-success: #2e7d32;
+  --c-error:   #c62828;
+  --c-warning: #e65100;
+
+  --gradient-logo:   linear-gradient(135deg, #c8477a 0%, #9e2f5a 100%);
+  --gradient-accent: linear-gradient(135deg, #c8477a 0%, #9e2f5a 100%);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
+
+  /* ─ Token originali dell'app desktop (per le classi strutturali sotto) ─ */
+  --pink:         #c8477a;
+  --pink-light:   #e8769c;
+  --pink-pale:    #fff0f5;
+  --pink-border:  #f0d0dc;
+  --pink-dark:    #9e2f5a;
+  --bg:           #f8f7f9;
+  --surface:      #ffffff;
+  --border:       #ebebed;
+  --border-soft:  #f2f0f4;
+  --text:         #1e1a22;
+  --text-2:       #6b6474;
+  --text-3:       #a89fb0;
+  --only-a-bg:    #fff4ec;
+  --only-a-border:#f5c9a8;
+  --only-a-text:  #a0440d;
+  --only-b-bg:    #edf4ff;
+  --only-b-border:#aacaf5;
+  --only-b-text:  #1045a0;
+  --fuzzy-bg:     #fff8e7;
+  --fuzzy-border: #ffe082;
+  --fuzzy-text:   #e65100;
+
+  color: var(--c-text-primary);
+}
+
+/* ─── Sottotitolo delle viste (view-subtitle nell'app desktop) ─────────── */
+.compare-scope .view-subtitle {
+  color: var(--text-2);
+  margin-top: -12px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+/* ─── File cards (barra di caricamento in stile desktop) ───────────────── */
+.compare-scope .file-row { display: flex; align-items: center; gap: 16px; }
+.compare-scope .file-card {
+  flex: 1;
+  min-width: 240px;
+  background: var(--surface);
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+.compare-scope .file-card.drag-over { border-color: var(--pink); background: var(--pink-pale); }
+.compare-scope .file-card.loaded { border-style: solid; border-color: var(--pink-border); background: #fffafb; }
+.compare-scope .file-card-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text-3);
+}
+.compare-scope .file-card .file-icon svg { width: 36px; height: 36px; color: var(--pink-border); stroke-width: 1.5; }
+.compare-scope .file-card.loaded .file-icon svg { color: var(--pink); }
+.compare-scope .file-name { font-size: 13px; font-weight: 600; color: var(--text); word-break: break-all; max-width: 240px; }
+.compare-scope .file-meta { font-size: 11.5px; color: var(--text-2); min-height: 16px; }
+.compare-scope .drop-hint { font-size: 11.5px; color: var(--text-3); }
+.compare-scope .compare-arrow { display: flex; flex-direction: column; gap: 2px; color: var(--text-3); flex-shrink: 0; }
+.compare-scope .compare-arrow svg { width: 18px; height: 18px; }
+.compare-scope .btn-browse {
+  margin-top: 4px; padding: 6px 14px; border-radius: 6px;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  background: var(--pink); color: #fff; border: 1.5px solid var(--pink);
+}
+.compare-scope .btn-browse:hover { background: var(--pink-dark); border-color: var(--pink-dark); }
+
+/* ─── Risultati: badge A/B e righe colorate ────────────────────────────── */
+.compare-scope .badge-origin {
+  display: inline-flex; align-items: center; padding: 2px 8px;
+  border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+}
+.compare-scope .badge-a { background: var(--only-a-bg); color: var(--only-a-text); border: 1px solid var(--only-a-border); }
+.compare-scope .badge-b { background: var(--only-b-bg); color: var(--only-b-text); border: 1px solid var(--only-b-border); }
+.compare-scope tr.row-only-a { background: var(--only-a-bg); }
+.compare-scope tr.row-only-a td:first-child { border-left: 3px solid var(--only-a-border); }
+.compare-scope tr.row-only-b { background: var(--only-b-bg); }
+.compare-scope tr.row-only-b td:first-child { border-left: 3px solid var(--only-b-border); }
+
+/* ─── Stati vuoto / caricamento ────────────────────────────────────────── */
+.compare-scope .state-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 60px 40px; color: var(--text-3);
+}
+.compare-scope .state-box svg { width: 40px; height: 40px; stroke-width: 1.2; }
+.compare-scope .state-box p { font-size: 13.5px; }
+.compare-scope .spinner-lg {
+  width: 32px; height: 32px; border: 3px solid var(--pink-border);
+  border-top-color: var(--pink); border-radius: 50%;
+  animation: compare-spin 0.7s linear infinite;
+}
+@keyframes compare-spin { to { transform: rotate(360deg); } }
+
+/* ─── Chip di stato file (Ricerca / In Entrambi) ───────────────────────── */
+.compare-scope .search-files-status { display: flex; gap: 12px; flex-wrap: wrap; }
+.compare-scope .search-file-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 14px; font-size: 12.5px; color: var(--text-2);
+}
+.compare-scope .search-file-chip strong { color: var(--text); }
+.compare-scope .search-file-chip.missing { border-color: var(--only-a-border); background: var(--only-a-bg); color: var(--only-a-text); }
+.compare-scope .search-file-chip .go-to-compare {
+  color: var(--pink-dark); font-weight: 700; cursor: pointer; text-decoration: underline;
+  background: none; border: none; font-size: inherit; padding: 0;
+}
+
+/* ─── Vista fuzzy a due pannelli affiancati ────────────────────────────── */
+.compare-scope .fuzzy-list { display: flex; flex-direction: column; gap: 10px; }
+.compare-scope .fuzzy-pair {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; box-shadow: var(--shadow-sm);
+}
+.compare-scope .fuzzy-pair-rows { display: grid; grid-template-columns: 1fr 1fr; }
+.compare-scope .fuzzy-pair-side { padding: 12px 16px; }
+.compare-scope .fuzzy-pair-side--a { background: var(--only-a-bg); border-right: 1px solid var(--only-a-border); }
+.compare-scope .fuzzy-pair-side--b { background: var(--only-b-bg); }
+.compare-scope .fuzzy-pair-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 8px;
+}
+.compare-scope .fuzzy-pair-data { display: flex; flex-direction: column; gap: 4px; }
+.compare-scope .fuzzy-field { display: flex; gap: 6px; align-items: baseline; }
+.compare-scope .fuzzy-field-name {
+  color: var(--text-3); font-size: 10.5px; white-space: nowrap; flex-shrink: 0;
+  min-width: 90px; max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+}
+.compare-scope .fuzzy-field-val {
+  color: var(--text); font-weight: 500; font-family: var(--font-mono);
+  font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.compare-scope .fuzzy-pair-actions {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-top: 1px solid var(--border); background: var(--bg);
+}
+.compare-scope .btn-fuzzy {
+  padding: 5px 14px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent;
+}
+.compare-scope .btn-fuzzy-same { background: #e8f5e9; border-color: #a5d6a7; color: #2e7d32; }
+.compare-scope .btn-fuzzy-same:hover { background: #c8e6c9; }
+.compare-scope .btn-fuzzy-diff { background: #ffebee; border-color: #ef9a9a; color: #c62828; }
+.compare-scope .btn-fuzzy-diff:hover { background: #ffcdd2; }
+.compare-scope .fuzzy-pair-hint { font-size: 11.5px; color: var(--text-3); margin-left: auto; }
+.compare-scope .fuzzy-pair--broad { border-left: 3px solid var(--fuzzy-text); }
+.compare-scope .fuzzy-empty {
+  display: flex; align-items: center; gap: 10px; padding: 20px 24px;
+  color: #2e7d32; font-size: 13px; font-weight: 500;
+  background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 10px;
+}
+.compare-scope .fuzzy-empty svg { flex-shrink: 0; }
+
+/* ─── Filtri risultati a pill (filter-tabs dell'app desktop) ───────────── */
+.compare-scope .filter-tabs {
+  display: inline-flex; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px; gap: 2px;
+}
+.compare-scope .tab-btn {
+  padding: 5px 12px; border: none; border-radius: 4px; background: transparent;
+  font-size: 12.5px; font-weight: 500; color: var(--text-2); cursor: pointer; transition: all 0.15s;
+}
+.compare-scope .tab-btn.active { background: var(--surface); color: var(--pink-dark); font-weight: 600; box-shadow: var(--shadow-sm); }
+.compare-scope .tab-btn:hover:not(.active) { color: var(--text); }
+.compare-scope .tab-btn--fuzzy { color: var(--fuzzy-text); }
+.compare-scope .tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--fuzzy-text); color: #fff; border-radius: 10px; font-size: 10px;
+  font-weight: 700; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 3px; vertical-align: middle;
+}
+
+/* ─── Intestazioni colonne "In Entrambi" (A arancio / B blu) ───────────── */
+.compare-scope th.col-a { color: var(--only-a-text); }
+.compare-scope th.col-b { color: var(--only-b-text); }
+
+/* ─── Hint delle config-card / messaggio salvataggio ───────────────────── */
+.compare-scope .config-hint { font-size: 11.5px; color: var(--text-3); }
+.compare-scope .config-saved-msg { font-size: 13px; color: #1a7a40; font-weight: 600; }

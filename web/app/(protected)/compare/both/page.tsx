@@ -39,6 +39,11 @@ export default function CompareBothPage() {
   // Unione colonne su TUTTE le coppie (allineamento per nome anche con dati eterogenei).
   const colsA = useMemo(() => unionCols(pairs, 'rowA'), [pairs])
   const colsB = useMemo(() => unionCols(pairs, 'rowB'), [pairs])
+  // Conteggio righe distinte di A. L'app desktop usa l'identità oggetto
+  // (`new Set(pairs.map(p => p.rowA)).size`) perché gira in-thread e condivide i
+  // riferimenti riga. Qui il calcolo passa da un Web Worker (structured-clone),
+  // quindi l'identità andrebbe persa: si deduplica per CONTENUTO, equivalente
+  // salvo il caso raro di righe A byte-identiche duplicate.
   const distinctA = useMemo(() => (pairs ? new Set(pairs.map((p) => JSON.stringify(p.rowA))).size : 0), [pairs])
 
   async function saveConds() {
@@ -62,10 +67,10 @@ export default function CompareBothPage() {
   return (
     <>
       <h1 className="page-title">Righe in Entrambi i File</h1>
-      <p style={{ color: 'var(--c-text-secondary)', marginTop: -12, marginBottom: 18, fontSize: 14 }}>
+      <p className="view-subtitle">
         Trova coppie di righe presenti in entrambi i file secondo le condizioni di match; le condizioni di filtro (opzionali) restringono i risultati.
       </p>
-      <CompareFileBar />
+      <CompareFileBar variant="chips" />
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Condizioni di abbinamento</h2>
@@ -101,8 +106,8 @@ export default function CompareBothPage() {
             <table>
               <thead>
                 <tr>
-                  {colsA.map((c) => <th key={'a' + c}>A: {c}</th>)}
-                  {colsB.map((c) => <th key={'b' + c}>B: {c}</th>)}
+                  {colsA.map((c) => <th key={'a' + c} className="col-a">A: {c}</th>)}
+                  {colsB.map((c) => <th key={'b' + c} className="col-b">B: {c}</th>)}
                 </tr>
               </thead>
               <tbody>
