@@ -39,6 +39,11 @@ export default function CompareBothPage() {
   // Unione colonne su TUTTE le coppie (allineamento per nome anche con dati eterogenei).
   const colsA = useMemo(() => unionCols(pairs, 'rowA'), [pairs])
   const colsB = useMemo(() => unionCols(pairs, 'rowB'), [pairs])
+  // Conteggio righe distinte di A. L'app desktop usa l'identità oggetto
+  // (`new Set(pairs.map(p => p.rowA)).size`) perché gira in-thread e condivide i
+  // riferimenti riga. Qui il calcolo passa da un Web Worker (structured-clone),
+  // quindi l'identità andrebbe persa: si deduplica per CONTENUTO, equivalente
+  // salvo il caso raro di righe A byte-identiche duplicate.
   const distinctA = useMemo(() => (pairs ? new Set(pairs.map((p) => JSON.stringify(p.rowA))).size : 0), [pairs])
 
   async function saveConds() {

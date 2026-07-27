@@ -75,12 +75,28 @@ export async function getSession(): Promise<SessionData & { save: () => Promise<
   return session
 }
 
+/**
+ * Verifica che il dominio dell'email sia tra quelli autorizzati.
+ *
+ * Parità con l'app desktop (authService.domainAllowed): il controllo è
+ * **fail-closed**. Se né `ALLOWED_DOMAINS` né `ACCEPTED_DOMAINS` (nome usato
+ * dall'app desktop) sono impostati — o sono vuoti — NESSUN dominio è ammesso e
+ * ogni login viene rifiutato. Configurare sempre l'env in produzione, es.
+ * `ALLOWED_DOMAINS=dominio1.it,dominio2.it`.
+ *
+ * `ALLOWED_DOMAINS=*` resta un'apertura ESPLICITA (ammette tutti i domini): è
+ * una scelta deliberata, non più il comportamento di default a env mancante.
+ */
 export function isAllowedDomain(email: string): boolean {
-  const allowed = process.env.ALLOWED_DOMAINS || '*'
-  if (allowed === '*') return true
-  const domain = email.toLowerCase().split('@')[1] ?? ''
-  return allowed
+  const raw = (process.env.ALLOWED_DOMAINS ?? process.env.ACCEPTED_DOMAINS ?? '').trim()
+  if (raw === '') return false
+  const allowed = raw
     .split(',')
     .map((d) => d.trim().toLowerCase())
-    .includes(domain)
+    .filter(Boolean)
+  if (allowed.includes('*')) return true
+  if (allowed.length === 0) return false
+  const domain = email.toLowerCase().split('@')[1] ?? ''
+  if (!domain) return false
+  return allowed.includes(domain)
 }
