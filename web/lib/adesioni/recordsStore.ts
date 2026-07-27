@@ -115,11 +115,18 @@ export async function renewRecords(ids: string[], years = 1): Promise<AdesioneRo
   return out
 }
 
-/** Porta i record a stato 'archived' (usato dall'export). */
-export async function archiveRecords(ids: string[]): Promise<number> {
+/**
+ * Porta i record a stato 'archived' (usato dall'export) segnando lotto e data
+ * di export (parità con archiveRecords(ids, batchId) del desktop).
+ */
+export async function archiveRecords(ids: string[], batchId?: string): Promise<number> {
   if (!ids.length) return 0
   const res = await pool.query(
-    `UPDATE adesioni_records SET status='archived', updated_at=EXTRACT(EPOCH FROM NOW())::BIGINT WHERE id = ANY($1::text[])`, [ids]
+    `UPDATE adesioni_records
+       SET status='archived', export_batch=$2, exported_at=EXTRACT(EPOCH FROM NOW())::BIGINT,
+           updated_at=EXTRACT(EPOCH FROM NOW())::BIGINT
+     WHERE id = ANY($1::text[])`,
+    [ids, batchId ?? null]
   )
   return res.rowCount ?? 0
 }
