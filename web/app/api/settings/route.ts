@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     'llmProvider', 'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
     'polizzaOcrEnabled', 'polizzaWholeDossier',
     'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
+    // DEMO "Usa modello Claude": toggle + credenziali/modello Anthropic per la presentazione.
+    'polizzaUseClaude', 'anthropicApiKey', 'anthropicModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantCollection', 'embeddingModel',
