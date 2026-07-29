@@ -63,6 +63,9 @@ export async function initDb() {
     );
 
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS upload_complete BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Timestamp dell'email di fine batch inviata al proprietario: NULL = non ancora
+    -- notificato. Serve a inviare la mail UNA sola volta (anche dopo un restart).
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS notified_at BIGINT;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 

@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 
 interface SessionRow {
   id: number
+  email: string
   file_name: string
   num_pages: number
   created_at: number
@@ -65,7 +66,7 @@ export default function HistoryPage() {
                 <span style={{ width: 36, height: 36, borderRadius: 'var(--r-md)', background: 'var(--c-accent-faint)', border: '1px solid var(--c-accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--c-accent)', flexShrink: 0 }}><IconFile /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.file_name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t('hist.pages', { n: r.num_pages, date: new Date(r.created_at * 1000).toLocaleString(locale) })}</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t('hist.pages', { n: r.num_pages, date: new Date(r.created_at * 1000).toLocaleString(locale) })}{r.email ? ` · ${r.email}` : ''}</div>
                 </div>
                 <button className="btn btn-primary" style={{ padding: '7px 14px' }} onClick={() => open(r.id)} disabled={opening === r.id}>{opening === r.id ? <span className="spinner" /> : t('hist.open')}</button>
                 <button className="btn btn-secondary" style={{ padding: '7px 12px' }} onClick={() => del(r.id)}>{t('hist.delete')}</button>

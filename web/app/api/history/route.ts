@@ -3,13 +3,13 @@ import { getSession } from '@/lib/auth'
 import { pool } from '@/lib/db'
 import { logAction } from '@/lib/logger'
 
-// GET: elenco sessioni dell'utente (senza il PDF)
+// GET: elenco sessioni di TUTTI gli utenti (lavoro condiviso). L'email è il
+// proprietario, mostrato nell'interfaccia. Senza il PDF.
 export async function GET() {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { rows } = await pool.query(
-    'SELECT id, file_name, num_pages, created_at FROM sessions WHERE email = $1 ORDER BY id DESC LIMIT 200',
-    [session.email]
+    'SELECT id, email, file_name, num_pages, created_at FROM sessions ORDER BY id DESC LIMIT 200'
   )
   return NextResponse.json({ sessions: rows })
 }
@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, id: rows[0].id })
 }
 
-// DELETE: svuota tutta la cronologia dell'utente
+// DELETE: svuota la cronologia. Anche in modalità condivisa, "svuota tutto" resta
+// limitato alle PROPRIE sessioni: evita che un utente cancelli per sbaglio la
+// cronologia di tutto il team. L'eliminazione della singola voce (route [id]) è
+// invece consentita su qualunque sessione.
 export async function DELETE() {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

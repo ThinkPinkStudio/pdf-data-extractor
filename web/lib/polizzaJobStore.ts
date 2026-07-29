@@ -128,6 +128,29 @@ export async function addDossierToBatch(params: {
   })
 }
 
+// Reclamo ATOMICO della notifica di fine batch: imposta notified_at solo se ancora
+// NULL, così un solo chiamante "vince" e invia l'email una volta sola (anche se
+// l'orchestratore riparte dopo un restart). Ritorna proprietario, etichetta e
+// conteggi dei job; null se già notificato (o batch inesistente).
+export async function claimBatchNotification(batchId: string): Promise<
+  { email: string; label: string; total: number; done: number; error: number; canceled: number } | null
+> {
+  const { rows } = await pool.query<{ email: string; label: string }>(
+    `UPDATE batch_jobs SET notified_at = $1 WHERE id = $2 AND notified_at IS NULL RETURNING email, label`,
+    [now(), batchId]
+  )
+  if (!rows.length) return null
+  const { rows: counts } = await pool.query<{ total: number; done: number; error: number; canceled: number }>(
+    `SELECT COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE status = 'done')::int AS done,
+       COUNT(*) FILTER (WHERE status = 'error')::int AS error,
+       COUNT(*) FILTER (WHERE status = 'canceled')::int AS canceled
+     FROM polizza_jobs WHERE batch_id = $1`,
+    [batchId]
+  )
+  return { email: rows[0].email, label: rows[0].label, ...counts[0] }
+}
+
 export async function markUploadComplete(batchId: string): Promise<void> {
   await pool.query(`UPDATE batch_jobs SET upload_complete = TRUE, updated_at = $1 WHERE id = $2`, [now(), batchId])
 }
@@ -166,7 +189,10 @@ export interface BatchSummary extends BatchRow {
   canceled: number
 }
 
-export async function listBatches(email: string): Promise<BatchSummary[]> {
+// Lavoro CONDIVISO nel team: elenca i batch di TUTTI gli utenti (la colonna email
+// resta come "proprietario", mostrata nell'interfaccia). L'isolamento per email è
+// stato rimosso di proposito perché i colleghi devono vedere/gestire il lavoro altrui.
+export async function listBatches(): Promise<BatchSummary[]> {
   const { rows } = await pool.query<BatchSummary>(
     `SELECT b.*,
        COUNT(j.id)::int AS total,
@@ -177,10 +203,8 @@ export async function listBatches(email: string): Promise<BatchSummary[]> {
        COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled
      FROM batch_jobs b
      LEFT JOIN polizza_jobs j ON j.batch_id = b.id
-     WHERE b.email = $1
      GROUP BY b.id
-     ORDER BY b.created_at DESC`,
-    [email]
+     ORDER BY b.created_at DESC`
   )
   return rows
 }
@@ -266,6 +290,7 @@ export function jobSnapshot(job: JobRow) {
   return {
     jobId: job.id,
     batchId: job.batch_id,
+    owner: job.email,
     dossierName: job.dossier_name,
     status: job.status,
     wholeDossier: job.whole_dossier,
@@ -280,11 +305,12 @@ export function jobSnapshot(job: JobRow) {
   }
 }
 
-export async function cancelJob(id: string, email: string): Promise<boolean> {
+// Lavoro condiviso: qualunque utente autenticato può annullare un job (di chiunque).
+export async function cancelJob(id: string): Promise<boolean> {
   const { rowCount } = await pool.query(
     `UPDATE polizza_jobs SET status = 'canceled', updated_at = $1
-     WHERE id = $2 AND email = $3 AND status IN ('running','queued')`,
-    [now(), id, email]
+     WHERE id = $2 AND status IN ('running','queued')`,
+    [now(), id]
   )
   return (rowCount ?? 0) > 0
 }

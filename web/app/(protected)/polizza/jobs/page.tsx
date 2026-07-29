@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 interface BatchSummary {
   id: string
   label: string
+  email: string
   created_at: number
   total: number
   queued: number
@@ -18,6 +19,7 @@ interface BatchSummary {
 
 interface JobSnapshot {
   jobId: string
+  owner?: string
   dossierName: string | null
   status: string
   values: Record<string, string>
@@ -56,14 +58,25 @@ export default function PolizzaJobsPage() {
     return () => clearInterval(id)
   }, [loadBatches])
 
-  async function toggleOpen(id: string) {
-    if (openId === id) { setOpenId(null); setDetail(null); return }
-    setOpenId(id); setDetail(null); setLoadingDetail(true)
+  const loadDetail = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/polizza/batch/${id}`)
       const d = await res.json()
       setDetail(d.jobs || [])
-    } catch { setDetail([]) } finally { setLoadingDetail(false) }
+    } catch { setDetail([]) }
+  }, [])
+
+  async function toggleOpen(id: string) {
+    if (openId === id) { setOpenId(null); setDetail(null); return }
+    setOpenId(id); setDetail(null); setLoadingDetail(true)
+    await loadDetail(id)
+    setLoadingDetail(false)
+  }
+
+  async function cancelJobRow(jobId: string) {
+    await fetch(`/api/polizza/job/${jobId}/cancel`, { method: 'POST' }).catch(() => {})
+    if (openId) await loadDetail(openId)
+    await loadBatches()
   }
 
   const statusLabel = (s: string) => (
@@ -97,6 +110,7 @@ export default function PolizzaJobsPage() {
             <thead>
               <tr>
                 <th style={{ padding: '10px 14px' }}>{t('jobsDash.colLabel')}</th>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.colOwner')}</th>
                 <th style={{ padding: '10px 14px' }}>{t('jobsDash.colStatus')}</th>
                 <th style={{ padding: '10px 14px' }}>{t('jobsDash.colProgress')}</th>
                 <th style={{ padding: '10px 14px' }}>{t('jobsDash.colDate')}</th>
@@ -110,13 +124,14 @@ export default function PolizzaJobsPage() {
                   <Fragment key={b.id}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => toggleOpen(b.id)}>
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600 }}>{b.label}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{b.email}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: statusColor(st), fontWeight: 600 }}>{statusLabel(st)}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12 }}>{t('jobsDash.progressCount', { done: b.done + b.error + b.canceled, total: b.total })}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-muted)' }}>{fmtDate(b.created_at)}</td>
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={4} style={{ padding: '0 14px 14px', background: 'var(--c-bg-card-alt)' }}>
+                        <td colSpan={5} style={{ padding: '0 14px 14px', background: 'var(--c-bg-card-alt)' }}>
                           {loadingDetail && <p style={{ fontSize: 12 }}><span className="spinner" /></p>}
                           {!loadingDetail && detail && (
                             <table style={{ marginTop: 8 }}>
@@ -125,10 +140,13 @@ export default function PolizzaJobsPage() {
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierName')}</th>
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierStatus')}</th>
                                   <th style={{ fontSize: 10 }}>{t('jobsDash.dossierFields')}</th>
+                                  <th style={{ fontSize: 10 }}></th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {detail.map((j) => (
+                                {detail.map((j) => {
+                                  const active = j.status === 'running' || j.status === 'queued'
+                                  return (
                                   <tr key={j.jobId}>
                                     <td style={{ fontSize: 12 }}>{j.dossierName || '—'}</td>
                                     <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
@@ -136,8 +154,16 @@ export default function PolizzaJobsPage() {
                                       {j.error ? ` — ${j.error}` : ''}
                                     </td>
                                     <td style={{ fontSize: 12 }}>{Object.keys(j.values || {}).length}</td>
+                                    <td style={{ fontSize: 12, textAlign: 'right' }}>
+                                      {active && (
+                                        <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => cancelJobRow(j.jobId)}>
+                                          {t('jobsDash.cancel')}
+                                        </button>
+                                      )}
+                                    </td>
                                   </tr>
-                                ))}
+                                  )
+                                })}
                               </tbody>
                             </table>
                           )}

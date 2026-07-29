@@ -20,7 +20,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const batch = await getBatchRow(params.id)
-  if (!batch || batch.email !== session.email) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // Lavoro condiviso: nessun controllo di proprietà sul batch.
+  if (!batch) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (batch.upload_complete) return NextResponse.json({ error: 'Batch già chiuso' }, { status: 409 })
 
   let formData: FormData
