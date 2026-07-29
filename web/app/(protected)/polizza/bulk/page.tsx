@@ -20,9 +20,10 @@ function fileRelPath(f: File): string {
   return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
 }
 
-// Etichetta di un gruppo unito: prefisso-cartella comune dei membri (es. "PolizzaX"
-// per "PolizzaX/Scansioni" + "PolizzaX/Condizioni"), altrimenti il primo membro.
-function mergedLabel(members: GroupedDossier[], root: string): string {
+// Etichetta di un gruppo unito: prefisso-cartella comune dei membri (es. "Cli/PolX"
+// per "Cli/PolX/Scansioni" + "Cli/PolX/Condizioni"), altrimenti il primo membro. I
+// percorsi includono già la radice, quindi non va riaggiunta.
+function mergedLabel(members: GroupedDossier[]): string {
   const realPaths = members.map((m) => m.dossierName).filter((n) => !n.startsWith('__loose__'))
   if (realPaths.length >= 2) {
     const split = realPaths.map((p) => p.split('/'))
@@ -32,9 +33,9 @@ function mergedLabel(members: GroupedDossier[], root: string): string {
       if (seg === undefined || !split.every((s) => s[i] === seg)) break
       common.push(seg)
     }
-    if (common.length) return `${root}/${common.join('/')}`
+    if (common.length) return common.join('/')
   }
-  return displayDossierName(members[0].dossierName, root)
+  return displayDossierName(members[0].dossierName)
 }
 
 export default function PolizzaBulkPage() {
@@ -137,7 +138,7 @@ export default function PolizzaBulkPage() {
     }
     return [...map.entries()].map(([gid, g]) => ({
       gid,
-      label: g.members.length === 1 ? displayDossierName(g.members[0].dossierName, root) : mergedLabel(g.members, root),
+      label: g.members.length === 1 ? displayDossierName(g.members[0].dossierName) : mergedLabel(g.members),
       fileIndexes: g.fileIndexes,
       memberCount: g.members.length,
     }))
@@ -360,7 +361,7 @@ export default function PolizzaBulkPage() {
                             <input type="checkbox" checked={selected.has(d.dossierName)} onChange={() => toggleSelect(d.dossierName)} disabled={!inc} />
                           </td>
                           <td style={{ fontSize: 12 }}>
-                            {displayDossierName(d.dossierName, root)}
+                            {displayDossierName(d.dossierName)}
                             {merged && (
                               <span style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--c-bg-card-alt)', color: 'var(--c-text-secondary)' }}>
                                 {t('bulk.mergedBadge', { n: groupSize })}{' '}

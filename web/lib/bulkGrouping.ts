@@ -10,16 +10,16 @@ export interface GroupedDossier { dossierName: string; fileIndexes: number[] }
 export interface SkippedPath { index: number; relPath: string; reason: SkipReason; matched?: string }
 export interface GroupResult { root: string; dossiers: GroupedDossier[]; skipped: SkippedPath[] }
 
-// Rilevamento "a foglia", A QUALSIASI PROFONDITÀ: la chiave di ogni dossier è il
-// PERCORSO-CARTELLA COMPLETO che contiene direttamente il PDF (tutti i segmenti tra
-// la radice e il file). Non si assume nessun livello fisso: due PDF nella stessa
-// cartella finiscono insieme, cartelle diverse restano dossier diversi — che siano a
-// 1 o a 10 livelli di profondità. Se i documenti di UNA polizza sono sparsi in
-// sotto-sottocartelle diverse (es. "PolizzaX/Scansioni" e "PolizzaX/Condizioni"),
-// questa euristica li propone separati: l'utente li RICOMPONE con l'unione manuale
-// nell'elenco (nessun euristica può indovinare il confine, che varia da ramo a ramo).
-// I PDF caricati sciolti nella radice (nessuna sottocartella) diventano ciascuno il
-// proprio dossier.
+// Rilevamento "per cartella", A QUALSIASI PROFONDITÀ: la chiave di ogni dossier è il
+// PERCORSO DELLA CARTELLA che contiene direttamente il PDF — RADICE INCLUSA. Regola:
+// una cartella = una polizza. Tutti i PDF sciolti dentro la cartella selezionata
+// finiscono in UN unico dossier (la radice), non uno per file; una sottocartella è
+// una cartella diversa quindi un dossier diverso, a 1 o a 10 livelli di profondità.
+// Se i documenti di UNA polizza sono sparsi in cartelle diverse (es. "Pol/Scansioni"
+// e "Pol/Condizioni"), vengono proposti separati: l'utente li RICOMPONE con l'unione
+// manuale (nessuna euristica può indovinare il confine, che varia da ramo a ramo).
+// Solo i file davvero senza cartella (drag di singoli file, relPath senza "/")
+// diventano un dossier a testa.
 export function groupPathsByDossier(relPaths: string[], filters: PathFilters = NO_FILTERS): GroupResult {
   let root = ''
   const order: string[] = []
@@ -39,16 +39,16 @@ export function groupPathsByDossier(relPaths: string[], filters: PathFilters = N
     }
     const segments = relPath.split('/').filter(Boolean)
     if (!root && segments.length) root = segments[0]
-    const middle = segments.slice(1, -1) // cartelle tra radice e file; vuoto = file sciolto in radice
+    // Cartella che contiene il file, dalla radice compresa (tutti i segmenti tranne il
+    // nome file). Vuoto solo se il file non ha alcuna cartella (drag di singoli file).
+    const dir = segments.slice(0, -1).join('/')
 
     let dossierName: string
-    if (middle.length === 0) {
+    if (dir === '') {
       looseCounter++
       dossierName = `__loose__${looseCounter}__${segments[segments.length - 1]}`
     } else {
-      // Percorso-cartella completo relativo alla radice: distingue i dossier a
-      // qualunque profondità, senza fermarsi a un livello prefissato.
-      dossierName = middle.join('/')
+      dossierName = dir
     }
 
     if (!indexByDossier.has(dossierName)) { indexByDossier.set(dossierName, []); order.push(dossierName) }
@@ -58,12 +58,12 @@ export function groupPathsByDossier(relPaths: string[], filters: PathFilters = N
   return { root, dossiers: order.map((name) => ({ dossierName: name, fileIndexes: indexByDossier.get(name) || [] })), skipped }
 }
 
-// Nome leggibile per l'interfaccia: per i file sciolti mostra solo il nome del file,
-// altrimenti il percorso-cartella completo relativo alla radice.
-export function displayDossierName(dossierName: string, root: string): string {
+// Nome leggibile per l'interfaccia: per i file davvero sciolti mostra solo il nome del
+// file, altrimenti il percorso-cartella (già completo dalla radice).
+export function displayDossierName(dossierName: string, _root?: string): string {
   if (dossierName.startsWith('__loose__')) {
     const parts = dossierName.split('__')
     return parts[parts.length - 1]
   }
-  return `${root}/${dossierName}`
+  return dossierName
 }
