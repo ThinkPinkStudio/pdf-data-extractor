@@ -78,6 +78,56 @@ function explainResend(status: number, name: string, message: string, from: stri
   return message || `Errore ${status}`
 }
 
+// Invio generico: Resend (HTTP API) se configurato, altrimenti fallback SMTP.
+export async function sendEmail(mail: Email) {
+  const resendKey = process.env.RESEND_API_KEY
+  if (resendKey) {
+    await sendViaResend(resendKey, mail)
+    return
+  }
+  await createTransport().sendMail(mail)
+}
+
+// Notifica di fine elaborazione batch/bulk al proprietario (chi ha lanciato il lavoro).
+export async function sendBatchCompleteEmail(
+  to: string,
+  opts: { label: string; total: number; done: number; error: number; canceled: number },
+) {
+  const from = process.env.SMTP_FROM || 'PDF Extractor <noreply@localhost>'
+  const baseUrl = process.env.MAGIC_LINK_BASE_URL || 'http://localhost:3000'
+  const link = `${baseUrl}/polizza/jobs`
+  const esito = opts.error > 0 ? 'con alcuni errori' : 'con successo'
+  const righe = [
+    `Cartella: ${opts.label}`,
+    `Dossier totali: ${opts.total}`,
+    `Completati: ${opts.done}`,
+    `Con errori: ${opts.error}`,
+    `Annullati: ${opts.canceled}`,
+  ]
+  const mail: Email = {
+    from,
+    to,
+    subject: `Elaborazione bulk completata: ${opts.label}`,
+    text: `L'elaborazione della cartella "${opts.label}" è terminata ${esito}.\n\n${righe.join('\n')}\n\nApri il riepilogo: ${link}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+        <h2 style="color: #1a1a2e; margin-bottom: 8px;">Elaborazione bulk completata</h2>
+        <p style="color: #444; margin-bottom: 16px;">La cartella <strong>${opts.label}</strong> è stata elaborata ${esito}.</p>
+        <ul style="color:#444;font-size:14px;line-height:1.8;padding-left:18px;margin:0 0 24px;">
+          <li>Dossier totali: <strong>${opts.total}</strong></li>
+          <li>Completati: <strong>${opts.done}</strong></li>
+          <li>Con errori: <strong>${opts.error}</strong></li>
+          <li>Annullati: <strong>${opts.canceled}</strong></li>
+        </ul>
+        <a href="${link}" style="display:inline-block;background:#6c63ff;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">
+          Apri il riepilogo
+        </a>
+      </div>
+    `,
+  }
+  await sendEmail(mail)
+}
+
 export async function sendMagicLink(email: string, token: string) {
   const baseUrl = process.env.MAGIC_LINK_BASE_URL || 'http://localhost:3000'
   const link = `${baseUrl}/auth/verify?token=${token}`
@@ -106,11 +156,5 @@ export async function sendMagicLink(email: string, token: string) {
 
   // Resend (HTTP API) ha la precedenza se configurato: niente SMTP da gestire e
   // funziona anche dove le porte 465/587 sono chiuse. Altrimenti fallback SMTP.
-  const resendKey = process.env.RESEND_API_KEY
-  if (resendKey) {
-    await sendViaResend(resendKey, mail)
-    return
-  }
-
-  await createTransport().sendMail(mail)
+  await sendEmail(mail)
 }

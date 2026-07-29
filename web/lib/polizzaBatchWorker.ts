@@ -8,8 +8,22 @@
 // (llmSemaphore, dentro runJobAndWait): job di batch diversi e job singoli non girano
 // mai in parallelo tra loro (protegge VRAM e rate limit LLM/OCR condivisi).
 
-import { getNextPendingBatchJob, isUploadComplete } from './polizzaJobStore'
+import { getNextPendingBatchJob, isUploadComplete, claimBatchNotification } from './polizzaJobStore'
 import { runJobAndWait } from './polizzaJobWorker'
+import { sendBatchCompleteEmail } from './mailer'
+
+// A batch finito: email di riepilogo al proprietario (chi ha lanciato il lavoro).
+// La notifica è reclamata in modo atomico (una sola email) e l'invio non è mai fatale
+// per l'orchestratore. Salta i batch vuoti (nessun dossier) e i casi già notificati.
+async function notifyOwnerBatchComplete(batchId: string): Promise<void> {
+  try {
+    const info = await claimBatchNotification(batchId)
+    if (!info || info.total === 0 || !info.email) return
+    await sendBatchCompleteEmail(info.email, info)
+  } catch (err) {
+    console.error(`[batch:${batchId}] notifica email fine batch non inviata (non fatale):`, (err as Error).message)
+  }
+}
 
 const running = new Set<string>()
 
@@ -28,7 +42,10 @@ async function runBatch(batchId: string): Promise<void> {
     }
     // Nessun job pronto: se l'upload è ancora in corso, altri dossier potrebbero
     // arrivare a breve (upload a chunk) — attende invece di terminare l'orchestrazione.
-    if (await isUploadComplete(batchId)) return
+    if (await isUploadComplete(batchId)) {
+      await notifyOwnerBatchComplete(batchId) // email di riepilogo, una sola volta
+      return
+    }
     await new Promise((r) => setTimeout(r, 2000))
   }
 }

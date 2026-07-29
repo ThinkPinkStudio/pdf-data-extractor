@@ -6,9 +6,10 @@ import { pool } from '@/lib/db'
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Lavoro condiviso: qualunque utente autenticato può aprire una sessione.
   const { rows } = await pool.query(
-    'SELECT id, file_name, num_pages, pdf_base64, meta FROM sessions WHERE id = $1 AND email = $2',
-    [params.id, session.email]
+    'SELECT id, file_name, num_pages, pdf_base64, meta FROM sessions WHERE id = $1',
+    [params.id]
   )
   if (!rows.length) return NextResponse.json({ error: 'Non trovata' }, { status: 404 })
   const r = rows[0]
@@ -19,6 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  await pool.query('DELETE FROM sessions WHERE id = $1 AND email = $2', [params.id, session.email])
+  // Lavoro condiviso: eliminazione della singola voce consentita a chiunque.
+  await pool.query('DELETE FROM sessions WHERE id = $1', [params.id])
   return NextResponse.json({ ok: true })
 }

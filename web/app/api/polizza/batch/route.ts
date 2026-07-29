@@ -26,6 +26,6 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const batches = await listBatches(session.email)
+  const batches = await listBatches() // lavoro condiviso: batch di tutti gli utenti
   return NextResponse.json({ batches })
 }

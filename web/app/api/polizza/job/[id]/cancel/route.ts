@@ -7,6 +7,6 @@ export const runtime = 'nodejs'
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const ok = await cancelJob(params.id, session.email)
+  const ok = await cancelJob(params.id) // lavoro condiviso: chiunque può annullare
   return NextResponse.json({ ok })
 }
