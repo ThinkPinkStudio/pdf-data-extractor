@@ -34,7 +34,7 @@ import {
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
-  hasLabelEvidenceNear,
+  hasLabelEvidenceNear, pickSemanticCandidate,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -2408,15 +2408,21 @@ function matchRealDoc(analyzed, docName) {
 
 /**
  * Stage C+D per un blocco di risposte: valida ogni entry (scala completa) e la
- * fonde in `best` con la regola "il documento più recente vince".
+ * fonde in `best`. Il merge è AGNOSTICO rispetto ai campi: niente classi a
+ * parole chiave — decide l'arbitro semantico (affinità descrizione↔contesto,
+ * calcolata dal chiamante via `affinityFor`) e, tra candidati comparabili, la
+ * recency ("i dati nuovi sovrascrivono i vecchi").
+ * @param {Function|null} affinityFor  async (field, cleaned, evidenza, srcDoc) → number|null
  * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
-function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null) {
+async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
   // scartato e con quale valore.
-  const note = (id, outcome, value) => { if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28) }) }
+  const note = (id, outcome, value, aff) => {
+    if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28), aff: typeof aff === 'number' ? aff : null })
+  }
   let accepted = 0
   for (const [k, e] of Object.entries(parsed || {})) {
     const field = byId[k]
@@ -2428,70 +2434,21 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
     if (!passesStagedEvidence(field, cleaned, e, normCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned); continue }
     const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
-    if (isStructuralField(field) && modelDoc && isPeriodicDocName(modelDoc)) { counters.guardrail++; note(k, 'guardrail:strutturale-da-periodico', cleaned); continue }
 
-    // Il "concetto" del campo si riconosce da TUTTO il suo testo configurato —
-    // id, etichetta E descrizione: i campi sono dinamici (nomi/UUID arbitrari),
-    // la descrizione è la loro semantica. Se un profilo non ha campi che
-    // matchano un concetto, la relativa guardia è inerte (mai dannosa).
+    // Guardie di VALORE (non tassonomia dei campi): riconoscono un concetto nel
+    // testo configurato del campo (id+etichetta+descrizione) e sono inerti nei
+    // profili che non lo contengono. Il footer societario è un obbligo normativo
+    // (vale per ogni compagnia), i rinvii non sono descrizioni, una S.p.A. non è
+    // una piazza di agenzia.
     const fieldText = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
-    // Attività assicurata: un rinvio ("l'attività per la quale è prestata
-    // l'assicurazione") non è una descrizione — scartato SEMPRE, anche a campo
-    // vuoto (meglio il recupero mirato che una frase fotocopiata).
     if (/attivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
-    // Agenzia: la denominazione della compagnia (S.p.A./Assicurazioni…) non è
-    // un'agenzia — visto sul campo: "Generali Italia S.p.A." al posto di "MILANO 901".
     if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
-
-    // Decorrenza: ammessa anche dai documenti periodici — la semantica scelta è
-    // il PERIODO DI COPERTURA CORRENTE (decorrenza rata → scadenza rata), quindi
-    // la quietanza più recente è proprio la fonte giusta. La coerenza della
-    // coppia decorrenza/scadenza è garantita dal check finale (mai inizio ≥ fine).
-    // P.IVA/CF: se nel documento sorgente il valore vive SOLO nel footer societario
-    // della compagnia (Sede legale/Registro Imprese/IVASS…), è l'identità
-    // dell'ASSICURATORE — visto sul campo: 00885351007 da "appendice 9" batteva
-    // per recency la P.IVA vera del contraente trovata dal seed sul frontespizio.
     if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
-    // Campi strutturali (e preventivi/parametri) GIÀ valorizzati: il candidato di
-    // un documento più recente sostituisce solo se quel documento RIDEFINISCE il
-    // campo (etichetta vicino al valore; un massimale non crolla sotto il 20%).
-    const prev = best[k]
-    if (prev?.valore != null && String(prev.valore) !== '' && String(prev.valore) !== String(cleaned)
-        && (isStructuralField(field) || /preventiv|parametro/i.test(fieldText))
-        && srcDoc?.text
-        && isSuspectStructuralOverride(field, prev.valore, cleaned, srcDoc.text)) {
-      counters.guardrail++
-      note(k, 'guardrail:override-sospetto', cleaned)
-      continue
-    }
-    // Campi economico-PERIODICI: vivono in quietanze/regolazioni — un candidato da
-    // polizza/appendice non può COPRIRE un valore che viene da un documento
-    // periodico (visto sul campo: premio totale 5501,25 dall'Appendice 12 al posto
-    // del 6.501,25 della quietanza 2025). Il contrario resta permesso (recency).
-    if (isPeriodicEconomicField(field)
-        && prev && (prev.docType === 'quietanza' || prev.docType === 'regolazione')
-        && srcDoc && srcDoc.type !== 'quietanza' && srcDoc.type !== 'regolazione') {
-      counters.guardrail++
-      note(k, 'guardrail:periodico-coperto-da-appendice', cleaned)
-      continue
-    }
-    // Importo preventivo/parametro: se nella STESSA risposta il modello propone lo
-    // stesso identico numero anche per un campo "premio", sta duplicando il premio
-    // nel preventivo (visto: importo_preventivo=4500 = premio_imponibile=4500 —
-    // il preventivo retribuzioni è un monte salari, non un premio).
-    if (/preventiv/i.test(fieldText)) {
-      const nvDup = normForMatch(cleaned)
-      const dupOfPremio = Object.entries(parsed || {}).some(([k2, e2]) => {
-        if (k2 === k || !/premio/i.test(k2)) return false
-        const v2 = (e2 && typeof e2 === 'object') ? e2.valore : e2
-        return v2 != null && normForMatch(String(v2)) === nvDup
-      })
-      if (dupOfPremio) { counters.guardrail++; note(k, 'guardrail:preventivo=premio', cleaned); continue }
-    }
+
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
     // candidati datati correttamente.
@@ -2505,14 +2462,17 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
     const cand = {
       valore: cleaned,
       effDate,
+      affinity: affinityFor ? await affinityFor(field, cleaned, evidenza, srcDoc) : null,
       docType: srcDoc?.type ?? null,
       appendixOrd: srcDoc?.appendixOrd ?? null,
       docPos: srcDoc?.pos ?? null,
       file: source?.file || srcDoc?.name || null,
       page: source?.page ?? '',
     }
-    const won = pickMoreRecentCandidate(best[k], cand, kindOf[k])
-    note(k, won === cand ? 'ok' : 'ok-ma-perde-recency', cleaned)
+    // ARBITRO SEMANTICO: affinità nettamente diversa → vince la più alta;
+    // collasso numerico >80% solo con affinità superiore; comparabili → recency.
+    const won = pickSemanticCandidate(best[k], cand, kindOf[k])
+    note(k, won === cand ? 'ok' : 'ok-ma-perde-merge', cleaned, cand.affinity)
     best[k] = won
     accepted++
   }
@@ -2691,7 +2651,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const m = d.text.match(/(?:di\s+seguito\s+)?descritt[ao]\s*[:;]\s*\n?\s*([^\n]{15,300})/i)
         || d.text.match(/ATTIVIT\S{0,2}(?:\s+ASSICURATA)?\s*[:]\s*\n?\s*([^\n]{15,300})/i)
       if (!m) continue
-      const candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[.\s]+$/, '')
+      const candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
       if (candidate.length < 15 || isRinvioAttivita(candidate)) continue
       if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue // heading tutto maiuscolo, non una descrizione
       const pIdx = (d.pages || []).findIndex((pg) => pg && pg.includes(m[1].trim().slice(0, 40)))
@@ -2714,6 +2674,137 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // le pagine coi dati (attività a pag. 23, P.IVA contraente a pag. 10). qwen2.5
   // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB.
   const batchCtx = Math.min(modelLimit || 131072, 24576)
+
+  // ── AFFINITÀ SEMANTICA descrizione↔testo (agnostica: niente classi keyword) ─
+  // La DESCRIZIONE del campo è l'unica verità semantica disponibile: guida DOVE
+  // cercare un campo (gate campo×documento) e CHI vince tra candidati in
+  // conflitto (arbitro nel merge). Embeddings bge-m3; se non disponibili,
+  // fallback LESSICALE sui token della descrizione — il motore non si ferma mai.
+  const pageVecCache = new Map()   // `${doc.pos}:${pagina}` → vettore
+  const descVecCache = new Map()   // field.id → vettore della descrizione
+  const winVecCache = new Map()    // finestra di contesto (norm) → vettore
+  let embeddingsOk = true
+  let semanticLogged = false
+  const fieldQueryText = (f) => `${f.label || ''}. ${stripFieldExamples(f.description || f.label || f.id)}`
+  const lexTokenize = (str) => String(str || '')
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
+  const lexTokensCache = new Map() // field.id → token descrizione
+  const lexTokensOf = (f) => {
+    if (!lexTokensCache.has(f.id)) lexTokensCache.set(f.id, lexTokenize(fieldQueryText(f)))
+    return lexTokensCache.get(f.id)
+  }
+  const lexAffinity = (f, normText) => {
+    const toks = lexTokensOf(f)
+    if (!toks.length || !normText) return 0
+    let hit = 0
+    for (const t of toks) if (normText.includes(t)) hit++
+    return hit / toks.length
+  }
+  const ensurePageVecs = async (docsList) => {
+    if (!embeddingsOk) return
+    const wanted = []
+    for (const d of docsList) {
+      for (let p = 0; p < d.pages.length; p++) {
+        if (d.pages[p].trim() && !pageVecCache.has(`${d.pos}:${p}`)) wanted.push({ d, p })
+      }
+    }
+    for (let i = 0; i < wanted.length; i += 32) {
+      const chunk = wanted.slice(i, i + 32)
+      const vecs = await embedTexts(settings, chunk.map((w) => w.d.pages[w.p].slice(0, 2000)))
+      chunk.forEach((w, j) => pageVecCache.set(`${w.d.pos}:${w.p}`, vecs[j]))
+    }
+  }
+  const ensureDescVecs = async () => {
+    if (!embeddingsOk) return
+    const missing = activeFields.filter((f) => !descVecCache.has(f.id))
+    if (!missing.length) return
+    const vecs = await embedTexts(settings, missing.map(fieldQueryText))
+    missing.forEach((f, i) => descVecCache.set(f.id, vecs[i]))
+  }
+  // Bootstrap una volta sola: pagine + descrizioni. Su errore → lessicale.
+  try {
+    await ensurePageVecs(analyzed)
+    await ensureDescVecs()
+    const nPages = pageVecCache.size
+    diag.push(`Affinità semantica attiva (${settings.embeddingModel || 'bge-m3'}): ${nPages} pagine + ${descVecCache.size} descrizioni embeddate — instradamento e arbitrato guidati dalle DESCRIZIONI dei campi`)
+    semanticLogged = true
+  } catch (err) {
+    embeddingsOk = false
+    diag.push(`Affinità semantica NON disponibile (${err.message}) → fallback LESSICALE sui token delle descrizioni. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
+  }
+  // Affinità campo×documento = max sulle pagine del documento.
+  const fdAffCache = new Map()
+  const fieldDocAffinity = (field, doc) => {
+    const key = `${field.id}|${doc.pos}`
+    if (fdAffCache.has(key)) return fdAffCache.get(key)
+    let aff = 0
+    if (embeddingsOk && descVecCache.has(field.id)) {
+      const q = descVecCache.get(field.id)
+      for (let p = 0; p < doc.pages.length; p++) {
+        const v = pageVecCache.get(`${doc.pos}:${p}`)
+        if (v) aff = Math.max(aff, cosineSim(q, v))
+      }
+    } else {
+      for (const np of doc.normPages || []) aff = Math.max(aff, lexAffinity(field, np))
+    }
+    fdAffCache.set(key, aff)
+    return aff
+  }
+  const bestAffCache = new Map()
+  const fieldBestAffinity = (field) => {
+    if (bestAffCache.has(field.id)) return bestAffCache.get(field.id)
+    let m = 0
+    for (const d of analyzed) m = Math.max(m, fieldDocAffinity(field, d))
+    bestAffCache.set(field.id, m)
+    return m
+  }
+  // GATE campo×documenti: un campo si chiede su un set di documenti solo se lì
+  // l'affinità raggiunge almeno il 70% della sua MIGLIORE affinità sull'intero
+  // fascicolo (soglia RELATIVA: nessun assoluto da tarare, nessuna classe).
+  const eligibleFieldsForDocs = (fields, docs) => fields.filter((f) => {
+    const bestAff = fieldBestAffinity(f)
+    if (!(bestAff > 0)) return true // nessun segnale → mai escludere per zelo
+    let m = 0
+    for (const d of docs) { m = Math.max(m, fieldDocAffinity(f, d)); if (m >= bestAff * 0.7) break }
+    return m >= bestAff * 0.7
+  })
+  // Affinità del CONTESTO attorno a un valore (per l'arbitro nel merge): finestra
+  // ±200 char attorno alla prima occorrenza del valore nel documento sorgente.
+  const findValueWindow = (docText, value, evidenza) => {
+    const text = String(docText || '')
+    if (!text) return null
+    const tryNeedles = [String(value || ''), String(evidenza || '')].filter((s) => s.trim().length >= 3)
+    for (const needle of tryNeedles) {
+      let idx = text.indexOf(needle)
+      if (idx === -1) {
+        const digits = needle.replace(/\D/g, '')
+        if (digits.length >= 3) {
+          const m = text.match(new RegExp(digits.split('').join('[\\s.,]?')))
+          if (m) idx = m.index
+        }
+      }
+      if (idx !== -1) return text.slice(Math.max(0, idx - 200), idx + needle.length + 200)
+    }
+    return null
+  }
+  const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
+    if (!srcDoc?.text) return null
+    const win = findValueWindow(srcDoc.text, cleaned, evidenza)
+    if (!win) return null
+    if (embeddingsOk && descVecCache.has(field.id)) {
+      try {
+        const key = normForMatch(win).slice(0, 120)
+        if (!winVecCache.has(key)) {
+          const [v] = await embedTexts(settings, [win.slice(0, 1200)])
+          winVecCache.set(key, v)
+        }
+        return cosineSim(descVecCache.get(field.id), winVecCache.get(key))
+      } catch { /* singolo embed fallito → lessicale */ }
+    }
+    return lexAffinity(field, normForMatch(win))
+  }
+
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
   // È il metodo dell'estrazione manuale reale: documenti ordinati dal più
   // recente al più vecchio, e a ogni documento si chiedono SOLO i campi ancora
@@ -2739,27 +2830,30 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
   if (useCascade) {
   const cascadeDocs = [...analyzed].sort(byStagedRecency)
-  // CONTROPROVA e tetto tentativi — le pezze alle debolezze della cascata:
-  // 1. i campi STRUTTURALI riempiti da documenti non-base restano PROVVISORI
-  //    finché non si legge la polizza base (mai saltata): se la polizza dà un
-  //    valore diverso, vince il più recente SOLO se il suo documento ridefinisce
-  //    davvero il campo (etichetta vicino al valore), altrimenti il frontespizio;
-  // 2. un campo che resta null per RECOVERY_MISS_CAP documenti esce dalla
+  // CONTROPROVA e tetto tentativi — le pezze alle debolezze della cascata,
+  // in forma AGNOSTICA (niente classi keyword):
+  // 1. la polizza base non viene mai saltata: lì si ri-chiedono TUTTI i campi il
+  //    cui valore corrente non viene dalla polizza — l'arbitro semantico del
+  //    merge decide se il frontespizio smentisce il valore più recente;
+  // 2. l'eleggibilità campo×documento è il GATE SEMANTICO (affinità della
+  //    descrizione con le pagine del documento) — un campo non si chiede dove
+  //    il documento non ne parla;
+  // 3. un campo che resta null per RECOVERY_MISS_CAP documenti esce dalla
   //    cascata e passa al recupero semantico (Stadio E) — niente 40 chiamate
   //    per un campo che non esiste.
   const RECOVERY_MISS_CAP = 5
   const missCount = {}
   const hasPolizzaBase = cascadeDocs.some((d) => d.type === 'polizza')
   let polizzaVisited = !hasPolizzaBase
-  // Eleggibilità dinamica: i campi strutturali (massimali/franchigie/attività…)
-  // non vengono MAI chiesti a quietanze/regolazioni — non possono contenerli.
-  const missingEligible = (doc) => activeFields.filter((f) => {
-    if (isPeriodicDocName(doc.name) && isStructuralField(f)) return false
-    if (!(f.id in best)) return (missCount[f.id] || 0) < RECOVERY_MISS_CAP
-    // Controprova: sulla polizza base si ri-chiedono gli strutturali provvisori
-    return doc.type === 'polizza' && isStructuralField(f) && best[f.id]?.provisional === true
-  })
-  diag.push(`Stadio B (cascata): ${cascadeDocs.length} documenti dal più recente al più vecchio — a ognuno si chiedono SOLO i campi ancora vuoti; strutturali provvisori fino alla polizza base; max ${RECOVERY_MISS_CAP} tentativi per campo (num_ctx ${batchCtx})`)
+  const missingEligible = (doc) => {
+    const base = activeFields.filter((f) => {
+      if (!(f.id in best)) return (missCount[f.id] || 0) < RECOVERY_MISS_CAP
+      // Controprova sulla polizza base: si ri-chiede tutto ciò che non viene da lei
+      return doc.type === 'polizza' && best[f.id]?.docType !== 'polizza'
+    })
+    return eligibleFieldsForDocs(base, [doc])
+  }
+  diag.push(`Stadio B (cascata): ${cascadeDocs.length} documenti dal più recente al più vecchio — a ognuno solo i campi ancora vuoti ed ELEGGIBILI per affinità semantica; controprova sulla polizza base; max ${RECOVERY_MISS_CAP} tentativi per campo (num_ctx ${batchCtx})`)
   diag.push(`Cascata — ordine di visita: ${cascadeDocs.slice(0, 8).map((d) => `${d.name}${d.dateStr ? ` (${d.dateStr})` : ''}`).join(' → ')}${cascadeDocs.length > 8 ? ' → …' : ''}`)
 
   progressTotal = cascadeDocs.length
@@ -2829,73 +2923,33 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
       const before = { ...counters }
       const report = []
-      if (doc.type === 'polizza') {
-        // CONTROPROVA sulla polizza base: i campi strutturali PROVVISORI (riempiti
-        // da documenti non-base) si assorbono in un best separato e si arbitrano:
-        // il valore più recente resta SOLO se il suo documento ridefinisce davvero
-        // il campo (etichetta vicino al valore), altrimenti vince il frontespizio.
-        const provIds = new Set(missingHere.filter((f) => best[f.id]?.provisional === true).map((f) => f.id))
-        const parsedMain = {}, parsedProv = {}
-        for (const [k2, v2] of Object.entries(parsed || {})) (provIds.has(k2) ? parsedProv : parsedMain)[k2] = v2
-        llmFieldsCount += absorbStagedEntries(parsedMain, missingHere.filter((f) => !provIds.has(f.id)), best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
-        if (provIds.size) {
-          const pBest = {}
-          absorbStagedEntries(parsedProv, missingHere.filter((f) => provIds.has(f.id)), pBest, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
-          for (const [k2, pv] of Object.entries(pBest)) {
-            const cur = best[k2]
-            if (!cur) { best[k2] = pv; continue }
-            if (normForMatch(String(cur.valore)) === normForMatch(String(pv.valore))) {
-              delete cur.provisional
-              diag.push(`  Controprova "${k2}": confermato dalla polizza base ✓`)
-              continue
-            }
-            const holder = analyzed.find((d2) => d2.pos === cur.docPos)
-            const redefined = holder?.text ? hasLabelEvidenceNear(holder.text, cur.valore, fieldsById[k2]) : false
-            if (redefined) {
-              delete cur.provisional
-              diag.push(`  Controprova "${k2}": polizza dice "${String(pv.valore).slice(0, 24)}" ma "${holder?.name || '?'}" RIDEFINISCE il campo → resta "${String(cur.valore).slice(0, 24)}"`)
-            } else {
-              diag.push(`  Controprova "${k2}": "${String(cur.valore).slice(0, 24)}" (da "${holder?.name || '?'}") non ridefinito lì → vince la polizza base: "${String(pv.valore).slice(0, 24)}"`)
-              best[k2] = pv
-            }
-          }
-        }
-      } else {
-        llmFieldsCount += absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
-      }
+      // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
+      // controprova sulla polizza base non ha più codice speciale — i suoi
+      // candidati competono con l'affinità descrizione↔contesto come gli altri.
+      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity)
       const filled = report.filter((r) => r.outcome === 'ok').length
       diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
         `${counters.noEvidence - before.noEvidence} senza evidenza` +
         `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
-      // Esito PER CAMPO: senza questo dettaglio ogni run era un indovinare su
-      // CHI fosse stato scartato e con quale valore.
+      // Esito PER CAMPO (con affinità semantica): senza questo dettaglio ogni
+      // run era un indovinare su CHI fosse stato scartato e con quale valore.
       const reported = report.filter((r) => r.outcome !== 'vuoto/null')
       if (reported.length) {
-        diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+        diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
       }
     }
 
-    // Dopo il documento: tentativi a vuoto (per il tetto), marcatura dei
-    // provvisori, e registrazione della polizza base visitata.
+    // Dopo il documento: tentativi a vuoto (per il tetto) e registrazione
+    // della polizza base visitata.
     for (const f of missingHere) {
       if (!(f.id in best)) {
         missCount[f.id] = (missCount[f.id] || 0) + 1
         if (missCount[f.id] === RECOVERY_MISS_CAP) diag.push(`Cascata: "${f.id}" null per ${RECOVERY_MISS_CAP} documenti → passa al recupero semantico`)
       }
     }
-    if (doc.type === 'polizza') {
-      polizzaVisited = true
-    } else {
-      for (const f of missingHere) {
-        const b2 = best[f.id]
-        if (b2 && isStructuralField(f) && b2.provisional !== false) b2.provisional = true
-      }
-    }
+    if (doc.type === 'polizza') polizzaVisited = true
   }
-  // Flag interni: mai in uscita (i provvisori non confermati restano validi —
-  // la polizza base semplicemente non li smentiva o non è stata raggiunta).
-  for (const k of Object.keys(best)) delete best[k].provisional
   } else {
   // ── Stadio B a GRUPPI, copertura totale (percorso DEFAULT) ─────────────────
   const groupPlans = []
@@ -2910,32 +2964,47 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   for (const plan of groupPlans) {
     const { kind, groupFields, groupDocs } = plan
+    // fieldLines COMPLETO solo per stimare la riserva di budget; i campi chiesti
+    // davvero a ogni batch sono quelli ELEGGIBILI per affinità semantica.
     plan.fieldLines = groupFields
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
     plan.system = stagedSystemPrompt(kind)
-    plan.buildPrompt = (text) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${plan.fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
-    // ECONOMICI: batch FOCALIZZATO sul periodo corrente in testa — solo la
-    // quietanza e la regolazione più recenti. Davanti a 6 documenti insieme il
-    // modello confondeva i valori (premio dell'Appendice 12 al posto della
-    // quietanza 2025): un contesto piccolo con SOLO i documenti giusti è più
-    // accurato, e i suoi candidati (periodici recenti) sono protetti dal merge.
+    // Batch FOCALIZZATI sul periodo corrente in testa al gruppo — documenti
+    // individuati dalla DATAZIONE dei contenuti (agnostico, zero pattern):
+    // - economici: UNO PER DOCUMENTO (prima la regolazione, poi la quietanza più
+    //   recente). Nel batch unico il modello emetteva UNA sola risposta per
+    //   campo attribuita al documento sbagliato (imposta=528 del conguaglio al
+    //   posto di 1.001,25 della rata): sdoppiando nascono candidati da ENTRAMBI
+    //   e decide l'arbitro (affinità + recency).
+    // - anagrafica: un batch con i 2 periodici più recenti insieme — contesto
+    //   piccolo per agenzia/contraente/decorrenza CORRENTI (es. "001 00 ACQUI
+    //   TERME" accanto a COD. AGENZIA), candidati datati che battono i valori
+    //   vecchi delle appendici per recency.
+    const newestQ = groupDocs.find((d) => d.type === 'quietanza')
+    const newestR = groupDocs.find((d) => d.type === 'regolazione')
+    let focusCount = 0
     if (kind === 'economici') {
-      const newestQ = groupDocs.find((d) => d.type === 'quietanza')
-      const newestR = groupDocs.find((d) => d.type === 'regolazione')
-      const focusDocs = [newestR, newestQ].filter(Boolean)
+      const focus = [newestR, newestQ].filter(Boolean)
+        .flatMap((d) => buildGroupBatches([d], budgetChars))
+      focusCount = focus.length
+      if (focus.length) plan.batches = [...focus, ...plan.batches]
+    } else if (kind === 'anagrafica') {
+      const focusDocs = [newestQ, newestR].filter(Boolean)
       if (focusDocs.length) {
         const focus = buildGroupBatches(focusDocs, budgetChars)
+        focusCount = focus.length
         if (focus.length) plan.batches = [...focus, ...plan.batches]
       }
     }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
-    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${kind === 'economici' ? 'primo focalizzato sul periodo corrente, poi ' : ''}copertura totale, num_ctx ${batchCtx})`)
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} sul periodo corrente + ` : ''}copertura totale, num_ctx ${batchCtx})`)
   }
   progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
 
@@ -2948,13 +3017,28 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       progressDone++
       onProgress?.({ batch: progressDone, batchTotal: progressTotal })
 
+      // GATE SEMANTICO campo×documenti del batch: si chiedono qui SOLO i campi
+      // la cui descrizione ha affinità con questi documenti (≥70% della loro
+      // migliore affinità sull'intero fascicolo). Niente classi keyword: un
+      // "massimale" non viene chiesto alle quietanze perché le loro pagine non
+      // ne parlano, qualunque nome abbia il campo.
+      const batchDocs = plan.groupDocs.filter((d) => usedNames.has(d.name))
+      const batchFields = eligibleFieldsForDocs(groupFields, batchDocs.length ? batchDocs : plan.groupDocs)
+      if (!batchFields.length) {
+        diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 3).join(', ')}${usedNames.size > 3 ? ', …' : ''}): saltato — nessun campo affine a questi documenti`)
+        continue
+      }
+      const batchFieldLines = batchFields
+        .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+        .join('\n')
+
       // num_ctx SEMPRE al tetto del batch: allocare meno per "risparmiare" rischia
       // il troncamento se la stima sottovaluta.
       const numCtx = batchCtx
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx), { numCtx, timeoutMs: 600000, diag })
+        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx, batchFieldLines), { numCtx, timeoutMs: 600000, diag })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -2963,7 +3047,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`Gruppo "${kind}" batch ${bi + 1}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx, batchFieldLines), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -2981,16 +3065,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
       const report = []
-      llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report)
+      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
-        `${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
+        `${batchFields.length}/${groupFields.length} campi eleggibili, ${got} proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
         `${counters.sanitized - before.sanitized} sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza` +
         `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
-      // Esito PER CAMPO: senza questo dettaglio ogni run era un indovinare su
-      // CHI fosse stato scartato e con quale valore.
+      // Esito PER CAMPO (con affinità semantica): senza questo dettaglio ogni
+      // run era un indovinare su CHI fosse stato scartato e con quale valore.
       if (report.length) {
-        diag.push(`  ↳ ${report.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+        diag.push(`  ↳ ${report.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
       }
     }
   }
@@ -3044,23 +3128,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // giusta anche quando usa PAROLE DIVERSE dalla label del campo
       // ("descrizione del rischio" vs "attività assicurata") — il ranking
       // lessicale resta solo come fallback se gli embeddings non ci sono.
-      const pageVecCache = new Map() // `${doc.pos}:${pagina}` → vettore
-      let embeddingsOk = true
-      let semanticLogged = false
-      const ensurePageVecs = async (docsList) => {
-        const wanted = []
-        for (const d of docsList) {
-          for (let p = 0; p < d.pages.length; p++) {
-            if (d.pages[p].trim() && !pageVecCache.has(`${d.pos}:${p}`)) wanted.push({ d, p })
-          }
-        }
-        for (let i = 0; i < wanted.length; i += 32) {
-          const chunk = wanted.slice(i, i + 32)
-          const vecs = await embedTexts(settings, chunk.map((w) => w.d.pages[w.p].slice(0, 2000)))
-          chunk.forEach((w, j) => pageVecCache.set(`${w.d.pos}:${w.p}`, vecs[j]))
-        }
-      }
-
+      // Riusa l'infrastruttura di affinità dello Stadio B: pagine già embeddate
+      // (pageVecCache), stesso stato embeddingsOk, stesso fallback lessicale.
       for (const b of planned) {
         if (abortedByErrors) break
         progressDone++
@@ -3156,7 +3225,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
-          absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport)
+          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity)
           if (recReport.length) {
             diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
           }
