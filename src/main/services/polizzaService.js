@@ -19,6 +19,20 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch } from './netFetch.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
+// Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
+// per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
+// privati rimossi da questo file) + regola "il valore più recente vince".
+import {
+  parseDateFromContextLine, extractDocumentDateString, extractDocumentDate,
+  normalizeDateValue, dateStrToTs, shouldReplaceValue,
+} from './polizzaDates.js'
+// Validazione pura (test/polizzaChecksums.test.mjs): placeholder, checksum
+// P.IVA/CF, partizione campi, verifica di evidenza, recenza dei candidati.
+import {
+  parsePureAmount, isPlaceholderValue, validateCodiceFiscaleIva,
+  isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
+  partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
+} from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -229,94 +243,10 @@ function extractFieldsWithRegex(text) {
   return found
 }
 
-/**
- * Cerca una data in una riga di testo corrispondente al pattern.
- * Gestisce sia il formato standard "GG/MM/AAAA" sia gli artefatti di estrazione
- * tipo "31 112 I 2021" (→ "31/12/2021").
- */
-function parseDateFromContextLine(fullText, linePattern) {
-  const lineMatch = fullText.match(linePattern)
-  if (!lineMatch) return null
-  const line = lineMatch[0]
-
-  // Formato standard
-  const std = line.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{4})/)
-  if (std) {
-    return `${std[1].padStart(2, '0')}/${std[2].padStart(2, '0')}/${std[3]}`
-  }
-
-  // Formato con artefatti OCR: cerca l'anno (20XX) e lavora all'indietro
-  const yearMatch = line.match(/(20\d{2})/)
-  if (!yearMatch) return null
-  const year = yearMatch[1]
-  const beforeYear = line.slice(0, line.indexOf(year))
-
-  // Estrai numeri prima dell'anno; se un numero > 31, prendi le ultime 2 cifre
-  const nums = [...beforeYear.matchAll(/\d+/g)].map(m => {
-    const n = parseInt(m[0])
-    if (n > 31 && m[0].length > 2) return parseInt(m[0].slice(-2))
-    return n
-  }).filter(n => n >= 1 && n <= 31)
-
-  // Cerca mese (≤ 12) da destra, poi il giorno
-  let month = null, day = null
-  for (let i = nums.length - 1; i >= 0; i--) {
-    if (month === null && nums[i] >= 1 && nums[i] <= 12) {
-      month = nums[i]
-    } else if (month !== null) {
-      day = nums[i]
-      break
-    }
-  }
-
-  if (day && month) {
-    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
-  }
-  return null
-}
-
 // ─── Estrazione combinata da più PDF ─────────────────────────────────────────
-
-/**
- * Trova la data "di riferimento" di un documento nel suo testo, come stringa
- * GG/MM/AAAA. È sempre una data LETTA nel contenuto (mai la data del file).
- * Priorità: data di emissione → data di effetto → scadenza → decorrenza →
- * prima data GG/MM/AAAA presente.
- */
-function extractDocumentDateString(text) {
-  // 1. "Emesso in Milano il 25/05/2026" — la più affidabile per la recenza
-  const emesso = parseDateFromContextLine(text, /EMESS[OAE]\b[^\n]{0,80}/i)
-  if (emesso) return emesso
-
-  // 2. "con effetto dalle ore 24.00 del 27/04/2026"
-  const effetto = parseDateFromContextLine(text, /EFFETTO\b[^\n]{0,80}/i)
-  if (effetto) return effetto
-
-  // 3. Data di scadenza (es. "SCADENZA 31/12/2025")
-  const scad = parseDateFromContextLine(text, /SCADENZA\b[^\n]{0,100}/i)
-  if (scad) return scad
-
-  // 4. Data di decorrenza (es. "DECORRENZA 01/01/2024")
-  const dec = parseDateFromContextLine(text, /DECORRENZA\b[^\n]{0,100}/i)
-  if (dec) return dec
-
-  // 5. Prima data GG/MM/AAAA trovata nel testo
-  const any = text.match(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/)
-  if (any) return `${any[1].padStart(2, '0')}/${any[2].padStart(2, '0')}/${any[3]}`
-
-  return null
-}
-
-/**
- * Restituisce la data di riferimento del documento come timestamp numerico (ms).
- * Usata per stabilire quale documento è il più recente quando ci sono più file.
- */
-function extractDocumentDate(text) {
-  const str = extractDocumentDateString(text)
-  if (!str) return 0
-  const [dd, mm, yyyy] = str.split('/')
-  return new Date(+yyyy, +mm - 1, +dd).getTime()
-}
+// parseDateFromContextLine / extractDocumentDateString / extractDocumentDate ora
+// arrivano da polizzaDates.js (versione testata, che data per periodo di
+// copertura ed esclude le righe di emissione/stampa).
 
 /**
  * Estrae tutti i dati assicurativi da un set di PDF di polizza RC.
@@ -948,22 +878,7 @@ function flattenRollingState(state) {
   return flat
 }
 
-/**
- * Normalizza una data in formato GG/MM/AAAA. Accetta GG/MM/AAAA, GG.MM.AAAA,
- * GG-MM-AAAA e AAAA-MM-GG. Restituisce null se non è una data riconoscibile.
- */
-function normalizeDateValue(raw) {
-  const v = String(raw).trim()
-  let d, m, y
-  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/)
-  if (match) { d = +match[1]; m = +match[2]; y = +match[3] }
-  else {
-    match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-    if (match) { y = +match[1]; m = +match[2]; d = +match[3] }
-  }
-  if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
-  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
-}
+// normalizeDateValue: importata da polizzaDates.js.
 
 // Id dei campi del set predefinito: le regole di sanitizzazione per-id si
 // applicano SOLO a questi. I campi personalizzati dell'utente passano intatti
@@ -981,6 +896,18 @@ function sanitizeFieldValue(field, rawValue) {
   let v = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue)
   if (!v) return null
 
+  // Placeholder di assenza-dato ("non specificato", "null", "n/d", "-"…): i
+  // modelli piccoli li scrivono al posto di omettere il campo. Meglio vuoto
+  // che spazzatura in Excel.
+  if (isPlaceholderValue(v)) return null
+
+  // Modello che fa ECO al campo: valore identico (normalizzato) alla label o
+  // all'id del campo stesso → non è un dato estratto.
+  if (field) {
+    const nv = normForMatch(v)
+    if (nv && (nv === normForMatch(field.label || '') || nv === normForMatch(field.id || ''))) return null
+  }
+
   // "€ 3.000.000,00" / "EUR 3.000.000,00" → "3.000.000,00"
   // (coerente con gli esempi e con l'export numerico su Excel)
   const euroMatch = v.match(/^(?:€|EUR)\s*([\d.,]+)$/i)
@@ -992,12 +919,11 @@ function sanitizeFieldValue(field, rawValue) {
   if (!field || !KNOWN_DEFAULT_IDS.has(field.id)) return v
   const id = field.id
 
-  // P.IVA (11 cifre) o Codice Fiscale (16 alfanumerici): tutto il resto è rumore
-  // (es. codici agenzia/broker tipo "0705")
+  // P.IVA (11 cifre) o Codice Fiscale (16 char): validazione con CHECKSUM
+  // ufficiale (+ riparazione OCR per la P.IVA). Una sequenza plausibile ma con
+  // cifra di controllo sbagliata è rumore OCR o allucinazione → null.
   if (id === 'codice_fiscale_iva') {
-    const compact = v.replace(/[\s.\-]/g, '')
-    if (/^\d{11}$/.test(compact) || /^[A-Z0-9]{16}$/i.test(compact)) return compact.toUpperCase()
-    return null
+    return validateCodiceFiscaleIva(v)
   }
 
   // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
@@ -1013,14 +939,7 @@ function sanitizeFieldValue(field, rawValue) {
   return v
 }
 
-/** Converte una data GG/MM/AAAA in timestamp (ms), null se non valida. */
-function dateStrToTs(d) {
-  if (!d || typeof d !== 'string') return null
-  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!m) return null
-  const ts = new Date(+m[3], +m[2] - 1, +m[1]).getTime()
-  return Number.isFinite(ts) ? ts : null
-}
+// dateStrToTs: importata da polizzaDates.js.
 
 /**
  * Fonde la risposta del LLM nello stato rolling in modo difensivo:
@@ -1039,17 +958,7 @@ function dateStrToTs(d) {
  * @param {object} fieldsById  { fieldId: fieldDef } per la validazione per-campo
  * @param {string|null} docDate  data GG/MM/AAAA del documento corrente (letta nel testo)
  */
-// Converte in numero SOLO una stringa che è un importo "puro" (cifre + separatori
-// italiani, es. "4.000.000,00", "10.000", "2,5"). Restituisce null se contiene
-// altro (testo, date con "/", percentuali, sigle): così la regola di stabilità
-// numerica non scatta mai su valori non confrontabili.
-function parsePureAmount(v) {
-  if (v == null) return null
-  const s = String(v).trim()
-  if (!/^[€\s]*\d[\d.\s]*(?:,\d+)?\s*€?$/.test(s)) return null
-  const n = parseFloat(s.replace(/[€\s]/g, '').replace(/\./g, '').replace(',', '.'))
-  return Number.isFinite(n) ? n : null
-}
+// parsePureAmount: importata da polizzaValidation.js.
 
 function mergeRollingState(state, updated, fieldsById = {}, docDate = null, source = null) {
   if (!updated || typeof updated !== 'object' || Array.isArray(updated)) return state
@@ -1724,10 +1633,7 @@ const WHOLE_DOSSIER_SYSTEM =
 // franchigie, scoperti, attività, prodotti, qualifica, garanzie). Una quietanza o
 // una regolazione premio NON li contiene: valori attribuiti dal modello a quei
 // documenti sono misletture (importi di premio spacciati per massimali).
-function isStructuralField(field) {
-  const s = `${field?.id || ''} ${field?.label || ''} ${field?.description || ''}`
-  return /massimal|franchig|scopert|attivit|prodott|qualific|garanz/i.test(s)
-}
+// isStructuralField: importata da polizzaValidation.js.
 
 // Rimuove le clausole d'esempio dalle descrizioni dei campi ("es. 3.000.000,00",
 // "(es. 410000880)"). I modelli locali piccoli COPIANO gli esempi dal prompt
@@ -1758,11 +1664,8 @@ function passesEvidenceCheck(cleaned, entry, strict) {
   return evidenza.replace(/\D/g, '').includes(intDigits)
 }
 
-// Documenti "periodici" (quietanze/regolazioni premio): ricchi di dati economici
-// recenti, ma privi per natura di massimali/franchigie/attività.
-function isPeriodicDocName(name) {
-  return /quietanz|regolazion/i.test(String(name || ''))
-}
+// isPeriodicDocName: importata da polizzaValidation.js (documenti "periodici" =
+// quietanze/regolazioni premio, ricchi di dati economici ma privi di massimali).
 
 /**
  * Fascicoli che NON entrano nel contesto massimo del modello Ollama: il testo
@@ -1799,6 +1702,9 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     d.pos = i
     d.periodic = isPeriodicDocName(d.name)
   }
+  // Data di copertura per nome documento: usata nel merge per datare i valori
+  // che il modello attribuisce a un documento senza dichiararne la data_validita.
+  const docTsByName = new Map(docs.map(d => [d.name, d.ts]))
   docs.sort((a, b) => {
     if (a.periodic !== b.periodic) return a.periodic ? 1 : -1
     if (a.ts != null && b.ts != null) return b.ts - a.ts
@@ -1905,9 +1811,15 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       }
       const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
         ? normalizeDateValue(e.data_validita) : null
-      const ts = dateStrToTs(validita)
+      // Data EFFETTIVA del candidato: la data_validita del modello oppure la data
+      // di copertura del documento attribuito ("i dati nuovi sovrascrivono i
+      // vecchi" vale anche quando il modello non data il singolo valore).
+      const ts = dateStrToTs(validita) ?? (documento ? (docTsByName.get(documento) ?? null) : null)
       const existing = best[k]
-      // Il valore datato più recente vince; senza data conta il primo trovato.
+      // Il valore con data effettiva più recente vince. Tra valori entrambi SENZA
+      // data resta il primo trovato: i batch sono già in ordine informativo
+      // (polizza/appendici prima, poi periodici dal più recente) → spareggio
+      // deterministico documentato, non un caso silenzioso.
       if (!existing || (ts != null && (existing.ts == null || ts > existing.ts))) {
         if (!existing) added++
         best[k] = { valore: cleaned, documento, ts }
@@ -1999,7 +1911,10 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
         corrected++
         const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
           ? normalizeDateValue(e.data_validita) : null
-        best[k] = { valore: cleaned, documento: documento || best[k].documento, ts: dateStrToTs(validita) ?? best[k].ts }
+        // Data effettiva della correzione: data_validita → data di copertura del
+        // documento attribuito → data del candidato precedente (mai regressioni).
+        const effTs = dateStrToTs(validita) ?? (documento ? (docTsByName.get(documento) ?? null) : null) ?? best[k].ts
+        best[k] = { valore: cleaned, documento: documento || best[k].documento, ts: effTs }
       }
       diag.push(`Consolidamento: ${corrected} campi corretti, ${confirmed} confermati` +
         (rejected ? `, ${rejected} correzioni respinte (guardrail/evidenza)` : ''))
@@ -2028,13 +1943,8 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
 // recuperato, non dal modello → attribuzioni non inventabili, colonna "pag."
 // finalmente popolata.
 
-// Campi economici che cambiano nel tempo (premi/tassi/importi/imposte/parametri):
-// il valore giusto è quello del documento più recente → boost per anno.
-function isPeriodicEconomicField(field) {
-  if (isStructuralField(field)) return false
-  const s = `${field?.id || ''} ${field?.label || ''}`
-  return /premio|tasso|imposta|importo|parametro|preventiv/i.test(s)
-}
+// isPeriodicEconomicField: importata da polizzaValidation.js (campi economici che
+// cambiano nel tempo: il valore giusto è quello del documento più recente).
 
 function cosineSim(a, b) {
   let dot = 0, na = 0, nb = 0
@@ -2117,8 +2027,8 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
       batch.forEach((c, j) => { c.vector = vecs[j] })
     }
   } catch (err) {
-    diag.push(`Embeddings non disponibili (${err.message}): ripiego su fascicolo intero. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
-    const fb = await extractPolizzaFromFullText(fullText, settings, onProgress)
+    diag.push(`Embeddings non disponibili (${err.message}): ripiego sul motore a stadi. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
+    const fb = await extractPolizzaStaged(docs, settings, onProgress)
     return { ...fb, diag: [...diag, ...(fb.diag || [])] }
   }
   diag.push(`Indice in memoria: ${chunks.length} chunk (modello embeddings ${settings.embeddingModel || 'bge-m3'})`)
@@ -2131,8 +2041,8 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
       queryVecs.push(...await embedTexts(settings, queries.slice(i, i + EMBED_BATCH)))
     }
   } catch (err) {
-    diag.push(`Embedding query fallito (${err.message}): ripiego su fascicolo intero.`)
-    const fb = await extractPolizzaFromFullText(fullText, settings, onProgress)
+    diag.push(`Embedding query fallito (${err.message}): ripiego sul motore a stadi.`)
+    const fb = await extractPolizzaStaged(docs, settings, onProgress)
     return { ...fb, diag: [...diag, ...(fb.diag || [])] }
   }
 
@@ -2216,15 +2126,526 @@ Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} 
   return { data, sources, diag }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// MOTORE A STADI (Ollama su hardware debole: 7B / 8GB VRAM)
+//
+// Un'unica chiamata gigante su un fascicolo di 45 documenti diluisce la polizza
+// base e fa allucinare i modelli piccoli. Qui il lavoro è spezzato in PASSAGGI
+// piccoli e mirati, ciascuno dentro il contesto che il modello regge davvero:
+//   A. analisi deterministica (classificazione+datazione documenti, seed regex);
+//   B. una chiamata per GRUPPO di campi (strutturali/economici/anagrafica), con
+//      SOLO i documenti pertinenti a quel gruppo;
+//   C. validazione dura (placeholder, checksum, evidenza nel testo);
+//   D. merge "il documento più recente vince" + fonti reali (file+pagina cercando
+//      l'evidenza nelle pagine, non il "documento" asserito dal modello);
+//   E. recupero mirato: seconda passata focalizzata sui campi ancora vuoti.
+// Politica: MEGLIO VUOTO CHE SBAGLIATO — ciò che non supera la validazione
+// viene scartato, mai mostrato.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Modello Ollama effettivo: l'override polizzaWholeDossierModel vale solo se non
+ * è palesemente un modello cloud (claude-… / gpt-… → 404 sul server locale).
+ */
+function resolveOllamaModel(settings) {
+  const override = String(settings.polizzaWholeDossierModel || '').trim()
+  const model = (override && !/^(claude|gpt)-/i.test(override)) ? override : (settings.ollamaModel || '')
+  if (!model) {
+    throw new Error('Nessun modello Ollama configurato: imposta il "Modello" nella sezione Ollama delle Impostazioni.')
+  }
+  return model
+}
+
+const APPENDIX_ORD_RE = /appendice\s*(?:n[°.\s]*)?(\d{1,3})/i
+
+/**
+ * Stage A — analisi deterministica dei documenti (nessuna chiamata LLM).
+ * Datazione con gerarchia CONTENUTO-prima (i nomi file spesso non hanno date):
+ *   1. extractDocumentDateString sulle prime pagine, poi sull'intero testo
+ *      (periodo di copertura: SCADENZA/PERIODO/DECORRENZA, mai emissione);
+ *   2. anno nel nome file → 01/07/AAAA (convenzione metà anno);
+ *   3. ordinale d'appendice ("appendice 12" > "appendice 8") come spareggio;
+ *   4. nessuna data → il candidato non potrà mai scavalcare un valore datato.
+ */
+function analyzeStagedDocs(docs) {
+  return (docs || []).map((d, i) => {
+    const name = d?.name || `documento_${i + 1}.pdf`
+    const pages = Array.isArray(d?.pages) ? d.pages.map((p) => String(p || '')) : []
+    const text = pages.join('\n')
+    let dateStr = extractDocumentDateString(pages.slice(0, 3).join('\n')) || extractDocumentDateString(text) || null
+    if (!dateStr) {
+      const ym = name.match(/\b(19|20)\d{2}\b/)
+      if (ym) dateStr = `01/07/${ym[0]}`
+    }
+    const om = name.match(APPENDIX_ORD_RE)
+    return {
+      name, pages, text,
+      normPages: pages.map((p) => normForMatch(p)),
+      type: classifyDocType(name),
+      dateStr,
+      ts: dateStrToTs(dateStr),
+      appendixOrd: om ? parseInt(om[1], 10) : null,
+      pos: i,
+    }
+  }).filter((d) => d.text.trim().length > 0)
+}
+
+// Ordinamento "più recente prima": data di copertura, poi ordinale appendice,
+// poi posizione originale (deterministico).
+function byStagedRecency(a, b) {
+  if (a.ts != null || b.ts != null) {
+    if (a.ts == null) return 1
+    if (b.ts == null) return -1
+    if (a.ts !== b.ts) return b.ts - a.ts
+  }
+  if ((a.appendixOrd ?? -1) !== (b.appendixOrd ?? -1)) return (b.appendixOrd ?? -1) - (a.appendixOrd ?? -1)
+  return a.pos - b.pos
+}
+
+/**
+ * Documenti pertinenti per un gruppo di campi, in ordine di priorità informativa.
+ * I campi strutturali NON vedono mai quietanze/regolazioni (guardrail per
+ * costruzione, non per prompt).
+ */
+function selectGroupDocs(kind, analyzed) {
+  const of = (t) => analyzed.filter((d) => d.type === t).sort(byStagedRecency)
+  const polizza = of('polizza'), appendici = of('appendice'), condizioni = of('condizioni')
+  const altro = of('altro'), quietanze = of('quietanza'), regolazioni = of('regolazione')
+  const seen = new Set()
+  const dedupe = (list) => list.filter((d) => !seen.has(d.pos) && seen.add(d.pos))
+  if (kind === 'strutturali') {
+    return dedupe([...polizza, ...appendici, ...condizioni, ...altro])
+  }
+  if (kind === 'economici') {
+    return dedupe([...regolazioni.slice(0, 1), ...quietanze.slice(0, 1), ...polizza, ...appendici.slice(0, 1), ...altro.slice(0, 1)])
+  }
+  // anagrafica: polizza + TUTTE le appendici (cambio contraenza/indirizzo!) +
+  // il periodico più recente (porta scadenza/contraente correnti) + altro.
+  const newestPeriodic = [...regolazioni, ...quietanze].sort(byStagedRecency).slice(0, 1)
+  return dedupe([...polizza, ...appendici, ...newestPeriodic, ...altro])
+}
+
+/**
+ * Contesto di un gruppo: documenti INTERI concatenati con marker, in ordine di
+ * priorità, finché entrano nel budget. Mai tagli a metà documento, con l'unica
+ * eccezione del primo (se da solo sfora, se ne prende la testa).
+ */
+function buildGroupContext(docList, budgetChars) {
+  let ctx = ''
+  const usedNames = new Set()
+  let truncatedDoc = null
+  for (const d of docList) {
+    const block = `\n===== DOCUMENTO: ${d.name} =====\n${d.text.trim()}`
+    if (ctx.length + block.length <= budgetChars) {
+      ctx += block
+      usedNames.add(d.name)
+    } else if (!ctx) {
+      ctx = block.slice(0, budgetChars)
+      usedNames.add(d.name)
+      truncatedDoc = d.name
+      break
+    }
+    // altrimenti: si prova col documento successivo (più piccolo o meno prioritario)
+  }
+  return { text: ctx, usedNames, truncatedDoc }
+}
+
+// Prompt di sistema condiviso dei passaggi per gruppo + note specifiche.
+const STAGED_GROUP_NOTES = {
+  strutturali:
+    'NOTA: questi campi (massimali, franchigie, scoperti, attività, prodotti, qualifica, garanzie)\n' +
+    'esistono SOLO in polizza/appendici/condizioni. NON confondere un massimale (importo grande)\n' +
+    'con franchigie, scoperti, sotto-limiti, minimi o premi. Un\'appendice di variazione più\n' +
+    'recente prevale sulla polizza base.',
+  economici:
+    'NOTA: premi, tassi, imposte e importi cambiano ogni anno: usa il documento di regolazione/\n' +
+    'quietanza con il PERIODO più recente. PREVENTIVO ≠ CONSUNTIVO: per i campi "preventivo"\n' +
+    'usa il valore preventivato, non il consuntivo della regolazione.',
+  anagrafica:
+    'NOTA: dati anagrafici e date di copertura. Se un\'appendice di variazione (cambio contraenza,\n' +
+    'cambio indirizzo) o una quietanza recente riporta un dato aggiornato, quel valore prevale\n' +
+    'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.',
+}
+
+function stagedSystemPrompt(kind) {
+  return (
+    'Sei un estrattore di dati da un fascicolo assicurativo italiano (polizze RC).\n' +
+    'Ricevi ALCUNI documenti del fascicolo e un ELENCO RIDOTTO di campi.\n' +
+    'REGOLE TASSATIVE:\n' +
+    '1. Estrai un valore SOLO se è ESPLICITAMENTE presente nel testo. Se un campo non c\'è,\n' +
+    '   OMETTILO. MAI scrivere "non specificato", "n/d", "null" o simili.\n' +
+    '2. Se lo stesso dato compare in più documenti, usa SEMPRE quello con il PERIODO più\n' +
+    '   recente (un\'appendice o quietanza recente prevale sulla polizza base).\n' +
+    '3. Per OGNI campo includi "evidenza": il frammento ESATTO copiato dal documento in cui\n' +
+    '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
+    '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+    `${STAGED_GROUP_NOTES[kind] || ''}\n` +
+    'FORMATO: un solo oggetto JSON\n' +
+    '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
+    'Zero testo extra, zero markdown.'
+  )
+}
+
+const STAGED_RECOVERY_SYSTEM =
+  'Sei un estrattore di POCHI dati specifici da estratti di documenti assicurativi italiani.\n' +
+  'REGOLE TASSATIVE:\n' +
+  '1. Restituisci un campo SOLO se il suo valore è ESPLICITAMENTE presente negli estratti.\n' +
+  '2. Se un campo non c\'è, omettilo; se nessuno c\'è rispondi esattamente {} — è il caso\n' +
+  '   NORMALE e corretto. Non forzare, non dedurre, NON inventare.\n' +
+  '3. "evidenza" = il frammento ESATTO copiato dagli estratti in cui compare il valore.\n' +
+  '   Se non riesci a citarlo, stai inventando: ometti il campo.\n' +
+  '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"...", "evidenza":"testo esatto"}}\n' +
+  'oppure {} se nessun valore è presente. Zero testo extra, zero markdown.'
+
+/**
+ * Fonte REALE di un valore: cerca l'evidenza (poi il valore) normalizzata nelle
+ * pagine dei documenti — prima quelli usati nel contesto della chiamata, poi
+ * tutti. Il "documento" asserito dal modello è solo l'ultimo fallback, e solo
+ * se combacia con un file reale del fascicolo.
+ */
+function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null) {
+  const ordered = preferredNames
+    ? [...analyzed].sort((a, b) => (preferredNames.has(a.name) ? 0 : 1) - (preferredNames.has(b.name) ? 0 : 1))
+    : analyzed
+  const tryNeedle = (needle) => {
+    if (!needle || needle.length < 4) return null
+    for (const d of ordered) {
+      for (let p = 0; p < d.normPages.length; p++) {
+        if (d.normPages[p].includes(needle)) return { file: d.name, page: p + 1, doc: d }
+      }
+    }
+    // evidenza a cavallo di due pagine: match a livello documento, pagina ignota
+    for (const d of ordered) {
+      if (d.normPages.join('').includes(needle)) return { file: d.name, page: '', doc: d }
+    }
+    return null
+  }
+  const ne = evidenza ? normForMatch(evidenza).slice(0, 40) : ''
+  const nv = cleaned != null ? normForMatch(String(cleaned)) : ''
+  return tryNeedle(ne) || tryNeedle(nv)
+}
+
+// "documento" asserito dal modello → documento reale del fascicolo, se combacia
+// (esatto → case-insensitive → senza estensione). Altrimenti null.
+function matchRealDoc(analyzed, docName) {
+  const n = String(docName || '').trim()
+  if (!n) return null
+  return analyzed.find((d) => d.name === n)
+    || analyzed.find((d) => d.name.toLowerCase() === n.toLowerCase())
+    || analyzed.find((d) => d.name.toLowerCase().replace(/\.pdf$/i, '') === n.toLowerCase().replace(/\.pdf$/i, ''))
+    || null
+}
+
+/**
+ * Stage C+D per un blocco di risposte: valida ogni entry (scala completa) e la
+ * fonde in `best` con la regola "il documento più recente vince".
+ */
+function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters) {
+  const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
+  for (const [k, e] of Object.entries(parsed || {})) {
+    const field = byId[k]
+    if (!field) { counters.unknown++; continue }
+    const val = (e && typeof e === 'object') ? e.valore : e
+    if (val == null || String(val).trim() === '') { counters.sanitized++; continue }
+    if (isPlaceholderValue(val)) { counters.placeholders++; continue }
+    const cleaned = sanitizeFieldValue(field, val)
+    if (cleaned == null || cleaned === '') { counters.sanitized++; continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx)) { counters.noEvidence++; continue }
+    const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
+    if (isStructuralField(field) && modelDoc && isPeriodicDocName(modelDoc)) { counters.guardrail++; continue }
+
+    const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
+    const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
+    const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
+    const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
+      ? normalizeDateValue(e.data_validita) : null
+    const effDate = validita
+      || (field.type === 'date' ? cleaned : null)
+      || srcDoc?.dateStr
+      || null
+    const cand = {
+      valore: cleaned,
+      effDate,
+      docType: srcDoc?.type ?? null,
+      appendixOrd: srcDoc?.appendixOrd ?? null,
+      docPos: srcDoc?.pos ?? null,
+      file: source?.file || srcDoc?.name || null,
+      page: source?.page ?? '',
+    }
+    best[k] = pickMoreRecentCandidate(best[k], cand, kindOf[k])
+  }
+}
+
+/**
+ * Motore a stadi: estrazione Ollama in passaggi piccoli e mirati.
+ * Stessa shape degli altri motori: { data, sources, diag }.
+ */
+export async function extractPolizzaStaged(docs, settings, onProgress = null) {
+  const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
+  const activeFields = configuredFields.filter(f => f.enabled !== false)
+  const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
+  const diag = []
+  const best = {}   // id → candidato vincente { valore, effDate, docType, file, page, … }
+
+  const ollamaModel = resolveOllamaModel(settings)
+  const s2 = { ...settings, ollamaModel }
+  const modelLimit = await getOllamaContextLimit(s2, ollamaModel)
+  diag.push(`Motore a stadi (Ollama): ${activeFields.length} campi, ${docs?.length || 0} documenti, modello ${ollamaModel} (limite contesto ${modelLimit || 'sconosciuto'})`)
+
+  // ── Stage A: analisi deterministica ────────────────────────────────────────
+  const analyzed = analyzeStagedDocs(docs)
+  if (!analyzed.length) {
+    diag.push('Nessun testo utilizzabile nei documenti.')
+    return { data: {}, sources: {}, diag }
+  }
+  const typeCounts = {}
+  let undated = 0
+  for (const d of analyzed) {
+    typeCounts[d.type] = (typeCounts[d.type] || 0) + 1
+    if (!d.dateStr) undated++
+  }
+  diag.push(`Stadio A: ${Object.entries(typeCounts).map(([t, n]) => `${n} ${t}`).join(', ')} — ${undated} senza data (datazione per periodo di copertura, mai per emissione)`)
+
+  // Partizione dei campi + mappa id → genere (per priorità documenti e merge)
+  const partition = partitionFields(activeFields)
+  const kindOf = {}
+  for (const [kind, list] of Object.entries(partition)) for (const f of list) kindOf[f.id] = kind
+
+  // ── Stage A: seed regex (deterministici, checksum-validati) ────────────────
+  const basePool = (analyzed.filter((d) => d.type === 'polizza').length
+    ? analyzed.filter((d) => d.type === 'polizza')
+    : analyzed.filter((d) => !isPeriodicDocName(d.name))).sort(byStagedRecency)
+  const seedNotes = []
+  if ('polizza_numero' in fieldsById || 'codice_fiscale_iva' in fieldsById) {
+    const numCount = new Map()
+    for (const d of basePool) {
+      const rx = extractFieldsWithRegex(d.text)
+      if ('polizza_numero' in fieldsById && rx.polizza_numero) {
+        const cur = numCount.get(rx.polizza_numero) || { n: 0, doc: d }
+        numCount.set(rx.polizza_numero, { n: cur.n + 1, doc: cur.doc })
+      }
+      if ('codice_fiscale_iva' in fieldsById && rx.codice_fiscale_iva && !best.codice_fiscale_iva) {
+        const valid = validateCodiceFiscaleIva(rx.codice_fiscale_iva)
+        if (valid) {
+          const src = findStagedSource(analyzed, null, valid, new Set([d.name]))
+          best.codice_fiscale_iva = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
+          seedNotes.push(`codice_fiscale_iva="${valid}" (checksum OK, da "${d.name}")`)
+        } else {
+          seedNotes.push(`P.IVA/CF "${rx.codice_fiscale_iva}" SCARTATA dal checksum (da "${d.name}")`)
+        }
+      }
+    }
+    if (numCount.size) {
+      // Preferisci il numero presente in più documenti base; a parità il più recente
+      const [num, info] = [...numCount.entries()].sort((a, b) => b[1].n - a[1].n)[0]
+      const src = findStagedSource(analyzed, null, num)
+      best.polizza_numero = { valore: num, effDate: info.doc.dateStr, docType: info.doc.type, appendixOrd: info.doc.appendixOrd, docPos: info.doc.pos, file: src?.file || info.doc.name, page: src?.page ?? '' }
+      seedNotes.push(`polizza_numero="${num}" (in ${info.n} documento/i base)`)
+    }
+  }
+  // Date: da TUTTI i documenti; ogni hit è datato dal valore stesso → vince il più recente
+  for (const d of analyzed) {
+    const rx = extractFieldsWithRegex(d.text)
+    for (const id of ['decorrenza', 'scadenza']) {
+      if (!(id in fieldsById) || !rx[id]) continue
+      const norm = normalizeDateValue(rx[id])
+      if (!norm) continue
+      const cand = { valore: norm, effDate: norm, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: d.name, page: '' }
+      best[id] = pickMoreRecentCandidate(best[id], cand, kindOf[id] || 'anagrafica')
+    }
+  }
+  for (const id of ['decorrenza', 'scadenza']) {
+    if (best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
+  }
+  if (seedNotes.length) diag.push(`Stadio A: seed regex — ${seedNotes.join(' · ')}`)
+
+  // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
+  const promptExtra = (settings.polizzaPromptExtra || '').trim()
+  const batchCtx = Math.min(modelLimit || 131072, 16384)
+  // La P.IVA col checksum verificato è garantita: inutile richiederla al modello.
+  const seededOut = new Set(best.codice_fiscale_iva ? ['codice_fiscale_iva'] : [])
+  const groupPlans = []
+  for (const kind of ['strutturali', 'economici', 'anagrafica']) {
+    const groupFields = partition[kind].filter((f) => !seededOut.has(f.id))
+    const groupDocs = selectGroupDocs(kind, analyzed)
+    if (!groupFields.length || !groupDocs.length) {
+      diag.push(`Gruppo "${kind}": saltato (${!groupFields.length ? 'nessun campo' : 'nessun documento pertinente'})`)
+      continue
+    }
+    groupPlans.push({ kind, groupFields, groupDocs })
+  }
+  let progressTotal = groupPlans.length
+  let progressDone = 0
+  let consecutiveErrors = 0
+  let abortedByErrors = false
+  const counters = { unknown: 0, placeholders: 0, sanitized: 0, noEvidence: 0, guardrail: 0 }
+
+  for (const plan of groupPlans) {
+    if (abortedByErrors) break
+    const { kind, groupFields, groupDocs } = plan
+    progressDone++
+    onProgress?.({ batch: progressDone, batchTotal: progressTotal })
+
+    const fieldLines = groupFields
+      .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+      .join('\n')
+    const system = stagedSystemPrompt(kind)
+    const scaffold = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n\nRestituisci SOLO il JSON.`
+    const reserve = estimateOllamaTokens(system.length + scaffold.length) + 3000 + 512
+    const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.5))
+    const { text: ctx, usedNames, truncatedDoc } = buildGroupContext(groupDocs, budgetChars)
+    const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON.`
+    const estTokens = estimateOllamaTokens(system.length + userPrompt.length) + 3000 + 512
+    const numCtx = Math.min(batchCtx, Math.max(8192, Math.ceil(estTokens / 1024) * 1024))
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${usedNames.size}/${groupDocs.length} documenti nel contesto (~${estimateOllamaTokens(userPrompt.length)} token, num_ctx ${numCtx})` +
+      `${truncatedDoc ? ` — primo documento "${truncatedDoc}" troncato al budget` : ''}: ${[...usedNames].slice(0, 6).join(', ')}${usedNames.size > 6 ? ', …' : ''}`)
+
+    let parsed = null
+    try {
+      let raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
+      try {
+        parsed = parseJsonResponse(raw)
+      } catch {
+        // Un solo retry sul parse fallito (mai sul connection error)
+        diag.push(`Gruppo "${kind}": risposta non parsabile, retry…`)
+        raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
+        parsed = parseJsonResponse(raw)
+      }
+      consecutiveErrors = 0
+    } catch (err) {
+      consecutiveErrors++
+      diag.push(`Gruppo "${kind}" FALLITO (si prosegue con gli altri): ${err.message}`)
+      if (err.isLlmConnectionError || consecutiveErrors >= 3) {
+        abortedByErrors = true
+        diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(best).length} campi raccolti finora.`)
+        if (!Object.keys(best).length) {
+          const classified = classifyLlmError(err, settings)
+          classified.diag = diag
+          throw classified
+        }
+      }
+      continue
+    }
+
+    const before = { ...counters }
+    const normCtx = normForMatch(ctx)
+    absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
+    const got = Object.keys(parsed || {}).length
+    diag.push(`Gruppo "${kind}": ${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
+      `${counters.sanitized - before.sanitized} da sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza nel testo` +
+      `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} dal guardrail strutturale` : ''}`)
+  }
+
+  // ── Stage E: recupero mirato dei campi ancora vuoti ────────────────────────
+  if (!abortedByErrors) {
+    const missing = activeFields.filter((f) => !(f.id in best))
+    const maxCalls = Math.max(0, Math.min(24, parseInt(settings.polizzaStagedRecoveryMax, 10) || 12))
+    if (missing.length && maxCalls > 0) {
+      // Micro-batch ≤3 campi, raggruppati per genere (stesso pool di documenti)
+      const byKind = { strutturali: [], economici: [], anagrafica: [] }
+      for (const f of missing) byKind[kindOf[f.id] || 'anagrafica'].push(f)
+      const batches = []
+      for (const [kind, list] of Object.entries(byKind)) {
+        const allowedDocs = selectGroupDocs(kind, analyzed)
+        if (!allowedDocs.length) continue // genere senza documenti eleggibili: non estraibile
+        for (let i = 0; i < list.length; i += 3) batches.push({ kind, fields: list.slice(i, i + 3), allowedDocs })
+      }
+      const planned = batches.slice(0, maxCalls)
+      const skippedForCap = batches.length - planned.length
+      progressTotal += planned.length
+      let recovered = 0
+      let recConsecutive = 0
+
+      for (const b of planned) {
+        if (abortedByErrors) break
+        progressDone++
+        onProgress?.({ batch: progressDone, batchTotal: progressTotal })
+
+        // Contesto deterministico senza embeddings: pagine rank-ate per token
+        // delle label/descrizioni dei campi mancanti.
+        const tokens = [...new Set(
+          b.fields.flatMap((f) => `${f.label} ${stripFieldExamples(f.description || '')}`
+            .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .split(/[^a-z0-9]+/).filter((t) => t.length >= 4))
+        )]
+        const scored = []
+        b.allowedDocs.forEach((d, docRank) => {
+          d.normPages.forEach((np, p) => {
+            const score = tokens.reduce((n, t) => n + (np.includes(t) ? 1 : 0), 0)
+            scored.push({ d, p, score, docRank })
+          })
+        })
+        scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
+        const pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
+        let ctx = ''
+        const usedNames = new Set()
+        for (const s of pool) {
+          const pageText = s.d.pages[s.p]
+          if (!pageText.trim()) continue
+          const block = `[${s.d.name} · pag. ${s.p + 1}]\n${pageText.trim()}`
+          if (ctx && ctx.length + block.length > 8000) break
+          ctx += (ctx ? '\n---\n' : '') + block.slice(0, 8000)
+          usedNames.add(s.d.name)
+        }
+        if (!ctx) continue
+
+        const fieldLines = b.fields
+          .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+          .join('\n')
+        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}} oppure {} se gli estratti non contengono i valori.`
+        try {
+          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000 })
+          const parsed = parseJsonResponse(raw)
+          const beforeIds = new Set(Object.keys(best))
+          absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters)
+          for (const f of b.fields) if (!beforeIds.has(f.id) && (f.id in best)) recovered++
+          recConsecutive = 0
+        } catch (err) {
+          recConsecutive++
+          diag.push(`Recupero (${b.fields.map((f) => f.id).join(', ')}): errore (${err.message})`)
+          if (err.isLlmConnectionError || recConsecutive >= 3) {
+            abortedByErrors = true
+            diag.push(`Recupero INTERROTTO per errori ripetuti.`)
+          }
+        }
+      }
+      const stillMissing = activeFields.filter((f) => !(f.id in best)).length
+      diag.push(`Stadio E (recupero mirato): ${missing.length} campi vuoti → ${planned.length} chiamate` +
+        `${skippedForCap > 0 ? ` (cap ${maxCalls}: ${skippedForCap} micro-batch oltre il limite)` : ''}: ` +
+        `recuperati ${recovered}, ancora vuoti ${stillMissing} — restano vuoti (meglio vuoto che sbagliato)`)
+    } else if (!missing.length) {
+      diag.push('Stadio E: nessun campo mancante, recupero non necessario.')
+    }
+  }
+
+  // ── Uscita ────────────────────────────────────────────────────────────────
+  const data = {}, sources = {}
+  let located = 0, docOnly = 0, unsourced = 0
+  for (const [k, e] of Object.entries(best)) {
+    data[k] = e.valore
+    if (e.file && e.page !== '' && e.page != null) { sources[k] = { file: e.file, page: e.page }; located++ }
+    else if (e.file) { sources[k] = { file: e.file, page: '' }; docOnly++ }
+    else unsourced++
+  }
+  diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
+  diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length}`)
+  return { data, sources, diag }
+}
+
 /**
  * Dispatcher del fascicolo: sceglie il motore in base al provider e alle
- * impostazioni. Ollama + docs disponibili + motore per-campo attivo → per-campo;
- * altrimenti la chiamata unica/batch storica (cloud, fallback, motore spento).
+ * impostazioni. Ollama + docs disponibili → per-campo (RAG, se attivo) oppure
+ * motore a stadi (default per hardware debole); cloud e chiamate senza docs →
+ * chiamata unica/batch storica.
  */
 export async function extractPolizzaFromDocs(docs, fullText, settings, onProgress = null) {
   const provider = settings.llmProvider || 'ollama'
-  if (provider === 'ollama' && Array.isArray(docs) && docs.length && settings.polizzaPerField !== false) {
-    return extractPolizzaPerField(docs, fullText, settings, onProgress)
+  if (provider === 'ollama' && Array.isArray(docs) && docs.length) {
+    if (settings.polizzaPerField !== false) {
+      return extractPolizzaPerField(docs, fullText, settings, onProgress)
+    }
+    return extractPolizzaStaged(docs, settings, onProgress)
   }
   return extractPolizzaFromFullText(fullText, settings, onProgress)
 }
@@ -2282,16 +2703,9 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
     } else {
       // BUG FIX: il modello "fascicolo intero" (polizzaWholeDossierModel, default
       // Claude) vale SOLO per il provider Anthropic. Con Ollama va usato il modello
-      // Ollama configurato, altrimenti il nome Claude finirebbe al server locale
-      // → 404 "model not found". Un override esplicito è ammesso solo se non è
-      // palesemente un modello cloud (claude-*/gpt-*).
-      const override = String(settings.polizzaWholeDossierModel || '').trim()
-      const ollamaModel = (override && !/^(claude|gpt)-/i.test(override))
-        ? override
-        : (settings.ollamaModel || '')
-      if (!ollamaModel) {
-        throw new Error('Nessun modello Ollama configurato: imposta il "Modello" nella sezione Ollama delle Impostazioni.')
-      }
+      // Ollama configurato (vedi resolveOllamaModel: override ammesso solo se non
+      // è palesemente un modello cloud).
+      const ollamaModel = resolveOllamaModel(settings)
       // BUG FIX: un fascicolo intero può superare di molto il contesto del modello
       // (es. 45 doc ≈ 158K char ≈ 64K token vs qwen2.5 = 32K). Se num_ctx supera
       // n_ctx_train, Ollama lo riduce e TRONCA il prompt in silenzio tenendo la
