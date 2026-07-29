@@ -38,10 +38,18 @@ function collectionName(settings) {
   return (settings.qdrantCollection || '').trim() || DEFAULT_COLLECTION
 }
 
-// ID deterministico (UUID v5-like da SHA-1): ri-indicizzare lo stesso dossier
+// ID deterministico (UUID v5-like da SHA-1): ri-indicizzare lo stesso fascicolo
 // aggiorna i punti esistenti invece di duplicarli.
-function pointId(dossier, file, page, chunk) {
-  const h = createHash('sha1').update(`${dossier}|${file}|${page}|${chunk}`).digest('hex')
+//
+// SCOPE: la prima componente è l'identità del FASCICOLO — lo scopeId (job_id, che
+// è univoco per costruzione) quando il chiamante lo fornisce, il nome dossier solo
+// come fallback (desktop). Senza scope univoco, due fascicoli con cartella e nomi
+// file uguali ("RCT 2024/quietanza 2024.pdf" di clienti diversi) collidono e si
+// SOVRASCRIVONO a vicenda in silenzio. La seconda componente è l'identità del
+// FILE: l'hash del contenuto quando c'è (stesso file = stesso punto anche se
+// rinominato), il nome come fallback.
+function pointId(scope, fileKey, page, chunk) {
+  const h = createHash('sha1').update(`${scope}|${fileKey}|${page}|${chunk}`).digest('hex')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
 }
 
@@ -130,29 +138,36 @@ async function ensureCollection(settings, dim) {
 }
 
 /**
- * Indicizza un dossier: files = [{ name, pages: [testoPagina, ...] }].
+ * Indicizza un dossier: files = [{ name, pages: [testoPagina, ...], hash? }].
+ * scopeId (opzionale ma FORTEMENTE consigliato, es. il job_id): identità univoca
+ * del fascicolo — senza, il fallback è il nome dossier, che può collidere tra
+ * caricamenti diversi. file.hash (SHA-256 del contenuto) rende l'identità del
+ * file indipendente da nome e cartella.
  * Ritorna { chunks, collection }. Lancia in caso di errore: il chiamante decide
  * (nei flussi di estrazione va trattato come NON fatale).
  */
-export async function indexDossierPages({ dossierName, files, extraPayload = {} }, settings, log = null) {
+export async function indexDossierPages({ dossierName, files, extraPayload = {}, scopeId = null }, settings, log = null) {
   if (!isVectorIndexEnabled(settings)) throw new Error('Indice vettoriale non configurato (URL Qdrant vuoto).')
   const dossier = String(dossierName || 'dossier').trim() || 'dossier'
+  const scope = String(scopeId || '').trim() || dossier
   const indexedAt = new Date().toISOString()
 
   // Costruzione chunk + payload
   const entries = []
   for (const f of files || []) {
     const fileName = f?.name || 'documento.pdf'
+    const fileHash = (f?.hash || '').trim() || null
     const docType = classifyDocType(fileName)
     const fullDocText = (f?.pages || []).join('\n')
     const docYear = detectDocYear(fileName, fullDocText)
     ;(f?.pages || []).forEach((pageText, pIdx) => {
       chunkText(pageText).forEach((chunk, cIdx) => {
         entries.push({
-          id: pointId(dossier, fileName, pIdx + 1, cIdx),
+          id: pointId(scope, fileHash || fileName, pIdx + 1, cIdx),
           payload: {
             dossier,
             file: fileName,
+            ...(fileHash ? { file_hash: fileHash } : {}),
             page: pIdx + 1,
             chunk: cIdx,
             doc_type: docType,
@@ -190,16 +205,21 @@ export async function indexDossierPages({ dossierName, files, extraPayload = {} 
 }
 
 /**
- * Ricerca semantica. Filtri opzionali: dossier, docType, year.
- * Ritorna [{ score, dossier, file, page, doc_type, doc_year, text }].
+ * Ricerca semantica. Filtri opzionali: jobId (ERMETICO: solo i punti di quel
+ * fascicolo — da preferire quando si cerca "nella polizza X"), polizzaNumero
+ * (stessa polizza attraverso caricamenti diversi), dossier (nome leggibile,
+ * può collidere), docType, year.
+ * Ritorna [{ score, dossier, file, page, doc_type, doc_year, job_id, polizza_numero, text }].
  */
-export async function searchVector({ query, dossier = null, docType = null, year = null, limit = 10 }, settings) {
+export async function searchVector({ query, jobId = null, polizzaNumero = null, dossier = null, docType = null, year = null, limit = 10 }, settings) {
   if (!isVectorIndexEnabled(settings)) throw new Error('Indice vettoriale non configurato (URL Qdrant vuoto).')
   const q = String(query || '').trim()
   if (!q) return []
   const [vector] = await embedTexts(settings, [q])
 
   const must = []
+  if (jobId) must.push({ key: 'job_id', match: { value: jobId } })
+  if (polizzaNumero) must.push({ key: 'polizza_numero', match: { value: String(polizzaNumero) } })
   if (dossier) must.push({ key: 'dossier', match: { value: dossier } })
   if (docType) must.push({ key: 'doc_type', match: { value: docType } })
   if (year) must.push({ key: 'doc_year', match: { value: Number(year) } })
@@ -227,6 +247,8 @@ export async function searchVector({ query, dossier = null, docType = null, year
     page: hit.payload?.page,
     doc_type: hit.payload?.doc_type,
     doc_year: hit.payload?.doc_year,
+    job_id: hit.payload?.job_id,
+    polizza_numero: hit.payload?.polizza_numero,
     text: hit.payload?.text
   }))
 }

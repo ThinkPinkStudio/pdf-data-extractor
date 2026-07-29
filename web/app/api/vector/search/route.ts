@@ -5,7 +5,7 @@ import { importSharedService } from '@/lib/sharedServices'
 
 interface VectorSvc {
   isVectorIndexEnabled: (s: unknown) => boolean
-  searchVector: (args: { query: string; dossier?: string | null; docType?: string | null; year?: number | null; limit?: number }, s: unknown) => Promise<unknown[]>
+  searchVector: (args: { query: string; jobId?: string | null; polizzaNumero?: string | null; dossier?: string | null; docType?: string | null; year?: number | null; limit?: number }, s: unknown) => Promise<unknown[]>
   probeQdrant: (s: unknown) => Promise<{ available: boolean; reason?: string }>
 }
 
@@ -35,6 +35,10 @@ export async function POST(req: NextRequest) {
   try {
     const results = await vec.searchVector({
       query,
+      // jobId: confine ERMETICO del fascicolo (cerca SOLO nella polizza X);
+      // polizzaNumero: stessa polizza attraverso caricamenti diversi.
+      jobId: body.jobId || null,
+      polizzaNumero: body.polizzaNumero || null,
       dossier: body.dossier || null,
       docType: body.docType || null,
       year: body.year ? Number(body.year) : null,

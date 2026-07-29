@@ -11,7 +11,7 @@ import { loadPdfServer } from './pdfRenderServer'
 import { buildSources } from './polizzaRolling'
 import { withGlobalLock } from './llmSemaphore'
 import {
-  getJob, getJobFiles, getJobStatus, updateJob, type JobRow,
+  getJob, getJobFiles, getJobStatus, updateJob, getOcrCache, putOcrCache, hashPdfBase64, type JobRow,
 } from './polizzaJobStore'
 
 interface PolizzaSvc {
@@ -164,7 +164,7 @@ async function runVisionRolling(job: JobRow, files: { file_name: string; pdf_bas
 }
 
 // ─── Modalità fascicolo intero: OCR di tutte le pagine → 1 chiamata ──────────
-async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base64: string }[], settings: any, logs: string[]) {
+async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base64: string; file_hash?: string | null }[], settings: any, logs: string[]) {
   const m = await svc()
 
   let ocr = { available: true } as { available: boolean; reason?: string }
@@ -177,12 +177,33 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   const parts: string[] = []
   // Pagine per documento (testo OCR): servono all'indice vettoriale, che salva
   // ogni chunk con file+pagina come metadati.
-  const docsForIndex: { name: string; pages: string[] }[] = []
+  const docsForIndex: { name: string; pages: string[]; hash?: string }[] = []
   let totalPagesProcessed = 0
   let pagesWithText = 0
+  let ocrCacheHits = 0
   for (let d = 0; d < files.length; d++) {
     if (await isCanceled(job.id)) return
     const docName = files[d].file_name
+    // Identità del contenuto: dalle righe migrate arriva già dal DB; per i job
+    // precedenti alla migrazione si calcola al volo (stesso SHA-256).
+    const fileHash = files[d].file_hash || hashPdfBase64(files[d].pdf_base64)
+
+    // Cache OCR: lo stesso identico PDF (doppioni tra cartelle, fascicoli
+    // ricaricati, retry) riusa i testi pagina senza rifare render+tesseract.
+    let cachedPages: string[] | null = null
+    try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
+    if (cachedPages && cachedPages.length) {
+      const docText = cachedPages.filter(Boolean).join('\n')
+      totalPagesProcessed += cachedPages.length
+      pagesWithText += cachedPages.filter((t) => t && t.trim()).length
+      ocrCacheHits++
+      await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
+      await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
+      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+      docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
+      continue
+    }
+
     const buf = Buffer.from(files[d].pdf_base64, 'base64')
     let doc
     try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
@@ -205,9 +226,15 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     } finally {
       await doc.destroy()
     }
+    // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
+    // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
+    if (docPages.some((t) => t && t.trim())) {
+      try { await putOcrCache(fileHash, docName, docPages) } catch { /* non fatale */ }
+    }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
-    docsForIndex.push({ name: docName, pages: docPages })
+    docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
   }
+  if (ocrCacheHits) await appendLog(job, `Cache OCR: ${ocrCacheHits}/${files.length} documenti riusati (contenuto identico già elaborato)`, logs)
 
   const fullText = parts.join('\n')
   if (pagesWithText === 0 || fullText.trim().length < 50) {
@@ -215,6 +242,9 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     return
   }
 
+  // polizza_numero estratto: finisce nei metadati dell'indice vettoriale (chiave di
+  // business per ritrovare la stessa polizza attraverso caricamenti diversi).
+  let extractedData: Record<string, string> = {}
   try {
     // Progresso nel job (fire-and-forget): "campo b/x" (motore per-campo) o
     // "batch b/x" (fascicolo intero).
@@ -228,6 +258,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // Dispatcher: con Ollama + motore per-campo attivo usa il RAG per-campo
     // (indice in memoria), altrimenti la chiamata unica/batch storica.
     const { data, sources, diag } = await m.extractPolizzaFromDocs(docsForIndex, fullText, settings, onProgress)
+    extractedData = data || {}
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
     for (const line of diag || []) await appendLog(job, line, logs)
@@ -261,11 +292,23 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }>('vectorIndexService.js')
     if (vec.isVectorIndexEnabled(settings)) {
       await appendLog(job, 'Indice vettoriale: indicizzazione in corso…', logs)
+      // scopeId = job.id: l'identità dei punti è il JOB, non il nome cartella.
+      // Due fascicoli con cartelle/nomi file uguali non si sovrascrivono mai, e la
+      // ricerca "nella polizza X" filtra per job_id, ermetica per costruzione.
       const { chunks, collection } = await vec.indexDossierPages(
-        { dossierName: job.dossier_name || job.id, files: docsForIndex },
+        {
+          dossierName: job.dossier_name || job.id,
+          files: docsForIndex,
+          scopeId: job.id,
+          extraPayload: {
+            job_id: job.id,
+            ...(job.batch_id ? { batch_id: job.batch_id } : {}),
+            ...(extractedData.polizza_numero ? { polizza_numero: String(extractedData.polizza_numero) } : {}),
+          },
+        },
         settings
       )
-      await appendLog(job, `Indice vettoriale: ${chunks} chunk salvati nella collezione "${collection}"`, logs)
+      await appendLog(job, `Indice vettoriale: ${chunks} chunk salvati nella collezione "${collection}" (scope job ${job.id.slice(0, 8)}…${extractedData.polizza_numero ? `, polizza ${extractedData.polizza_numero}` : ''})`, logs)
     }
   } catch (err: any) {
     await appendLog(job, `Indice vettoriale NON aggiornato (non fatale): ${err.message}`, logs)

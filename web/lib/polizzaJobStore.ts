@@ -1,6 +1,13 @@
 import { pool } from './db'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { flattenRollingState, initRollingState } from './polizzaRolling'
+
+// Identità del contenuto: SHA-256 dei byte del PDF. Stesso file = stesso hash,
+// in qualunque cartella e con qualunque nome (cache OCR, dedup, riconoscimento
+// fascicoli già elaborati).
+export function hashPdfBase64(pdfBase64: string): string {
+  return createHash('sha256').update(Buffer.from(pdfBase64, 'base64')).digest('hex')
+}
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled'
 
@@ -34,6 +41,7 @@ export interface JobRow {
   sources: Record<string, { file: string; page: number }>
   field_defs: { id: string; label: string; description?: string; sheet?: string }[]
   prompt_extra: string | null
+  duplicate_of: string | null
   error: string | null
   logs: string[]
   created_at: number
@@ -69,8 +77,8 @@ export async function createJob(params: {
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
       await client.query(
-        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64) VALUES ($1,$2,$3,$4)`,
-        [id, i, f.file_name, f.pdf_base64]
+        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash) VALUES ($1,$2,$3,$4,$5)`,
+        [id, i, f.file_name, f.pdf_base64, hashPdfBase64(f.pdf_base64)]
       )
     }
     await client.query('COMMIT')
@@ -80,7 +88,89 @@ export async function createJob(params: {
   } finally {
     client.release()
   }
+  // Riconoscimento fascicolo GIÀ ELABORATO: stesso insieme di hash contenuto di un
+  // job completato → si annota duplicate_of (l'utente può riusarne i risultati con
+  // un'azione esplicita; mai automatico — un motore migliorato può dare di più).
+  try {
+    const dup = await findIdenticalCompletedJob(id)
+    if (dup) {
+      await pool.query(`UPDATE polizza_jobs SET duplicate_of = $1 WHERE id = $2`, [dup.id, id])
+      await pool.query(
+        `UPDATE polizza_jobs SET logs = logs || $1::jsonb WHERE id = $2`,
+        [JSON.stringify([`[${new Date().toTimeString().slice(0, 8)}] Fascicolo IDENTICO (stessi file per contenuto) al job già completato "${dup.dossier_name || dup.id}": puoi riusarne i risultati dalla pagina Elaborazioni.`]), id]
+      )
+    }
+  } catch { /* il rilevamento duplicati non deve mai bloccare la creazione */ }
   return id
+}
+
+// Job COMPLETATO con lo stesso identico insieme di file per hash contenuto (nomi e
+// ordine irrilevanti). Confronta solo job in cui TUTTI gli hash sono presenti
+// (le righe precedenti alla migrazione hanno file_hash NULL e vengono ignorate).
+export async function findIdenticalCompletedJob(jobId: string): Promise<{ id: string; dossier_name: string | null } | null> {
+  const { rows } = await pool.query<{ id: string; dossier_name: string | null }>(
+    `WITH mine AS (
+       SELECT array_agg(DISTINCT file_hash ORDER BY file_hash) AS hashes,
+              COUNT(*) AS n, COUNT(file_hash) AS n_hashed
+       FROM polizza_job_files WHERE job_id = $1
+     )
+     SELECT j.id, j.dossier_name
+     FROM polizza_jobs j, mine
+     WHERE j.status = 'done' AND j.id <> $1
+       AND mine.n > 0 AND mine.n = mine.n_hashed
+       AND (SELECT array_agg(DISTINCT f.file_hash ORDER BY f.file_hash)
+              FROM polizza_job_files f WHERE f.job_id = j.id AND f.file_hash IS NOT NULL)
+           = mine.hashes
+       AND NOT EXISTS (SELECT 1 FROM polizza_job_files f2 WHERE f2.job_id = j.id AND f2.file_hash IS NULL)
+     ORDER BY j.updated_at DESC LIMIT 1`,
+    [jobId]
+  )
+  return rows[0] ?? null
+}
+
+// ─── Cache OCR per hash contenuto ────────────────────────────────────────────
+// L'OCR tesseract di un PDF scansionato costa minuti: lo stesso identico file
+// (doppioni tra cartelle, fascicoli ricaricati, retry) riusa i testi pagina.
+export async function getOcrCache(fileHash: string): Promise<string[] | null> {
+  const { rows } = await pool.query<{ pages: string[] }>(
+    'SELECT pages FROM ocr_cache WHERE file_hash = $1', [fileHash]
+  )
+  return rows[0]?.pages ?? null
+}
+
+export async function putOcrCache(fileHash: string, fileName: string, pages: string[]): Promise<void> {
+  await pool.query(
+    `INSERT INTO ocr_cache (file_hash, file_name, num_pages, pages, created_at)
+     VALUES ($1,$2,$3,$4::jsonb,$5)
+     ON CONFLICT (file_hash) DO UPDATE SET file_name = $2, num_pages = $3, pages = $4::jsonb`,
+    [fileHash, fileName, pages.length, JSON.stringify(pages), now()]
+  )
+}
+
+// Riuso dei risultati di un fascicolo identico già completato: copia valori, fonti
+// e definizione campi dal job sorgente e marca il job come done — senza OCR né
+// chiamate al modello. Azione esplicita dell'utente. Ritorna null se il job non è
+// riusabile (in esecuzione, già done) o la sorgente non è più valida.
+export async function reuseResultsFromJob(id: string, byEmail?: string): Promise<JobRow | null> {
+  const job = await getJob(id)
+  if (!job || job.status === 'running' || job.status === 'done') return null
+  const sourceId = job.duplicate_of
+  if (!sourceId) return null
+  const src = await getJob(sourceId)
+  if (!src || src.status !== 'done') return null
+  const logs = Array.isArray(job.logs) ? [...job.logs] : []
+  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Risultati RIUSATI dal job identico "${src.dossier_name || src.id}"${byEmail ? ` (richiesto da ${byEmail})` : ''}: nessun OCR né estrazione rifatti —`)
+  await updateJob(id, {
+    status: 'done',
+    error: null,
+    cursor: {},
+    progress: {},
+    rolling_state: src.rolling_state || {},
+    sources: src.sources || {},
+    field_defs: src.field_defs || [],
+    logs,
+  })
+  return await getJob(id)
 }
 
 // ─── Batch: raggruppa N job polizza (una sottocartella caricata = un job) ──────
@@ -253,9 +343,9 @@ export async function getJobStatus(id: string): Promise<JobStatus | null> {
   return rows[0]?.status ?? null
 }
 
-export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string }[]> {
+export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string; file_hash: string | null }[]> {
   const { rows } = await pool.query(
-    'SELECT idx, file_name, pdf_base64 FROM polizza_job_files WHERE job_id = $1 ORDER BY idx',
+    'SELECT idx, file_name, pdf_base64, file_hash FROM polizza_job_files WHERE job_id = $1 ORDER BY idx',
     [id]
   )
   return rows
@@ -303,6 +393,7 @@ export function jobSnapshot(job: JobRow) {
     values: flattenRollingState(job.rolling_state),
     sources: job.sources || {},
     progress: job.progress && Object.keys(job.progress).length ? job.progress : null,
+    duplicateOf: job.duplicate_of || null,
     error: job.error || null,
     logs: job.logs || [],
     updatedAt: job.updated_at,

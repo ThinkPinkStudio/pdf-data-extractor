@@ -97,6 +97,10 @@ export async function initDb() {
     -- Prompt extra (istruzioni AI) del profilo scelto per questo dossier, congelato
     -- all'upload: il worker lo usa al posto del settings.polizzaPromptExtra globale.
     ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS prompt_extra TEXT;
+    -- Job COMPLETATO il cui insieme di file (per hash contenuto) è identico a questo:
+    -- rilevato alla creazione, permette all'utente di riusarne i risultati invece di
+    -- rifare OCR+estrazione. Mai automatico: il riuso è un'azione esplicita.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS duplicate_of TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_email ON polizza_jobs(email);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);
@@ -110,6 +114,24 @@ export async function initDb() {
       file_name  TEXT NOT NULL,
       pdf_base64 TEXT NOT NULL,
       PRIMARY KEY (job_id, idx)
+    );
+
+    -- Identità del CONTENUTO del PDF (SHA-256 dei byte): stesso file = stesso hash,
+    -- in qualunque cartella e con qualunque nome. Abilita cache OCR, riconoscimento
+    -- dei fascicoli già elaborati e dedup nell'indice vettoriale. NULL sulle righe
+    -- precedenti alla migrazione (il worker lo calcola al volo in quel caso).
+    ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS file_hash TEXT;
+    CREATE INDEX IF NOT EXISTS idx_polizza_job_files_hash ON polizza_job_files(file_hash);
+
+    -- Cache OCR per hash contenuto: l'OCR (tesseract) di un PDF scansionato costa
+    -- minuti; lo stesso identico file ricaricato (doppioni tra cartelle, retry,
+    -- fascicoli ricaricati) riusa i testi pagina senza rifare nulla.
+    CREATE TABLE IF NOT EXISTS ocr_cache (
+      file_hash  TEXT PRIMARY KEY,
+      file_name  TEXT,
+      num_pages  INTEGER NOT NULL DEFAULT 0,
+      pages      JSONB NOT NULL DEFAULT '[]',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
 
     -- CSA Adesioni: archivio dei record generati. Il record completo vive in JSONB;

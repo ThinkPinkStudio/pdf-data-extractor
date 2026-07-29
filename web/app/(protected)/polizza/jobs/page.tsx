@@ -26,6 +26,7 @@ interface JobSnapshot {
   sources?: Record<string, { file: string; page: number | string }>
   fieldDefs?: { id: string; label: string }[]
   progress?: { docIndex: number; docTotal: number; pageIndex: number; pageTotal: number; docName: string } | null
+  duplicateOf?: string | null
   logs?: string[]
   updatedAt?: number
   error: string | null
@@ -115,6 +116,17 @@ export default function PolizzaJobsPage() {
     setBusy(true)
     try {
       await fetch(`/api/polizza/job/${jobId}/retry`, { method: 'POST' })
+      if (openId) await loadDetail(openId)
+      await loadBatches()
+    } finally { setBusy(false) }
+  }
+
+  // Fascicolo identico a un job già completato: copia i risultati senza rifare
+  // OCR né estrazione (azione esplicita — il default resta rielaborare).
+  async function reuseJobRow(jobId: string) {
+    setBusy(true)
+    try {
+      await fetch(`/api/polizza/job/${jobId}/reuse`, { method: 'POST' })
       if (openId) await loadDetail(openId)
       await loadBatches()
     } finally { setBusy(false) }
@@ -230,6 +242,8 @@ export default function PolizzaJobsPage() {
                                   {detail.map((j) => {
                                     const active = j.status === 'running' || j.status === 'queued'
                                     const failed = j.status === 'error'
+                                    // Riuso possibile: fascicolo identico noto e job non in corso/completato
+                                    const reusable = !!j.duplicateOf && (j.status === 'queued' || j.status === 'error' || j.status === 'canceled')
                                     const hasValues = Object.keys(j.values || {}).length > 0
                                     const stale = j.status === 'running' ? minutesSince(j.updatedAt) : null
                                     const valuesOpen = showValues.has(j.jobId)
@@ -261,6 +275,11 @@ export default function PolizzaJobsPage() {
                                                 ⚠ {t('jobsDash.staleFor', { n: stale })}
                                               </span>
                                             )}
+                                            {!!j.duplicateOf && (
+                                              <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                                                ⧉ {t('jobsDash.duplicateOf')}
+                                              </span>
+                                            )}
                                           </td>
                                           <td style={{ fontSize: 12 }}>{Object.keys(j.values || {}).length}</td>
                                           <td style={{ fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -273,6 +292,12 @@ export default function PolizzaJobsPage() {
                                             {failed && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy} onClick={() => retryJobRow(j.jobId)}>
                                                 ↻ {t('jobsDash.retry')}
+                                              </button>
+                                            )}
+                                            {reusable && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                                                title={t('jobsDash.reuseTitle')} onClick={() => reuseJobRow(j.jobId)}>
+                                                ⧉ {t('jobsDash.reuse')}
                                               </button>
                                             )}
                                             {hasValues && (
