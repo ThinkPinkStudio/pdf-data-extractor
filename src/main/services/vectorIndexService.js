@@ -27,6 +27,13 @@ function qdrantBase(settings) {
   return String(settings.qdrantUrl || '').trim().replace(/\/+$/, '')
 }
 
+// Header per le chiamate Qdrant: con QDRANT__SERVICE__API_KEY attivo sul server
+// (es. deploy Coolify) OGNI richiesta senza 'api-key' riceve 401.
+function qdrantHeaders(settings, extra = {}) {
+  const key = String(settings?.qdrantApiKey || '').trim()
+  return { ...(key ? { 'api-key': key } : {}), ...extra }
+}
+
 function collectionName(settings) {
   return (settings.qdrantCollection || '').trim() || DEFAULT_COLLECTION
 }
@@ -107,11 +114,11 @@ export async function embedTexts(settings, texts) {
 async function ensureCollection(settings, dim) {
   const base = qdrantBase(settings)
   const coll = collectionName(settings)
-  const probe = await resilientFetch(`${base}/collections/${coll}`, { signal: AbortSignal.timeout(10000) })
+  const probe = await resilientFetch(`${base}/collections/${coll}`, { headers: qdrantHeaders(settings), signal: AbortSignal.timeout(10000) })
   if (probe.ok) return coll
   const res = await resilientFetch(`${base}/collections/${coll}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: qdrantHeaders(settings, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ vectors: { size: dim, distance: 'Cosine' } }),
     signal: AbortSignal.timeout(15000)
   })
@@ -169,7 +176,7 @@ export async function indexDossierPages({ dossierName, files, extraPayload = {} 
     if (!collection) collection = await ensureCollection(settings, vectors[0].length)
     const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collection}/points?wait=true`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: qdrantHeaders(settings, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ points: batch.map((e, j) => ({ id: e.id, vector: vectors[j], payload: e.payload })) }),
       signal: AbortSignal.timeout(30000)
     })
@@ -199,7 +206,7 @@ export async function searchVector({ query, dossier = null, docType = null, year
 
   const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collectionName(settings)}/points/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: qdrantHeaders(settings, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       vector,
       limit: Math.max(1, Math.min(50, Number(limit) || 10)),
@@ -228,7 +235,10 @@ export async function searchVector({ query, dossier = null, docType = null, year
 export async function probeQdrant(settings) {
   if (!isVectorIndexEnabled(settings)) return { available: false, reason: 'URL Qdrant non configurato' }
   try {
-    const res = await resilientFetch(`${qdrantBase(settings)}/collections`, { signal: AbortSignal.timeout(8000) })
+    const res = await resilientFetch(`${qdrantBase(settings)}/collections`, { headers: qdrantHeaders(settings), signal: AbortSignal.timeout(8000) })
+    if (res.status === 401 || res.status === 403) {
+      return { available: false, reason: `HTTP ${res.status}: il server Qdrant richiede una API key${String(settings?.qdrantApiKey || '').trim() ? ' (quella configurata non è valida)' : ' — impostala nelle Impostazioni (Indice vettoriale)'}.` }
+    }
     if (!res.ok) return { available: false, reason: `HTTP ${res.status}` }
     return { available: true }
   } catch (err) {

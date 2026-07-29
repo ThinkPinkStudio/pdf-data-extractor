@@ -22,6 +22,7 @@ interface Settings {
   bulkIncludeKeywords?: string
   bulkExcludeKeywords?: string
   qdrantUrl?: string
+  qdrantApiKey?: string
   qdrantCollection?: string
   embeddingModel?: string
   theme?: string
@@ -209,6 +210,11 @@ export default function SettingsPage() {
             <label className="label">{t('set.qdrantUrl')}</label>
             <input value={s.qdrantUrl || ''} onChange={(e) => up('qdrantUrl', e.target.value)} placeholder="http://qdrant:6333" />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.qdrantUrlHelp')}</p>
+          </div>
+          <div className="form-group">
+            <label className="label">{t('set.qdrantApiKey')}</label>
+            <input type="password" autoComplete="off" value={s.qdrantApiKey || ''} onChange={(e) => up('qdrantApiKey', e.target.value)} placeholder="API key (se il server la richiede)" />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.qdrantApiKeyHelp')}</p>
           </div>
           <div className="form-group">
             <label className="label">{t('set.qdrantCollection')}</label>

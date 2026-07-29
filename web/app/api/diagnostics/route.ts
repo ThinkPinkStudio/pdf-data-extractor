@@ -68,7 +68,11 @@ export async function GET() {
     services.qdrant = { status: 'warn', detail: 'Non configurato (Impostazioni → Indice vettoriale): l\'Archivio/ricerca semantica resta disattivato. Con docker-compose il valore tipico è http://qdrant:6333.' }
   } else {
     try {
-      const res = await fetch(`${qdrantUrl.replace(/\/$/, '')}/collections`, { signal: timeout(5000) })
+      const qdrantHeaders = (stored.qdrantApiKey || '').trim() ? { 'api-key': String(stored.qdrantApiKey).trim() } : undefined
+      const res = await fetch(`${qdrantUrl.replace(/\/$/, '')}/collections`, { headers: qdrantHeaders, signal: timeout(5000) })
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`HTTP ${res.status}: il server richiede una API key${qdrantHeaders ? ' (quella configurata non è valida)' : ' — impostala in Impostazioni → Indice vettoriale (è QDRANT__SERVICE__API_KEY del servizio Qdrant)'}`)
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const cols: string[] = ((await res.json())?.result?.collections || []).map((c: any) => String(c?.name || ''))
       const wanted = stored.qdrantCollection || 'documenti'
