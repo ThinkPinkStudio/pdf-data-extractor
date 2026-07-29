@@ -65,21 +65,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Percorso condiviso dei browser Playwright (leggibile dall'utente non privilegiato).
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Standalone Next.js output
-COPY --from=builder /app/web/.next/standalone ./
-COPY --from=builder /app/web/.next/static ./.next/static
-COPY --from=builder /app/web/public ./public
-
-# Asset di CSA Adesioni (template docx, template HTML del modulo, DIP, logo):
-# letti a runtime via process.cwd()/assets/adesioni. Lo standalone non li include.
-COPY --from=builder /app/web/assets ./assets
+# ORDINE DEI LAYER PENSATO PER LA CACHE: prima node_modules (stabile finché il
+# package-lock non cambia), poi il layer PESANTE di Chromium (~300MB scaricati
+# dalla CDN Playwright), e SOLO DOPO gli output di build che cambiano a ogni
+# deploy. Con l'ordine inverso il download di Chromium si ripeteva a ogni build:
+# lento, e bastava un singhiozzo di rete della CDN per far FALLIRE il deploy
+# (visto sul campo: interrotto al 60% di chrome-headless-shell, exit 255).
 
 # pg/nodemailer/exceljs/docxtemplater/pdf-lib/playwright sono JS — no rebuild nativo
 COPY --from=deps /app/web/node_modules ./node_modules
-
-# Shared Electron services (kept at /app/src so cwd/../src/main/services resolves)
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/ita.traineddata /app/ita.traineddata
 
 # I servizi condivisi in /app/src fanno bare-import di pacchetti REALI (pdf-parse,
 # exceljs, tesseract.js, pdfjs-dist). Node li risolve risalendo da /app/src:
@@ -88,10 +82,24 @@ RUN ln -s /app/web/node_modules /app/node_modules
 
 # Chromium + dipendenze di sistema per il rendering PDF (Playwright). Eseguito da
 # root (apt) prima di passare all'utente non privilegiato; i binari restano
-# leggibili/eseguibili da tutti.
-RUN npx playwright install --with-deps chromium \
+# leggibili/eseguibili da tutti. Un retry per assorbire i download CDN interrotti.
+RUN (npx playwright install --with-deps chromium \
+     || (echo 'retry download Chromium…' && sleep 5 && npx playwright install --with-deps chromium)) \
     && chmod -R a+rx /ms-playwright \
     && rm -rf /var/lib/apt/lists/*
+
+# Standalone Next.js output (cambia a ogni build → dopo i layer pesanti)
+COPY --from=builder /app/web/.next/standalone ./
+COPY --from=builder /app/web/.next/static ./.next/static
+COPY --from=builder /app/web/public ./public
+
+# Asset di CSA Adesioni (template docx, template HTML del modulo, DIP, logo):
+# letti a runtime via process.cwd()/assets/adesioni. Lo standalone non li include.
+COPY --from=builder /app/web/assets ./assets
+
+# Shared Electron services (kept at /app/src so cwd/../src/main/services resolves)
+COPY --from=builder /app/src /app/src
+COPY --from=builder /app/ita.traineddata /app/ita.traineddata
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 USER appuser
