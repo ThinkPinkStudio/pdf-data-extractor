@@ -33,6 +33,7 @@ export interface JobRow {
   rolling_state: Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   sources: Record<string, { file: string; page: number }>
   field_defs: { id: string; label: string; description?: string; sheet?: string }[]
+  prompt_extra: string | null
   error: string | null
   logs: string[]
   created_at: number
@@ -52,17 +53,18 @@ export async function createJob(params: {
   files: JobInputFile[]
   batchId?: string
   dossierName?: string
+  promptExtra?: string
 }): Promise<string> {
   const id = randomUUID()
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, rolling_state, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$9)`,
+      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, rolling_state, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8,$9::jsonb,$10,$10)`,
       [id, params.email, params.batchId ?? null, params.dossierName ?? null, params.wholeDossier,
         JSON.stringify(params.scannedFiles), JSON.stringify(params.fieldDefs),
-        JSON.stringify(params.rollingState || {}), now()]
+        params.promptExtra ?? null, JSON.stringify(params.rollingState || {}), now()]
     )
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
@@ -115,6 +117,7 @@ export async function addDossierToBatch(params: {
   fieldDefs: JobRow['field_defs']
   dossierName: string
   files: JobInputFile[]
+  promptExtra?: string
 }): Promise<string> {
   return createJob({
     email: params.email,
@@ -125,6 +128,7 @@ export async function addDossierToBatch(params: {
     files: params.files,
     batchId: params.batchId,
     dossierName: params.dossierName,
+    promptExtra: params.promptExtra,
   })
 }
 

@@ -30,6 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const pdfFiles = formData.getAll('pdf').filter((f): f is File => f instanceof File)
   const relPaths = formData.getAll('path').map((p) => String(p))
   const dossierName = String(formData.get('dossierName') || 'Polizza')
+  const profileId = formData.get('profileId') ? String(formData.get('profileId')) : null
   if (pdfFiles.length === 0 || relPaths.length !== pdfFiles.length) {
     return NextResponse.json({ error: 'File o percorsi mancanti' }, { status: 400 })
   }
@@ -53,15 +54,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await logAction({ email: session.email, action: 'polizza.batch.dossier', resource: `${batch.label}/${dossierName} (${kept.length} file)`, ip, userAgent })
 
   try {
-    const { fields, wholeDossier } = await getFieldsAndMapping()
-    const fieldDefs = (fields || []).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    // Profilo/tipo scelto per questo dossier: risolto lato server (autoritativo) dai
+    // profili salvati. Se assente/sconosciuto → campi globali attivi (comportamento
+    // precedente). fields/prompt/whole-dossier vengono congelati nel job.
+    const profile = profileId
+      ? (settings.polizzaProfiles || []).find((p) => p.id === profileId) || null
+      : null
+    let fields: { id: string; label: string; description?: string; sheet?: string; enabled?: boolean }[]
+    let wholeDossier: boolean
+    let promptExtra: string
+    if (profile) {
+      fields = (profile.fields || []).filter((f) => f.enabled !== false)
+      wholeDossier = !!profile.wholeDossier
+      promptExtra = profile.promptExtra || ''
+    } else {
+      const g = await getFieldsAndMapping()
+      fields = g.fields || []
+      wholeDossier = !!g.wholeDossier
+      promptExtra = settings.polizzaPromptExtra || ''
+    }
+    const fieldDefs = fields.map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
     const files: JobInputFile[] = await Promise.all(kept.map(async (k) => ({
       file_name: k.file.name,
       pdf_base64: Buffer.from(await k.file.arrayBuffer()).toString('base64'),
     })))
 
     const jobId = await addDossierToBatch({
-      batchId: params.id, email: session.email, wholeDossier: !!wholeDossier, fieldDefs, dossierName, files,
+      batchId: params.id, email: session.email, wholeDossier, fieldDefs, dossierName, files, promptExtra,
     })
 
     startBatch(params.id) // idempotente: avvia/mantiene l'orchestratore del batch
