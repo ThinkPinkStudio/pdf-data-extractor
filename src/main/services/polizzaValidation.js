@@ -121,6 +121,14 @@ export function validateCodiceFiscaleIva(raw) {
   const compact = String(raw || '').replace(/[\s.\-]/g, '').toUpperCase()
   if (!compact) return null
   if (/^\d{11}$/.test(compact)) return isValidPartitaIva(compact) ? compact : null
+  // Casella modulistica a 16 caratteri (formato CF) riempita con ZERI davanti a
+  // una P.IVA a 11 cifre — visto sul campo: "0000000151510344" = 00000 + 00151510344.
+  // Se il prefisso oltre le ultime 11 cifre e' tutto zeri e le 11 finali passano
+  // il checksum, il valore pulito e' quella P.IVA.
+  if (/^\d{12,16}$/.test(compact) && /^0+$/.test(compact.slice(0, -11))) {
+    const tail = compact.slice(-11)
+    if (isValidPartitaIva(tail)) return tail
+  }
   if (compact.length === 16) return isValidCodiceFiscale(compact) ? compact : null
   if (compact.length === 11) {
     const repaired = compact.split('').map((c) => OCR_DIGIT_REPAIR[c] ?? c).join('')
