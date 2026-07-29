@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
-import { groupPathsByDossier, displayDossierName, type GroupingMode, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
+import { groupPathsByDossier, displayDossierName, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
 import { parseExclusionList, parseKeywords, makeFilters, type SkipReason } from '@/lib/bulkExclusions'
 
 const ERROR_BOX_STYLE: CSSProperties = {
@@ -13,8 +13,28 @@ const ERROR_BOX_STYLE: CSSProperties = {
 
 type DossierStatus = 'pending' | 'uploading' | 'done' | 'error'
 
+// Dossier finale da elaborare: uno o più dossier-foglia uniti dall'utente.
+interface FinalDossier { gid: string; label: string; fileIndexes: number[]; memberCount: number }
+
 function fileRelPath(f: File): string {
   return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+}
+
+// Etichetta di un gruppo unito: prefisso-cartella comune dei membri (es. "PolizzaX"
+// per "PolizzaX/Scansioni" + "PolizzaX/Condizioni"), altrimenti il primo membro.
+function mergedLabel(members: GroupedDossier[], root: string): string {
+  const realPaths = members.map((m) => m.dossierName).filter((n) => !n.startsWith('__loose__'))
+  if (realPaths.length >= 2) {
+    const split = realPaths.map((p) => p.split('/'))
+    const common: string[] = []
+    for (let i = 0; ; i++) {
+      const seg = split[0][i]
+      if (seg === undefined || !split.every((s) => s[i] === seg)) break
+      common.push(seg)
+    }
+    if (common.length) return `${root}/${common.join('/')}`
+  }
+  return displayDossierName(members[0].dossierName, root)
 }
 
 export default function PolizzaBulkPage() {
@@ -27,18 +47,26 @@ export default function PolizzaBulkPage() {
   const [excludeText, setExcludeText] = useState('')
   const [files, setFiles] = useState<File[]>([]) // flat, indice allineato ai path
   const [root, setRoot] = useState('')
-  const [mode, setMode] = useState<GroupingMode>('leaf')
-  const [dossiers, setDossiers] = useState<GroupedDossier[]>([])
+  const [baseDossiers, setBaseDossiers] = useState<GroupedDossier[]>([])
   const [skipped, setSkipped] = useState<SkippedPath[]>([])
   const [showSkipped, setShowSkipped] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+
+  // Revisione manuale dell'elenco: esclusione per riga, selezione multipla e unione.
+  const [included, setIncluded] = useState<Record<string, boolean>>({}) // default: incluso
+  const [groupOf, setGroupOf] = useState<Record<string, string>>({})    // dossier-foglia → id gruppo unito
+  const [selected, setSelected] = useState<Set<string>>(new Set())      // righe spuntate per l'unione
+  const mergeCounter = useRef(0)
 
   const [batchId, setBatchId] = useState<string | null>(null)
   const [phase, setPhase] = useState<'select' | 'uploading' | 'started'>('select')
   const [dossierStatus, setDossierStatus] = useState<Record<string, DossierStatus>>({})
   const [dossierError, setDossierError] = useState<Record<string, string>>({})
   const [finishing, setFinishing] = useState(false)
+  // Snapshot dei dossier finali al momento dell'avvio: l'upload non deve risentire di
+  // eventuali cambi di stato successivi.
+  const [uploadList, setUploadList] = useState<FinalDossier[]>([])
 
   // I valori salvati nelle Impostazioni sono il punto di partenza: qui si possono
   // ritoccare per la singola cartella senza tornare in Impostazioni.
@@ -57,15 +85,19 @@ export default function PolizzaBulkPage() {
   }), [extraExclusions, includeText, excludeText])
 
   // Ricalcola il raggruppamento (client-side, gratuito) quando cambiano i file
-  // selezionati, la modalità o i filtri — senza dover riselezionare la cartella.
+  // selezionati o i filtri. Cambiando l'insieme dei dossier, la revisione manuale
+  // (esclusioni/unioni/selezioni) viene azzerata: si riparte dall'elenco proposto.
   useEffect(() => {
-    if (!files.length) { setDossiers([]); setSkipped([]); return }
+    if (!files.length) { setBaseDossiers([]); setSkipped([]); return }
     const relPaths = files.map(fileRelPath)
-    const result = groupPathsByDossier(relPaths, mode, filters)
+    const result = groupPathsByDossier(relPaths, filters)
     setRoot((prev) => result.root || prev)
-    setDossiers(result.dossiers)
+    setBaseDossiers(result.dossiers)
     setSkipped(result.skipped)
-  }, [files, mode, filters])
+    setIncluded({})
+    setGroupOf({})
+    setSelected(new Set())
+  }, [files, filters])
 
   function handlePick(fileList: FileList | null) {
     if (!fileList || !fileList.length) return
@@ -75,7 +107,7 @@ export default function PolizzaBulkPage() {
     setFiles(all)
     setScanning(false)
     const relPaths = all.map(fileRelPath)
-    const result = groupPathsByDossier(relPaths, mode, filters)
+    const result = groupPathsByDossier(relPaths, filters)
     if (result.dossiers.length === 0) setPickError(t('bulk.noPdfFound'))
   }
 
@@ -90,16 +122,70 @@ export default function PolizzaBulkPage() {
     includeWord: t('bulk.skipIncludeWord'),
   }
 
-  const totalFiles = dossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
+  const isIncluded = (name: string) => included[name] !== false
+  const gidOf = (name: string) => groupOf[name] || name
+
+  // Dossier finali = dossier-foglia inclusi, raggruppati per id gruppo (unione).
+  const finalDossiers = useMemo<FinalDossier[]>(() => {
+    const map = new Map<string, { members: GroupedDossier[]; fileIndexes: number[] }>()
+    for (const d of baseDossiers) {
+      if (included[d.dossierName] === false) continue
+      const gid = groupOf[d.dossierName] || d.dossierName
+      const g = map.get(gid) || { members: [], fileIndexes: [] }
+      g.members.push(d); g.fileIndexes.push(...d.fileIndexes)
+      map.set(gid, g)
+    }
+    return [...map.entries()].map(([gid, g]) => ({
+      gid,
+      label: g.members.length === 1 ? displayDossierName(g.members[0].dossierName, root) : mergedLabel(g.members, root),
+      fileIndexes: g.fileIndexes,
+      memberCount: g.members.length,
+    }))
+  }, [baseDossiers, included, groupOf, root])
+
+  const detectedFiles = baseDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
+  const selectedFiles = finalDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
   const doneCount = Object.values(dossierStatus).filter((s) => s === 'done').length
   const errorCount = Object.values(dossierStatus).filter((s) => s === 'error').length
-  const attemptedAll = dossiers.length > 0 && dossiers.every((d) => dossierStatus[d.dossierName] === 'done' || dossierStatus[d.dossierName] === 'error')
+  const attemptedAll = uploadList.length > 0 && uploadList.every((d) => dossierStatus[d.gid] === 'done' || dossierStatus[d.gid] === 'error')
 
-  async function uploadDossier(id: string, d: GroupedDossier) {
-    setDossierStatus((p) => ({ ...p, [d.dossierName]: 'uploading' }))
+  function toggleInclude(name: string) { setIncluded((p) => ({ ...p, [name]: p[name] === false })) }
+  function toggleSelect(name: string) {
+    setSelected((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n })
+  }
+  function setAllIncluded(v: boolean) {
+    const next: Record<string, boolean> = {}
+    for (const d of baseDossiers) next[d.dossierName] = v
+    setIncluded(next)
+  }
+  // Unisce le righe spuntate in un unico dossier. Trascina dentro anche gli eventuali
+  // altri membri dei gruppi a cui le righe selezionate già appartengono.
+  function mergeSelected() {
+    if (selected.size < 2) return
+    const targetGids = new Set([...selected].map(gidOf))
+    const gid = `__merge__${++mergeCounter.current}`
+    setGroupOf((p) => {
+      const next = { ...p }
+      for (const d of baseDossiers) {
+        if (selected.has(d.dossierName) || targetGids.has(gidOf(d.dossierName))) next[d.dossierName] = gid
+      }
+      return next
+    })
+    setSelected(new Set())
+  }
+  function unmerge(gid: string) {
+    setGroupOf((p) => {
+      const next = { ...p }
+      for (const d of baseDossiers) if ((next[d.dossierName] || d.dossierName) === gid) delete next[d.dossierName]
+      return next
+    })
+  }
+
+  async function uploadDossier(id: string, d: FinalDossier) {
+    setDossierStatus((p) => ({ ...p, [d.gid]: 'uploading' }))
     try {
       const form = new FormData()
-      form.append('dossierName', displayDossierName(d.dossierName, root))
+      form.append('dossierName', d.label)
       // Il server riapplica gli stessi filtri (difesa in profondità): gli si passano
       // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
       form.append('includeWords', includeText)
@@ -113,15 +199,17 @@ export default function PolizzaBulkPage() {
         const e = await res.json().catch(() => ({}))
         throw new Error(e.error || t('bulk.errUpload'))
       }
-      setDossierStatus((p) => ({ ...p, [d.dossierName]: 'done' }))
+      setDossierStatus((p) => ({ ...p, [d.gid]: 'done' }))
     } catch (err: any) {
-      setDossierStatus((p) => ({ ...p, [d.dossierName]: 'error' }))
-      setDossierError((p) => ({ ...p, [d.dossierName]: err.message }))
+      setDossierStatus((p) => ({ ...p, [d.gid]: 'error' }))
+      setDossierError((p) => ({ ...p, [d.gid]: err.message }))
     }
   }
 
   async function handleStartUpload() {
-    if (!dossiers.length) return
+    if (!finalDossiers.length) return
+    const list = finalDossiers
+    setUploadList(list)
     setPhase('uploading'); setPickError(null)
     try {
       const res = await fetch('/api/polizza/batch', {
@@ -130,13 +218,13 @@ export default function PolizzaBulkPage() {
       if (!res.ok) throw new Error(t('bulk.errUpload'))
       const { batchId: id } = await res.json()
       setBatchId(id)
-      for (const d of dossiers) await uploadDossier(id, d) // sequenziale: un dossier alla volta
+      for (const d of list) await uploadDossier(id, d) // sequenziale: un dossier alla volta
     } catch (err: any) {
       setPickError(err.message); setPhase('select')
     }
   }
 
-  async function handleRetry(d: GroupedDossier) {
+  async function handleRetry(d: FinalDossier) {
     if (!batchId) return
     await uploadDossier(batchId, d)
   }
@@ -152,6 +240,23 @@ export default function PolizzaBulkPage() {
     }
   }
 
+  // Auto-chiusura del batch se l'utente lascia la pagina senza premere "Termina": i
+  // dossier già caricati vengono comunque elaborati, ma senza questa chiamata
+  // l'orchestratore resterebbe in attesa di altri dossier (polling) fino al prossimo
+  // restart. sendBeacon parte anche mentre la tab si chiude.
+  const closeRef = useRef<{ batchId: string | null; phase: string }>({ batchId: null, phase: 'select' })
+  closeRef.current = { batchId, phase }
+  useEffect(() => {
+    const onLeave = () => {
+      const { batchId: id, phase: ph } = closeRef.current
+      if (id && ph !== 'started' && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        navigator.sendBeacon(`/api/polizza/batch/${id}/complete`)
+      }
+    }
+    window.addEventListener('pagehide', onLeave)
+    return () => window.removeEventListener('pagehide', onLeave)
+  }, [])
+
   return (
     <div style={{ maxWidth: 760 }}>
       <h1 className="page-title">{t('bulk.title')}</h1>
@@ -163,7 +268,7 @@ export default function PolizzaBulkPage() {
         <>
           <div className="card" style={{ padding: 24, textAlign: 'center', marginBottom: 16 }}>
             <button className="btn btn-primary" onClick={() => inputRef.current?.click()} disabled={scanning || !supported}>
-              {dossiers.length ? t('bulk.changeFolder') : t('bulk.selectFolder')}
+              {baseDossiers.length ? t('bulk.changeFolder') : t('bulk.selectFolder')}
             </button>
             <input
               ref={inputRef}
@@ -224,33 +329,57 @@ export default function PolizzaBulkPage() {
             </div>
           )}
 
-          {dossiers.length > 0 && (
+          {baseDossiers.length > 0 && (
             <div className="card" style={{ padding: 16, marginBottom: 16 }}>
               <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{t('bulk.rootLabel', { name: root })}</p>
-              <p style={{ fontSize: 13, marginBottom: 12 }}>{t('bulk.summaryTitle', { n: dossiers.length, m: totalFiles })}</p>
+              <p style={{ fontSize: 13, marginBottom: 6 }}>{t('bulk.summaryTitle', { n: baseDossiers.length, m: detectedFiles })}</p>
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 12 }}>{t('bulk.reviewHint')}</p>
 
-              <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 12 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                  <input type="radio" checked={mode === 'leaf'} onChange={() => setMode('leaf')} /> {t('bulk.modeLeaf')}
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                  <input type="radio" checked={mode === 'firstLevel'} onChange={() => setMode('firstLevel')} /> {t('bulk.modeFirstLevel')}
-                </label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setAllIncluded(true)}>{t('bulk.selectAll')}</button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setAllIncluded(false)}>{t('bulk.deselectAll')}</button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={mergeSelected} disabled={selected.size < 2}>
+                  {t('bulk.mergeSelected', { n: selected.size })}
+                </button>
               </div>
 
-              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                <table>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <table style={{ width: '100%' }}>
                   <tbody>
-                    {dossiers.map((d) => (
-                      <tr key={d.dossierName}>
-                        <td style={{ fontSize: 12 }}>{displayDossierName(d.dossierName, root)}</td>
-                        <td style={{ fontSize: 12, color: 'var(--c-text-muted)', textAlign: 'right' }}>{t('bulk.dossierFiles', { n: d.fileIndexes.length })}</td>
-                      </tr>
-                    ))}
+                    {baseDossiers.map((d) => {
+                      const gid = gidOf(d.dossierName)
+                      const groupSize = baseDossiers.filter((x) => gidOf(x.dossierName) === gid).length
+                      const merged = groupSize > 1
+                      const inc = isIncluded(d.dossierName)
+                      return (
+                        <tr key={d.dossierName} style={{ opacity: inc ? 1 : 0.45 }}>
+                          <td style={{ width: 24 }}>
+                            <input type="checkbox" checked={inc} onChange={() => toggleInclude(d.dossierName)} title={t('bulk.deselectAll')} />
+                          </td>
+                          <td style={{ width: 24 }}>
+                            <input type="checkbox" checked={selected.has(d.dossierName)} onChange={() => toggleSelect(d.dossierName)} disabled={!inc} />
+                          </td>
+                          <td style={{ fontSize: 12 }}>
+                            {displayDossierName(d.dossierName, root)}
+                            {merged && (
+                              <span style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--c-bg-card-alt)', color: 'var(--c-text-secondary)' }}>
+                                {t('bulk.mergedBadge', { n: groupSize })}{' '}
+                                <button type="button" onClick={() => unmerge(gid)} style={{ background: 'none', border: 'none', color: 'var(--c-accent)', cursor: 'pointer', fontSize: 10, padding: 0 }}>
+                                  {t('bulk.unmerge')}
+                                </button>
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--c-text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>{t('bulk.dossierFiles', { n: d.fileIndexes.length })}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
-              <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={handleStartUpload}>
+
+              <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>{t('bulk.selectedSummary', { n: finalDossiers.length, m: selectedFiles })}</p>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={handleStartUpload} disabled={finalDossiers.length === 0}>
                 {t('bulk.startBtn')}
               </button>
             </div>
@@ -262,23 +391,23 @@ export default function PolizzaBulkPage() {
         <div className="card" style={{ padding: 16 }}>
           <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{t('bulk.rootLabel', { name: root })}</p>
           <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 12 }}>
-            {t('bulk.uploadSummary', { done: doneCount, error: errorCount, total: dossiers.length })}
+            {t('bulk.uploadSummary', { done: doneCount, error: errorCount, total: uploadList.length })}
           </p>
           <div style={{ maxHeight: 320, overflowY: 'auto' }}>
             <table>
               <tbody>
-                {dossiers.map((d) => {
-                  const st = dossierStatus[d.dossierName] || 'pending'
+                {uploadList.map((d) => {
+                  const st = dossierStatus[d.gid] || 'pending'
                   return (
-                    <tr key={d.dossierName}>
-                      <td style={{ fontSize: 12 }}>{displayDossierName(d.dossierName, root)}</td>
+                    <tr key={d.gid}>
+                      <td style={{ fontSize: 12 }}>{d.label}{d.memberCount > 1 ? ` (${d.memberCount})` : ''}</td>
                       <td style={{ fontSize: 12, textAlign: 'right' }}>
                         {st === 'pending' && <span style={{ color: 'var(--c-text-muted)' }}>{t('bulk.dossierPending')}</span>}
                         {st === 'uploading' && <span style={{ color: 'var(--c-info)' }}><span className="spinner" /> {t('bulk.dossierUploading')}</span>}
                         {st === 'done' && <span style={{ color: 'var(--c-success)' }}>✓ {t('bulk.dossierDone')}</span>}
                         {st === 'error' && (
                           <span style={{ color: 'var(--c-error)' }}>
-                            ⚠ {dossierError[d.dossierName]}{' '}
+                            ⚠ {dossierError[d.gid]}{' '}
                             <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginLeft: 6 }} onClick={() => handleRetry(d)}>
                               {t('bulk.retryDossier')}
                             </button>

@@ -9,6 +9,7 @@ import { getSettings } from './settingsStore'
 import { importSharedService } from './sharedServices'
 import { loadPdfServer } from './pdfRenderServer'
 import { buildSources } from './polizzaRolling'
+import { withGlobalLock } from './llmSemaphore'
 import {
   getJob, getJobFiles, getJobStatus, updateJob, type JobRow,
 } from './polizzaJobStore'
@@ -37,8 +38,9 @@ async function appendLog(job: JobRow, line: string, logs: string[]) {
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)
-  // Fire-and-forget: non blocca la response della route.
-  void runJob(jobId).catch(async (e) => {
+  // Fire-and-forget: non blocca la response della route. Passa dal semaforo globale
+  // così un'estrazione singola non gira mai in parallelo a un batch (protezione VRAM).
+  void withGlobalLock(() => runJob(jobId)).catch(async (e) => {
     try { await updateJob(jobId, { status: 'error', error: String(e?.message || e) }) } catch { /* noop */ }
   }).finally(() => running.delete(jobId))
 }
@@ -46,7 +48,8 @@ export function startJob(jobId: string): void {
 // Variante awaitable di startJob, usata dall'orchestratore batch per elaborare i
 // job figli in sequenza (attende il completamento di uno prima di avviare il
 // successivo). Se il job è già in esecuzione altrove nello stesso processo, attende
-// che finisca invece di duplicarne l'esecuzione.
+// che finisca invece di duplicarne l'esecuzione. Acquisisce lo STESSO semaforo
+// globale di startJob: batch e job singoli condividono un'unica coda di esecuzione.
 export async function runJobAndWait(jobId: string): Promise<void> {
   if (running.has(jobId)) {
     while (running.has(jobId)) await new Promise((r) => setTimeout(r, 500))
@@ -54,7 +57,7 @@ export async function runJobAndWait(jobId: string): Promise<void> {
   }
   running.add(jobId)
   try {
-    await runJob(jobId)
+    await withGlobalLock(() => runJob(jobId))
   } catch (e: any) {
     try { await updateJob(jobId, { status: 'error', error: String(e?.message || e) }) } catch { /* noop */ }
   } finally {
