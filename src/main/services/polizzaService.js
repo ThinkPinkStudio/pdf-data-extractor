@@ -2229,59 +2229,47 @@ function selectGroupDocs(kind, analyzed) {
     // è quello giusto, il secondo fa da rete se l'OCR del primo è povero.
     return dedupe([...regolazioni.slice(0, 2), ...quietanze.slice(0, 2), ...polizza, ...appendici.slice(0, 1), ...altro.slice(0, 1)])
   }
-  // anagrafica: polizza + TUTTE le appendici (cambio contraenza/indirizzo!) +
-  // il periodico più recente (porta scadenza/contraente correnti) + altro.
-  const newestPeriodic = [...regolazioni, ...quietanze].sort(byStagedRecency).slice(0, 1)
-  return dedupe([...polizza, ...appendici, ...newestPeriodic, ...altro])
+  // anagrafica: polizza + i 2 periodici più recenti SUBITO DOPO (portano
+  // scadenza/decorrenza/agenzia/contraente CORRENTI: con 12 appendici davanti,
+  // sul campo il budget finiva prima che la quietanza recente entrasse nel
+  // contesto → il modello non poteva che rispondere con i dati vecchi di
+  // pagina 1) + tutte le appendici (cambio contraenza/indirizzo) + altro.
+  const newestPeriodic = [...regolazioni, ...quietanze].sort(byStagedRecency).slice(0, 2)
+  return dedupe([...polizza, ...newestPeriodic, ...appendici, ...altro])
 }
 
 /**
- * Contesto di un gruppo: packing PER PAGINA con quota per documento.
+ * Batch di contesto di un gruppo: COPERTURA TOTALE, mai troncamenti.
  * Blocchi "[file · pag. N]" in ordine di priorità documenti (pagine in ordine
- * naturale), con una QUOTA per documento: finché altri documenti attendono,
- * nessuno può occupare più di ~45% del budget — un fascicolo con una polizza
- * da 90K char non può più espellere appendici/condizioni/periodici dal
- * contesto (era il bug che faceva vedere al modello solo la testa della
- * polizza base). Seconda passata per riempire il budget avanzato.
+ * naturale), impacchettati in QUANTI BATCH SERVONO perché OGNI pagina di OGNI
+ * documento del gruppo venga letta dal modello: se il fascicolo non sta in una
+ * chiamata se ne fanno di più, e il merge per recency ricompone i risultati.
+ * (Il vecchio schema quota-e-taglia lasciava fuori proprio le pagine coi dati:
+ * attività a pag. 23, P.IVA del contraente a pag. 10 — mai più.)
  */
-function buildGroupContext(docList, budgetChars) {
-  const parts = []
-  const usedNames = new Set()
+function buildGroupBatches(docList, budgetChars) {
+  const batches = []
+  let parts = []
   let used = 0
-  let truncatedDoc = null
-  const pageBlock = (d, p) => {
-    const t = d.pages[p]?.trim()
-    return t ? `[${d.name} · pag. ${p + 1}]\n${t}` : null
+  let names = new Set()
+  const flush = () => {
+    if (parts.length) batches.push({ text: parts.join('\n\n'), usedNames: names })
+    parts = []; used = 0; names = new Set()
   }
-  // Cursore per doc: prossima pagina non ancora inclusa (per la seconda passata)
-  const cursor = new Map(docList.map((d) => [d.name, 0]))
-  const addPagesFrom = (d, quota) => {
-    let taken = 0
-    let p = cursor.get(d.name) ?? 0
-    for (; p < d.pages.length; p++) {
-      const block = pageBlock(d, p)
-      if (!block) continue
-      const cost = block.length + 2
-      if (taken + cost > quota || used + cost > budgetChars) { truncatedDoc = truncatedDoc || d.name; break }
+  for (const d of docList) {
+    for (let p = 0; p < d.pages.length; p++) {
+      const t = d.pages[p]?.trim()
+      if (!t) continue
+      let block = `[${d.name} · pag. ${p + 1}]\n${t}`
+      if (block.length > budgetChars) block = block.slice(0, budgetChars) // pagina singola oltre il budget: caso limite
+      if (used + block.length + 2 > budgetChars) flush()
       parts.push(block)
-      usedNames.add(d.name)
-      used += cost
-      taken += cost
+      names.add(d.name)
+      used += block.length + 2
     }
-    cursor.set(d.name, p)
   }
-  // Passata 1: quota equa (mai oltre ~45% del budget finché ci sono altri doc)
-  const quota1 = docList.length > 1 ? Math.floor(budgetChars * 0.45) : budgetChars
-  for (const d of docList) {
-    if (used >= budgetChars) break
-    addPagesFrom(d, Math.min(quota1, budgetChars - used))
-  }
-  // Passata 2: budget residuo alle pagine rimaste, sempre in ordine di priorità
-  for (const d of docList) {
-    if (used >= budgetChars) break
-    addPagesFrom(d, budgetChars - used)
-  }
-  return { text: parts.join('\n\n'), usedNames, truncatedDoc }
+  flush()
+  return batches
 }
 
 // Prompt di sistema condiviso dei passaggi per gruppo + note specifiche.
@@ -2300,7 +2288,9 @@ const STAGED_GROUP_NOTES = {
     'cambio indirizzo) o una quietanza recente riporta un dato aggiornato, quel valore prevale\n' +
     'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.\n' +
     'P.IVA/Codice Fiscale: SEMPRE quello del CONTRAENTE/assicurato, MAI quello della compagnia\n' +
-    'assicuratrice (la P.IVA nell\'intestazione della compagnia non va usata).',
+    'assicuratrice (la P.IVA nell\'intestazione della compagnia non va usata).\n' +
+    'Agenzia: è quella indicata come "AGENZIA DI …"/"Agenzia" che gestisce la polizza (spesso in\n' +
+    'testa a quietanze/appendici), MAI la sede legale o la direzione della compagnia.',
 }
 
 function stagedSystemPrompt(kind) {
@@ -2505,11 +2495,22 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if ('codice_fiscale_iva' in fieldsById) {
     const vatSeen = new Map() // valore valido → doc del primo avvistamento
     for (const d of basePool) {
-      for (const m of d.text.matchAll(/(?:P\.?\s*IVA|PARTITA\s+IVA|COD(?:ICE)?\s*\.?\s*FISC(?:ALE)?\.?)[^\n]{0,80}/gi)) {
+      // Finestra label→valore anche A CAVALLO di riga: sul campo la P.IVA del
+      // contraente sta spesso sulla riga SOTTO l'etichetta ("Partita IVA\n00151…")
+      // e il matcher a riga singola vedeva solo quella della compagnia in testata.
+      for (const m of d.text.matchAll(/(?:P\.?\s*I\.?V\.?A\.?|PARTITA\s+IVA|COD(?:ICE)?\s*\.?\s*FISC(?:ALE)?\.?|C\.?\s*F\.?\s*\/?\s*P\.?\s*IVA)[^\n]{0,80}(?:\n[^\n]{0,60})?/gi)) {
         const run = m[0].match(/[A-Z0-9]{10,16}/i)
         if (!run) continue
         const valid = validateCodiceFiscaleIva(run[0])
-        if (valid && !vatSeen.has(valid)) vatSeen.set(valid, d)
+        if (!valid || vatSeen.has(valid)) continue
+        // Il candidato che vive nel FOOTER SOCIETARIO della compagnia ("Sede
+        // legale… Registro Imprese… Capitale Sociale… IVASS") è la P.IVA
+        // dell'ASSICURATORE, non del contraente: va scartato dal seed. I marcatori
+        // sono SOLO quelli del footer: parole come "ASSICURAZIONE" da sole no —
+        // sono il titolo di ogni frontespizio, anche accanto al blocco contraente.
+        const around = d.text.slice(Math.max(0, m.index - 150), m.index + m[0].length + 80)
+        if (/sede\s+legale|capitale\s+sociale|impresa\s+autorizzata|registro\s+(?:delle\s+)?imprese|ivass|direzione\s+e\s+coordinamento|r\.?\s*e\.?\s*a\.?\s*n/i.test(around)) continue
+        vatSeen.set(valid, d)
       }
     }
     if (vatSeen.size === 1) {
@@ -2533,11 +2534,27 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     return bestDate
   }
+  // Data MASSIMA dentro la finestra etichetta→valori: nelle quietanze l'header
+  // tabellare "SCAD. RATA  RATA SUCC." sta su una riga e le date sulla riga sotto
+  // ("31/12/2024 31/12/2025") — le colonne OCR non si allineano, ma la scadenza
+  // utile è comunque l'ultima copertura nota, cioè la data massima della finestra.
+  const maxDateInWindow = (text, labelRe) => {
+    let bestDate = null
+    for (const m of text.matchAll(labelRe)) {
+      for (const dm of m[0].matchAll(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/g)) {
+        const norm = normalizeDateValue(dm[0])
+        if (norm && (dateStrToTs(norm) ?? -Infinity) > (dateStrToTs(bestDate) ?? -Infinity)) bestDate = norm
+      }
+    }
+    return bestDate
+  }
   for (const d of analyzed) {
     const hits = {
       decorrenza: maxLabeledDate(d.text, /DECORRENZA\b[^\n]{0,100}/gi),
-      // Per la scadenza vale anche la fine del periodo di rata/regolazione
+      // Per la scadenza valgono anche l'header abbreviato "SCAD. RATA/RATA SUCC."
+      // (valori a riga sotto) e la fine del periodo di rata/regolazione
       scadenza: [maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
+        maxDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
         parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)]
         .filter(Boolean)
         .sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
@@ -2559,7 +2576,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
   // nel merge per recency come ogni altro candidato (mai valori blindati).
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
-  const batchCtx = Math.min(modelLimit || 131072, 16384)
+  // 24K di contesto per i gruppi: sul campo (diagnostica) i 16K col rapporto
+  // prudente lasciavano 1/3 del contesto inutilizzato E fuori restavano proprio
+  // le pagine coi dati (attività a pag. 23, P.IVA contraente a pag. 10). qwen2.5
+  // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB.
+  const batchCtx = Math.min(modelLimit || 131072, 24576)
   const groupPlans = []
   for (const kind of ['strutturali', 'economici', 'anagrafica']) {
     const groupFields = partition[kind]
@@ -2570,8 +2591,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     groupPlans.push({ kind, groupFields, groupDocs })
   }
-  let progressTotal = groupPlans.length
-  let progressDone = 0
+  // COPERTURA TOTALE: per ogni gruppo si preparano TUTTI i batch necessari a far
+  // leggere al modello OGNI pagina di OGNI documento pertinente. Il budget decide
+  // solo in quanti pezzi si spezza il lavoro — MAI cosa resta fuori.
   let consecutiveErrors = 0
   let abortedByErrors = false
   let abortError = null
@@ -2579,65 +2601,74 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const counters = { unknown: 0, placeholders: 0, sanitized: 0, noEvidence: 0, guardrail: 0 }
 
   for (const plan of groupPlans) {
-    if (abortedByErrors) break
     const { kind, groupFields, groupDocs } = plan
-    progressDone++
-    onProgress?.({ batch: progressDone, batchTotal: progressTotal })
-
-    const fieldLines = groupFields
+    plan.fieldLines = groupFields
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
-    const system = stagedSystemPrompt(kind)
-    const buildPrompt = (text) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    plan.system = stagedSystemPrompt(kind)
+    plan.buildPrompt = (text) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${plan.fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
     // Rapporto CONSERVATIVO 2.0 char/token: l'OCR italiano denso di numeri e
     // simboli tokenizza peggio di 2.5 — un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
-    const reserve = estimateOllamaTokens(system.length + buildPrompt('').length) + 3000 + 512
+    const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
-    const { text: ctx, usedNames, truncatedDoc } = buildGroupContext(groupDocs, budgetChars)
-    const userPrompt = buildPrompt(ctx)
-    // num_ctx SEMPRE al tetto del batch: allocare meno per "risparmiare" rischia
-    // il troncamento se la stima sottovaluta; 16K di KV su 7B stanno negli 8GB.
-    const numCtx = batchCtx
-    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${usedNames.size}/${groupDocs.length} documenti nel contesto (~${estimateOllamaTokens(userPrompt.length)} token, num_ctx ${numCtx})` +
-      `${truncatedDoc ? ` — contesto al limite dal documento "${truncatedDoc}"` : ''}: ${[...usedNames].slice(0, 6).join(', ')}${usedNames.size > 6 ? ', …' : ''}`)
+    plan.batches = buildGroupBatches(groupDocs, budgetChars)
+    const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (copertura totale, num_ctx ${batchCtx})`)
+  }
+  let progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
+  let progressDone = 0
 
-    let parsed = null
-    let usedCtx = ctx
-    try {
-      const raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
+  for (const plan of groupPlans) {
+    if (abortedByErrors) break
+    const { kind, groupFields } = plan
+    for (let bi = 0; bi < plan.batches.length; bi++) {
+      if (abortedByErrors) break
+      const { text: ctx, usedNames } = plan.batches[bi]
+      progressDone++
+      onProgress?.({ batch: progressDone, batchTotal: progressTotal })
+
+      // num_ctx SEMPRE al tetto del batch: allocare meno per "risparmiare" rischia
+      // il troncamento se la stima sottovaluta.
+      const numCtx = batchCtx
+      let parsed = null
+      let usedCtx = ctx
       try {
-        parsed = parseJsonResponse(raw)
-      } catch {
-        // Retry SIGNIFICATIVO: a temperatura 0 rimandare lo stesso prompt produce
-        // la stessa risposta. Si riduce il contesto (~70%, tagliato a confine di
-        // blocco) e si alza num_predict: prompt diverso → output diverso, e una
-        // risposta JSON troncata dal tetto di generazione ha spazio per chiudersi.
-        diag.push(`Gruppo "${kind}": risposta non parsabile, retry con contesto ridotto…`)
-        const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
-        usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-        const raw2 = await callOllamaRolling(s2, system, buildPrompt(usedCtx), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
-        parsed = parseJsonResponse(raw2)
+        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx), { numCtx, timeoutMs: 600000, diag })
+        try {
+          parsed = parseJsonResponse(raw)
+        } catch {
+          // Retry SIGNIFICATIVO: a temperatura 0 rimandare lo stesso prompt produce
+          // la stessa risposta. Si riduce il contesto (~70%, tagliato a confine di
+          // blocco) e si alza num_predict: prompt diverso → output diverso, e una
+          // risposta JSON troncata dal tetto di generazione ha spazio per chiudersi.
+          diag.push(`Gruppo "${kind}" batch ${bi + 1}: risposta non parsabile, retry con contesto ridotto…`)
+          const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
+          usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
+          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          parsed = parseJsonResponse(raw2)
+        }
+        consecutiveErrors = 0
+      } catch (err) {
+        consecutiveErrors++
+        diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} FALLITO (si prosegue): ${err.message}`)
+        if (err.isLlmConnectionError || consecutiveErrors >= 3) {
+          abortedByErrors = true
+          abortError = err
+          diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(best).length} campi raccolti finora.`)
+        }
+        continue
       }
-      consecutiveErrors = 0
-    } catch (err) {
-      consecutiveErrors++
-      diag.push(`Gruppo "${kind}" FALLITO (si prosegue con gli altri): ${err.message}`)
-      if (err.isLlmConnectionError || consecutiveErrors >= 3) {
-        abortedByErrors = true
-        abortError = err
-        diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(best).length} campi raccolti finora.`)
-      }
-      continue
-    }
 
-    const before = { ...counters }
-    const normCtx = normForMatch(usedCtx)
-    llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
-    const got = Object.keys(parsed || {}).length
-    diag.push(`Gruppo "${kind}": ${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
-      `${counters.sanitized - before.sanitized} da sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza nel testo` +
-      `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} dal guardrail strutturale` : ''}`)
+      const before = { ...counters }
+      const normCtx = normForMatch(usedCtx)
+      llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
+      const got = Object.keys(parsed || {}).length
+      diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
+        `${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
+        `${counters.sanitized - before.sanitized} sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza` +
+        `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
+    }
   }
 
   // Abort con ZERO contributo LLM: i soli seed regex non sono un'estrazione — il
@@ -2680,6 +2711,27 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let recovered = 0
       let recConsecutive = 0
 
+      // RANKING SEMANTICO delle pagine (embeddings, es. bge-m3): trova la pagina
+      // giusta anche quando usa PAROLE DIVERSE dalla label del campo
+      // ("descrizione del rischio" vs "attività assicurata") — il ranking
+      // lessicale resta solo come fallback se gli embeddings non ci sono.
+      const pageVecCache = new Map() // `${doc.pos}:${pagina}` → vettore
+      let embeddingsOk = true
+      let semanticLogged = false
+      const ensurePageVecs = async (docsList) => {
+        const wanted = []
+        for (const d of docsList) {
+          for (let p = 0; p < d.pages.length; p++) {
+            if (d.pages[p].trim() && !pageVecCache.has(`${d.pos}:${p}`)) wanted.push({ d, p })
+          }
+        }
+        for (let i = 0; i < wanted.length; i += 32) {
+          const chunk = wanted.slice(i, i + 32)
+          const vecs = await embedTexts(settings, chunk.map((w) => w.d.pages[w.p].slice(0, 2000)))
+          chunk.forEach((w, j) => pageVecCache.set(`${w.d.pos}:${w.p}`, vecs[j]))
+        }
+      }
+
       for (const b of planned) {
         if (abortedByErrors) break
         progressDone++
@@ -2702,16 +2754,45 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           while (n < 3 && (i = np.indexOf(t, i)) !== -1) { n++; i += t.length }
           return n // saturata a 3: conta la presenza ripetuta, non il conteggio esatto
         }
-        const scored = []
-        b.allowedDocs.forEach((d, docRank) => {
-          d.normPages.forEach((np, p) => {
-            let score = 0
-            for (const [t, w] of weights) score += countOcc(np, t) * w
-            scored.push({ d, p, score, docRank })
+        let pool = null
+        if (embeddingsOk) {
+          try {
+            await ensurePageVecs(b.allowedDocs)
+            const queries = b.fields.map((f) => `${f.label}. ${stripFieldExamples(f.description || f.label || f.id)}`)
+            const qVecs = await embedTexts(settings, queries)
+            const semScored = []
+            b.allowedDocs.forEach((d, docRank) => {
+              for (let p = 0; p < d.pages.length; p++) {
+                const v = pageVecCache.get(`${d.pos}:${p}`)
+                if (!v) continue
+                let score = 0
+                for (const q of qVecs) score = Math.max(score, cosineSim(q, v))
+                semScored.push({ d, p, score, docRank })
+              }
+            })
+            semScored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
+            pool = semScored
+            if (!semanticLogged) {
+              diag.push(`Stadio E: ranking SEMANTICO delle pagine (embeddings ${settings.embeddingModel || 'bge-m3'})`)
+              semanticLogged = true
+            }
+          } catch (err) {
+            embeddingsOk = false
+            diag.push(`Stadio E: embeddings non disponibili (${err.message}) → ranking lessicale. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
+          }
+        }
+        if (!pool) {
+          const scored = []
+          b.allowedDocs.forEach((d, docRank) => {
+            d.normPages.forEach((np, p) => {
+              let score = 0
+              for (const [t, w] of weights) score += countOcc(np, t) * w
+              scored.push({ d, p, score, docRank })
+            })
           })
-        })
-        scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
-        const pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
+          scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
+          pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
+        }
         const RECOVERY_CTX_CHARS = 12000
         let ctx = ''
         const usedNames = new Set()

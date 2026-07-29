@@ -70,8 +70,14 @@ test('CF: struttura + carattere di controllo', () => {
 })
 
 test('validateCodiceFiscaleIva: normalizza, valida, ripara OCR', () => {
-  // Il fake osservato nello screenshot reale: 16 cifre → non è né P.IVA né CF
-  assert.equal(validateCodiceFiscaleIva('0000003078910340'), null)
+  // Casella modulistica a 16 char zero-padded: zeri + P.IVA a 11 cifre.
+  // Vista sul campo (OCR polizza EULIP): "0000000151510344" → "00151510344".
+  assert.equal(validateCodiceFiscaleIva('0000000151510344'), '00151510344')
+  // Stesso pattern del vecchio "fake" osservato: il trailing-11 è checksum-valido
+  // (ufficio 034 = Parma) → era una P.IVA genuina padded, va RIPARATA non scartata
+  assert.equal(validateCodiceFiscaleIva('0000003078910340'), '03078910340')
+  // Padding NON zero: resta invalido (né P.IVA né CF)
+  assert.equal(validateCodiceFiscaleIva('1234503078910340'), null)
   // P.IVA valida con spazi/punti
   assert.equal(validateCodiceFiscaleIva('00 151 510 344'), '00151510344')
   // CF valido minuscolo
