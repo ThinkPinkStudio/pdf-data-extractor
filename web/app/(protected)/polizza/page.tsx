@@ -116,6 +116,10 @@ export default function PolizzaPage() {
     setProgress(s.progress || null)
     if (Array.isArray(s.fieldDefs) && s.fieldDefs.length) setFields(s.fieldDefs)
     if (Array.isArray(s.scannedFiles)) setJobFileNames(s.scannedFiles)
+    // I log del job contengono TUTTA la diagnostica del motore (stadi, scarti,
+    // chiamate Ollama): senza questo, "Scarica diagnostica" dopo un reload
+    // stampava "(nessun log)" — il file inutile che non racconta niente.
+    if (Array.isArray(s.logs) && s.logs.length) diagRef.current = s.logs
     const st = s.status as string
     const active = st === 'queued' || st === 'running'
     setExtracting(active)
@@ -254,10 +258,15 @@ export default function PolizzaPage() {
   }
 
   function handleDownloadLog() {
+    // Dopo un reload `files` (File objects) è vuoto ma i nomi restano nello
+    // snapshot del job: senza il fallback la sezione FILE usciva vuota.
+    const fileNames = files.length ? files.map((f) => f.name) : jobFileNames
     const lines = [
       '=== DIAGNOSTICA ESTRAZIONE POLIZZA ===',
       `Data/ora: ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`,
-      '', '=== FILE ===', ...files.map((f, i) => `${i + 1}. ${f.name}`),
+      ...(jobId ? [`Job: ${jobId}`] : []),
+      ...(visionErr ? [`Errore: ${visionErr}`] : []),
+      '', '=== FILE ===', ...(fileNames.length ? fileNames.map((n, i) => `${i + 1}. ${n}`) : ['(nessun file)']),
       '', '=== LOG ===', ...(diagRef.current.length ? diagRef.current : ['(nessun log)']),
       '', '=== DATI ESTRATTI ===',
       ...(extracted ? Object.entries(extracted).map(([k, v]) => `${k}: ${v || '(vuoto)'}`) : ['(nessun dato)']),

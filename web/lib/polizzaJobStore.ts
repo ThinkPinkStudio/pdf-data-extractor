@@ -309,6 +309,37 @@ export function jobSnapshot(job: JobRow) {
   }
 }
 
+// Rilancio di un job fallito/annullato: riporta il job in coda azzerando errore,
+// cursore, progresso e stato rolling (ri-inizializzato dai field_defs congelati
+// all'upload). I PDF sono già in polizza_job_files → nessun ri-upload. Ritorna
+// la riga aggiornata (serve il batch_id per riavviare l'orchestratore giusto),
+// null se il job non esiste o non è in stato rilanciabile.
+export async function resetJobForRetry(id: string, byEmail?: string): Promise<JobRow | null> {
+  const job = await getJob(id)
+  if (!job || (job.status !== 'error' && job.status !== 'canceled')) return null
+  const logs = Array.isArray(job.logs) ? [...job.logs] : []
+  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Rilancio manuale${byEmail ? ` da ${byEmail}` : ''} —`)
+  await updateJob(id, {
+    status: 'queued',
+    error: null,
+    cursor: {},
+    progress: {},
+    rolling_state: initRollingState(job.field_defs || []),
+    sources: {},
+    logs,
+  })
+  return { ...job, status: 'queued' as JobStatus }
+}
+
+// Job in errore di un batch (per il rilancio collettivo con esclusioni).
+export async function listFailedBatchJobs(batchId: string): Promise<string[]> {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM polizza_jobs WHERE batch_id = $1 AND status = 'error' ORDER BY created_at, id`,
+    [batchId]
+  )
+  return rows.map((r) => r.id)
+}
+
 // Lavoro condiviso: qualunque utente autenticato può annullare un job (di chiunque).
 export async function cancelJob(id: string): Promise<boolean> {
   const { rowCount } = await pool.query(

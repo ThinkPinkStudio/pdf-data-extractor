@@ -44,6 +44,11 @@ COPY web ./
 # Shared Electron services used directly by the web API routes
 COPY src/main/services /app/src/main/services
 
+# package.json della ROOT: è la fonte della VERSIONE dell'app (bumpata dalla CI).
+# next.config.mjs la legge al build per NEXT_PUBLIC_APP_VERSION (sidebar +
+# Diagnostica); senza questa COPY la versione usciva vuota ("n/d").
+COPY package.json /app/package.json
+
 # Lingua OCR Tesseract (estrazione polizze scansionate offline). tessLangOptions()
 # cerca ita.traineddata via TESSERACT_DATA_DIR o cwd/.. → /app (cwd runner = /app/web).
 COPY ita.traineddata /app/ita.traineddata

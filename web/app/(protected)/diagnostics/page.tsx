@@ -82,6 +82,16 @@ export default function DiagnosticsPage() {
               <Row label={t('diag.tesseract')} status={data.ocr?.available ? 'ok' : 'fail'} detail={data.ocr?.available ? t('diag.available') : data.ocr?.reason || t('diag.unavailable')} />
             </div>
 
+            {data.services && (
+              <div className="card">
+                <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.servicesSection')}</h2>
+                {data.services.ollama && <Row label="Ollama" status={data.services.ollama.status} detail={data.services.ollama.detail} />}
+                {data.services.embeddings && <Row label="Embeddings" status={data.services.embeddings.status} detail={data.services.embeddings.detail} />}
+                {data.services.qdrant && <Row label="Qdrant" status={data.services.qdrant.status} detail={data.services.qdrant.detail} />}
+                {data.services.email && <Row label="Email" status={data.services.email.status} detail={data.services.email.detail} />}
+              </div>
+            )}
+
             <div className="card">
               <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{t('diag.systemSection')}</h2>
               <Row label={t('diag.platform')} detail={`${data.system?.platform} ${data.system?.arch}`} status="ok" />
