@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { groupPathsByDossier, displayDossierName, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
@@ -58,6 +58,7 @@ export default function PolizzaBulkPage() {
   const [included, setIncluded] = useState<Record<string, boolean>>({}) // default: incluso
   const [groupOf, setGroupOf] = useState<Record<string, string>>({})    // dossier-foglia → id gruppo unito
   const [selected, setSelected] = useState<Set<string>>(new Set())      // righe spuntate per l'unione
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())      // dossier con lista file aperta
   const mergeCounter = useRef(0)
 
   const [batchId, setBatchId] = useState<string | null>(null)
@@ -98,6 +99,7 @@ export default function PolizzaBulkPage() {
     setIncluded({})
     setGroupOf({})
     setSelected(new Set())
+    setExpanded(new Set())
   }, [files, filters])
 
   function handlePick(fileList: FileList | null) {
@@ -154,6 +156,11 @@ export default function PolizzaBulkPage() {
   function toggleSelect(name: string) {
     setSelected((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n })
   }
+  function toggleExpand(name: string) {
+    setExpanded((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n })
+  }
+  // Nomi file (basename) di un dossier-foglia, per la lista espandibile.
+  const fileNamesOf = (d: GroupedDossier) => d.fileIndexes.map((idx) => fileRelPath(files[idx]).split('/').pop() || fileRelPath(files[idx]))
   function setAllIncluded(v: boolean) {
     const next: Record<string, boolean> = {}
     for (const d of baseDossiers) next[d.dossierName] = v
@@ -346,21 +353,35 @@ export default function PolizzaBulkPage() {
 
               <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                 <table style={{ width: '100%' }}>
+                  <thead>
+                    <tr style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--c-text-muted)' }}>
+                      <th style={{ width: 56, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colProcessHelp')}>{t('bulk.colProcess')}</th>
+                      <th style={{ width: 48, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colMergeHelp')}>{t('bulk.colMerge')}</th>
+                      <th style={{ textAlign: 'left', fontWeight: 600 }}>{t('bulk.colDossier')}</th>
+                      <th style={{ textAlign: 'right', fontWeight: 600 }}>{t('bulk.colFiles')}</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {baseDossiers.map((d) => {
                       const gid = gidOf(d.dossierName)
                       const groupSize = baseDossiers.filter((x) => gidOf(x.dossierName) === gid).length
                       const merged = groupSize > 1
                       const inc = isIncluded(d.dossierName)
+                      const isOpen = expanded.has(d.dossierName)
                       return (
-                        <tr key={d.dossierName} style={{ opacity: inc ? 1 : 0.45 }}>
-                          <td style={{ width: 24 }}>
-                            <input type="checkbox" checked={inc} onChange={() => toggleInclude(d.dossierName)} title={t('bulk.deselectAll')} />
+                        <Fragment key={d.dossierName}>
+                        <tr style={{ opacity: inc ? 1 : 0.45 }}>
+                          <td style={{ textAlign: 'center' }}>
+                            <input type="checkbox" checked={inc} onChange={() => toggleInclude(d.dossierName)} title={t('bulk.colProcessHelp')} />
                           </td>
-                          <td style={{ width: 24 }}>
-                            <input type="checkbox" checked={selected.has(d.dossierName)} onChange={() => toggleSelect(d.dossierName)} disabled={!inc} />
+                          <td style={{ textAlign: 'center' }}>
+                            <input type="checkbox" checked={selected.has(d.dossierName)} onChange={() => toggleSelect(d.dossierName)} disabled={!inc} title={t('bulk.colMergeHelp')} />
                           </td>
                           <td style={{ fontSize: 12 }}>
+                            <button type="button" onClick={() => toggleExpand(d.dossierName)} title={t('bulk.expandFiles')}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-secondary)', fontSize: 11, padding: 0, marginRight: 6, width: 12 }}>
+                              {isOpen ? '▾' : '▸'}
+                            </button>
                             {displayDossierName(d.dossierName)}
                             {merged && (
                               <span style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--c-bg-card-alt)', color: 'var(--c-text-secondary)' }}>
@@ -373,6 +394,20 @@ export default function PolizzaBulkPage() {
                           </td>
                           <td style={{ fontSize: 12, color: 'var(--c-text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>{t('bulk.dossierFiles', { n: d.fileIndexes.length })}</td>
                         </tr>
+                        {isOpen && (
+                          <tr>
+                            <td />
+                            <td />
+                            <td colSpan={2} style={{ paddingBottom: 8 }}>
+                              <ul style={{ margin: 0, paddingLeft: 16, listStyle: 'disc' }}>
+                                {fileNamesOf(d).map((name, k) => (
+                                  <li key={k} style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{name}</li>
+                                ))}
+                              </ul>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
