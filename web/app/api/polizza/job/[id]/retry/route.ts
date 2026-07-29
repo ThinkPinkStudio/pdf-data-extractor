@@ -7,16 +7,17 @@ import { startJob } from '@/lib/polizzaJobWorker'
 
 export const runtime = 'nodejs'
 
-// Rilancia UN job fallito/annullato: i PDF sono già salvati nel DB, il job torna
-// in coda e riparte dall'orchestratore giusto (batch o singolo). Lavoro
-// condiviso: nessun controllo di proprietà.
+// Rilancia UN job: falliti/annullati (riprova) ma anche COMPLETATI
+// (rielaborazione con il motore corrente — i PDF sono già salvati nel DB).
+// Il job torna in coda e riparte dall'orchestratore giusto (batch o singolo).
+// Lavoro condiviso: nessun controllo di proprietà.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const job = await resetJobForRetry(params.id, session.email)
-  if (!job) return NextResponse.json({ error: 'Job non trovato o non rilanciabile (deve essere in errore o annullato)' }, { status: 409 })
+  if (!job) return NextResponse.json({ error: 'Job non trovato o non rilanciabile (è ancora in esecuzione o in coda)' }, { status: 409 })
 
   if (job.batch_id) startBatch(job.batch_id)
   else startJob(job.id)
