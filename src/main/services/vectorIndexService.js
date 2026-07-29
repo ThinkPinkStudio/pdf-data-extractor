@@ -254,6 +254,60 @@ export async function searchVector({ query, jobId = null, polizzaNumero = null, 
   }))
 }
 
+/**
+ * Statistiche della collezione (pannello Manutenzione dati).
+ * Ritorna { exists, points } — points = numero di punti indicizzati.
+ */
+export async function collectionStats(settings) {
+  if (!isVectorIndexEnabled(settings)) return { exists: false, points: 0 }
+  const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collectionName(settings)}`, {
+    headers: qdrantHeaders(settings), signal: AbortSignal.timeout(10000)
+  })
+  if (res.status === 404) return { exists: false, points: 0 }
+  if (!res.ok) throw new Error(`Qdrant HTTP ${res.status}`)
+  const data = await res.json()
+  return { exists: true, points: data?.result?.points_count ?? 0, collection: collectionName(settings) }
+}
+
+/**
+ * Cancella i punti che matchano i filtri (jobId / dossier / polizzaNumero / file).
+ * Almeno UN filtro è obbligatorio: mai una delete senza confini per errore.
+ * Ritorna { ok: true } (Qdrant non riporta il conteggio dei punti rimossi).
+ */
+export async function deletePointsByFilter({ jobId = null, dossier = null, polizzaNumero = null, file = null }, settings) {
+  if (!isVectorIndexEnabled(settings)) throw new Error('Indice vettoriale non configurato (URL Qdrant vuoto).')
+  const must = []
+  if (jobId) must.push({ key: 'job_id', match: { value: jobId } })
+  if (dossier) must.push({ key: 'dossier', match: { value: dossier } })
+  if (polizzaNumero) must.push({ key: 'polizza_numero', match: { value: String(polizzaNumero) } })
+  if (file) must.push({ key: 'file', match: { value: file } })
+  if (!must.length) throw new Error('Cancellazione senza filtri rifiutata: specifica fascicolo, polizza o documento.')
+  const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collectionName(settings)}/points/delete?wait=true`, {
+    method: 'POST',
+    headers: qdrantHeaders(settings, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ filter: { must } }),
+    signal: AbortSignal.timeout(30000)
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Qdrant delete error ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
+  }
+  return { ok: true }
+}
+
+/** Svuota l'INTERA collezione (drop): alla prossima indicizzazione viene ricreata. */
+export async function dropCollection(settings) {
+  if (!isVectorIndexEnabled(settings)) throw new Error('Indice vettoriale non configurato (URL Qdrant vuoto).')
+  const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collectionName(settings)}`, {
+    method: 'DELETE', headers: qdrantHeaders(settings), signal: AbortSignal.timeout(30000)
+  })
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Qdrant drop error ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`)
+  }
+  return { ok: true }
+}
+
 /** Verifica raggiungibilità di Qdrant (per diagnostica/Impostazioni). */
 export async function probeQdrant(settings) {
   if (!isVectorIndexEnabled(settings)) return { available: false, reason: 'URL Qdrant non configurato' }

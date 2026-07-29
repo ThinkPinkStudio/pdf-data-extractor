@@ -463,6 +463,65 @@ export async function listFailedBatchJobs(batchId: string): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
+// ─── Manutenzione dati (pannello di controllo) ───────────────────────────────
+
+// Statistiche del database polizze: conteggi + dimensioni approssimative dei
+// PDF salvati e della cache OCR (per capire COSA occupa spazio prima di cancellare).
+export async function dataStats(): Promise<{
+  batches: number; jobs: number; jobsRunning: number; files: number; filesMb: number
+  ocrEntries: number; ocrMb: number
+}> {
+  const { rows } = await pool.query<{
+    batches: string; jobs: string; jobs_running: string; files: string; files_bytes: string
+    ocr_entries: string; ocr_bytes: string
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM batch_jobs) AS batches,
+       (SELECT COUNT(*) FROM polizza_jobs) AS jobs,
+       (SELECT COUNT(*) FROM polizza_jobs WHERE status IN ('running','queued')) AS jobs_running,
+       (SELECT COUNT(*) FROM polizza_job_files) AS files,
+       (SELECT COALESCE(SUM(LENGTH(pdf_base64)), 0) FROM polizza_job_files) AS files_bytes,
+       (SELECT COUNT(*) FROM ocr_cache) AS ocr_entries,
+       (SELECT COALESCE(SUM(LENGTH(pages::text)), 0) FROM ocr_cache) AS ocr_bytes`
+  )
+  const r = rows[0]
+  // base64 → byte reali ≈ ×0.75
+  return {
+    batches: parseInt(r.batches, 10), jobs: parseInt(r.jobs, 10), jobsRunning: parseInt(r.jobs_running, 10),
+    files: parseInt(r.files, 10), filesMb: Math.round((parseInt(r.files_bytes, 10) * 0.75) / 1048576),
+    ocrEntries: parseInt(r.ocr_entries, 10), ocrMb: Math.round(parseInt(r.ocr_bytes, 10) / 1048576),
+  }
+}
+
+// Elimina un job e i suoi PDF (cascade su polizza_job_files). Rifiutato se in
+// esecuzione/coda: prima si annulla, poi si elimina. Ritorna la riga eliminata
+// (serve l'id per pulire anche i punti Qdrant del fascicolo).
+export async function deleteJob(id: string): Promise<JobRow | null> {
+  const job = await getJob(id)
+  if (!job) return null
+  if (job.status === 'running' || job.status === 'queued') return null
+  await pool.query('DELETE FROM polizza_jobs WHERE id = $1', [id])
+  return job
+}
+
+// Elimina un batch con TUTTI i suoi job e PDF (cascade). Rifiutato se ha job
+// attivi. Ritorna gli id dei job eliminati (per la pulizia dei punti Qdrant).
+export async function deleteBatch(id: string): Promise<string[] | null> {
+  const { rows: active } = await pool.query(
+    `SELECT 1 FROM polizza_jobs WHERE batch_id = $1 AND status IN ('running','queued') LIMIT 1`, [id]
+  )
+  if (active.length) return null
+  const { rows } = await pool.query<{ id: string }>('SELECT id FROM polizza_jobs WHERE batch_id = $1', [id])
+  await pool.query('DELETE FROM batch_jobs WHERE id = $1', [id])
+  return rows.map((r) => r.id)
+}
+
+// Svuota la cache OCR (i prossimi run rifanno l'OCR e la ripopolano da soli).
+export async function clearOcrCache(): Promise<number> {
+  const { rowCount } = await pool.query('DELETE FROM ocr_cache')
+  return rowCount ?? 0
+}
+
 // Lavoro condiviso: qualunque utente autenticato può annullare un job (di chiunque).
 export async function cancelJob(id: string): Promise<boolean> {
   const { rowCount } = await pool.query(
