@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     'polizzaUseClaude', 'anthropicApiKey', 'anthropicModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
-    'qdrantUrl', 'qdrantCollection', 'embeddingModel',
+    'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyMinOverlap', 'compareFuzzyBroadEnabled',
     'compareFuzzyMinOverlapBroad', 'compareSearchConditions', 'compareBothMatchConditions',
     'compareBothFilterConditions', 'compareProfiles',

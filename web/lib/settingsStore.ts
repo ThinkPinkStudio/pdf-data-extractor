@@ -80,6 +80,7 @@ export interface WebSettings {
   bulkExcludeKeywords?: string
   // Indice vettoriale (Qdrant locale + embeddings Ollama). Vuoto = disattivato.
   qdrantUrl?: string
+  qdrantApiKey?: string
   qdrantCollection?: string
   embeddingModel?: string
   // Portafoglio Compare (sezione separata: confronto di due Excel). Nessun LLM.
@@ -201,6 +202,9 @@ export async function getSettings(): Promise<WebSettings> {
     // Default dall'ambiente (docker-compose imposta QDRANT_URL); il valore
     // salvato nelle Impostazioni vince sempre.
     qdrantUrl: map.qdrantUrl ?? (process.env.QDRANT_URL || ''),
+    // API key di Qdrant (QDRANT__SERVICE__API_KEY sul server, es. deploy Coolify):
+    // senza, ogni richiesta riceve 401. Env QDRANT_API_KEY come default.
+    qdrantApiKey: map.qdrantApiKey ?? (process.env.QDRANT_API_KEY || ''),
     qdrantCollection: map.qdrantCollection || 'documenti',
     embeddingModel: map.embeddingModel || 'bge-m3',
     // Portafoglio Compare — tutta configurazione persistita nel DB (nessun default env).
