@@ -2325,17 +2325,22 @@ const STAGED_STOPWORDS = new Set([
   'generali', 'articolo', 'articoli', 'pagina', 'numero', 'data', 'dati', 'euro', 'importo',
 ])
 
+// NB: la versione precedente permetteva "rispondi {} se nessuno c'è" — a
+// temperatura 0 il modello prendeva SEMPRE quella scorciatoia (4 run reali di
+// fila: 2 token generati, "{}", 0 recuperi). Ora una voce per OGNI campo è
+// OBBLIGATORIA: per dichiarare un campo assente serve {"valore": null} — il
+// modello deve comunque cercarlo, e la pigrizia non produce più un JSON valido.
 const STAGED_RECOVERY_SYSTEM =
   'Sei un estrattore di POCHI dati specifici da estratti di documenti assicurativi italiani.\n' +
   'REGOLE TASSATIVE:\n' +
-  '1. Restituisci un campo SOLO se il suo valore è ESPLICITAMENTE presente negli estratti.\n' +
-  '2. Se un campo non c\'è, omettilo; se nessuno c\'è rispondi esattamente {} — è il caso\n' +
-  '   NORMALE e corretto. Non forzare, non dedurre, NON inventare.\n' +
-  '3. "evidenza" = il frammento ESATTO copiato dagli estratti in cui compare il valore.\n' +
-  '   Se non riesci a citarlo, stai inventando: ometti il campo.\n' +
-  '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
-  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"...", "evidenza":"testo esatto"}}\n' +
-  'oppure {} se nessun valore è presente. Zero testo extra, zero markdown.'
+  '1. Rispondi con UNA voce per OGNI campo richiesto: nessun campo può mancare dalla risposta.\n' +
+  '2. Se il valore di un campo è presente negli estratti: {"valore":"...", "evidenza":"frammento ESATTO copiato"}.\n' +
+  '3. Se NON è presente: {"valore": null} — è un esito normale. Non forzare, non dedurre, NON inventare.\n' +
+  '4. "evidenza" = il frammento ESATTO copiato dagli estratti in cui compare il valore.\n' +
+  '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
+  '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
+  'Zero testo extra, zero markdown.'
 
 /**
  * Fonte REALE di un valore: cerca l'evidenza (poi il valore) normalizzata nelle
@@ -2433,6 +2438,29 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
         && isSuspectStructuralOverride(field, prev.valore, cleaned, srcDoc.text)) {
       counters.guardrail++
       continue
+    }
+    // Campi economico-PERIODICI: vivono in quietanze/regolazioni — un candidato da
+    // polizza/appendice non può COPRIRE un valore che viene da un documento
+    // periodico (visto sul campo: premio totale 5501,25 dall'Appendice 12 al posto
+    // del 6.501,25 della quietanza 2025). Il contrario resta permesso (recency).
+    if (isPeriodicEconomicField(field)
+        && prev && (prev.docType === 'quietanza' || prev.docType === 'regolazione')
+        && srcDoc && srcDoc.type !== 'quietanza' && srcDoc.type !== 'regolazione') {
+      counters.guardrail++
+      continue
+    }
+    // Importo preventivo/parametro: se nella STESSA risposta il modello propone lo
+    // stesso identico numero anche per un campo "premio", sta duplicando il premio
+    // nel preventivo (visto: importo_preventivo=4500 = premio_imponibile=4500 —
+    // il preventivo retribuzioni è un monte salari, non un premio).
+    if (/preventiv/i.test(fieldText)) {
+      const nvDup = normForMatch(cleaned)
+      const dupOfPremio = Object.entries(parsed || {}).some(([k2, e2]) => {
+        if (k2 === k || !/premio/i.test(k2)) return false
+        const v2 = (e2 && typeof e2 === 'object') ? e2.valore : e2
+        return v2 != null && normForMatch(String(v2)) === nvDup
+      })
+      if (dupOfPremio) { counters.guardrail++; continue }
     }
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
@@ -2600,6 +2628,29 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   for (const id of ['decorrenza', 'scadenza']) {
     if (best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
+  }
+  // Seed ATTIVITÀ: nei testi di polizza la descrizione concreta segue quasi sempre
+  // un marker esplicito ("…per l'esercizio dell'attività di seguito descritta:").
+  // Verificato sull'OCR reale (polizza EULIP pag. 3): il modello la saltava e il
+  // recupero rispondeva {} — il regex la prende deterministicamente. Vale per
+  // polizza E appendici (una ridefinizione in appendice vince per recency).
+  const attField = activeFields.find((f) => /attivit/i.test(`${f.id} ${f.label}`))
+  if (attField) {
+    for (const d of analyzed.filter((x) => !isPeriodicDocName(x.name))) {
+      const m = d.text.match(/(?:di\s+seguito\s+)?descritt[ao]\s*[:;]\s*\n?\s*([^\n]{15,300})/i)
+        || d.text.match(/ATTIVIT\S{0,2}(?:\s+ASSICURATA)?\s*[:]\s*\n?\s*([^\n]{15,300})/i)
+      if (!m) continue
+      const candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[.\s]+$/, '')
+      if (candidate.length < 15 || isRinvioAttivita(candidate)) continue
+      if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue // heading tutto maiuscolo, non una descrizione
+      const pIdx = (d.pages || []).findIndex((pg) => pg && pg.includes(m[1].trim().slice(0, 40)))
+      const cand = {
+        valore: candidate, effDate: d.dateStr, docType: d.type,
+        appendixOrd: d.appendixOrd, docPos: d.pos, file: d.name, page: pIdx >= 0 ? pIdx + 1 : '',
+      }
+      best[attField.id] = pickMoreRecentCandidate(best[attField.id], cand, kindOf[attField.id] || 'strutturali')
+    }
+    if (best[attField.id]) seedNotes.push(`${attField.id}="${String(best[attField.id].valore).slice(0, 60)}…" (da "${best[attField.id].file}")`)
   }
   if (seedNotes.length) diag.push(`Stadio A: seed regex — ${seedNotes.join(' · ')}`)
 
@@ -2837,16 +2888,33 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         }
         if (!ctx) continue
 
+        // Diagnostica VERA del recupero: senza sapere quali pagine sono state
+        // mandate al modello, un esito "{}" è indebuggabile (visto per 4 run).
+        const sentPages = []
+        for (const s of pool) {
+          if (!usedNames.has(s.d.name)) continue
+          if (sentPages.length >= 6) break
+          sentPages.push(`${s.d.name}·p${s.p + 1}`)
+        }
+        diag.push(`Recupero [${b.kind}] campi ${b.fields.map((f) => f.id).join(', ')} — pagine inviate: ${sentPages.join(', ')}${usedNames.size > sentPages.length ? ', …' : ''}`)
+
         const fieldLines = b.fields
           .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
           .join('\n')
-        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}} oppure {} se gli estratti non contengono i valori.`
+        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters)
-          for (const f of b.fields) if (!beforeIds.has(f.id) && (f.id in best)) recovered++
+          const gained = b.fields.filter((f) => !beforeIds.has(f.id) && (f.id in best))
+          recovered += gained.length
+          if (!gained.length) {
+            const rawShort = String(raw || '').replace(/\s+/g, ' ').slice(0, 160)
+            diag.push(`Recupero [${b.kind}]: nessun campo recuperato — risposta del modello: ${rawShort || '(vuota)'}`)
+          } else {
+            diag.push(`Recupero [${b.kind}]: recuperati ${gained.map((f) => f.id).join(', ')}`)
+          }
           recConsecutive = 0
         } catch (err) {
           recConsecutive++
