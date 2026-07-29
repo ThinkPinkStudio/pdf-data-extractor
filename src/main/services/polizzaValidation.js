@@ -266,6 +266,39 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
   return false
 }
 
+/**
+ * ARBITRO SEMANTICO del merge — agnostico rispetto ai campi: niente classi a
+ * parole chiave, decide l'AFFINITÀ tra la descrizione del campo e il contesto
+ * attorno al valore nel documento sorgente (calcolata dal chiamante, embeddings
+ * o fallback lessicale, su cand.affinity ∈ [0,1] o null se non calcolabile).
+ *
+ * Regole, in ordine:
+ * 1. collasso numerico: un candidato che riduce un valore numerico di oltre
+ *    l'80% passa SOLO con affinità nettamente superiore (un sub-limite pescato
+ *    da una clausola non sostituisce un massimale, un conguaglio non sostituisce
+ *    un premio annuo — vale per QUALUNQUE campo numerico);
+ * 2. affinità nettamente diversa (Δ > margin): vince la più alta, anche contro
+ *    la recency (il consuntivo della regolazione perde sul campo la cui
+ *    descrizione parla di preventivo, ovunque stia la data);
+ * 3. affinità comparabili (o non calcolabili): decide la RECENCY — i dati nuovi
+ *    sovrascrivono i vecchi, regola invariata.
+ */
+export function pickSemanticCandidate(oldC, newC, kind, margin = 0.06) {
+  if (!oldC) return newC
+  if (!newC) return oldC
+  const a0 = typeof oldC.affinity === 'number' ? oldC.affinity : null
+  const a1 = typeof newC.affinity === 'number' ? newC.affinity : null
+  const o = looseAmount(oldC.valore)
+  const n = looseAmount(newC.valore)
+  const collapse = o != null && n != null && o > 0 && n < o * 0.2
+  if (collapse && !(a0 != null && a1 != null && a1 - a0 > margin)) return oldC
+  if (a0 != null && a1 != null) {
+    if (a1 - a0 > margin) return newC
+    if (a0 - a1 > margin) return oldC
+  }
+  return pickMoreRecentCandidate(oldC, newC, kind)
+}
+
 // Valore di "attività assicurata" che è un RINVIO o una parafrasi della domanda
 // ("l'attività per la quale è prestata l'assicurazione") invece della
 // descrizione concreta: una vera attività non parla di assicurazione/polizza.

@@ -1344,6 +1344,18 @@ export default function Settings({ onThemeChange, onLangChange, onAccentChange, 
                 onChange={e => setSettings(s => ({ ...s, polizzaConsensusPasses: parseInt(e.target.value, 10) || 3 }))}
               />
             </div>
+            <div className="form-group" style={{ minWidth: 320, marginBottom: 0 }}>
+              <label className="form-label" htmlFor="polizza-staged-strategy">Strategia di estrazione (motore a stadi, Ollama)</label>
+              <select
+                id="polizza-staged-strategy"
+                className="form-input"
+                value={settings.polizzaStagedCascade === true ? 'cascade' : 'groups'}
+                onChange={e => setSettings(s => ({ ...s, polizzaStagedCascade: e.target.value === 'cascade' }))}
+              >
+                <option value="groups">Gruppi a copertura totale (default)</option>
+                <option value="cascade">Cascata dal documento più recente (sperimentale)</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex gap-2" style={{ alignItems: 'center', marginTop: 14 }}>

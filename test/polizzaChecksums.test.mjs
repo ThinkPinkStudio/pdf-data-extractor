@@ -28,6 +28,7 @@ import {
   isRinvioAttivita,
   isCompanyNameAsAgency,
   isInsurerFooterPIva,
+  pickSemanticCandidate,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -269,4 +270,48 @@ test('P.IVA nel footer societario della compagnia: è l\'assicuratore, non il co
   assert.equal(isInsurerFooterPIva(frontespizio, '00151510344'), false)
   // Valore assente nel testo: la guardia non scatta (decide l'evidenza a monte)
   assert.equal(isInsurerFooterPIva(frontespizio, '01333550323'), false)
+})
+
+// ─── Arbitro semantico del merge (agnostico: decide l'affinità descrizione↔contesto) ─
+
+test('arbitro semantico: affinità nettamente diversa vince anche contro la recency', () => {
+  const kind = 'economici'
+  // Incumbente: preventivo dall'appendice (alta affinità col contesto "retribuzioni preventivate")
+  const incumbent = { valore: '1.800.000,00', effDate: '31/12/2018', docType: 'appendice', affinity: 0.62 }
+  // Candidato più RECENTE ma semanticamente lontano (consuntivo della regolazione)
+  const consuntivo = { valore: '1.809.600,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.31 }
+  assert.equal(pickSemanticCandidate(incumbent, consuntivo, kind), incumbent)
+  // Simmetrico: candidato più recente E semanticamente migliore → vince lui
+  const buono = { valore: '1.900.000,00', effDate: '31/12/2024', docType: 'appendice', affinity: 0.75 }
+  assert.equal(pickSemanticCandidate(incumbent, buono, kind), buono)
+})
+
+test('arbitro semantico: affinità comparabili → decide la recency (regola invariata)', () => {
+  const kind = 'economici'
+  const vecchio = { valore: '5.601,25', effDate: '31/12/2023', docType: 'quietanza', affinity: 0.55 }
+  const nuovo = { valore: '6.501,25', effDate: '31/12/2025', docType: 'quietanza', affinity: 0.57 }
+  assert.equal(pickSemanticCandidate(vecchio, nuovo, kind), nuovo)
+})
+
+test('arbitro semantico: collasso numerico >80% passa solo con affinità superiore', () => {
+  const kind = 'strutturali'
+  const massimale = { valore: '4.000.000,00', effDate: null, docType: 'polizza', affinity: 0.6 }
+  // Sub-limite pescato da una clausola, stessa affinità → rifiutato anche se datato
+  const sublimite = { valore: '€. 10.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: 0.58 }
+  assert.equal(pickSemanticCandidate(massimale, sublimite, kind), massimale)
+  // Riduzione genuina con affinità nettamente superiore → passa
+  const ridotto = { valore: '500.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: 0.72 }
+  assert.equal(pickSemanticCandidate(massimale, ridotto, kind), ridotto)
+  // Senza affinità calcolabile il collasso resta prudente: rifiutato
+  const massimaleNoAff = { valore: '4.000.000,00', effDate: null, docType: 'polizza', affinity: null }
+  const senzaAff = { valore: '10.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: null }
+  assert.equal(pickSemanticCandidate(massimaleNoAff, senzaAff, kind), massimaleNoAff)
+})
+
+test('arbitro semantico: senza affinità su entrambi → pura recency; slot vuoto → riempi', () => {
+  const kind = 'anagrafica'
+  const a = { valore: 'EULIP SPA', effDate: null, docType: 'polizza', affinity: null }
+  const b = { valore: 'EULIP SRL', effDate: '31/12/2025', docType: 'quietanza', affinity: null }
+  assert.equal(pickSemanticCandidate(a, b, kind), b)
+  assert.equal(pickSemanticCandidate(null, a, kind), a)
 })
