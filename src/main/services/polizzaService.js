@@ -34,6 +34,7 @@ import {
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
+  hasLabelEvidenceNear,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -2290,8 +2291,10 @@ const STAGED_GROUP_NOTES = {
     'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.\n' +
     'P.IVA/Codice Fiscale: SEMPRE quello del CONTRAENTE/assicurato, MAI quello della compagnia\n' +
     'assicuratrice (la P.IVA nell\'intestazione della compagnia non va usata).\n' +
-    'Agenzia: è quella indicata come "AGENZIA DI …"/"Agenzia" che gestisce la polizza (spesso in\n' +
-    'testa a quietanze/appendici), MAI la sede legale o la direzione della compagnia.',
+    'Agenzia: è quella indicata come "AGENZIA DI …"/"Agenzia" che gestisce la polizza — una\n' +
+    'PIAZZA/località, spesso accanto a "COD. AGENZIA" in testa a quietanze/regolazioni (es.\n' +
+    '"001 00 ACQUI TERME" → "ACQUI TERME"). Se l\'agenzia è cambiata negli anni riporta la più\n' +
+    'RECENTE. MAI il nome della compagnia, la sede legale o la direzione.',
 }
 
 function stagedSystemPrompt(kind) {
@@ -2339,6 +2342,23 @@ const STAGED_RECOVERY_SYSTEM =
   '4. "evidenza" = il frammento ESATTO copiato dagli estratti in cui compare il valore.\n' +
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
+  'Zero testo extra, zero markdown.'
+
+// Stadio B a CASCATA: un documento alla volta, dal più recente al più vecchio,
+// chiedendo SOLO i campi ancora vuoti. Il contratto per-campo con null
+// obbligatorio è lo stesso del recupero (la pigrizia non produce JSON valido).
+const STAGED_CASCADE_SYSTEM =
+  'Sei un estrattore di dati da UN documento assicurativo italiano alla volta.\n' +
+  'REGOLE TASSATIVE:\n' +
+  '1. Rispondi con UNA voce per OGNI campo richiesto: nessun campo può mancare dalla risposta.\n' +
+  '2. Se il valore del campo è presente in QUESTO documento: {"valore":"...", "evidenza":"frammento ESATTO copiato"}.\n' +
+  '3. Se NON è presente in questo documento: {"valore": null} — è un esito NORMALE e frequente\n' +
+  '   (ogni documento contiene solo alcuni dati). Non forzare, non dedurre, NON inventare.\n' +
+  '4. Un numero va assegnato a un campo SOLO se il testo attorno dice che è quel dato:\n' +
+  '   mai "è l\'unico numero della pagina" o "c\'è una parola simile vicino".\n' +
+  '5. "evidenza" = frammento ESATTO copiato dal documento. Se non riesci a citarlo, usa {"valore": null}.\n' +
+  '6. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2391,43 +2411,51 @@ function matchRealDoc(analyzed, docName) {
  * fonde in `best` con la regola "il documento più recente vince".
  * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
-function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters) {
+function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
+  // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
+  // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
+  // scartato e con quale valore.
+  const note = (id, outcome, value) => { if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28) }) }
   let accepted = 0
   for (const [k, e] of Object.entries(parsed || {})) {
     const field = byId[k]
     if (!field) { counters.unknown++; continue }
     const val = (e && typeof e === 'object') ? e.valore : e
-    if (val == null || String(val).trim() === '') { counters.sanitized++; continue }
-    if (isPlaceholderValue(val)) { counters.placeholders++; continue }
+    if (val == null || String(val).trim() === '') { counters.sanitized++; note(k, 'vuoto/null'); continue }
+    if (isPlaceholderValue(val)) { counters.placeholders++; note(k, 'placeholder', val); continue }
     const cleaned = sanitizeFieldValue(field, val)
-    if (cleaned == null || cleaned === '') { counters.sanitized++; continue }
-    if (!passesStagedEvidence(field, cleaned, e, normCtx)) { counters.noEvidence++; continue }
+    if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned); continue }
     const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
-    if (isStructuralField(field) && modelDoc && isPeriodicDocName(modelDoc)) { counters.guardrail++; continue }
+    if (isStructuralField(field) && modelDoc && isPeriodicDocName(modelDoc)) { counters.guardrail++; note(k, 'guardrail:strutturale-da-periodico', cleaned); continue }
 
-    const fieldText = `${field.id || ''} ${field.label || ''}`
+    // Il "concetto" del campo si riconosce da TUTTO il suo testo configurato —
+    // id, etichetta E descrizione: i campi sono dinamici (nomi/UUID arbitrari),
+    // la descrizione è la loro semantica. Se un profilo non ha campi che
+    // matchano un concetto, la relativa guardia è inerte (mai dannosa).
+    const fieldText = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
     // Attività assicurata: un rinvio ("l'attività per la quale è prestata
     // l'assicurazione") non è una descrizione — scartato SEMPRE, anche a campo
     // vuoto (meglio il recupero mirato che una frase fotocopiata).
-    if (/attivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; continue }
+    if (/attivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
     // Agenzia: la denominazione della compagnia (S.p.A./Assicurazioni…) non è
     // un'agenzia — visto sul campo: "Generali Italia S.p.A." al posto di "MILANO 901".
-    if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; continue }
+    if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
 
-    // Decorrenza: è la data CONTRATTUALE — quietanze/regolazioni riportano il
-    // periodo di RATA (visto sul campo: decorrenza=31/12/2024 dalla quietanza
-    // 2025). La scadenza invece DEVE aggiornarsi dai periodici (ultima copertura).
-    if (/decorrenz|\beffetto\b/i.test(fieldText) && srcDoc && isPeriodicDocName(srcDoc.name)) { counters.guardrail++; continue }
+    // Decorrenza: ammessa anche dai documenti periodici — la semantica scelta è
+    // il PERIODO DI COPERTURA CORRENTE (decorrenza rata → scadenza rata), quindi
+    // la quietanza più recente è proprio la fonte giusta. La coerenza della
+    // coppia decorrenza/scadenza è garantita dal check finale (mai inizio ≥ fine).
     // P.IVA/CF: se nel documento sorgente il valore vive SOLO nel footer societario
     // della compagnia (Sede legale/Registro Imprese/IVASS…), è l'identità
     // dell'ASSICURATORE — visto sul campo: 00885351007 da "appendice 9" batteva
     // per recency la P.IVA vera del contraente trovata dal seed sul frontespizio.
-    if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; continue }
+    if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
     // Campi strutturali (e preventivi/parametri) GIÀ valorizzati: il candidato di
     // un documento più recente sostituisce solo se quel documento RIDEFINISCE il
     // campo (etichetta vicino al valore; un massimale non crolla sotto il 20%).
@@ -2437,6 +2465,7 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
         && srcDoc?.text
         && isSuspectStructuralOverride(field, prev.valore, cleaned, srcDoc.text)) {
       counters.guardrail++
+      note(k, 'guardrail:override-sospetto', cleaned)
       continue
     }
     // Campi economico-PERIODICI: vivono in quietanze/regolazioni — un candidato da
@@ -2447,6 +2476,7 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
         && prev && (prev.docType === 'quietanza' || prev.docType === 'regolazione')
         && srcDoc && srcDoc.type !== 'quietanza' && srcDoc.type !== 'regolazione') {
       counters.guardrail++
+      note(k, 'guardrail:periodico-coperto-da-appendice', cleaned)
       continue
     }
     // Importo preventivo/parametro: se nella STESSA risposta il modello propone lo
@@ -2460,7 +2490,7 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
         const v2 = (e2 && typeof e2 === 'object') ? e2.valore : e2
         return v2 != null && normForMatch(String(v2)) === nvDup
       })
-      if (dupOfPremio) { counters.guardrail++; continue }
+      if (dupOfPremio) { counters.guardrail++; note(k, 'guardrail:preventivo=premio', cleaned); continue }
     }
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
@@ -2481,7 +2511,9 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
       file: source?.file || srcDoc?.name || null,
       page: source?.page ?? '',
     }
-    best[k] = pickMoreRecentCandidate(best[k], cand, kindOf[k])
+    const won = pickMoreRecentCandidate(best[k], cand, kindOf[k])
+    note(k, won === cand ? 'ok' : 'ok-ma-perde-recency', cleaned)
+    best[k] = won
     accepted++
   }
   return accepted
@@ -2607,9 +2639,28 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     return bestDate
   }
+  // Data MINIMA della stessa finestra: nella quietanza "SCAD. RATA  RATA SUCC."
+  // le due date sono l'INIZIO e la FINE del periodo di copertura corrente
+  // ("31/12/2024 31/12/2025") → min = decorrenza rata, max = scadenza.
+  const minDateInWindow = (text, labelRe) => {
+    let bestDate = null
+    for (const m of text.matchAll(labelRe)) {
+      for (const dm of m[0].matchAll(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/g)) {
+        const norm = normalizeDateValue(dm[0])
+        if (norm && (dateStrToTs(norm) ?? Infinity) < (dateStrToTs(bestDate) ?? Infinity)) bestDate = norm
+      }
+    }
+    return bestDate
+  }
   for (const d of analyzed) {
     const hits = {
-      decorrenza: maxLabeledDate(d.text, /DECORRENZA\b[^\n]{0,100}/gi),
+      // Decorrenza: etichetta esplicita OPPURE l'inizio del periodo di rata
+      // (min della finestra SCAD. RATA) — sulla quietanza più recente è la
+      // decorrenza del periodo di copertura corrente, coerente con la scadenza.
+      decorrenza: [maxLabeledDate(d.text, /DECORRENZA\b[^\n]{0,100}/gi),
+        minDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi)]
+        .filter(Boolean)
+        .sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
       // Per la scadenza valgono anche l'header abbreviato "SCAD. RATA/RATA SUCC."
       // (valori a riga sotto) e la fine del periodo di rata/regolazione
       scadenza: [maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
@@ -2634,7 +2685,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // Verificato sull'OCR reale (polizza EULIP pag. 3): il modello la saltava e il
   // recupero rispondeva {} — il regex la prende deterministicamente. Vale per
   // polizza E appendici (una ridefinizione in appendice vince per recency).
-  const attField = activeFields.find((f) => /attivit/i.test(`${f.id} ${f.label}`))
+  const attField = activeFields.find((f) => /attivit/i.test(`${f.id} ${f.label} ${f.description || ''}`))
   if (attField) {
     for (const d of analyzed.filter((x) => !isPeriodicDocName(x.name))) {
       const m = d.text.match(/(?:di\s+seguito\s+)?descritt[ao]\s*[:;]\s*\n?\s*([^\n]{15,300})/i)
@@ -2663,6 +2714,190 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // le pagine coi dati (attività a pag. 23, P.IVA contraente a pag. 10). qwen2.5
   // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB.
   const batchCtx = Math.min(modelLimit || 131072, 24576)
+  // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
+  // È il metodo dell'estrazione manuale reale: documenti ordinati dal più
+  // recente al più vecchio, e a ogni documento si chiedono SOLO i campi ancora
+  // vuoti. La recency è garantita PER COSTRUZIONE (il primo che risponde è per
+  // definizione il più recente) — sparisce l'arbitrato di merge tra candidati
+  // sovrapposti — i prompt sono piccoli (solo i buchi + le loro descrizioni), e
+  // appena i campi sono tutti pieni ci si ferma. Le validazioni per-candidato
+  // (evidenza, checksum, placeholder, guardie) restano: impediscono che un
+  // valore-spazzatura di un documento recente occupi lo slot del valore buono
+  // di un documento più vecchio.
+  let consecutiveErrors = 0
+  let abortedByErrors = false
+  let abortError = null
+  let llmFieldsCount = 0 // campi arrivati dalle chiamate LLM (seed esclusi): guida l'abort
+  const counters = { unknown: 0, placeholders: 0, sanitized: 0, noEvidence: 0, guardrail: 0 }
+
+  // STRATEGIA Stadio B: la 'cascata dal più recente' è OPT-IN (proposta in
+  // valutazione con l'utente — settings.polizzaStagedCascade = true per
+  // provarla). Default: GRUPPI a copertura totale, comportamento invariato.
+  const useCascade = settings.polizzaStagedCascade === true
+  let progressTotal = 0
+  let progressDone = 0
+
+  if (useCascade) {
+  const cascadeDocs = [...analyzed].sort(byStagedRecency)
+  // CONTROPROVA e tetto tentativi — le pezze alle debolezze della cascata:
+  // 1. i campi STRUTTURALI riempiti da documenti non-base restano PROVVISORI
+  //    finché non si legge la polizza base (mai saltata): se la polizza dà un
+  //    valore diverso, vince il più recente SOLO se il suo documento ridefinisce
+  //    davvero il campo (etichetta vicino al valore), altrimenti il frontespizio;
+  // 2. un campo che resta null per RECOVERY_MISS_CAP documenti esce dalla
+  //    cascata e passa al recupero semantico (Stadio E) — niente 40 chiamate
+  //    per un campo che non esiste.
+  const RECOVERY_MISS_CAP = 5
+  const missCount = {}
+  const hasPolizzaBase = cascadeDocs.some((d) => d.type === 'polizza')
+  let polizzaVisited = !hasPolizzaBase
+  // Eleggibilità dinamica: i campi strutturali (massimali/franchigie/attività…)
+  // non vengono MAI chiesti a quietanze/regolazioni — non possono contenerli.
+  const missingEligible = (doc) => activeFields.filter((f) => {
+    if (isPeriodicDocName(doc.name) && isStructuralField(f)) return false
+    if (!(f.id in best)) return (missCount[f.id] || 0) < RECOVERY_MISS_CAP
+    // Controprova: sulla polizza base si ri-chiedono gli strutturali provvisori
+    return doc.type === 'polizza' && isStructuralField(f) && best[f.id]?.provisional === true
+  })
+  diag.push(`Stadio B (cascata): ${cascadeDocs.length} documenti dal più recente al più vecchio — a ognuno si chiedono SOLO i campi ancora vuoti; strutturali provvisori fino alla polizza base; max ${RECOVERY_MISS_CAP} tentativi per campo (num_ctx ${batchCtx})`)
+  diag.push(`Cascata — ordine di visita: ${cascadeDocs.slice(0, 8).map((d) => `${d.name}${d.dateStr ? ` (${d.dateStr})` : ''}`).join(' → ')}${cascadeDocs.length > 8 ? ' → …' : ''}`)
+
+  progressTotal = cascadeDocs.length
+  let cascadeCalls = 0
+  for (let di = 0; di < cascadeDocs.length; di++) {
+    if (abortedByErrors) break
+    const doc = cascadeDocs[di]
+    progressDone++
+    onProgress?.({ batch: progressDone, batchTotal: progressTotal })
+
+    // Tutti i campi valorizzati? Ci si ferma SOLO dopo aver letto la polizza
+    // base (controprova dei provvisori): i documenti più vecchi non-base si
+    // saltano, la polizza no.
+    const allFilled = activeFields.every((f) => f.id in best)
+    if (allFilled && polizzaVisited) {
+      diag.push(`Cascata: tutti i ${activeFields.length} campi valorizzati — ${cascadeDocs.length - di} documenti più vecchi saltati (${cascadeCalls} chiamate totali)`)
+      break
+    }
+    if (allFilled && !polizzaVisited && doc.type !== 'polizza') continue // dritti alla polizza base
+    const missingHere = missingEligible(doc)
+    if (!missingHere.length) { if (doc.type === 'polizza') polizzaVisited = true; continue }
+
+    const fieldLines = missingHere
+      .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+      .join('\n')
+    const docHeader = `DOCUMENTO ANALIZZATO: "${doc.name}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
+    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
+    // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
+    const reserve = estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + buildPrompt('').length) + 3000 + 512
+    const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
+    // COPERTURA TOTALE del documento: se non entra in una chiamata si spezza —
+    // il budget decide in quanti pezzi, MAI cosa resta fuori.
+    const docBatches = buildGroupBatches([doc], budgetChars)
+
+    for (let bi = 0; bi < docBatches.length; bi++) {
+      if (abortedByErrors) break
+      const { text: ctx, usedNames } = docBatches[bi]
+      const label = `Cascata ${di + 1}/${cascadeDocs.length} "${doc.name}"${docBatches.length > 1 ? ` parte ${bi + 1}/${docBatches.length}` : ''}`
+      cascadeCalls++
+      let parsed = null
+      let usedCtx = ctx
+      try {
+        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag })
+        try {
+          parsed = parseJsonResponse(raw)
+        } catch {
+          // Retry SIGNIFICATIVO: a temperatura 0 rimandare lo stesso prompt produce
+          // la stessa risposta — si riduce il contesto e si alza num_predict.
+          diag.push(`${label}: risposta non parsabile, retry con contesto ridotto…`)
+          const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
+          usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
+          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          parsed = parseJsonResponse(raw2)
+        }
+        consecutiveErrors = 0
+      } catch (err) {
+        consecutiveErrors++
+        diag.push(`${label} FALLITO (si prosegue): ${err.message}`)
+        if (err.isLlmConnectionError || consecutiveErrors >= 3) {
+          abortedByErrors = true
+          abortError = err
+          diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(best).length} campi raccolti finora.`)
+        }
+        continue
+      }
+
+      const before = { ...counters }
+      const report = []
+      if (doc.type === 'polizza') {
+        // CONTROPROVA sulla polizza base: i campi strutturali PROVVISORI (riempiti
+        // da documenti non-base) si assorbono in un best separato e si arbitrano:
+        // il valore più recente resta SOLO se il suo documento ridefinisce davvero
+        // il campo (etichetta vicino al valore), altrimenti vince il frontespizio.
+        const provIds = new Set(missingHere.filter((f) => best[f.id]?.provisional === true).map((f) => f.id))
+        const parsedMain = {}, parsedProv = {}
+        for (const [k2, v2] of Object.entries(parsed || {})) (provIds.has(k2) ? parsedProv : parsedMain)[k2] = v2
+        llmFieldsCount += absorbStagedEntries(parsedMain, missingHere.filter((f) => !provIds.has(f.id)), best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
+        if (provIds.size) {
+          const pBest = {}
+          absorbStagedEntries(parsedProv, missingHere.filter((f) => provIds.has(f.id)), pBest, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
+          for (const [k2, pv] of Object.entries(pBest)) {
+            const cur = best[k2]
+            if (!cur) { best[k2] = pv; continue }
+            if (normForMatch(String(cur.valore)) === normForMatch(String(pv.valore))) {
+              delete cur.provisional
+              diag.push(`  Controprova "${k2}": confermato dalla polizza base ✓`)
+              continue
+            }
+            const holder = analyzed.find((d2) => d2.pos === cur.docPos)
+            const redefined = holder?.text ? hasLabelEvidenceNear(holder.text, cur.valore, fieldsById[k2]) : false
+            if (redefined) {
+              delete cur.provisional
+              diag.push(`  Controprova "${k2}": polizza dice "${String(pv.valore).slice(0, 24)}" ma "${holder?.name || '?'}" RIDEFINISCE il campo → resta "${String(cur.valore).slice(0, 24)}"`)
+            } else {
+              diag.push(`  Controprova "${k2}": "${String(cur.valore).slice(0, 24)}" (da "${holder?.name || '?'}") non ridefinito lì → vince la polizza base: "${String(pv.valore).slice(0, 24)}"`)
+              best[k2] = pv
+            }
+          }
+        }
+      } else {
+        llmFieldsCount += absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report)
+      }
+      const filled = report.filter((r) => r.outcome === 'ok').length
+      diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
+        `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
+        `${counters.noEvidence - before.noEvidence} senza evidenza` +
+        `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
+      // Esito PER CAMPO: senza questo dettaglio ogni run era un indovinare su
+      // CHI fosse stato scartato e con quale valore.
+      const reported = report.filter((r) => r.outcome !== 'vuoto/null')
+      if (reported.length) {
+        diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+      }
+    }
+
+    // Dopo il documento: tentativi a vuoto (per il tetto), marcatura dei
+    // provvisori, e registrazione della polizza base visitata.
+    for (const f of missingHere) {
+      if (!(f.id in best)) {
+        missCount[f.id] = (missCount[f.id] || 0) + 1
+        if (missCount[f.id] === RECOVERY_MISS_CAP) diag.push(`Cascata: "${f.id}" null per ${RECOVERY_MISS_CAP} documenti → passa al recupero semantico`)
+      }
+    }
+    if (doc.type === 'polizza') {
+      polizzaVisited = true
+    } else {
+      for (const f of missingHere) {
+        const b2 = best[f.id]
+        if (b2 && isStructuralField(f) && b2.provisional !== false) b2.provisional = true
+      }
+    }
+  }
+  // Flag interni: mai in uscita (i provvisori non confermati restano validi —
+  // la polizza base semplicemente non li smentiva o non è stata raggiunta).
+  for (const k of Object.keys(best)) delete best[k].provisional
+  } else {
+  // ── Stadio B a GRUPPI, copertura totale (percorso DEFAULT) ─────────────────
   const groupPlans = []
   for (const kind of ['strutturali', 'economici', 'anagrafica']) {
     const groupFields = partition[kind]
@@ -2673,15 +2908,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     groupPlans.push({ kind, groupFields, groupDocs })
   }
-  // COPERTURA TOTALE: per ogni gruppo si preparano TUTTI i batch necessari a far
-  // leggere al modello OGNI pagina di OGNI documento pertinente. Il budget decide
-  // solo in quanti pezzi si spezza il lavoro — MAI cosa resta fuori.
-  let consecutiveErrors = 0
-  let abortedByErrors = false
-  let abortError = null
-  let llmFieldsCount = 0 // campi arrivati dai GRUPPI LLM (seed esclusi): guida l'abort
-  const counters = { unknown: 0, placeholders: 0, sanitized: 0, noEvidence: 0, guardrail: 0 }
-
   for (const plan of groupPlans) {
     const { kind, groupFields, groupDocs } = plan
     plan.fieldLines = groupFields
@@ -2689,17 +2915,29 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .join('\n')
     plan.system = stagedSystemPrompt(kind)
     plan.buildPrompt = (text) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${plan.fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
-    // Rapporto CONSERVATIVO 2.0 char/token: l'OCR italiano denso di numeri e
-    // simboli tokenizza peggio di 2.5 — un budget ottimista fa troncare il
+    // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
+    // ECONOMICI: batch FOCALIZZATO sul periodo corrente in testa — solo la
+    // quietanza e la regolazione più recenti. Davanti a 6 documenti insieme il
+    // modello confondeva i valori (premio dell'Appendice 12 al posto della
+    // quietanza 2025): un contesto piccolo con SOLO i documenti giusti è più
+    // accurato, e i suoi candidati (periodici recenti) sono protetti dal merge.
+    if (kind === 'economici') {
+      const newestQ = groupDocs.find((d) => d.type === 'quietanza')
+      const newestR = groupDocs.find((d) => d.type === 'regolazione')
+      const focusDocs = [newestR, newestQ].filter(Boolean)
+      if (focusDocs.length) {
+        const focus = buildGroupBatches(focusDocs, budgetChars)
+        if (focus.length) plan.batches = [...focus, ...plan.batches]
+      }
+    }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
-    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (copertura totale, num_ctx ${batchCtx})`)
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${kind === 'economici' ? 'primo focalizzato sul periodo corrente, poi ' : ''}copertura totale, num_ctx ${batchCtx})`)
   }
-  let progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
-  let progressDone = 0
+  progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
 
   for (const plan of groupPlans) {
     if (abortedByErrors) break
@@ -2721,9 +2959,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           parsed = parseJsonResponse(raw)
         } catch {
           // Retry SIGNIFICATIVO: a temperatura 0 rimandare lo stesso prompt produce
-          // la stessa risposta. Si riduce il contesto (~70%, tagliato a confine di
-          // blocco) e si alza num_predict: prompt diverso → output diverso, e una
-          // risposta JSON troncata dal tetto di generazione ha spazio per chiudersi.
+          // la stessa risposta — si riduce il contesto e si alza num_predict.
           diag.push(`Gruppo "${kind}" batch ${bi + 1}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
@@ -2744,13 +2980,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
-      llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
+      const report = []
+      llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
         `${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
         `${counters.sanitized - before.sanitized} sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza` +
         `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
+      // Esito PER CAMPO: senza questo dettaglio ogni run era un indovinare su
+      // CHI fosse stato scartato e con quale valore.
+      if (report.length) {
+        diag.push(`  ↳ ${report.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+      }
     }
+  }
   }
 
   // Abort con ZERO contributo LLM: i soli seed regex non sono un'estrazione — il
@@ -2769,15 +3012,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const rawCap = parseInt(settings.polizzaStagedRecoveryMax, 10)
     const maxCalls = Number.isFinite(rawCap) ? Math.max(0, Math.min(24, rawCap)) : 12
     if (missing.length && maxCalls > 0) {
-      // Micro-batch ≤3 campi, raggruppati per genere (stesso pool di documenti)
+      // Una chiamata per campo, raggruppate per genere (stesso pool di documenti)
       const byKind = { strutturali: [], economici: [], anagrafica: [] }
       for (const f of missing) byKind[kindOf[f.id] || 'anagrafica'].push(f)
       const perKind = []
       for (const [kind, list] of Object.entries(byKind)) {
         const allowedDocs = selectGroupDocs(kind, analyzed)
         if (!allowedDocs.length) continue // genere senza documenti eleggibili: non estraibile
-        const chunks = []
-        for (let i = 0; i < list.length; i += 3) chunks.push({ kind, fields: list.slice(i, i + 3), allowedDocs })
+        // UN campo per chiamata: il recupero è guidato dalla DESCRIZIONE del campo
+        // — è lei la query semantica che ranka le pagine ed è lei l'istruzione al
+        // modello. A gruppi di 3 il ranking era un compromesso tra descrizioni
+        // diverse e l'attenzione del modello si divideva: la descrizione deve
+        // bastare da sola, per QUALUNQUE tipologia, senza pattern per-layout.
+        const chunks = list.map((f) => ({ kind, fields: [f], allowedDocs }))
         if (chunks.length) perKind.push(chunks)
       }
       // Interlacciamento ROUND-ROBIN tra i generi: con un cap basso e molti campi
@@ -2901,12 +3148,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         const fieldLines = b.fields
           .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
           .join('\n')
-        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
+        // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
+        // una chiamata di estrazione a tutti gli effetti (prima le saltava).
+        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
-          absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters)
+          const recReport = []
+          absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport)
+          if (recReport.length) {
+            diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+          }
           const gained = b.fields.filter((f) => !beforeIds.has(f.id) && (f.id in best))
           recovered += gained.length
           if (!gained.length) {
@@ -2931,6 +3184,30 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         `recuperati ${recovered}, ancora vuoti ${stillMissing} — restano vuoti (meglio vuoto che sbagliato)`)
     } else if (!missing.length) {
       diag.push('Stadio E: nessun campo mancante, recupero non necessario.')
+    }
+  }
+
+  // ── Coerenza decorrenza/scadenza ──────────────────────────────────────────
+  // La coppia deve descrivere lo stesso periodo di copertura: un inizio uguale o
+  // successivo alla fine è impossibile (visto sul campo: decorrenza 31/12/2011
+  // con scadenza 31/12/2025 — vinceva un seed vecchio). Se la decorrenza è più
+  // vecchia della scadenza di oltre ~13 mesi su una polizza con documenti
+  // periodici ANNUALI, non è la decorrenza del periodo corrente: meglio vuota.
+  {
+    const decField = activeFields.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(`${f.id} ${f.label} ${f.description || ''}`))
+    const scaField = activeFields.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(`${f.id} ${f.label} ${f.description || ''}`))
+    const decTs = decField && best[decField.id] ? dateStrToTs(normalizeDateValue(best[decField.id].valore)) : null
+    const scaTs = scaField && best[scaField.id] ? dateStrToTs(normalizeDateValue(best[scaField.id].valore)) : null
+    if (decTs != null && scaTs != null) {
+      const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
+      const hasAnnualPeriodics = analyzed.some((d) => isPeriodicDocName(d.name))
+      if (decTs >= scaTs) {
+        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} ≥ scadenza ${best[scaField.id].valore} → decorrenza svuotata (impossibile)`)
+        delete best[decField.id]
+      } else if (hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
+        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} incoerente con scadenza ${best[scaField.id].valore} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
+        delete best[decField.id]
+      }
     }
   }
 
