@@ -597,8 +597,17 @@ async function callAnthropic(settings, systemPrompt, userPrompt) {
 
 async function callOllama(settings, systemPrompt, userPrompt) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
-  // Usiamo /api/chat (non /api/generate) + format:"json" che forza JSON
-  // a livello grammaticale — il modello non può rispondere con testo libero
+  // num_ctx dimensionato sul prompt e LIMITATO per hardware consumer (8GB VRAM):
+  // un tetto fisso di 65536 token significa una KV-cache che su un modello 7-8B
+  // non entra in 8GB → Ollama scarica i layer su CPU (10+ minuti) oppure va in
+  // OOM; se poi riduce num_ctx sotto la lunghezza del prompt, TRONCA in silenzio
+  // e il modello risponde spazzatura senza errori. Quindi: stimiamo i token del
+  // prompt, lasciamo margine per la risposta, e limitiamo a 16K (sicuro su 8GB).
+  // Sovrascrivibile con settings.ollamaNumCtx per chi ha più VRAM.
+  const NUM_PREDICT = 2048
+  const promptTokens = estimateOllamaTokens((systemPrompt?.length || 0) + (userPrompt?.length || 0))
+  const capCtx = Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384)
+  const numCtx = Math.min(capCtx, Math.max(8192, Math.ceil((promptTokens + NUM_PREDICT + 512) / 1024) * 1024))
   const res = await resilientFetch(`${url}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -611,9 +620,9 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       stream: false,
       format: 'json',          // ← grammar-constrained JSON output
       options: {
-        num_ctx:     65536,    // 64K token context → gestisce ~60K chars di testo polizza
+        num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
         temperature: 0,        // output deterministico
-        num_predict: 2048      // max token risposta
+        num_predict: NUM_PREDICT // max token risposta
       }
     }),
     signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
