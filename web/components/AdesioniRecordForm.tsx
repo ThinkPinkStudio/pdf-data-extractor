@@ -1,6 +1,7 @@
 'use client'
 
 import type { AdesioniConfig, AdesioniField } from '@/lib/adesioni/config'
+import { firstOfMonthIT } from '@/lib/adesioni/coverageDates.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 export type AdesioniRecord = Record<string, unknown> & { idd?: Record<string, string> }
@@ -26,7 +27,12 @@ export default function AdesioniRecordForm({
   onChange: (r: AdesioniRecord) => void
 }) {
   const t = useT()
-  const set = (id: string, value: unknown) => onChange({ ...record, [id]: value })
+  const set = (id: string, value: unknown) => {
+    const next: AdesioniRecord = { ...record, [id]: value }
+    // La data di rendicontazione è sempre il primo giorno del mese della data effetto.
+    if (id === 'data_inizio') next.data_rendicontazione = firstOfMonthIT(String(value ?? ''))
+    onChange(next)
+  }
   const setIdd = (domanda: string, value: string) => onChange({ ...record, idd: { ...(record.idd || {}), [domanda]: value } })
 
   const isA = String(record.tipo_movimento || '').toUpperCase() === 'A'

@@ -61,6 +61,13 @@ export function toModuloDate(value, offsetDays = 0) {
   return formatDateIT(addDays(d, offsetDays))
 }
 
+/** Primo giorno del mese di una data GG/MM/AAAA (per la data di rendicontazione). */
+export function firstOfMonthIT(value) {
+  const d = toDate(value)
+  if (!d) return ''
+  return formatDateIT(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)))
+}
+
 /**
  * Sposta una data GG/MM/AAAA di N anni (rinnovo). Il 29/02 su anno non
  * bisestile diventa 28/02. Valori non riconosciuti restano invariati.

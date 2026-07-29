@@ -5,7 +5,7 @@ import AdesioniRecordForm, { type AdesioniRecord } from '@/components/AdesioniRe
 import { defaultAdesioniConfig, type AdesioniConfig } from '@/lib/adesioni/config'
 // Moduli puri (browser-safe): validazione, numerazione progressiva, premio.
 import { validateRecord } from '@/lib/adesioni/recordMapper.js'
-import { premioFor } from '@/lib/adesioni/premioService.js'
+import { premioFor, opzioneLabelFor } from '@/lib/adesioni/premioService.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 type Mode = 'manual' | 'flusso'
@@ -43,6 +43,7 @@ export default function AdesioniPage() {
 
   // Premio calcolato dal codice configurazione (mostrato in tempo reale).
   const premio = premioFor(String(record.codice_configurazione ?? ''), config.prezzi, record) as { pacchetto: string; premio: string }
+  const opzioneLabel = opzioneLabelFor(String(record.codice_configurazione ?? ''))
 
   function validateNow(r: AdesioniRecord): boolean {
     const { errors: errs, valid } = validateRecord(r, config.fields) as { errors: Record<string, string>; valid: boolean }
@@ -216,6 +217,7 @@ export default function AdesioniPage() {
         <div className="card" style={{ marginTop: 16, display: 'flex', gap: 24, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>{t('ad.adesioni.pacchetto')}: <strong style={{ color: 'var(--c-text-primary)' }}>{premio.pacchetto || '—'}</strong></span>
           <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>{t('ad.adesioni.premio')}: <strong style={{ color: 'var(--c-accent)' }}>€ {premio.premio || '—'}</strong></span>
+          {opzioneLabel && <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>{opzioneLabel}</span>}
         </div>
       )}
 

@@ -8,7 +8,7 @@ import { buildDocxData } from './recordMapper.js'
 import { adesioniAssetPath } from './serverConfig'
 import type { AdesioniConfig } from './config'
 
-const PLACEHOLDERS = ['cognome_nome', 'targa', 'residenza', 'citta', 'cap', 'provincia', 'codice_fiscale', 'email', 'tel', 'data_inizio', 'data_fine', 'premio', 'pacchetto']
+const PLACEHOLDERS = ['cognome_nome', 'targa', 'residenza', 'citta', 'cap', 'provincia', 'codice_fiscale', 'email', 'tel', 'data_inizio', 'data_fine', 'premio', 'pacchetto', 'opzione']
 
 export function fillModuloBuffer(record: Record<string, unknown>, config: AdesioniConfig): Buffer {
   const data = buildDocxData(record, config.fields, config.prezzi, config.dateOffsetDays) as unknown as Record<string, string>

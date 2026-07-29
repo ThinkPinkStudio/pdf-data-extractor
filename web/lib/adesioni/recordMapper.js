@@ -5,7 +5,7 @@
  */
 import { TRACCIATO_HEADERS, normHeader } from './tracciato.js'
 import { toTrackDate, toModuloDate } from './coverageDates.js'
-import { premioFor } from './premioService.js'
+import { premioFor, opzioneLabelFor } from './premioService.js'
 
 /** Costruisce la riga del tracciato (array di 34 valori nell'ordine delle intestazioni). */
 export function buildTrackRow(record, fields, idd, headers = TRACCIATO_HEADERS) {
@@ -42,6 +42,7 @@ export function buildDocxData(record, fields, prezzi, offsetDays = 0) {
   const pr = premioFor(record.codice_configurazione, prezzi, record)
   data.premio = pr.premio || ''
   data.pacchetto = pr.pacchetto || ''
+  data.opzione = opzioneLabelFor(record.codice_configurazione)
   return data
 }
 

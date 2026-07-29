@@ -71,14 +71,6 @@ export default function AdesioniRecordsPage() {
       if (res.ok) { download(await res.blob(), 'tracciato_aggiornato.xlsx'); setMsg({ ok: true, text: t('ad.records.appendDone') }); setSel(new Set()); load(q, statusFilter) }
     } finally { setBusy(false) }
   }
-  async function renew() {
-    if (!sel.size) return
-    setBusy(true)
-    const res = await fetch('/api/adesioni/records/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids(), years: 1 }) })
-    const d = await res.json(); setBusy(false)
-    if (res.ok) { setMsg({ ok: true, text: t('ad.msg.renewed', { n: d.records.length }) }); setSel(new Set()); load(q, statusFilter) }
-    else setMsg({ ok: false, text: d.error })
-  }
   async function ftp(target: 'staging' | 'prod') {
     if (!sel.size) return
     setBusy(true); setMsg(null)
@@ -126,7 +118,6 @@ export default function AdesioniRecordsPage() {
         <button className="btn btn-secondary" onClick={() => doExport(true)} disabled={busy}>{t('ad.records.reexport')}</button>
         <button className="btn btn-secondary" onClick={() => appendRef.current?.click()} disabled={busy}>{t('ad.records.appendFile')}</button>
         <input ref={appendRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => exportAppend(e.target.files?.[0])} />
-        <button className="btn btn-secondary" onClick={renew} disabled={!sel.size || busy}>{t('ad.records.renew')}</button>
         <button className="btn btn-secondary" onClick={() => ftp('staging')} disabled={busy || !sel.size} title={!sel.size ? t('ad.records.selectAtLeastOne') : ''}>{t('ad.records.ftpStaging')}{sel.size ? ` (${sel.size})` : ''}</button>
         <button className="btn btn-secondary" onClick={() => ftp('prod')} disabled={busy || !sel.size} title={!sel.size ? t('ad.records.selectAtLeastOne') : ''}>{t('ad.records.ftpProd')}{sel.size ? ` (${sel.size})` : ''}</button>
         <button className="btn btn-secondary" onClick={del} disabled={!sel.size}>{t('ad.btn.delete')}</button>

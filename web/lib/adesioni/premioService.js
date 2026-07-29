@@ -41,3 +41,18 @@ export function premioFor(codiceConfig, prezzi = DEFAULT_PREZZI, record = {}) {
   }
   return { pacchetto: row.pacchetto || '', premio }
 }
+
+const OPZIONE_LABELS = {
+  '00001': "Hai selezionato l'opzione: solo assistenza",
+  '00002': "Hai selezionato l'opzione: solo tutela legale",
+  '00003': "Hai selezionato l'opzione: assistenza e tutela legale (entrambe)",
+}
+
+/**
+ * @param {string} codiceConfig  es. '00001' | '00002' | '00003'
+ * @returns {string} descrizione dell'opzione scelta, o '' se non riconosciuta
+ */
+export function opzioneLabelFor(codiceConfig) {
+  const key = String(codiceConfig == null ? '' : codiceConfig).trim()
+  return OPZIONE_LABELS[key] || ''
+}
