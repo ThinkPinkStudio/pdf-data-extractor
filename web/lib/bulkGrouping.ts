@@ -3,12 +3,13 @@
 // chunk (un dossier = una richiesta) — nessuna dipendenza da Node/DB, importabile
 // anche lato server se in futuro servisse rivalidare.
 
-import { isExcludedPath } from './bulkExclusions'
+import { evaluatePath, NO_FILTERS, type PathFilters, type SkipReason } from './bulkExclusions'
 
 export type GroupingMode = 'leaf' | 'firstLevel'
 
 export interface GroupedDossier { dossierName: string; fileIndexes: number[] }
-export interface GroupResult { root: string; dossiers: GroupedDossier[] }
+export interface SkippedPath { index: number; relPath: string; reason: SkipReason; matched?: string }
+export interface GroupResult { root: string; dossiers: GroupedDossier[]; skipped: SkippedPath[] }
 
 // mode 'leaf' (default, consigliata quando la profondità delle cartelle non è nota):
 // la cartella immediata che contiene il PDF è la chiave del dossier, qualunque sia la
@@ -22,15 +23,23 @@ export interface GroupResult { root: string; dossiers: GroupedDossier[] }
 // quando la struttura Cliente/Polizza è nota e uniforme.
 // I PDF caricati sciolti direttamente nella radice (nessuna sottocartella) diventano
 // ciascuno il proprio dossier, in entrambe le modalità.
-export function groupPathsByDossier(relPaths: string[], mode: GroupingMode, extraExclusions: Set<string>): GroupResult {
+export function groupPathsByDossier(relPaths: string[], mode: GroupingMode, filters: PathFilters = NO_FILTERS): GroupResult {
   let root = ''
   const order: string[] = []
   const indexByDossier = new Map<string, number[]>()
+  const skipped: SkippedPath[] = []
   let looseCounter = 0
 
   relPaths.forEach((relPath, i) => {
-    if (!relPath.toLowerCase().endsWith('.pdf')) return
-    if (isExcludedPath(relPath, extraExclusions)) return
+    const verdict = evaluatePath(relPath, filters)
+    if (!verdict.kept) {
+      // La radice va comunque ricavata anche se il primo file è scartato,
+      // altrimenti l'etichetta della cartella resterebbe vuota.
+      const first = relPath.split('/').filter(Boolean)[0]
+      if (!root && first) root = first
+      skipped.push({ index: i, relPath, reason: verdict.reason!, matched: verdict.matched })
+      return
+    }
     const segments = relPath.split('/').filter(Boolean)
     if (!root && segments.length) root = segments[0]
     const middle = segments.slice(1, -1) // cartelle tra radice e file; vuoto = file sciolto in radice
@@ -49,7 +58,7 @@ export function groupPathsByDossier(relPaths: string[], mode: GroupingMode, extr
     indexByDossier.get(dossierName)!.push(i)
   })
 
-  return { root, dossiers: order.map((name) => ({ dossierName: name, fileIndexes: indexByDossier.get(name) || [] })) }
+  return { root, dossiers: order.map((name) => ({ dossierName: name, fileIndexes: indexByDossier.get(name) || [] })), skipped }
 }
 
 // Nome leggibile per l'interfaccia: per i file sciolti mostra solo il nome del file,

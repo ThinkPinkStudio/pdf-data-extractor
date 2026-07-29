@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     'polizzaOcrEnabled', 'polizzaWholeDossier',
     'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
-    'extractions', 'profiles', 'bulkExcludedFolderNames',
+    'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyMinOverlap', 'compareFuzzyBroadEnabled',
     'compareFuzzyMinOverlapBroad', 'compareSearchConditions', 'compareBothMatchConditions',

@@ -16,6 +16,8 @@ interface Settings {
   polizzaPerField?: boolean
   polizzaPromptExtra?: string
   bulkExcludedFolderNames?: string
+  bulkIncludeKeywords?: string
+  bulkExcludeKeywords?: string
   qdrantUrl?: string
   qdrantCollection?: string
   embeddingModel?: string
@@ -150,7 +152,7 @@ export default function SettingsPage() {
         {/* Bulk (cartella intera di polizze) */}
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{t('set.bulkSection')}</h2>
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group">
             <label className="label">{t('set.bulkExcluded')}</label>
             <input
               value={s.bulkExcludedFolderNames || ''}
@@ -158,6 +160,24 @@ export default function SettingsPage() {
               placeholder={t('set.bulkExcludedPlaceholder')}
             />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkExcludedHelp')}</p>
+          </div>
+          <div className="form-group">
+            <label className="label">{t('set.bulkInclude')}</label>
+            <input
+              value={s.bulkIncludeKeywords || ''}
+              onChange={(e) => up('bulkIncludeKeywords', e.target.value)}
+              placeholder={t('set.bulkIncludePlaceholder')}
+            />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkIncludeHelp')}</p>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="label">{t('set.bulkExcludeWords')}</label>
+            <input
+              value={s.bulkExcludeKeywords || ''}
+              onChange={(e) => up('bulkExcludeKeywords', e.target.value)}
+              placeholder={t('set.bulkExcludeWordsPlaceholder')}
+            />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.bulkExcludeWordsHelp')}</p>
           </div>
         </div>
 

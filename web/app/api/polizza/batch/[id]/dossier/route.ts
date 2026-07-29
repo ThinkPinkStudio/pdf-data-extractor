@@ -4,7 +4,7 @@ import { logAction } from '@/lib/logger'
 import { getFieldsAndMapping } from '@/lib/polizzaService'
 import { getBatchRow, addDossierToBatch, type JobInputFile } from '@/lib/polizzaJobStore'
 import { startBatch } from '@/lib/polizzaBatchWorker'
-import { isExcludedPath } from '@/lib/bulkExclusions'
+import { evaluatePath, makeFilters, parseExclusionList, parseKeywords } from '@/lib/bulkExclusions'
 import { getSettings } from '@/lib/settingsStore'
 
 export const runtime = 'nodejs'
@@ -34,10 +34,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const settings = await getSettings()
-  const extra = new Set((settings.bulkExcludedFolderNames || '').split(',').map((s) => s.trim()).filter(Boolean))
+  // Parole di questa esecuzione se il client le manda (la pagina bulk permette di
+  // ritoccarle per la singola cartella), altrimenti quelle salvate in Impostazioni.
+  const rawInclude = formData.get('includeWords')
+  const rawExclude = formData.get('excludeWords')
+  const filters = makeFilters({
+    excludedNames: parseExclusionList(settings.bulkExcludedFolderNames),
+    includeWords: parseKeywords(rawInclude === null ? settings.bulkIncludeKeywords : String(rawInclude)),
+    excludeWords: parseKeywords(rawExclude === null ? settings.bulkExcludeKeywords : String(rawExclude)),
+  })
   const kept: { file: File; relPath: string }[] = []
   for (let i = 0; i < pdfFiles.length; i++) {
-    if (!isExcludedPath(relPaths[i], extra)) kept.push({ file: pdfFiles[i], relPath: relPaths[i] })
+    if (evaluatePath(relPaths[i], filters).kept) kept.push({ file: pdfFiles[i], relPath: relPaths[i] })
   }
   if (kept.length === 0) return NextResponse.json({ error: 'Nessun file valido dopo il filtro esclusioni' }, { status: 400 })
 

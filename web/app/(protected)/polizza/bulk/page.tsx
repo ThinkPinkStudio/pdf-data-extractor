@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
-import { groupPathsByDossier, displayDossierName, type GroupingMode, type GroupedDossier } from '@/lib/bulkGrouping'
-import { parseExclusionList } from '@/lib/bulkExclusions'
+import { groupPathsByDossier, displayDossierName, type GroupingMode, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
+import { parseExclusionList, parseKeywords, makeFilters, type SkipReason } from '@/lib/bulkExclusions'
 
 const ERROR_BOX_STYLE: CSSProperties = {
   marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,.08)',
@@ -23,10 +23,14 @@ export default function PolizzaBulkPage() {
   const supported = typeof window !== 'undefined' && 'webkitdirectory' in document.createElement('input')
 
   const [extraExclusions, setExtraExclusions] = useState<Set<string>>(new Set())
+  const [includeText, setIncludeText] = useState('')
+  const [excludeText, setExcludeText] = useState('')
   const [files, setFiles] = useState<File[]>([]) // flat, indice allineato ai path
   const [root, setRoot] = useState('')
   const [mode, setMode] = useState<GroupingMode>('leaf')
   const [dossiers, setDossiers] = useState<GroupedDossier[]>([])
+  const [skipped, setSkipped] = useState<SkippedPath[]>([])
+  const [showSkipped, setShowSkipped] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
 
@@ -36,21 +40,32 @@ export default function PolizzaBulkPage() {
   const [dossierError, setDossierError] = useState<Record<string, string>>({})
   const [finishing, setFinishing] = useState(false)
 
+  // I valori salvati nelle Impostazioni sono il punto di partenza: qui si possono
+  // ritoccare per la singola cartella senza tornare in Impostazioni.
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then((s) => {
       setExtraExclusions(parseExclusionList(s.bulkExcludedFolderNames))
+      setIncludeText(s.bulkIncludeKeywords || '')
+      setExcludeText(s.bulkExcludeKeywords || '')
     }).catch(() => {})
   }, [])
 
+  const filters = useMemo(() => makeFilters({
+    excludedNames: extraExclusions,
+    includeWords: parseKeywords(includeText),
+    excludeWords: parseKeywords(excludeText),
+  }), [extraExclusions, includeText, excludeText])
+
   // Ricalcola il raggruppamento (client-side, gratuito) quando cambiano i file
-  // selezionati o la modalità — senza dover riselezionare la cartella.
+  // selezionati, la modalità o i filtri — senza dover riselezionare la cartella.
   useEffect(() => {
-    if (!files.length) { setDossiers([]); return }
+    if (!files.length) { setDossiers([]); setSkipped([]); return }
     const relPaths = files.map(fileRelPath)
-    const result = groupPathsByDossier(relPaths, mode, extraExclusions)
+    const result = groupPathsByDossier(relPaths, mode, filters)
     setRoot((prev) => result.root || prev)
     setDossiers(result.dossiers)
-  }, [files, mode, extraExclusions])
+    setSkipped(result.skipped)
+  }, [files, mode, filters])
 
   function handlePick(fileList: FileList | null) {
     if (!fileList || !fileList.length) return
@@ -60,8 +75,19 @@ export default function PolizzaBulkPage() {
     setFiles(all)
     setScanning(false)
     const relPaths = all.map(fileRelPath)
-    const result = groupPathsByDossier(relPaths, mode, extraExclusions)
+    const result = groupPathsByDossier(relPaths, mode, filters)
     if (result.dossiers.length === 0) setPickError(t('bulk.noPdfFound'))
+  }
+
+  // I file non-PDF di una cartella mista sono rumore (immagini, Word, …): si contano
+  // e basta, mentre i PDF davvero scartati dai filtri vanno mostrati uno per uno.
+  const filteredOut = useMemo(() => skipped.filter((s) => s.reason !== 'notPdf'), [skipped])
+  const nonPdfCount = skipped.length - filteredOut.length
+  const skipLabel: Record<SkipReason, string> = {
+    notPdf: t('bulk.skipNotPdf'),
+    excludedName: t('bulk.skipExcludedName'),
+    excludeWord: t('bulk.skipExcludeWord'),
+    includeWord: t('bulk.skipIncludeWord'),
   }
 
   const totalFiles = dossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
@@ -74,6 +100,10 @@ export default function PolizzaBulkPage() {
     try {
       const form = new FormData()
       form.append('dossierName', displayDossierName(d.dossierName, root))
+      // Il server riapplica gli stessi filtri (difesa in profondità): gli si passano
+      // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
+      form.append('includeWords', includeText)
+      form.append('excludeWords', excludeText)
       for (const idx of d.fileIndexes) {
         form.append('pdf', files[idx])
         form.append('path', fileRelPath(files[idx]))
@@ -146,7 +176,53 @@ export default function PolizzaBulkPage() {
             {scanning && <p style={{ fontSize: 12, marginTop: 10 }}><span className="spinner" /> {t('bulk.scanning')}</p>}
           </div>
 
+          <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{t('bulk.filtersTitle')}</p>
+            <div className="form-group">
+              <label className="label" htmlFor="bulk-include">{t('bulk.includeLabel')}</label>
+              <input id="bulk-include" value={includeText} onChange={(e) => setIncludeText(e.target.value)} placeholder={t('bulk.includePlaceholder')} />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('bulk.includeHelp')}</p>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="label" htmlFor="bulk-exclude">{t('bulk.excludeLabel')}</label>
+              <input id="bulk-exclude" value={excludeText} onChange={(e) => setExcludeText(e.target.value)} placeholder={t('bulk.excludePlaceholder')} />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('bulk.excludeHelp')}</p>
+            </div>
+          </div>
+
           {pickError && <div style={ERROR_BOX_STYLE}>⚠ {pickError}</div>}
+
+          {filteredOut.length > 0 && (
+            <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={() => setShowSkipped((v) => !v)}
+              >
+                {showSkipped ? t('bulk.hideSkipped') : t('bulk.showSkipped', { n: filteredOut.length })}
+              </button>
+              {nonPdfCount > 0 && (
+                <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>{t('bulk.nonPdfIgnored', { n: nonPdfCount })}</p>
+              )}
+              {showSkipped && (
+                <div style={{ maxHeight: 220, overflowY: 'auto', marginTop: 10 }}>
+                  <table>
+                    <tbody>
+                      {filteredOut.map((s) => (
+                        <tr key={s.relPath}>
+                          <td style={{ fontSize: 11 }}>{s.relPath}</td>
+                          <td style={{ fontSize: 11, color: 'var(--c-text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {skipLabel[s.reason]}{s.matched ? `: “${s.matched}”` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {dossiers.length > 0 && (
             <div className="card" style={{ padding: 16, marginBottom: 16 }}>
