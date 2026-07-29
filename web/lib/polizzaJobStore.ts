@@ -362,6 +362,24 @@ export async function listSingleJobs(limit = 100): Promise<JobRow[]> {
   return rows
 }
 
+// Scope per la CHAT archivio: tutti i job completati (singoli E di batch), con
+// nome leggibile e lista file — servono a scegliere "un fascicolo" o "un
+// documento" da interrogare. L'id è il job_id = scope ermetico dei punti Qdrant.
+export async function listJobsForChat(limit = 300): Promise<{ id: string; label: string; files: string[] }[]> {
+  const { rows } = await pool.query<{ id: string; dossier_name: string | null; scanned_files: string[]; batch_label: string | null }>(
+    `SELECT j.id, j.dossier_name, j.scanned_files, b.label AS batch_label
+     FROM polizza_jobs j LEFT JOIN batch_jobs b ON b.id = j.batch_id
+     WHERE j.status = 'done'
+     ORDER BY j.updated_at DESC LIMIT $1`,
+    [Math.max(1, Math.min(1000, limit))]
+  )
+  return rows.map((r) => ({
+    id: r.id,
+    label: `${r.batch_label ? `${r.batch_label} / ` : ''}${r.dossier_name || (r.scanned_files?.[0] ? `${r.scanned_files[0]}${(r.scanned_files.length > 1) ? ` (+${r.scanned_files.length - 1})` : ''}` : r.id.slice(0, 8))}`,
+    files: r.scanned_files || [],
+  }))
+}
+
 // Job singoli (non appartenenti a un batch) da riprendere al boot. I job figli di
 // un batch sono esclusi qui: la loro ripresa è sequenziale, guidata dall'orchestratore
 // batch (vedi listActiveBatchIds/polizzaBatchWorker), non da un avvio in parallelo.

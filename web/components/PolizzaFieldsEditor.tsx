@@ -56,6 +56,8 @@ export default function PolizzaFieldsEditor() {
   const [verificaCampi, setVerificaCampi] = useState('')
   const [verificaModel, setVerificaModel] = useState('')
   const [consensusPasses, setConsensusPasses] = useState(3)
+  // Strategia motore a stadi: false = gruppi (default), true = cascata dal più recente
+  const [stagedCascade, setStagedCascade] = useState(false)
   const dragIndex = useRef<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -72,6 +74,7 @@ export default function PolizzaFieldsEditor() {
       setVerificaCampi(s.polizzaVerificaCampi || '')
       setVerificaModel(s.polizzaVerificaModel || '')
       setConsensusPasses(s.polizzaConsensusPasses || 3)
+      setStagedCascade(s.polizzaStagedCascade === true)
       setLoading(false)
     })
   }, [])
@@ -114,6 +117,7 @@ export default function PolizzaFieldsEditor() {
         polizzaFields: fields, polizzaPromptExtra: promptExtra,
         polizzaWholeDossierModel: wholeDossierModel, polizzaVerificaCampi: verificaCampi,
         polizzaVerificaModel: verificaModel, polizzaConsensusPasses: consensusPasses,
+        polizzaStagedCascade: stagedCascade,
       }),
     })
     setSaved(true); setTimeout(() => setSaved(false), 2500)
@@ -189,7 +193,7 @@ export default function PolizzaFieldsEditor() {
       {/* Prompt extra */}
       <div className="form-group">
         <label className="label">{t('set.promptExtra')}</label>
-        <textarea value={promptExtra} onChange={(e) => { setPromptExtra(e.target.value); setSaved(false) }} rows={4}
+        <textarea value={promptExtra} onChange={(e) => { setPromptExtra(e.target.value); setSaved(false) }} rows={7}
           placeholder={t('set.promptExtraPlaceholder')} style={{ resize: 'vertical', fontSize: 13 }} />
       </div>
 
@@ -219,11 +223,21 @@ export default function PolizzaFieldsEditor() {
             <input value={verificaModel} onChange={(e) => { setVerificaModel(e.target.value); setSaved(false) }}
               placeholder="claude-sonnet-4-6" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
           </div>
+          <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+            <label className="label">{t('set.stagedStrategy')}</label>
+            <select value={stagedCascade ? 'cascade' : 'groups'}
+              onChange={(e) => { setStagedCascade(e.target.value === 'cascade'); setSaved(false) }}
+              style={{ fontSize: 12 }}>
+              <option value="groups">{t('set.stagedStrategyGroups')}</option>
+              <option value="cascade">{t('set.stagedStrategyCascade')}</option>
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('set.stagedStrategyHint')}</p>
+          </div>
         </div>
       </div>
 
       {/* Header colonne */}
-      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 150px 1fr 150px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
         <span /><span /><span>{t('set.colLabel')}</span><span>{t('set.colDescription')}</span><span>{t('set.colCells')}</span><span /><span />
       </div>
 
@@ -235,7 +249,7 @@ export default function PolizzaFieldsEditor() {
             onDragStart={() => { dragIndex.current = i }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDrop(i)}
-            style={{ display: 'grid', gridTemplateColumns: '20px 34px 150px 1fr 150px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
             <span style={{ cursor: 'grab', color: 'var(--c-text-muted)', textAlign: 'center' }} title="Trascina per riordinare">⋮⋮</span>
             <label style={{ display: 'inline-flex', cursor: 'pointer' }} title={f.enabled !== false ? 'Abilitato' : 'Disabilitato'}>
               <span style={{ width: 30, height: 18, borderRadius: 999, position: 'relative', background: f.enabled !== false ? 'var(--c-accent)' : 'var(--c-bg-card-alt)', border: '1px solid var(--c-border)', transition: 'background .2s' }}>

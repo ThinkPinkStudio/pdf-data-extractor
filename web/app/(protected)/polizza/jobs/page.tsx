@@ -180,7 +180,7 @@ export default function PolizzaJobsPage() {
   const fieldLabel = (j: JobSnapshot, id: string) => j.fieldDefs?.find((f) => f.id === id)?.label || id
 
   return (
-    <div style={{ maxWidth: 1000 }}>
+    <div style={{ maxWidth: 1300 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <h1 className="page-title">{t('jobsDash.title')}</h1>
         <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={loadBatches}>{t('jobsDash.refresh')}</button>

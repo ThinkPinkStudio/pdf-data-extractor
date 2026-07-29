@@ -68,6 +68,10 @@ export interface WebSettings {
   polizzaVerificaCampi?: string
   polizzaVerificaModel?: string
   polizzaConsensusPasses?: number
+  // Strategia del motore a stadi: false (default) = gruppi a copertura totale;
+  // true = CASCATA dal documento più recente ("solo i buchi", con controprova
+  // sulla polizza base) — sperimentale, confrontabile via Rielabora.
+  polizzaStagedCascade?: boolean
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]
   profiles?: GenericProfile[]
@@ -194,6 +198,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaCampi: map.polizzaVerificaCampi ?? '',
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
+    polizzaStagedCascade: bool('polizzaStagedCascade', false),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

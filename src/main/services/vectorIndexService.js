@@ -211,7 +211,7 @@ export async function indexDossierPages({ dossierName, files, extraPayload = {},
  * può collidere), docType, year.
  * Ritorna [{ score, dossier, file, page, doc_type, doc_year, job_id, polizza_numero, text }].
  */
-export async function searchVector({ query, jobId = null, polizzaNumero = null, dossier = null, docType = null, year = null, limit = 10 }, settings) {
+export async function searchVector({ query, jobId = null, polizzaNumero = null, dossier = null, docType = null, year = null, file = null, limit = 10 }, settings) {
   if (!isVectorIndexEnabled(settings)) throw new Error('Indice vettoriale non configurato (URL Qdrant vuoto).')
   const q = String(query || '').trim()
   if (!q) return []
@@ -223,6 +223,7 @@ export async function searchVector({ query, jobId = null, polizzaNumero = null, 
   if (dossier) must.push({ key: 'dossier', match: { value: dossier } })
   if (docType) must.push({ key: 'doc_type', match: { value: docType } })
   if (year) must.push({ key: 'doc_year', match: { value: Number(year) } })
+  if (file) must.push({ key: 'file', match: { value: file } })
 
   const res = await resilientFetch(`${qdrantBase(settings)}/collections/${collectionName(settings)}/points/search`, {
     method: 'POST',

@@ -93,7 +93,9 @@ export default function SettingsPage() {
   return (
     <>
       <h1 className="page-title">{t('set.title')}</h1>
-      <form onSubmit={handleSave} style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Larghezza piena: l'editor campi (etichetta+descrizione+celle) e il prompt
+          vivono qui — schiacciarli in 620px sprecava metà schermo. */}
+      <form onSubmit={handleSave} style={{ maxWidth: 1200, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Provider LLM — SOLO Ollama (locale) */}
         <div className="card">

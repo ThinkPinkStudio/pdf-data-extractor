@@ -182,6 +182,28 @@ export default function PolizzaPage() {
     }
   }
 
+  // ─── Rilancia: rifà l'estrazione sugli STESSI PDF già salvati nel job ───────
+  // (motore e impostazioni correnti, cache OCR inclusa): niente ri-upload — il
+  // job torna in coda e il polling riparte da solo.
+  async function handleRelaunch() {
+    if (!jobId || extracting) return
+    setError(null); setExportMsg(null); setVisionErr(null)
+    try {
+      const res = await fetch(`/api/polizza/job/${jobId}/retry`, { method: 'POST' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || t('pol.errProcessing'))
+      }
+      setExtracted({}); setSources({}); setProgress(null)
+      setExtracting(true); setVisionExtracting(true); setVisionMsg('extracting')
+      // Riavvia il polling (l'effetto è agganciato a jobId: forziamo un tick)
+      const id = jobId
+      setJobId(null); setTimeout(() => setJobId(id), 50)
+    } catch (err: any) {
+      setError(err.message); setVisionMsg('error'); setVisionErr(err.message)
+    }
+  }
+
   // ─── Nuova polizza: annulla l'eventuale job in corso e azzera la UI ──────────
   async function handleNewPolizza() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
@@ -350,9 +372,17 @@ export default function PolizzaPage() {
           <div className="polizza-actions">
             {error && <div className="polizza-error">⚠ {error}</div>}
             {jobId ? (
-              <button className="btn btn-secondary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleNewPolizza}>
-                {loading ? <><span className="spinner" /> {t('pol.newPolizzaStop')}</> : t('pol.newPolizza')}
-              </button>
+              <>
+                <button className="btn btn-secondary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleNewPolizza}>
+                  {loading ? <><span className="spinner" /> {t('pol.newPolizzaStop')}</> : t('pol.newPolizza')}
+                </button>
+                {!loading && (
+                  <button className="btn btn-secondary" style={{ width: '100%', borderRadius: 'var(--r-md)' }}
+                    title={t('polizze.relaunchTitle')} onClick={handleRelaunch}>
+                    ↻ {t('polizze.relaunch')}
+                  </button>
+                )}
+              </>
             ) : (
               <button className="btn btn-primary" style={{ width: '100%', borderRadius: 'var(--r-md)' }} onClick={handleExtract} disabled={!files.length || loading} aria-busy={loading}>
                 {loading ? <><span className="spinner" /> {t('pol.extracting')}</> : <>{t('pol.extractBtn')}</>}
