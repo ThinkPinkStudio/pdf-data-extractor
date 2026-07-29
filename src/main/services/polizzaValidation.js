@@ -217,13 +217,23 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
     return false
   }
 
-  // Importi: regola delle cifre (come passesEvidenceCheck) + anti-evidenza-fabbricata
+  // Importi: verifica SIMMETRICA.
+  // (a) Le cifre della parte intera compaiono nel CONTESTO → il valore è ancorato
+  //     al testo: passa anche SENZA evidenza (i modelli piccoli omettono spesso la
+  //     chiave "evidenza": punire un valore vero per una chiave mancante svuotava
+  //     interi gruppi di massimali/premi).
+  // (b) Cifre NON nel contesto → serve un'evidenza che le contenga E che sia a sua
+  //     volta contenuta nel contesto (un'evidenza fabbricata auto-coerente non
+  //     basta più a far passare un importo inventato).
   const amount = parsePureAmount(cleaned)
   if (amount != null) {
     const intDigits = String(Math.trunc(Math.abs(amount)))
     if (intDigits.length >= 4) {
+      if (normCtx.includes(intDigits)) return true
       if (!evidenza) return false
       if (!evidenza.replace(/\D/g, '').includes(intDigits)) return false
+      const ne = normForMatch(evidenza)
+      return ne.length >= 10 && normCtx.includes(ne)
     }
     if (evidenza) {
       const ne = normForMatch(evidenza)

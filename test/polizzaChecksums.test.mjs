@@ -112,14 +112,21 @@ const CTX = normForMatch(
   'Massimale per sinistro: € 4.000.000,00 — SCADENZA 31/12/2025'
 )
 
-test('evidenza: importo con evidenza coerente passa, inventato no', () => {
+test('evidenza importi: simmetrica — ancorato al contesto passa, inventato no', () => {
   const f = { id: 'rct_massimale_sinistro', label: 'Massimale' }
+  // Con evidenza coerente → passa
   assert.equal(passesStagedEvidence(f, '4.000.000,00',
     { evidenza: 'Massimale per sinistro: € 4.000.000,00' }, CTX), true)
-  // Importo grande senza evidenza → scartato
+  // SENZA evidenza ma con le cifre nel contesto → passa lo stesso (i modelli
+  // piccoli omettono spesso la chiave evidenza: il valore vero non va punito)
+  assert.equal(passesStagedEvidence(f, '4.000.000,00', {}, CTX), true)
+  // Importo inventato senza evidenza → scartato
   assert.equal(passesStagedEvidence(f, '9.500.000,00', {}, CTX), false)
   // Evidenza che non contiene le cifre → scartato
   assert.equal(passesStagedEvidence(f, '9.500.000,00', { evidenza: 'Massimale per sinistro' }, CTX), false)
+  // Evidenza fabbricata auto-coerente ma ASSENTE dal contesto → scartato
+  assert.equal(passesStagedEvidence(f, '9.500.000,00',
+    { evidenza: 'Massimale per sinistro: € 9.500.000,00 come da polizza' }, CTX), false)
 })
 
 test('evidenza: le riformattazioni del modello non vengono punite', () => {
@@ -171,6 +178,23 @@ test('recency: tra appendici senza data vince l\'ordinale più alto', () => {
   const app12 = { valore: 'dodici', effDate: null, docType: 'appendice', appendixOrd: 12, docPos: 7 }
   assert.equal(pickMoreRecentCandidate(app8, app12, 'anagrafica').valore, 'dodici')
   assert.equal(pickMoreRecentCandidate(app12, app8, 'anagrafica').valore, 'dodici')
+})
+
+// ─── Datazione documenti "a massima copertura" ───────────────────────────────
+// Il motore a stadi data i documenti con latestDateExcludingEmission: la
+// quietanza che RISTAMPA in testa la scadenza contrattuale originale (2008) ma
+// copre la rata 2025 deve risultare datata 2025, non 2008 (il bug che
+// neutralizzava la regola "il più recente vince" su tutto il fascicolo).
+import { latestDateExcludingEmission } from '../src/main/services/polizzaDates.js'
+
+test('datazione: la quietanza con header contrattuale vecchio è datata dalla rata', () => {
+  const QUIETANZA_2025 =
+    'QUIETANZA DI PREMIO — POLIZZA N. 283618616\n' +
+    'DECORRENZA 31/12/2007 SCADENZA 31/12/2008\n' +   // header contrattuale originale
+    'RATA DAL 31/12/2024 AL 31/12/2025\n' +
+    'Emesso in Milano il 15/01/2026\n' +               // emissione: da IGNORARE
+    'PREMIO LORDO € 5.501,25'
+  assert.equal(latestDateExcludingEmission(QUIETANZA_2025), '31/12/2025')
 })
 
 // ─── parsePureAmount (spostata qui dal servizio) ─────────────────────────────

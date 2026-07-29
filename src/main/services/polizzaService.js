@@ -23,7 +23,8 @@ import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorI
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
 // privati rimossi da questo file) + regola "il valore più recente vince".
 import {
-  parseDateFromContextLine, extractDocumentDateString, extractDocumentDate,
+  parseDateFromContextLine, parseLastDateFromContextLine, latestDateExcludingEmission,
+  extractDocumentDateString, extractDocumentDate,
   normalizeDateValue, dateStrToTs, shouldReplaceValue,
 } from './polizzaDates.js'
 // Validazione pura (test/polizzaChecksums.test.mjs): placeholder, checksum
@@ -1161,7 +1162,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       options: {
         num_ctx:     numCtx,
         temperature: 0,
-        num_predict: 3000
+        num_predict: opts.numPredict || 3000
       }
     }),
     // Default 3 min: i modelli locali possono essere lenti, soprattutto alla prima
@@ -2160,10 +2161,14 @@ const APPENDIX_ORD_RE = /appendice\s*(?:n[°.\s]*)?(\d{1,3})/i
 
 /**
  * Stage A — analisi deterministica dei documenti (nessuna chiamata LLM).
- * Datazione con gerarchia CONTENUTO-prima (i nomi file spesso non hanno date):
- *   1. extractDocumentDateString sulle prime pagine, poi sull'intero testo
- *      (periodo di copertura: SCADENZA/PERIODO/DECORRENZA, mai emissione);
- *   2. anno nel nome file → 01/07/AAAA (convenzione metà anno);
+ * Datazione = MASSIMA data di copertura, CONTENUTO-prima:
+ *   1. latestDateExcludingEmission sull'intero testo: le quietanze ristampano in
+ *      testa la SCADENZA CONTRATTUALE originale (es. 31/12/2008) — prendere la
+ *      "prima SCADENZA" daterebbe tutte le quietanze come la polizza base,
+ *      neutralizzando la regola "il più recente vince". La massima data
+ *      non-di-emissione cattura invece la fine del periodo di rata/regolazione.
+ *   2. anno nel nome file → 01/07/AAAA; vince il MAX tra contenuto e nome file
+ *      (un OCR cieco non deve retrodatare una "quietanza 2025.pdf");
  *   3. ordinale d'appendice ("appendice 12" > "appendice 8") come spareggio;
  *   4. nessuna data → il candidato non potrà mai scavalcare un valore datato.
  */
@@ -2172,10 +2177,13 @@ function analyzeStagedDocs(docs) {
     const name = d?.name || `documento_${i + 1}.pdf`
     const pages = Array.isArray(d?.pages) ? d.pages.map((p) => String(p || '')) : []
     const text = pages.join('\n')
-    let dateStr = extractDocumentDateString(pages.slice(0, 3).join('\n')) || extractDocumentDateString(text) || null
-    if (!dateStr) {
-      const ym = name.match(/\b(19|20)\d{2}\b/)
-      if (ym) dateStr = `01/07/${ym[0]}`
+    let dateStr = latestDateExcludingEmission(text) || null
+    const ym = name.match(/\b(19|20)\d{2}\b/)
+    if (ym) {
+      const fromName = `01/07/${ym[0]}`
+      if (!dateStr || (dateStrToTs(fromName) ?? -Infinity) > (dateStrToTs(dateStr) ?? -Infinity)) {
+        dateStr = fromName
+      }
     }
     const om = name.match(APPENDIX_ORD_RE)
     return {
@@ -2217,7 +2225,9 @@ function selectGroupDocs(kind, analyzed) {
     return dedupe([...polizza, ...appendici, ...condizioni, ...altro])
   }
   if (kind === 'economici') {
-    return dedupe([...regolazioni.slice(0, 1), ...quietanze.slice(0, 1), ...polizza, ...appendici.slice(0, 1), ...altro.slice(0, 1)])
+    // 2+2 periodici più recenti: con la datazione a "massima copertura" il primo
+    // è quello giusto, il secondo fa da rete se l'OCR del primo è povero.
+    return dedupe([...regolazioni.slice(0, 2), ...quietanze.slice(0, 2), ...polizza, ...appendici.slice(0, 1), ...altro.slice(0, 1)])
   }
   // anagrafica: polizza + TUTTE le appendici (cambio contraenza/indirizzo!) +
   // il periodico più recente (porta scadenza/contraente correnti) + altro.
@@ -2226,28 +2236,52 @@ function selectGroupDocs(kind, analyzed) {
 }
 
 /**
- * Contesto di un gruppo: documenti INTERI concatenati con marker, in ordine di
- * priorità, finché entrano nel budget. Mai tagli a metà documento, con l'unica
- * eccezione del primo (se da solo sfora, se ne prende la testa).
+ * Contesto di un gruppo: packing PER PAGINA con quota per documento.
+ * Blocchi "[file · pag. N]" in ordine di priorità documenti (pagine in ordine
+ * naturale), con una QUOTA per documento: finché altri documenti attendono,
+ * nessuno può occupare più di ~45% del budget — un fascicolo con una polizza
+ * da 90K char non può più espellere appendici/condizioni/periodici dal
+ * contesto (era il bug che faceva vedere al modello solo la testa della
+ * polizza base). Seconda passata per riempire il budget avanzato.
  */
 function buildGroupContext(docList, budgetChars) {
-  let ctx = ''
+  const parts = []
   const usedNames = new Set()
+  let used = 0
   let truncatedDoc = null
-  for (const d of docList) {
-    const block = `\n===== DOCUMENTO: ${d.name} =====\n${d.text.trim()}`
-    if (ctx.length + block.length <= budgetChars) {
-      ctx += block
-      usedNames.add(d.name)
-    } else if (!ctx) {
-      ctx = block.slice(0, budgetChars)
-      usedNames.add(d.name)
-      truncatedDoc = d.name
-      break
-    }
-    // altrimenti: si prova col documento successivo (più piccolo o meno prioritario)
+  const pageBlock = (d, p) => {
+    const t = d.pages[p]?.trim()
+    return t ? `[${d.name} · pag. ${p + 1}]\n${t}` : null
   }
-  return { text: ctx, usedNames, truncatedDoc }
+  // Cursore per doc: prossima pagina non ancora inclusa (per la seconda passata)
+  const cursor = new Map(docList.map((d) => [d.name, 0]))
+  const addPagesFrom = (d, quota) => {
+    let taken = 0
+    let p = cursor.get(d.name) ?? 0
+    for (; p < d.pages.length; p++) {
+      const block = pageBlock(d, p)
+      if (!block) continue
+      const cost = block.length + 2
+      if (taken + cost > quota || used + cost > budgetChars) { truncatedDoc = truncatedDoc || d.name; break }
+      parts.push(block)
+      usedNames.add(d.name)
+      used += cost
+      taken += cost
+    }
+    cursor.set(d.name, p)
+  }
+  // Passata 1: quota equa (mai oltre ~45% del budget finché ci sono altri doc)
+  const quota1 = docList.length > 1 ? Math.floor(budgetChars * 0.45) : budgetChars
+  for (const d of docList) {
+    if (used >= budgetChars) break
+    addPagesFrom(d, Math.min(quota1, budgetChars - used))
+  }
+  // Passata 2: budget residuo alle pagine rimaste, sempre in ordine di priorità
+  for (const d of docList) {
+    if (used >= budgetChars) break
+    addPagesFrom(d, budgetChars - used)
+  }
+  return { text: parts.join('\n\n'), usedNames, truncatedDoc }
 }
 
 // Prompt di sistema condiviso dei passaggi per gruppo + note specifiche.
@@ -2264,7 +2298,9 @@ const STAGED_GROUP_NOTES = {
   anagrafica:
     'NOTA: dati anagrafici e date di copertura. Se un\'appendice di variazione (cambio contraenza,\n' +
     'cambio indirizzo) o una quietanza recente riporta un dato aggiornato, quel valore prevale\n' +
-    'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.',
+    'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.\n' +
+    'P.IVA/Codice Fiscale: SEMPRE quello del CONTRAENTE/assicurato, MAI quello della compagnia\n' +
+    'assicuratrice (la P.IVA nell\'intestazione della compagnia non va usata).',
 }
 
 function stagedSystemPrompt(kind) {
@@ -2285,6 +2321,18 @@ function stagedSystemPrompt(kind) {
     'Zero testo extra, zero markdown.'
   )
 }
+
+// Stopword del dominio per il ranking lessicale del recupero: parole presenti in
+// quasi ogni pagina di una polizza — usarle come segnale renderebbe il punteggio
+// puro rumore da boilerplate (header, footer, diciture standard).
+const STAGED_STOPWORDS = new Set([
+  'polizza', 'polizze', 'assicurato', 'assicurata', 'assicurati', 'assicurativa', 'assicurazione',
+  'assicurazioni', 'contraente', 'compagnia', 'documento', 'documenti', 'descrizione', 'indicato',
+  'indicata', 'valore', 'campo', 'campi', 'della', 'delle', 'dello', 'degli', 'dalla', 'dalle',
+  'nella', 'nelle', 'come', 'ogni', 'sono', 'viene', 'vengono', 'quanto', 'quale', 'quali',
+  'presente', 'presenti', 'relativo', 'relativa', 'esempio', 'oppure', 'anche', 'condizioni',
+  'generali', 'articolo', 'articoli', 'pagina', 'numero', 'data', 'dati', 'euro', 'importo',
+])
 
 const STAGED_RECOVERY_SYSTEM =
   'Sei un estrattore di POCHI dati specifici da estratti di documenti assicurativi italiani.\n' +
@@ -2308,22 +2356,27 @@ function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null) {
   const ordered = preferredNames
     ? [...analyzed].sort((a, b) => (preferredNames.has(a.name) ? 0 : 1) - (preferredNames.has(b.name) ? 0 : 1))
     : analyzed
-  const tryNeedle = (needle) => {
+  const tryNeedle = (needle, docs) => {
     if (!needle || needle.length < 4) return null
-    for (const d of ordered) {
+    for (const d of docs) {
       for (let p = 0; p < d.normPages.length; p++) {
         if (d.normPages[p].includes(needle)) return { file: d.name, page: p + 1, doc: d }
       }
     }
     // evidenza a cavallo di due pagine: match a livello documento, pagina ignota
-    for (const d of ordered) {
+    for (const d of docs) {
       if (d.normPages.join('').includes(needle)) return { file: d.name, page: '', doc: d }
     }
     return null
   }
   const ne = evidenza ? normForMatch(evidenza).slice(0, 40) : ''
   const nv = cleaned != null ? normForMatch(String(cleaned)) : ''
-  return tryNeedle(ne) || tryNeedle(nv)
+  // Il fallback sul VALORE nudo (un numero puro, una data) è ristretto ai
+  // documenti del CONTESTO della chiamata: cifre come "3000000" compaiono
+  // ovunque nel fascicolo e attribuirle a un documento arbitrario inquinerebbe
+  // docType/effDate — cioè le decisioni di recenza del merge.
+  const preferredOnly = preferredNames ? ordered.filter((d) => preferredNames.has(d.name)) : ordered
+  return tryNeedle(ne, ordered) || tryNeedle(nv, preferredOnly)
 }
 
 // "documento" asserito dal modello → documento reale del fascicolo, se combacia
@@ -2340,9 +2393,11 @@ function matchRealDoc(analyzed, docName) {
 /**
  * Stage C+D per un blocco di risposte: valida ogni entry (scala completa) e la
  * fonde in `best` con la regola "il documento più recente vince".
+ * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
 function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
+  let accepted = 0
   for (const [k, e] of Object.entries(parsed || {})) {
     const field = byId[k]
     if (!field) { counters.unknown++; continue }
@@ -2358,8 +2413,12 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
-    const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
+    // data_validita è output libero del modello: vale SOLO se quella data compare
+    // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
+    // candidati datati correttamente.
+    const rawValidita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
       ? normalizeDateValue(e.data_validita) : null
+    const validita = (rawValidita && normCtx.includes(rawValidita.replace(/\//g, ''))) ? rawValidita : null
     const effDate = validita
       || (field.type === 'date' ? cleaned : null)
       || srcDoc?.dateStr
@@ -2374,7 +2433,9 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
       page: source?.page ?? '',
     }
     best[k] = pickMoreRecentCandidate(best[k], cand, kindOf[k])
+    accepted++
   }
+  return accepted
 }
 
 /**
@@ -2417,39 +2478,73 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     ? analyzed.filter((d) => d.type === 'polizza')
     : analyzed.filter((d) => !isPeriodicDocName(d.name))).sort(byStagedRecency)
   const seedNotes = []
-  if ('polizza_numero' in fieldsById || 'codice_fiscale_iva' in fieldsById) {
+  if ('polizza_numero' in fieldsById) {
     const numCount = new Map()
     for (const d of basePool) {
       const rx = extractFieldsWithRegex(d.text)
-      if ('polizza_numero' in fieldsById && rx.polizza_numero) {
+      if (rx.polizza_numero) {
         const cur = numCount.get(rx.polizza_numero) || { n: 0, doc: d }
         numCount.set(rx.polizza_numero, { n: cur.n + 1, doc: cur.doc })
-      }
-      if ('codice_fiscale_iva' in fieldsById && rx.codice_fiscale_iva && !best.codice_fiscale_iva) {
-        const valid = validateCodiceFiscaleIva(rx.codice_fiscale_iva)
-        if (valid) {
-          const src = findStagedSource(analyzed, null, valid, new Set([d.name]))
-          best.codice_fiscale_iva = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
-          seedNotes.push(`codice_fiscale_iva="${valid}" (checksum OK, da "${d.name}")`)
-        } else {
-          seedNotes.push(`P.IVA/CF "${rx.codice_fiscale_iva}" SCARTATA dal checksum (da "${d.name}")`)
-        }
       }
     }
     if (numCount.size) {
       // Preferisci il numero presente in più documenti base; a parità il più recente
       const [num, info] = [...numCount.entries()].sort((a, b) => b[1].n - a[1].n)[0]
-      const src = findStagedSource(analyzed, null, num)
+      // Fonte cercata PRIMA nel documento del seed (mai attribuzioni ad altri file)
+      const src = findStagedSource(analyzed, null, num, new Set([info.doc.name]))
       best.polizza_numero = { valore: num, effDate: info.doc.dateStr, docType: info.doc.type, appendixOrd: info.doc.appendixOrd, docPos: info.doc.pos, file: src?.file || info.doc.name, page: src?.page ?? '' }
       seedNotes.push(`polizza_numero="${num}" (in ${info.n} documento/i base)`)
     }
   }
-  // Date: da TUTTI i documenti; ogni hit è datato dal valore stesso → vince il più recente
+  // P.IVA/CF: nei documenti compaiono ALMENO due soggetti (compagnia e contraente),
+  // e la prima riga "P.IVA" è quasi sempre l'intestazione della COMPAGNIA. Quindi:
+  // si raccolgono TUTTI i candidati checksum-validi dal pool base; se ce n'è UNO
+  // solo distinto lo si propone come seed (sovrascrivibile dal gruppo anagrafica
+  // via merge per recency — MAI blindato); se ce ne sono ≥2 il campo resta al
+  // modello, che ha l'istruzione "P.IVA del CONTRAENTE, mai della compagnia".
+  if ('codice_fiscale_iva' in fieldsById) {
+    const vatSeen = new Map() // valore valido → doc del primo avvistamento
+    for (const d of basePool) {
+      for (const m of d.text.matchAll(/(?:P\.?\s*IVA|PARTITA\s+IVA|COD(?:ICE)?\s*\.?\s*FISC(?:ALE)?\.?)[^\n]{0,80}/gi)) {
+        const run = m[0].match(/[A-Z0-9]{10,16}/i)
+        if (!run) continue
+        const valid = validateCodiceFiscaleIva(run[0])
+        if (valid && !vatSeen.has(valid)) vatSeen.set(valid, d)
+      }
+    }
+    if (vatSeen.size === 1) {
+      const [valid, d] = [...vatSeen.entries()][0]
+      const src = findStagedSource(analyzed, null, valid, new Set([d.name]))
+      best.codice_fiscale_iva = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
+      seedNotes.push(`codice_fiscale_iva="${valid}" (unico candidato checksum-valido)`)
+    } else if (vatSeen.size >= 2) {
+      seedNotes.push(`P.IVA/CF: ${vatSeen.size} candidati distinti checksum-validi (${[...vatSeen.keys()].join(', ')}) → nessun seed, decide il modello (contraente ≠ compagnia)`)
+    }
+  }
+  // Date: da TUTTI i documenti, prendendo per ogni etichetta la data MASSIMA del
+  // documento (le quietanze ristampano la scadenza contrattuale originale PRIMA
+  // del periodo di rata: la "prima SCADENZA" sarebbe sistematicamente quella
+  // vecchia). Ogni hit è auto-datato dal valore → nel merge vince il più recente.
+  const maxLabeledDate = (text, labelRe) => {
+    let bestDate = null
+    for (const m of text.matchAll(labelRe)) {
+      const d = parseDateFromContextLine(m[0], /[\s\S]+/)
+      if (d && (dateStrToTs(d) ?? -Infinity) > (dateStrToTs(bestDate) ?? -Infinity)) bestDate = d
+    }
+    return bestDate
+  }
   for (const d of analyzed) {
-    const rx = extractFieldsWithRegex(d.text)
+    const hits = {
+      decorrenza: maxLabeledDate(d.text, /DECORRENZA\b[^\n]{0,100}/gi),
+      // Per la scadenza vale anche la fine del periodo di rata/regolazione
+      scadenza: [maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
+        parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)]
+        .filter(Boolean)
+        .sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
+    }
     for (const id of ['decorrenza', 'scadenza']) {
-      if (!(id in fieldsById) || !rx[id]) continue
-      const norm = normalizeDateValue(rx[id])
+      if (!(id in fieldsById) || !hits[id]) continue
+      const norm = normalizeDateValue(hits[id])
       if (!norm) continue
       const cand = { valore: norm, effDate: norm, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: d.name, page: '' }
       best[id] = pickMoreRecentCandidate(best[id], cand, kindOf[id] || 'anagrafica')
@@ -2461,13 +2556,13 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (seedNotes.length) diag.push(`Stadio A: seed regex — ${seedNotes.join(' · ')}`)
 
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
+  // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
+  // nel merge per recency come ogni altro candidato (mai valori blindati).
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   const batchCtx = Math.min(modelLimit || 131072, 16384)
-  // La P.IVA col checksum verificato è garantita: inutile richiederla al modello.
-  const seededOut = new Set(best.codice_fiscale_iva ? ['codice_fiscale_iva'] : [])
   const groupPlans = []
   for (const kind of ['strutturali', 'economici', 'anagrafica']) {
-    const groupFields = partition[kind].filter((f) => !seededOut.has(f.id))
+    const groupFields = partition[kind]
     const groupDocs = selectGroupDocs(kind, analyzed)
     if (!groupFields.length || !groupDocs.length) {
       diag.push(`Gruppo "${kind}": saltato (${!groupFields.length ? 'nessun campo' : 'nessun documento pertinente'})`)
@@ -2479,6 +2574,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   let progressDone = 0
   let consecutiveErrors = 0
   let abortedByErrors = false
+  let abortError = null
+  let llmFieldsCount = 0 // campi arrivati dai GRUPPI LLM (seed esclusi): guida l'abort
   const counters = { unknown: 0, placeholders: 0, sanitized: 0, noEvidence: 0, guardrail: 0 }
 
   for (const plan of groupPlans) {
@@ -2491,26 +2588,36 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
     const system = stagedSystemPrompt(kind)
-    const scaffold = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n\nRestituisci SOLO il JSON.`
-    const reserve = estimateOllamaTokens(system.length + scaffold.length) + 3000 + 512
-    const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.5))
+    const buildPrompt = (text) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    // Rapporto CONSERVATIVO 2.0 char/token: l'OCR italiano denso di numeri e
+    // simboli tokenizza peggio di 2.5 — un budget ottimista fa troncare il
+    // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
+    const reserve = estimateOllamaTokens(system.length + buildPrompt('').length) + 3000 + 512
+    const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     const { text: ctx, usedNames, truncatedDoc } = buildGroupContext(groupDocs, budgetChars)
-    const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON.`
-    const estTokens = estimateOllamaTokens(system.length + userPrompt.length) + 3000 + 512
-    const numCtx = Math.min(batchCtx, Math.max(8192, Math.ceil(estTokens / 1024) * 1024))
+    const userPrompt = buildPrompt(ctx)
+    // num_ctx SEMPRE al tetto del batch: allocare meno per "risparmiare" rischia
+    // il troncamento se la stima sottovaluta; 16K di KV su 7B stanno negli 8GB.
+    const numCtx = batchCtx
     diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${usedNames.size}/${groupDocs.length} documenti nel contesto (~${estimateOllamaTokens(userPrompt.length)} token, num_ctx ${numCtx})` +
-      `${truncatedDoc ? ` — primo documento "${truncatedDoc}" troncato al budget` : ''}: ${[...usedNames].slice(0, 6).join(', ')}${usedNames.size > 6 ? ', …' : ''}`)
+      `${truncatedDoc ? ` — contesto al limite dal documento "${truncatedDoc}"` : ''}: ${[...usedNames].slice(0, 6).join(', ')}${usedNames.size > 6 ? ', …' : ''}`)
 
     let parsed = null
+    let usedCtx = ctx
     try {
-      let raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
+      const raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
       try {
         parsed = parseJsonResponse(raw)
       } catch {
-        // Un solo retry sul parse fallito (mai sul connection error)
-        diag.push(`Gruppo "${kind}": risposta non parsabile, retry…`)
-        raw = await callOllamaRolling(s2, system, userPrompt, { numCtx, timeoutMs: 600000, diag })
-        parsed = parseJsonResponse(raw)
+        // Retry SIGNIFICATIVO: a temperatura 0 rimandare lo stesso prompt produce
+        // la stessa risposta. Si riduce il contesto (~70%, tagliato a confine di
+        // blocco) e si alza num_predict: prompt diverso → output diverso, e una
+        // risposta JSON troncata dal tetto di generazione ha spazio per chiudersi.
+        diag.push(`Gruppo "${kind}": risposta non parsabile, retry con contesto ridotto…`)
+        const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
+        usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
+        const raw2 = await callOllamaRolling(s2, system, buildPrompt(usedCtx), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
+        parsed = parseJsonResponse(raw2)
       }
       consecutiveErrors = 0
     } catch (err) {
@@ -2518,38 +2625,54 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       diag.push(`Gruppo "${kind}" FALLITO (si prosegue con gli altri): ${err.message}`)
       if (err.isLlmConnectionError || consecutiveErrors >= 3) {
         abortedByErrors = true
+        abortError = err
         diag.push(`INTERROTTO per errori ripetuti: ${Object.keys(best).length} campi raccolti finora.`)
-        if (!Object.keys(best).length) {
-          const classified = classifyLlmError(err, settings)
-          classified.diag = diag
-          throw classified
-        }
       }
       continue
     }
 
     const before = { ...counters }
-    const normCtx = normForMatch(ctx)
-    absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
+    const normCtx = normForMatch(usedCtx)
+    llmFieldsCount += absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters)
     const got = Object.keys(parsed || {}).length
     diag.push(`Gruppo "${kind}": ${got} campi proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
       `${counters.sanitized - before.sanitized} da sanitizzazione/checksum, ${counters.noEvidence - before.noEvidence} senza evidenza nel testo` +
       `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} dal guardrail strutturale` : ''}`)
   }
 
+  // Abort con ZERO contributo LLM: i soli seed regex non sono un'estrazione — il
+  // job deve andare in ERRORE (rilanciabile), non fingere un successo quasi vuoto.
+  if (abortedByErrors && llmFieldsCount === 0 && abortError) {
+    const classified = classifyLlmError(abortError, settings)
+    classified.diag = diag
+    throw classified
+  }
+
   // ── Stage E: recupero mirato dei campi ancora vuoti ────────────────────────
   if (!abortedByErrors) {
     const missing = activeFields.filter((f) => !(f.id in best))
-    const maxCalls = Math.max(0, Math.min(24, parseInt(settings.polizzaStagedRecoveryMax, 10) || 12))
+    // Cap chiamate: 0 disattiva DAVVERO (parse con isFinite, niente || che
+    // riporta al default), default 12, tetto 24.
+    const rawCap = parseInt(settings.polizzaStagedRecoveryMax, 10)
+    const maxCalls = Number.isFinite(rawCap) ? Math.max(0, Math.min(24, rawCap)) : 12
     if (missing.length && maxCalls > 0) {
       // Micro-batch ≤3 campi, raggruppati per genere (stesso pool di documenti)
       const byKind = { strutturali: [], economici: [], anagrafica: [] }
       for (const f of missing) byKind[kindOf[f.id] || 'anagrafica'].push(f)
-      const batches = []
+      const perKind = []
       for (const [kind, list] of Object.entries(byKind)) {
         const allowedDocs = selectGroupDocs(kind, analyzed)
         if (!allowedDocs.length) continue // genere senza documenti eleggibili: non estraibile
-        for (let i = 0; i < list.length; i += 3) batches.push({ kind, fields: list.slice(i, i + 3), allowedDocs })
+        const chunks = []
+        for (let i = 0; i < list.length; i += 3) chunks.push({ kind, fields: list.slice(i, i + 3), allowedDocs })
+        if (chunks.length) perKind.push(chunks)
+      }
+      // Interlacciamento ROUND-ROBIN tra i generi: con un cap basso e molti campi
+      // mancanti, l'ordine fisso strutturali→economici→anagrafica affamerebbe
+      // sistematicamente l'ultimo genere.
+      const batches = []
+      for (let i = 0; perKind.some((c) => i < c.length); i++) {
+        for (const chunks of perKind) if (i < chunks.length) batches.push(chunks[i])
       }
       const planned = batches.slice(0, maxCalls)
       const skippedForCap = batches.length - planned.length
@@ -2562,30 +2685,42 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         progressDone++
         onProgress?.({ batch: progressDone, batchTotal: progressTotal })
 
-        // Contesto deterministico senza embeddings: pagine rank-ate per token
-        // delle label/descrizioni dei campi mancanti.
-        const tokens = [...new Set(
-          b.fields.flatMap((f) => `${f.label} ${stripFieldExamples(f.description || '')}`
-            .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .split(/[^a-z0-9]+/).filter((t) => t.length >= 4))
-        )]
+        // Contesto deterministico senza embeddings: pagine rank-ate per i token
+        // DISCRIMINANTI di label (peso doppio) e descrizione, con stopword del
+        // dominio (parole come "polizza"/"assicurato" compaiono in OGNI pagina e
+        // renderebbero il punteggio puro rumore) e punteggio a frequenza saturata.
+        const tokenize = (str) => String(str || '')
+          .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
+        const weights = new Map()
+        for (const f of b.fields) {
+          for (const t of tokenize(f.label)) weights.set(t, Math.max(weights.get(t) || 0, 2))
+          for (const t of tokenize(stripFieldExamples(f.description || ''))) if (!weights.has(t)) weights.set(t, 1)
+        }
+        const countOcc = (np, t) => {
+          let n = 0, i = 0
+          while (n < 3 && (i = np.indexOf(t, i)) !== -1) { n++; i += t.length }
+          return n // saturata a 3: conta la presenza ripetuta, non il conteggio esatto
+        }
         const scored = []
         b.allowedDocs.forEach((d, docRank) => {
           d.normPages.forEach((np, p) => {
-            const score = tokens.reduce((n, t) => n + (np.includes(t) ? 1 : 0), 0)
+            let score = 0
+            for (const [t, w] of weights) score += countOcc(np, t) * w
             scored.push({ d, p, score, docRank })
           })
         })
         scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
         const pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
+        const RECOVERY_CTX_CHARS = 12000
         let ctx = ''
         const usedNames = new Set()
         for (const s of pool) {
           const pageText = s.d.pages[s.p]
           if (!pageText.trim()) continue
           const block = `[${s.d.name} · pag. ${s.p + 1}]\n${pageText.trim()}`
-          if (ctx && ctx.length + block.length > 8000) break
-          ctx += (ctx ? '\n---\n' : '') + block.slice(0, 8000)
+          if (ctx && ctx.length + block.length > RECOVERY_CTX_CHARS) break
+          ctx += (ctx ? '\n---\n' : '') + block.slice(0, RECOVERY_CTX_CHARS)
           usedNames.add(s.d.name)
         }
         if (!ctx) continue
@@ -2595,7 +2730,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           .join('\n')
         const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}} oppure {} se gli estratti non contengono i valori.`
         try {
-          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000 })
+          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters)
