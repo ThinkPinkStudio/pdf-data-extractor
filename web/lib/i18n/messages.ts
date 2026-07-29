@@ -456,7 +456,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.adesioni.savedAndGenerated': 'Record salvato e documenti generati (docx + PDF + tracciato).',
 
     // Record
-    'ad.records.subtitle': 'Database locale: cerca, apri, modifica, rinnova ed esporta i record',
+    'ad.records.subtitle': 'Database locale: cerca, apri, modifica ed esporta i record',
     'ad.records.searchPlaceholder': 'Cerca per nome, CF, targa, identificativo…',
     'ad.records.search': 'Cerca',
     'ad.records.filterAll': 'Tutti',
@@ -466,7 +466,6 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.records.all': '(tutti)',
     'ad.records.reexport': 'Ri-esporta (no archivio)',
     'ad.records.appendFile': 'Append su file…',
-    'ad.records.renew': 'Rinnova +1 anno',
     'ad.records.ftpStaging': 'Pubblica FTP staging',
     'ad.records.ftpProd': 'Pubblica FTP prod',
     'ad.records.selectAtLeastOne': 'Seleziona almeno un record',
@@ -1072,7 +1071,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.adesioni.savedAndGenerated': 'Record saved and documents generated (docx + PDF + track).',
 
     // Records
-    'ad.records.subtitle': 'Local database: search, open, edit, renew and export records',
+    'ad.records.subtitle': 'Local database: search, open, edit and export records',
     'ad.records.searchPlaceholder': 'Search by name, tax code, plate, identifier…',
     'ad.records.search': 'Search',
     'ad.records.filterAll': 'All',
@@ -1082,7 +1081,6 @@ export const messages: Record<Lang, Record<string, string>> = {
     'ad.records.all': '(all)',
     'ad.records.reexport': 'Re-export (no archive)',
     'ad.records.appendFile': 'Append to file…',
-    'ad.records.renew': 'Renew +1 year',
     'ad.records.ftpStaging': 'Publish FTP staging',
     'ad.records.ftpProd': 'Publish FTP prod',
     'ad.records.selectAtLeastOne': 'Select at least one record',
