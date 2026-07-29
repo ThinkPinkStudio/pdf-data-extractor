@@ -23,6 +23,11 @@ import {
   normForMatch,
   passesStagedEvidence,
   pickMoreRecentCandidate,
+  looseAmount,
+  isSuspectStructuralOverride,
+  isRinvioAttivita,
+  isCompanyNameAsAgency,
+  isInsurerFooterPIva,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -211,4 +216,57 @@ test('parsePureAmount: importi italiani sì, resto no', () => {
   assert.equal(parsePureAmount('31/12/2025'), null)
   assert.equal(parsePureAmount('2,5 ‰'), null)
   assert.equal(parsePureAmount('Fatturato'), null)
+})
+
+// ─── Guardie di merge (run EULIP 18:24: massimale 4M → "€. 10.000") ──────────
+
+test('looseAmount: parse permissivo anche con "€." e testo attorno', () => {
+  assert.equal(looseAmount('€. 10.000,00'), 10000)
+  assert.equal(looseAmount('4.000.000,00'), 4000000)
+  assert.equal(looseAmount('Euro 2.600.000,00 per prestatore'), 2600000)
+  assert.equal(looseAmount('Retribuzioni'), null)
+})
+
+test('override massimale: un crollo sotto il 20% è un sub-limite pescato male', () => {
+  const massimale = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
+  const testoAppendice = 'nell\'ambito del massimale per sinistro e fino a concorrenza dell\'importo di Euro 10.000,00'
+  // 4.000.000 → 10.000: rifiutato anche se l'appendice cita "massimale" vicino al valore
+  assert.equal(isSuspectStructuralOverride(massimale, '4.000.000,00', '€. 10.000,00', testoAppendice), true)
+  // 4.000.000 → 2.600.000 con etichetta vicino: riduzione legittima da rinnovo
+  const testoRinnovo = 'massimale per prestatore di lavoro elevato a Euro 2.600.000,00 per sinistro'
+  assert.equal(isSuspectStructuralOverride(massimale, '4.000.000,00', '2.600.000,00', testoRinnovo), false)
+})
+
+test('override strutturale: senza etichetta vicino al valore il documento non ridefinisce il campo', () => {
+  const franchigia = { id: 'rct_franchigia', label: 'Franchigia generica o minima RCT' }
+  const testoSenzaEtichetta = 'il premio annuo lordo è pari a Euro 2.000,00 oltre imposte'
+  assert.equal(isSuspectStructuralOverride(franchigia, '500,00', '2.000,00', testoSenzaEtichetta), true)
+  const testoConEtichetta = 'la garanzia è prestata con una franchigia di Euro 2.000,00 per sinistro'
+  assert.equal(isSuspectStructuralOverride(franchigia, '500,00', '2.000,00', testoConEtichetta), false)
+})
+
+test('attività: i rinvii/parafrasi non sono una descrizione', () => {
+  assert.equal(isRinvioAttivita("l'attività per la quale è prestata l'assicurazione"), true)
+  assert.equal(isRinvioAttivita("attività della spett.le ditta contraente"), true)
+  assert.equal(isRinvioAttivita('vedi polizza'), true)
+  assert.equal(isRinvioAttivita("esercente un'impresa per la produzione di olii e grassi vegetali per industria alimentare cosmetica e farmaceutica"), false)
+  assert.equal(isRinvioAttivita('produzione di olii e grassi vegetali'), false)
+})
+
+test('agenzia: la denominazione della compagnia non è un\'agenzia', () => {
+  assert.equal(isCompanyNameAsAgency('Generali Italia S.p.A.'), true)
+  assert.equal(isCompanyNameAsAgency('Assicurazioni Generali'), true)
+  assert.equal(isCompanyNameAsAgency('MILANO 901'), false)
+  assert.equal(isCompanyNameAsAgency('AGENZIA DI ACQUI TERME'), false)
+  assert.equal(isCompanyNameAsAgency('001/00 ACQUI TERME'), false)
+})
+
+test('P.IVA nel footer societario della compagnia: è l\'assicuratore, non il contraente', () => {
+  const footerQuietanza = 'Generali Italia S.p.A. - Sede legale: Mogliano Veneto (TV), Via Marocchesa, 14 - '
+    + 'C.F. e iscr. nel Registro Imprese di Treviso n. 00409920584 - Partita IVA 01333550323 - Capitale Sociale: Euro 1.618.628.450,00'
+  assert.equal(isInsurerFooterPIva(footerQuietanza, '01333550323'), true)
+  const frontespizio = 'CONTRAENTE/ASSICURATO CODICE FISCALE/PARTITA IVA\nEULIP SPA 0000000151510344'
+  assert.equal(isInsurerFooterPIva(frontespizio, '00151510344'), false)
+  // Valore assente nel testo: la guardia non scatta (decide l'evidenza a monte)
+  assert.equal(isInsurerFooterPIva(frontespizio, '01333550323'), false)
 })

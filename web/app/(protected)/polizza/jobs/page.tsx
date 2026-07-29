@@ -22,6 +22,7 @@ interface JobSnapshot {
   owner?: string
   dossierName: string | null
   status: string
+  scannedFiles?: string[]
   values: Record<string, string>
   sources?: Record<string, { file: string; page: number | string }>
   fieldDefs?: { id: string; label: string }[]
@@ -60,6 +61,7 @@ function minutesSince(epochSeconds?: number): number | null {
 export default function PolizzaJobsPage() {
   const t = useT()
   const [batches, setBatches] = useState<BatchSummary[] | null>(null)
+  const [singles, setSingles] = useState<JobSnapshot[] | null>(null) // estrazioni fuori batch
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<JobSnapshot[] | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
@@ -74,6 +76,12 @@ export default function PolizzaJobsPage() {
       const d = await res.json()
       setBatches(d.batches || [])
     } catch { setBatches([]) }
+    // Estrazioni singole (fuori batch), di tutti: stessa dashboard dei batch.
+    try {
+      const res = await fetch('/api/polizza/job')
+      const d = await res.json()
+      setSingles(d.jobs || [])
+    } catch { setSingles([]) }
   }, [])
 
   const loadDetail = useCallback(async (id: string) => {
@@ -294,6 +302,12 @@ export default function PolizzaJobsPage() {
                                                 ↻ {t('jobsDash.retry')}
                                               </button>
                                             )}
+                                            {(j.status === 'done' || j.status === 'canceled') && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                                                title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
+                                                ↻ {t('jobsDash.reprocess')}
+                                              </button>
+                                            )}
                                             {reusable && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                                                 title={t('jobsDash.reuseTitle')} onClick={() => reuseJobRow(j.jobId)}>
@@ -352,6 +366,124 @@ export default function PolizzaJobsPage() {
                               </table>
                             </>
                           )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Estrazioni singole (fuori batch), di tutti gli utenti ─────────────
+          Il DB le ha sempre conservate (PDF compresi): qui si vedono, si
+          esportano, si rilanciano — anche le COMPLETATE (rielaborazione col
+          motore corrente sugli stessi file). */}
+      <h2 style={{ fontSize: 15, margin: '26px 0 8px' }}>{t('jobsDash.singlesTitle')}</h2>
+      {singles === null && <p style={{ fontSize: 13 }}><span className="spinner" /></p>}
+      {singles !== null && singles.length === 0 && (
+        <div className="card" style={{ padding: 18, textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 13 }}>
+          {t('jobsDash.singlesEmpty')}
+        </div>
+      )}
+      {singles !== null && singles.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.dossierName')}</th>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.colOwner')}</th>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.dossierStatus')}</th>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.dossierFields')}</th>
+                <th style={{ padding: '10px 14px' }}>{t('jobsDash.colDate')}</th>
+                <th style={{ padding: '10px 14px', textAlign: 'right' }}>{t('jobsDash.colActions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {singles.map((j) => {
+                const active = j.status === 'running' || j.status === 'queued'
+                const failed = j.status === 'error'
+                const hasValues = Object.keys(j.values || {}).length > 0
+                const valuesOpen = showValues.has(j.jobId)
+                const logOpen = showLog.has(j.jobId)
+                const name = j.dossierName || (j.scannedFiles?.length
+                  ? `${j.scannedFiles[0]}${j.scannedFiles.length > 1 ? ` (+${j.scannedFiles.length - 1})` : ''}`
+                  : j.jobId.slice(0, 8))
+                return (
+                  <Fragment key={j.jobId}>
+                    <tr>
+                      <td style={{ padding: '8px 14px', fontSize: 12 }}>
+                        {hasValues && (
+                          <button type="button" onClick={() => setShowValues((p) => toggleIn(p, j.jobId))} title={t('jobsDash.showValues')}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-secondary)', fontSize: 11, padding: 0, marginRight: 6, width: 12 }}>
+                            {valuesOpen ? '▾' : '▸'}
+                          </button>
+                        )}
+                        {name}
+                      </td>
+                      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{j.owner || ''}</td>
+                      <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
+                        {statusLabel(j.status === 'canceled' ? 'error' : j.status)}
+                        {j.error ? ` — ${j.error.slice(0, 120)}` : ''}
+                      </td>
+                      <td style={{ padding: '8px 14px', fontSize: 12 }}>{Object.keys(j.values || {}).length}</td>
+                      <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-muted)' }}>{j.updatedAt ? fmtDate(j.updatedAt) : ''}</td>
+                      <td style={{ padding: '8px 14px', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {failed && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy} onClick={() => retryJobRow(j.jobId)}>
+                            ↻ {t('jobsDash.retry')}
+                          </button>
+                        )}
+                        {(j.status === 'done' || j.status === 'canceled') && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                            title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
+                            ↻ {t('jobsDash.reprocess')}
+                          </button>
+                        )}
+                        {hasValues && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} onClick={() => exportJobExcel(j)}>
+                            ⬇ Excel
+                          </button>
+                        )}
+                        {(j.logs?.length || 0) > 0 && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} onClick={() => setShowLog((p) => toggleIn(p, j.jobId))}>
+                            {logOpen ? t('jobsDash.hideLog') : 'Log'}
+                          </button>
+                        )}
+                        {active && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => cancelJobRow(j.jobId)}>
+                            {t('jobsDash.cancel')}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {valuesOpen && hasValues && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '4px 14px 10px 32px' }}>
+                          <table style={{ fontSize: 11 }}>
+                            <tbody>
+                              {Object.entries(j.values || {}).map(([k, v]) => (
+                                <tr key={k}>
+                                  <td style={{ color: 'var(--c-text-secondary)', paddingRight: 12 }}>{fieldLabel(j, k)}</td>
+                                  <td style={{ fontWeight: 600, paddingRight: 12 }}>{String(v)}</td>
+                                  <td style={{ color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                                    {j.sources?.[k] ? `${j.sources[k].file}${j.sources[k].page ? ` · pag. ${j.sources[k].page}` : ''}` : ''}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                    {logOpen && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '4px 14px 10px 32px' }}>
+                          <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto', margin: 0, color: 'var(--c-text-secondary)' }}>
+                            {(j.logs || []).slice(-30).join('\n')}
+                          </pre>
                         </td>
                       </tr>
                     )}

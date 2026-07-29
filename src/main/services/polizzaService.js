@@ -33,6 +33,7 @@ import {
   parsePureAmount, isPlaceholderValue, validateCodiceFiscaleIva,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
+  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -2400,9 +2401,39 @@ function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCt
     const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
     if (isStructuralField(field) && modelDoc && isPeriodicDocName(modelDoc)) { counters.guardrail++; continue }
 
+    const fieldText = `${field.id || ''} ${field.label || ''}`
+    // Attività assicurata: un rinvio ("l'attività per la quale è prestata
+    // l'assicurazione") non è una descrizione — scartato SEMPRE, anche a campo
+    // vuoto (meglio il recupero mirato che una frase fotocopiata).
+    if (/attivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; continue }
+    // Agenzia: la denominazione della compagnia (S.p.A./Assicurazioni…) non è
+    // un'agenzia — visto sul campo: "Generali Italia S.p.A." al posto di "MILANO 901".
+    if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; continue }
+
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
+
+    // Decorrenza: è la data CONTRATTUALE — quietanze/regolazioni riportano il
+    // periodo di RATA (visto sul campo: decorrenza=31/12/2024 dalla quietanza
+    // 2025). La scadenza invece DEVE aggiornarsi dai periodici (ultima copertura).
+    if (/decorrenz|\beffetto\b/i.test(fieldText) && srcDoc && isPeriodicDocName(srcDoc.name)) { counters.guardrail++; continue }
+    // P.IVA/CF: se nel documento sorgente il valore vive SOLO nel footer societario
+    // della compagnia (Sede legale/Registro Imprese/IVASS…), è l'identità
+    // dell'ASSICURATORE — visto sul campo: 00885351007 da "appendice 9" batteva
+    // per recency la P.IVA vera del contraente trovata dal seed sul frontespizio.
+    if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; continue }
+    // Campi strutturali (e preventivi/parametri) GIÀ valorizzati: il candidato di
+    // un documento più recente sostituisce solo se quel documento RIDEFINISCE il
+    // campo (etichetta vicino al valore; un massimale non crolla sotto il 20%).
+    const prev = best[k]
+    if (prev?.valore != null && String(prev.valore) !== '' && String(prev.valore) !== String(cleaned)
+        && (isStructuralField(field) || /preventiv|parametro/i.test(fieldText))
+        && srcDoc?.text
+        && isSuspectStructuralOverride(field, prev.valore, cleaned, srcDoc.text)) {
+      counters.guardrail++
+      continue
+    }
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
     // candidati datati correttamente.

@@ -351,6 +351,17 @@ export async function getJobFiles(id: string): Promise<{ idx: number; file_name:
   return rows
 }
 
+// Estrazioni SINGOLE (fuori batch) di tutti gli utenti, per la pagina
+// Elaborazioni: il DB le ha sempre conservate (PDF compresi), questa vista le
+// rende visibili, esportabili e rilanciabili come i batch. Le più recenti prima.
+export async function listSingleJobs(limit = 100): Promise<JobRow[]> {
+  const { rows } = await pool.query<JobRow>(
+    `SELECT * FROM polizza_jobs WHERE batch_id IS NULL ORDER BY created_at DESC LIMIT $1`,
+    [Math.max(1, Math.min(500, limit))]
+  )
+  return rows
+}
+
 // Job singoli (non appartenenti a un batch) da riprendere al boot. I job figli di
 // un batch sono esclusi qui: la loro ripresa è sequenziale, guidata dall'orchestratore
 // batch (vedi listActiveBatchIds/polizzaBatchWorker), non da un avvio in parallelo.
@@ -400,16 +411,19 @@ export function jobSnapshot(job: JobRow) {
   }
 }
 
-// Rilancio di un job fallito/annullato: riporta il job in coda azzerando errore,
-// cursore, progresso e stato rolling (ri-inizializzato dai field_defs congelati
-// all'upload). I PDF sono già in polizza_job_files → nessun ri-upload. Ritorna
-// la riga aggiornata (serve il batch_id per riavviare l'orchestratore giusto),
-// null se il job non esiste o non è in stato rilanciabile.
+// Rilancio di un job: riporta il job in coda azzerando errore, cursore,
+// progresso e stato rolling (ri-inizializzato dai field_defs congelati
+// all'upload). Vale per i FALLITI/ANNULLATI (riprova) ma anche per i COMPLETATI
+// (rielaborazione: i PDF sono già in polizza_job_files, un motore migliorato può
+// dare risultati migliori sugli stessi file — è il senso di avere il database).
+// Ritorna la riga aggiornata (serve il batch_id per riavviare l'orchestratore
+// giusto), null se il job non esiste o è in corso.
 export async function resetJobForRetry(id: string, byEmail?: string): Promise<JobRow | null> {
   const job = await getJob(id)
-  if (!job || (job.status !== 'error' && job.status !== 'canceled')) return null
+  if (!job || job.status === 'running' || job.status === 'queued') return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
-  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Rilancio manuale${byEmail ? ` da ${byEmail}` : ''} —`)
+  const verb = job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
+  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''} —`)
   await updateJob(id, {
     status: 'queued',
     error: null,

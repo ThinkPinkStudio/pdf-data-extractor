@@ -197,6 +197,111 @@ function matchTokens(s) {
     .filter((t) => t.length >= 3)
 }
 
+// ─── Guardie di merge (visti sul campo: run EULIP 18:24) ─────────────────────
+// La regola "il documento più recente vince" è giusta quando il documento nuovo
+// RIDEFINISCE davvero il campo (rinnovo con nuovi massimali). Ma un batch di sole
+// appendici, interrogato su 10 campi, propone numeri qualsiasi (sub-limiti,
+// franchigie, premi) che passano l'evidenza perché ESISTONO nel testo — e da
+// documenti "più recenti" della polizza non datata sovrascrivevano i valori
+// giusti del frontespizio (massimale 4.000.000 → "€. 10.000"). Queste guardie
+// pure decidono quando un candidato NON può sostituire un valore esistente.
+
+// Parse permissivo di importo (accetta anche "€. 10.000,00" e testo attorno).
+export function looseAmount(v) {
+  const m = String(v == null ? '' : v).match(/\d[\d.\s]*(?:,\d+)?/)
+  if (!m) return null
+  const n = parseFloat(m[0].replace(/[\s.]/g, '').replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+// Stemmi "forti" (≥5 char, troncati a 7) di etichetta+id del campo: per capire se
+// il testo attorno al valore parla DAVVERO di quel campo.
+export function fieldLabelStems(field) {
+  const words = `${field?.label || ''} ${String(field?.id || '').replace(/[_-]+/g, ' ')}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z]+/)
+    .filter((w) => w.length >= 5)
+  return [...new Set(words.map((w) => w.slice(0, 7)))]
+}
+
+/**
+ * true se ALMENO un'occorrenza del valore nel testo del documento ha, entro
+ * `span` caratteri (nel testo normalizzato), uno stem dell'etichetta del campo.
+ * false anche quando il valore non compare affatto nel testo.
+ */
+export function hasLabelEvidenceNear(docText, value, field, span = 200) {
+  const norm = normForMatch(docText)
+  const nv = normForMatch(value)
+  if (!norm || !nv || nv.length < 3) return false
+  const stems = fieldLabelStems(field)
+  if (!stems.length) return true // etichetta senza parole forti: guardia non applicabile
+  let idx = norm.indexOf(nv)
+  while (idx !== -1) {
+    const win = norm.slice(Math.max(0, idx - span), idx + nv.length + span)
+    if (stems.some((s) => win.includes(s))) return true
+    idx = norm.indexOf(nv, idx + 1)
+  }
+  return false
+}
+
+/**
+ * Override SOSPETTO di un campo strutturale già valorizzato.
+ * - massimali: un massimale non crolla mai al di sotto del 20% del valore
+ *   corrente per via di un rinnovo (4.000.000 → 10.000 è un sub-limite pescato
+ *   male da una clausola);
+ * - tutti: il nuovo documento deve parlare del campo vicino al valore
+ *   (stem dell'etichetta entro la finestra), altrimenti non lo sta ridefinendo.
+ * @returns {boolean} true = rifiutare il candidato, tenere il valore esistente
+ */
+export function isSuspectStructuralOverride(field, oldValue, newValue, newDocText) {
+  const isMassimale = /massimal/i.test(`${field?.id || ''} ${field?.label || ''}`)
+  if (isMassimale) {
+    const oldAmt = looseAmount(oldValue)
+    const newAmt = looseAmount(newValue)
+    if (oldAmt != null && newAmt != null && newAmt < oldAmt * 0.2) return true
+  }
+  if (newDocText && !hasLabelEvidenceNear(newDocText, newValue, field)) return true
+  return false
+}
+
+// Valore di "attività assicurata" che è un RINVIO o una parafrasi della domanda
+// ("l'attività per la quale è prestata l'assicurazione") invece della
+// descrizione concreta: una vera attività non parla di assicurazione/polizza.
+export function isRinvioAttivita(value) {
+  const v = String(value || '').trim()
+  if (v.length < 12) return true
+  // NB: \w non matcha le lettere accentate ("attività") → \S*
+  return /assicurazion|assicurat|polizz|garanz|per la quale|di cui (?:alla|sopra)|indicat[ao] (?:in|nella)|descritt[ao] (?:in|nella)|attivit\S*\s+(?:della|del|di)\s+(?:spett|ditta|contraente|azienda)/i.test(v)
+}
+
+// Valore di "agenzia" che in realtà è la denominazione della COMPAGNIA
+// (forma societaria/marchio assicurativo): l'agenzia vera è una piazza
+// ("MILANO 901", "AGENZIA DI ACQUI TERME"), mai una società per azioni.
+export function isCompanyNameAsAgency(value) {
+  return /\bs\.?\s*p\.?\s*a\b|\bs\.?\s*r\.?\s*l\b|societa|società|\bassicurazioni\b|\bcompagnia\b/i.test(String(value || ''))
+}
+
+// P.IVA/CF che nel documento sorgente compare SOLO nel footer societario della
+// compagnia (Sede legale… Registro Imprese… Capitale Sociale… IVASS): è
+// l'identità dell'assicuratore, mai quella del contraente.
+const INSURER_FOOTER_RE = /sede\s+legale|capitale\s+sociale|impresa\s+autorizzata|registro\s+(?:delle\s+)?imprese|ivass|direzione\s+e\s+coordinamento|r\.?\s*e\.?\s*a\.?\s*n/i
+export function isInsurerFooterPIva(docText, value) {
+  const text = String(docText || '')
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!text || digits.length < 10) return false
+  let found = false
+  // Occorrenze del valore anche con separatori OCR in mezzo (spazi/punti)
+  const re = new RegExp(digits.split('').join('[\\s.]?'), 'g')
+  for (const m of text.matchAll(re)) {
+    found = true
+    const around = text.slice(Math.max(0, m.index - 200), m.index + m[0].length + 120)
+    if (!INSURER_FOOTER_RE.test(around)) return false // almeno un'occorrenza "pulita"
+  }
+  return found // trovato, e SOLO in contesto footer
+}
+
 /**
  * Verifica che un valore estratto sia davvero ancorato al TESTO inviato al
  * modello ("meglio vuoto che sbagliato", ma tarata per non scartare le semplici
