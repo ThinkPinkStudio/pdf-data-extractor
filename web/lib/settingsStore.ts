@@ -68,6 +68,10 @@ export interface WebSettings {
   // Bulk (cartella intera di polizze): nomi di cartelle aggiuntivi da escludere
   // sempre dall'enumerazione, oltre alla baseline hardcoded (vedi bulkExclusions.ts).
   bulkExcludedFolderNames?: string
+  // Parole cercate come sottostringa nell'intero percorso: da accettare (vuoto =
+  // accetta tutto) e da scartare. Valori di partenza, ritoccabili nella pagina bulk.
+  bulkIncludeKeywords?: string
+  bulkExcludeKeywords?: string
   // Indice vettoriale (Qdrant locale + embeddings Ollama). Vuoto = disattivato.
   qdrantUrl?: string
   qdrantCollection?: string
@@ -176,6 +180,8 @@ export async function getSettings(): Promise<WebSettings> {
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
+    bulkIncludeKeywords: map.bulkIncludeKeywords ?? '',
+    bulkExcludeKeywords: map.bulkExcludeKeywords ?? '',
     // Default dall'ambiente (docker-compose imposta QDRANT_URL); il valore
     // salvato nelle Impostazioni vince sempre.
     qdrantUrl: map.qdrantUrl ?? (process.env.QDRANT_URL || ''),
