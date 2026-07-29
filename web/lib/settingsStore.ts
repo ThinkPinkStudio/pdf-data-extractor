@@ -15,6 +15,9 @@ export interface PolizzaProfile {
   id: string
   name: string
   fields: PolizzaField[]
+  // Parole (virgole/;/newline) cercate come sottostringa nel percorso/nome cartella
+  // per il pre-filtro e l'auto-riconoscimento del tipo nel bulk. Vuoto = usa `name`.
+  matchKeywords?: string
   promptExtra?: string
   ocrEnabled?: boolean
   wholeDossier?: boolean

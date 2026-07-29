@@ -18,6 +18,7 @@ interface Profile {
   name: string
   fields: Field[]
   promptExtra?: string
+  matchKeywords?: string
 }
 
 function parseCells(str: string): Cell[] {
@@ -45,6 +46,7 @@ export default function PolizzaFieldsEditor() {
   const [promptExtra, setPromptExtra] = useState('')
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [profileName, setProfileName] = useState('')
+  const [profileKeywords, setProfileKeywords] = useState('')
   const [cellText, setCellText] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -119,9 +121,17 @@ export default function PolizzaFieldsEditor() {
 
   async function saveProfile() {
     if (!profileName.trim()) return
-    const next = [...profiles, { id: String(Date.now()), name: profileName.trim(), fields, promptExtra }]
-    setProfiles(next); setProfileName('')
+    const next = [...profiles, { id: String(Date.now()), name: profileName.trim(), fields, promptExtra, matchKeywords: profileKeywords.trim() }]
+    setProfiles(next); setProfileName(''); setProfileKeywords('')
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
+  }
+  // Modifica in linea delle parole di abbinamento di un profilo esistente (usate nel
+  // bulk per pre-filtro e auto-riconoscimento). Persiste su blur.
+  function setProfileKw(id: string, value: string) {
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, matchKeywords: value } : p)))
+  }
+  async function persistProfiles(list: Profile[]) {
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: list }) })
   }
   // Persiste subito i campi/prompt correnti (come fa il desktop): così l'applicazione
   // o l'import di un profilo non va persa uscendo dalla pagina senza premere "Salva".
@@ -260,7 +270,9 @@ export default function PolizzaFieldsEditor() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
             {profiles.map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--c-bg-card-alt)', borderRadius: 'var(--r-sm)', border: '1px solid var(--c-border)' }}>
-                <span style={{ flex: 1, fontSize: 13 }}>{p.name} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
+                <span style={{ flex: '1 1 140px', fontSize: 13 }}>{p.name} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
+                <input value={p.matchKeywords || ''} onChange={(e) => setProfileKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                  placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => delProfile(p.id)}>{t('common.cancel')}</button>
               </div>
@@ -268,7 +280,8 @@ export default function PolizzaFieldsEditor() {
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder={t('set.profileName')} style={{ flex: '1 1 160px', fontSize: 13 }} />
+          <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder={t('set.profileName')} style={{ flex: '1 1 140px', fontSize: 13 }} />
+          <input value={profileKeywords} onChange={(e) => setProfileKeywords(e.target.value)} placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <button type="button" className="btn btn-secondary" onClick={saveProfile} disabled={!profileName.trim()}>{t('set.saveProfile')}</button>
           <button type="button" className="btn btn-secondary" onClick={exportProfiles} disabled={!profiles.length}>{t('set.exportJson')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}>{t('set.importJson')}</button>

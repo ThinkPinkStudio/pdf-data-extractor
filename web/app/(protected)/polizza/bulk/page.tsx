@@ -5,6 +5,14 @@ import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { groupPathsByDossier, displayDossierName, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
 import { parseExclusionList, parseKeywords, makeFilters, type SkipReason } from '@/lib/bulkExclusions'
+import type { PolizzaProfile } from '@/lib/settingsStore'
+
+// Parole di abbinamento di un profilo per il pre-filtro e l'auto-riconoscimento del
+// tipo: quelle esplicite (matchKeywords) o, se vuote, il nome del profilo.
+function profileKeywords(p: PolizzaProfile): string[] {
+  const kw = parseKeywords(p.matchKeywords || '')
+  return kw.length ? kw : parseKeywords(p.name)
+}
 
 const ERROR_BOX_STYLE: CSSProperties = {
   marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,.08)',
@@ -61,6 +69,12 @@ export default function PolizzaBulkPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())      // dossier con lista file aperta
   const mergeCounter = useRef(0)
 
+  // Profili/tipi: elenco, tipo predefinito e scelta per-dossier (chiave = gid finale).
+  const [profiles, setProfiles] = useState<PolizzaProfile[]>([])
+  const [defaultType, setDefaultType] = useState('')                    // id profilo predefinito
+  const [profileOf, setProfileOf] = useState<Record<string, string>>({}) // gid → id profilo
+  const [manualProfile, setManualProfile] = useState<Set<string>>(new Set()) // gid con scelta manuale
+
   const [batchId, setBatchId] = useState<string | null>(null)
   const [phase, setPhase] = useState<'select' | 'uploading' | 'started'>('select')
   const [dossierStatus, setDossierStatus] = useState<Record<string, DossierStatus>>({})
@@ -77,6 +91,7 @@ export default function PolizzaBulkPage() {
       setExtraExclusions(parseExclusionList(s.bulkExcludedFolderNames))
       setIncludeText(s.bulkIncludeKeywords || '')
       setExcludeText(s.bulkExcludeKeywords || '')
+      setProfiles(Array.isArray(s.polizzaProfiles) ? s.polizzaProfiles : [])
     }).catch(() => {})
   }, [])
 
@@ -100,6 +115,8 @@ export default function PolizzaBulkPage() {
     setGroupOf({})
     setSelected(new Set())
     setExpanded(new Set())
+    setProfileOf({})
+    setManualProfile(new Set())
   }, [files, filters])
 
   function handlePick(fileList: FileList | null) {
@@ -146,6 +163,30 @@ export default function PolizzaBulkPage() {
     }))
   }, [baseDossiers, included, groupOf, root])
 
+  // Auto-riconoscimento del profilo di un dossier dal percorso: primo profilo la cui
+  // parola di abbinamento compare (sottostringa, case-insensitive) nel label/percorso.
+  function detectProfile(label: string): string {
+    const path = label.toLowerCase()
+    for (const p of profiles) {
+      if (profileKeywords(p).some((k) => path.includes(k))) return p.id
+    }
+    return ''
+  }
+  // Assegna a ogni dossier (gid) il profilo: auto-riconosciuto dal nome, altrimenti il
+  // tipo predefinito. Le scelte manuali (manualProfile) vengono preservate.
+  useEffect(() => {
+    setProfileOf((prev) => {
+      const next: Record<string, string> = {}
+      for (const d of finalDossiers) {
+        next[d.gid] = (manualProfile.has(d.gid) && prev[d.gid] !== undefined)
+          ? prev[d.gid]
+          : (detectProfile(d.label) || defaultType)
+      }
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalDossiers, profiles, defaultType, manualProfile])
+
   const detectedFiles = baseDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
   const selectedFiles = finalDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
   const doneCount = Object.values(dossierStatus).filter((s) => s === 'done').length
@@ -158,6 +199,18 @@ export default function PolizzaBulkPage() {
   }
   function toggleExpand(name: string) {
     setExpanded((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n })
+  }
+  // Scelta manuale del profilo per un dossier: vince sull'auto-riconoscimento.
+  function chooseProfile(gid: string, id: string) {
+    setProfileOf((p) => ({ ...p, [gid]: id }))
+    setManualProfile((p) => new Set(p).add(gid))
+  }
+  // Tipo predefinito: imposta il profilo di default e, se ha parole di abbinamento,
+  // riempie il filtro "parole da accettare" → l'elenco mostra solo le cartelle di quel tipo.
+  function applyDefaultType(id: string) {
+    setDefaultType(id)
+    const p = profiles.find((x) => x.id === id)
+    if (p) setIncludeText(profileKeywords(p).join(', '))
   }
   // Nomi file (basename) di un dossier-foglia, per la lista espandibile.
   const fileNamesOf = (d: GroupedDossier) => d.fileIndexes.map((idx) => fileRelPath(files[idx]).split('/').pop() || fileRelPath(files[idx]))
@@ -198,6 +251,8 @@ export default function PolizzaBulkPage() {
       // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
       form.append('includeWords', includeText)
       form.append('excludeWords', excludeText)
+      const pid = profileOf[d.gid]
+      if (pid) form.append('profileId', pid) // profilo/tipo scelto per questo dossier
       for (const idx of d.fileIndexes) {
         form.append('pdf', files[idx])
         form.append('path', fileRelPath(files[idx]))
@@ -291,6 +346,16 @@ export default function PolizzaBulkPage() {
 
           <div className="card" style={{ padding: 16, marginBottom: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{t('bulk.filtersTitle')}</p>
+            {profiles.length > 0 && (
+              <div className="form-group">
+                <label className="label" htmlFor="bulk-type">{t('bulk.defaultType')}</label>
+                <select id="bulk-type" value={defaultType} onChange={(e) => applyDefaultType(e.target.value)}>
+                  <option value="">{t('bulk.noType')}</option>
+                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('bulk.defaultTypeHelp')}</p>
+              </div>
+            )}
             <div className="form-group">
               <label className="label" htmlFor="bulk-include">{t('bulk.includeLabel')}</label>
               <input id="bulk-include" value={includeText} onChange={(e) => setIncludeText(e.target.value)} placeholder={t('bulk.includePlaceholder')} />
@@ -358,6 +423,7 @@ export default function PolizzaBulkPage() {
                       <th style={{ width: 56, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colProcessHelp')}>{t('bulk.colProcess')}</th>
                       <th style={{ width: 48, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colMergeHelp')}>{t('bulk.colMerge')}</th>
                       <th style={{ textAlign: 'left', fontWeight: 600 }}>{t('bulk.colDossier')}</th>
+                      {profiles.length > 0 && <th style={{ textAlign: 'left', fontWeight: 600 }}>{t('bulk.colProfile')}</th>}
                       <th style={{ textAlign: 'right', fontWeight: 600 }}>{t('bulk.colFiles')}</th>
                     </tr>
                   </thead>
@@ -392,13 +458,21 @@ export default function PolizzaBulkPage() {
                               </span>
                             )}
                           </td>
+                          {profiles.length > 0 && (
+                            <td style={{ fontSize: 12 }}>
+                              <select value={profileOf[gid] || ''} disabled={!inc} onChange={(e) => chooseProfile(gid, e.target.value)} style={{ fontSize: 11, padding: '2px 4px', maxWidth: 160 }}>
+                                <option value="">{t('bulk.globalFields')}</option>
+                                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </select>
+                            </td>
+                          )}
                           <td style={{ fontSize: 12, color: 'var(--c-text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>{t('bulk.dossierFiles', { n: d.fileIndexes.length })}</td>
                         </tr>
                         {isOpen && (
                           <tr>
                             <td />
                             <td />
-                            <td colSpan={2} style={{ paddingBottom: 8 }}>
+                            <td colSpan={profiles.length > 0 ? 3 : 2} style={{ paddingBottom: 8 }}>
                               <ul style={{ margin: 0, paddingLeft: 16, listStyle: 'disc' }}>
                                 {fileNamesOf(d).map((name, k) => (
                                   <li key={k} style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{name}</li>

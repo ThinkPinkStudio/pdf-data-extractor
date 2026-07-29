@@ -71,6 +71,16 @@ async function runJob(jobId: string): Promise<void> {
   if (job.status === 'done' || job.status === 'canceled' || job.status === 'error') return
 
   const settings = await getSettings()
+  // Profilo per-dossier: lo snapshot di campi/prompt congelato all'upload vince sul
+  // globale. Tutti i path del servizio condiviso leggono settings.polizzaFields /
+  // polizzaPromptExtra, quindi override qui li propaga senza toccare polizzaService.js.
+  // (Vale anche per i job singoli: field_defs prima era salvato ma ignorato.)
+  if (Array.isArray(job.field_defs) && job.field_defs.length > 0) {
+    settings.polizzaFields = job.field_defs.map((f) => ({ ...f, description: f.description ?? '' }))
+  }
+  if (job.prompt_extra != null) {
+    settings.polizzaPromptExtra = job.prompt_extra
+  }
   const files = await getJobFiles(jobId)
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   await updateJob(jobId, { status: 'running' })

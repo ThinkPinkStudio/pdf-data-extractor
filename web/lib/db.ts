@@ -94,6 +94,9 @@ export async function initDb() {
     -- polizza_jobs già esistente in produzione (deploy precedenti al batch).
     ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS batch_id TEXT REFERENCES batch_jobs(id) ON DELETE CASCADE;
     ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS dossier_name TEXT;
+    -- Prompt extra (istruzioni AI) del profilo scelto per questo dossier, congelato
+    -- all'upload: il worker lo usa al posto del settings.polizzaPromptExtra globale.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS prompt_extra TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_email ON polizza_jobs(email);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);
