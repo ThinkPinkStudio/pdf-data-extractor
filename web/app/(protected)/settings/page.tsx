@@ -74,6 +74,10 @@ export default function SettingsPage() {
   const EDITOR_KEYS = new Set([
     'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles', 'polizzaWholeDossierModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses', 'extractions', 'profiles',
+    // Switch strategia (card campi polizza, persiste da solo al cambio): senza
+    // questa esclusione il "Salva impostazioni" della pagina lo sovrascriveva
+    // col valore stantio caricato al mount → "torna sempre a gruppi".
+    'polizzaStagedCascade',
   ])
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
