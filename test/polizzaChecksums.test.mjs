@@ -29,6 +29,7 @@ import {
   isCompanyNameAsAgency,
   isInsurerFooterPIva,
   pickSemanticCandidate,
+  docTypeHintFromDescription,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -314,4 +315,31 @@ test('arbitro semantico: senza affinità su entrambi → pura recency; slot vuot
   const b = { valore: 'EULIP SRL', effDate: '31/12/2025', docType: 'quietanza', affinity: null }
   assert.equal(pickSemanticCandidate(a, b, kind), b)
   assert.equal(pickSemanticCandidate(null, a, kind), a)
+})
+
+test('ancora tipo documento: descrizione con "quietanza" → la quietanza vince la regolazione anche a pari data', () => {
+  const kind = 'economici'
+  // Caso reale EULIP: quietanza 2025 datata 31/12/2024 (scadenza rata) =
+  // stessa data della regolazione 2024 → prima dell'ancora vinceva la
+  // regolazione per priorità tassonomica (imposta 528 invece di 1.001,25).
+  const regolazione = { valore: '528', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.63 }
+  const quietanza = { valore: '1.001,25', effDate: '31/12/2024', docType: 'quietanza', affinity: 0.54 }
+  const opts = { docTypeHint: 'quietanza' }
+  assert.equal(pickSemanticCandidate(regolazione, quietanza, kind, opts), quietanza)
+  // Vale in entrambi gli ordini di arrivo
+  assert.equal(pickSemanticCandidate(quietanza, regolazione, kind, opts), quietanza)
+  // Tra due quietanze l'ancora è neutra: decide la recency ("la più recente")
+  const q2024 = { valore: '962,00', effDate: '31/12/2023', docType: 'quietanza', affinity: 0.5 }
+  assert.equal(pickSemanticCandidate(q2024, quietanza, kind, opts), quietanza)
+  // Senza ancora il comportamento resta quello di prima: a pari data la
+  // priorità tassonomica dà i campi economici alla regolazione — è ESATTAMENTE
+  // il caso che l'ancora serve a ribaltare.
+  assert.equal(pickSemanticCandidate(quietanza, regolazione, kind), regolazione)
+})
+
+test('ancora tipo documento: docTypeHintFromDescription riconosce quietanza/regolazione e ignora "polizza"', () => {
+  assert.equal(docTypeHintFromDescription({ description: "Imposta totale dalla QUIETANZA più recente", label: 'Imposta' }), 'quietanza')
+  assert.equal(docTypeHintFromDescription({ description: 'Premio di conguaglio dalla regolazione', label: '' }), 'regolazione')
+  assert.equal(docTypeHintFromDescription({ description: 'Massimale per sinistro della polizza', label: '' }), null)
+  assert.equal(docTypeHintFromDescription(null), null)
 })

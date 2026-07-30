@@ -34,7 +34,7 @@ import {
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
-  hasLabelEvidenceNear, pickSemanticCandidate,
+  hasLabelEvidenceNear, pickSemanticCandidate, docTypeHintFromDescription,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -2523,7 +2523,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     }
     // ARBITRO SEMANTICO: affinità nettamente diversa → vince la più alta;
     // collasso numerico >80% solo con affinità superiore; comparabili → recency.
-    const won = pickSemanticCandidate(best[k], cand, kindOf[k])
+    // Ancora di tipo documento dichiarata nella descrizione del campo (es.
+    // "…dalla quietanza più recente" → i candidati quietanza vincono l'arbitrato).
+    const won = pickSemanticCandidate(best[k], cand, kindOf[k], { docTypeHint: docTypeHintFromDescription(field) })
     note(k, won === cand ? 'ok' : 'ok-ma-perde-merge', cleaned, cand.affinity)
     best[k] = won
     accepted++
