@@ -283,6 +283,21 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
  * 3. affinità comparabili (o non calcolabili): decide la RECENCY — i dati nuovi
  *    sovrascrivono i vecchi, regola invariata.
  */
+// ANCORA per tipo documento dichiarata nella DESCRIZIONE del campo: se la
+// descrizione nomina esplicitamente "quietanza" o "regolazione", i candidati di
+// quel tipo vincono l'arbitrato sui candidati di altro tipo — deterministico,
+// controllabile dall'utente, zero rumore embeddings. Root cause sul campo: la
+// quietanza 2025 porta data 31/12/2024 (scadenza rata) → PAREGGIO di recency
+// con la regolazione 2024 → la priorità tassonomica dava imposta/premio alla
+// regolazione. "polizza"/"appendice" NON sono ancore: compaiono in quasi tutte
+// le descrizioni ("...della polizza") e ancorerebbero tutto per sbaglio.
+export function docTypeHintFromDescription(field) {
+  const txt = `${field?.description || ''} ${field?.label || ''}`.toLowerCase()
+  if (/quietanz/.test(txt)) return 'quietanza'
+  if (/regolazion/.test(txt)) return 'regolazione'
+  return null
+}
+
 export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   // Margini ASIMMETRICI e prudenti — tarati sul campo: con margine unico 0.06
   // il rumore degli embeddings su finestre corte/numeriche RIBALTAVA la recency
@@ -301,6 +316,14 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2
   if (collapse && !(a0 != null && a1 != null && a1 - a0 > promoteMargin)) return oldC
+  // ANCORA di tipo documento (dalla descrizione del campo): tra tipi diversi
+  // vince il tipo ancorato, PRIMA di affinità e recency. Tra candidati dello
+  // stesso tipo si prosegue normalmente (recency: "la quietanza più recente").
+  const hint = opts.docTypeHint || null
+  if (hint && oldC.docType !== newC.docType) {
+    if (oldC.docType === hint) return oldC
+    if (newC.docType === hint) return newC
+  }
   if (a0 != null && a1 != null) {
     if (a1 - a0 > promoteMargin) return newC
     if (a0 - a1 > vetoMargin) return oldC
