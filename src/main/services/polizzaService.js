@@ -541,32 +541,22 @@ async function callOllama(settings, systemPrompt, userPrompt) {
   const promptTokens = estimateOllamaTokens((systemPrompt?.length || 0) + (userPrompt?.length || 0))
   const capCtx = Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384)
   const numCtx = Math.min(capCtx, Math.max(8192, Math.ceil((promptTokens + NUM_PREDICT + 512) / 1024) * 1024))
-  const res = await resilientFetch(`${url}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: settings.ollamaModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt   }
-      ],
-      stream: false,
-      format: 'json',          // ← grammar-constrained JSON output
-      ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
-      options: {
-        num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
-        temperature: 0,        // output deterministico
-        num_predict: NUM_PREDICT // max token risposta
-      }
-    }),
-    signal: AbortSignal.timeout(180000) // 3 min per modelli locali lenti
+  // Streaming + watchdog per token (vedi ollamaChatStream): lento ≠ morto.
+  const { content } = await ollamaChatStream(url, {
+    model: settings.ollamaModel,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt   }
+    ],
+    format: 'json',          // ← grammar-constrained JSON output
+    ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
+    options: {
+      num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
+      temperature: 0,        // output deterministico
+      num_predict: NUM_PREDICT // max token risposta
+    }
   })
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
-  }
-  const data = await res.json()
-  return (data.message?.content || '').trim()
+  return content.trim()
 }
 
 function parseJsonResponse(raw) {
@@ -1136,6 +1126,76 @@ async function getOllamaContextLimit(settings, model) {
   return limit
 }
 
+// ─── Streaming NDJSON con watchdog per token ─────────────────────────────────
+// stream:true è ciò che rende i timeout VERI: chiudere la connessione fa
+// cancellare a Ollama la generazione lato server (con stream:false continuava
+// per conto suo → generazioni-zombie che tenevano la GPU per ore e "Stopping…"
+// infiniti). Il watchdog distingue LENTO da MORTO:
+//   - primo chunk: attesa generosa (caricamento modello da disco + lettura del
+//     prompt non producono token — su modelli che sbordano su CPU sono minuti);
+//   - poi: se nessun token arriva per stallMs il run è morto → abort;
+//   - hardCapMs: tetto assoluto contro i loop infiniti.
+// Finché i token arrivano, NESSUN timeout: un batch legittimo può durare 15 min.
+async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs = 120000, hardCapMs = 1800000 } = {}) {
+  const ac = new AbortController()
+  const startedAt = Date.now()
+  let lastChunkAt = null // null = primo chunk non ancora arrivato
+  let abortReason = null
+  const watchdog = setInterval(() => {
+    const now = Date.now()
+    const sinceChunk = now - (lastChunkAt ?? startedAt)
+    const budget = lastChunkAt == null ? firstChunkMs : stallMs
+    if (sinceChunk > budget) {
+      abortReason = lastChunkAt == null
+        ? `nessuna risposta dal modello entro ${Math.round(firstChunkMs / 60000)} min (caricamento/prompt)`
+        : `nessun token per ${Math.round(stallMs / 1000)}s (generazione in stallo)`
+      ac.abort()
+    } else if (now - startedAt > hardCapMs) {
+      abortReason = `superato il tetto di ${Math.round(hardCapMs / 60000)} min`
+      ac.abort()
+    }
+  }, 5000)
+  try {
+    const res = await resilientFetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal: ac.signal
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = '', content = '', promptEval = null, evalCount = null
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      lastChunkAt = Date.now()
+      buf += decoder.decode(value, { stream: true })
+      let nl
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim()
+        buf = buf.slice(nl + 1)
+        if (!line) continue
+        try {
+          const j = JSON.parse(line)
+          if (j.message?.content) content += j.message.content
+          if (j.done) { promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
+        } catch { /* riga NDJSON parziale: completata al prossimo chunk */ }
+      }
+    }
+    return { content, promptEval, evalCount }
+  } catch (err) {
+    // L'abort chiude la connessione → Ollama CANCELLA la generazione (niente zombie).
+    if (abortReason) throw new Error(`Ollama interrotto: ${abortReason}`)
+    throw err
+  } finally {
+    clearInterval(watchdog)
+  }
+}
+
 /**
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
  * Ogni batch è piccolo → contesto ridotto → risparmio RAM massiccio su macchine 8-16 GB.
@@ -1152,37 +1212,25 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
   // letti dal server.
   const diag = Array.isArray(opts.diag) ? opts.diag : null
   const startedAt = Date.now()
-  const res = await resilientFetch(`${url}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: settings.ollamaModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt   }
-      ],
-      stream: false,
-      format: 'json',
-      ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
-      options: {
-        num_ctx:     numCtx,
-        temperature: 0,
-        num_predict: opts.numPredict || 3000
-      }
-    }),
-    // Default 3 min: i modelli locali possono essere lenti, soprattutto alla prima
-    // chiamata (caricamento modello) o quando lo stato si riempie
-    signal: AbortSignal.timeout(timeoutMs)
-  })
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`Ollama rolling error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
-  }
-  const data = await res.json()
+  // Streaming + watchdog per token: LENTO va avanti (anche 15+ min se i token
+  // arrivano), MORTO viene tagliato e la generazione cancellata lato server.
+  // Il vecchio timeoutMs cieco sopravvive solo come componente del tetto duro.
+  const { content, promptEval, evalCount } = await ollamaChatStream(url, {
+    model: settings.ollamaModel,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt   }
+    ],
+    format: 'json',
+    ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
+    options: {
+      num_ctx:     numCtx,
+      temperature: 0,
+      num_predict: opts.numPredict || 3000
+    }
+  }, { hardCapMs: Math.max(timeoutMs * 4, 1800000) })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
-    const promptEval = data.prompt_eval_count ?? null
-    const evalCount = data.eval_count ?? null
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
       (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
       (evalCount != null ? ` · token generati: ${evalCount}` : ''))
@@ -1196,7 +1244,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
         `Aumenta num_ctx o riduci i documenti per chiamata.`)
     }
   }
-  return (data.message?.content || '').trim()
+  return content.trim()
 }
 
 async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base64Image) {
