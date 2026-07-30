@@ -292,6 +292,12 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
 // regolazione. "polizza"/"appendice" NON sono ancore: compaiono in quasi tutte
 // le descrizioni ("...della polizza") e ancorerebbero tutto per sbaglio.
 export function docTypeHintFromDescription(field) {
+  // 1) FONTE ESPLICITA (dropdown «Fonte» dell'editor campi): vince su tutto.
+  //    Essendo esplicita non ha falsi positivi, quindi sono ammessi anche
+  //    'polizza' e 'appendice' (vietati come ancore testuali, vedi sotto).
+  const explicit = String(field?.docHint || '').trim().toLowerCase()
+  if (['quietanza', 'regolazione', 'polizza', 'appendice'].includes(explicit)) return explicit
+  // 2) Ancora TESTUALE dalla descrizione: solo quietanza/regolazione.
   const txt = `${field?.description || ''} ${field?.label || ''}`.toLowerCase()
   if (/quietanz/.test(txt)) return 'quietanza'
   if (/regolazion/.test(txt)) return 'regolazione'

@@ -343,3 +343,21 @@ test('ancora tipo documento: docTypeHintFromDescription riconosce quietanza/rego
   assert.equal(docTypeHintFromDescription({ description: 'Massimale per sinistro della polizza', label: '' }), null)
   assert.equal(docTypeHintFromDescription(null), null)
 })
+
+test('fonte esplicita (dropdown): docHint vince sul testo e ammette polizza/appendice', () => {
+  // Esplicita: qualunque dei 4 tipi, anche se la descrizione dice altro
+  assert.equal(docTypeHintFromDescription({ docHint: 'appendice', description: 'dalla quietanza più recente' }), 'appendice')
+  assert.equal(docTypeHintFromDescription({ docHint: 'polizza', description: '' }), 'polizza')
+  assert.equal(docTypeHintFromDescription({ docHint: 'QUIETANZA', description: '' }), 'quietanza')
+  // Valore sconosciuto → si torna al testo
+  assert.equal(docTypeHintFromDescription({ docHint: 'boh', description: 'premio dalla regolazione' }), 'regolazione')
+  // Nessuna fonte, nessun testo-ancora → null
+  assert.equal(docTypeHintFromDescription({ docHint: '', description: 'importo del massimale' }), null)
+  // L'ancora esplicita 'appendice' funziona nell'arbitro: appendice batte
+  // regolazione più recente (caso importo preventivo: 1.800.000 dall'appendice
+  // di rinnovo contro il consuntivo della regolazione)
+  const kind = 'economici'
+  const regolazione = { valore: '1.809.600,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.55 }
+  const appendice = { valore: '1.800.000,00', effDate: '31/12/2018', docType: 'appendice', affinity: 0.52 }
+  assert.equal(pickSemanticCandidate(regolazione, appendice, kind, { docTypeHint: 'appendice' }), appendice)
+})
