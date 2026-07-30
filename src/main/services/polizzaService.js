@@ -2843,6 +2843,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // valutazione con l'utente — settings.polizzaStagedCascade = true per
   // provarla). Default: GRUPPI a copertura totale, comportamento invariato.
   const useCascade = settings.polizzaStagedCascade === true
+  // In testa alla diagnostica: quale strategia ha DAVVERO girato (chiude ogni
+  // dubbio su "lo switch ha funzionato?" guardando il log del job).
+  diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${settings.ollamaModel || settings.llmModel || '?'}`)
   let progressTotal = 0
   let progressDone = 0
 
