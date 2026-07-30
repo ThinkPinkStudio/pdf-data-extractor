@@ -92,7 +92,13 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h1 className="page-title">{t('set.title')}</h1>
+      {/* Versione DENTRO la pagina: elimina il dubbio "che build sto guardando?" */}
+      <h1 className="page-title">
+        {t('set.title')}{' '}
+        <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--c-text-muted)' }}>
+          v{process.env.NEXT_PUBLIC_APP_VERSION || 'n/d'}
+        </span>
+      </h1>
       {/* Larghezza piena: l'editor campi (etichetta+descrizione+celle) e il prompt
           vivono qui — schiacciarli in 620px sprecava metà schermo. */}
       <form onSubmit={handleSave} style={{ maxWidth: 1200, display: 'flex', flexDirection: 'column', gap: 20 }}>
