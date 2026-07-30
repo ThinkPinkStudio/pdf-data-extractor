@@ -283,27 +283,6 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
  * 3. affinità comparabili (o non calcolabili): decide la RECENCY — i dati nuovi
  *    sovrascrivono i vecchi, regola invariata.
  */
-// ANCORA per tipo documento dichiarata nella DESCRIZIONE del campo: se la
-// descrizione nomina esplicitamente "quietanza" o "regolazione", i candidati di
-// quel tipo vincono l'arbitrato sui candidati di altro tipo — deterministico,
-// controllabile dall'utente, zero rumore embeddings. Root cause sul campo: la
-// quietanza 2025 porta data 31/12/2024 (scadenza rata) → PAREGGIO di recency
-// con la regolazione 2024 → la priorità tassonomica dava imposta/premio alla
-// regolazione. "polizza"/"appendice" NON sono ancore: compaiono in quasi tutte
-// le descrizioni ("...della polizza") e ancorerebbero tutto per sbaglio.
-export function docTypeHintFromDescription(field) {
-  // 1) FONTE ESPLICITA (dropdown «Fonte» dell'editor campi): vince su tutto.
-  //    Essendo esplicita non ha falsi positivi, quindi sono ammessi anche
-  //    'polizza' e 'appendice' (vietati come ancore testuali, vedi sotto).
-  const explicit = String(field?.docHint || '').trim().toLowerCase()
-  if (['quietanza', 'regolazione', 'polizza', 'appendice'].includes(explicit)) return explicit
-  // 2) Ancora TESTUALE dalla descrizione: solo quietanza/regolazione.
-  const txt = `${field?.description || ''} ${field?.label || ''}`.toLowerCase()
-  if (/quietanz/.test(txt)) return 'quietanza'
-  if (/regolazion/.test(txt)) return 'regolazione'
-  return null
-}
-
 export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   // Margini ASIMMETRICI e prudenti — tarati sul campo: con margine unico 0.06
   // il rumore degli embeddings su finestre corte/numeriche RIBALTAVA la recency
@@ -322,14 +301,6 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2
   if (collapse && !(a0 != null && a1 != null && a1 - a0 > promoteMargin)) return oldC
-  // ANCORA di tipo documento (dalla descrizione del campo): tra tipi diversi
-  // vince il tipo ancorato, PRIMA di affinità e recency. Tra candidati dello
-  // stesso tipo si prosegue normalmente (recency: "la quietanza più recente").
-  const hint = opts.docTypeHint || null
-  if (hint && oldC.docType !== newC.docType) {
-    if (oldC.docType === hint) return oldC
-    if (newC.docType === hint) return newC
-  }
   if (a0 != null && a1 != null) {
     if (a1 - a0 > promoteMargin) return newC
     if (a0 - a1 > vetoMargin) return oldC
@@ -445,18 +416,10 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
 
 // ─── Recenza dei candidati ("il piu' recente vince, mai first-found") ────────
 
-// Priorita' (rank più basso = preferito) del TIPO documento per genere di campo,
-// usata SOLO quando le date non decidono (assenti o uguali).
-const KIND_PRIORITY = {
-  anagrafica: { appendice: 0, polizza: 1, altro: 2, condizioni: 3, quietanza: 4, regolazione: 4 },
-  economici: { regolazione: 0, quietanza: 1, appendice: 2, polizza: 3, altro: 4, condizioni: 5 },
-  strutturali: { appendice: 0, polizza: 1, condizioni: 2, altro: 3, quietanza: 9, regolazione: 9 },
-}
-
-/** Tabella di priorita' dei tipi documento per un genere di campo. */
-export function docKindPriority(kind) {
-  return KIND_PRIORITY[kind] || KIND_PRIORITY.anagrafica
-}
+// NB: la vecchia tabella di priorità per TIPO documento (KIND_PRIORITY) è
+// stata RIMOSSA per decisione definitiva: ogni dato può stare in qualsiasi
+// tipologia di file, i documenti sono tutti uguali. A pari data lo spareggio
+// è la somiglianza lessicale col testo della descrizione del campo (`lex`).
 
 /**
  * Sceglie tra il candidato corrente e uno nuovo secondo la regola vincolante
@@ -481,10 +444,16 @@ export function pickMoreRecentCandidate(cur, cand, kind) {
   if (curTs !== candTs) {
     return shouldReplaceValue(cur.effDate, cand.effDate) ? cand : cur
   }
-  const prio = docKindPriority(kind)
-  const a = prio[cur.docType] ?? 9
-  const b = prio[cand.docType] ?? 9
-  if (a !== b) return b < a ? cand : cur
+  // PARI DATA — DECISIONE DEFINITIVA (mai più logiche per tipo documento):
+  // ogni dato può stare in qualsiasi file, i documenti sono TUTTI UGUALI.
+  // Lo spareggio è la somiglianza LESSICALE tra il contesto attorno al valore
+  // e la DESCRIZIONE del campo (deterministica, portata dal candidato in
+  // `lex`): le parole le decide l'utente nelle descrizioni — cambiano quelle,
+  // cambia lo spareggio. Es.: descrizione con "di cui imposta della quietanza"
+  // → vince la finestra che contiene quelle parole, di qualunque file sia.
+  const lexA = typeof cur.lex === 'number' ? cur.lex : null
+  const lexB = typeof cand.lex === 'number' ? cand.lex : null
+  if (lexA != null && lexB != null && lexA !== lexB) return lexB > lexA ? cand : cur
   const ordA = cur.appendixOrd, ordB = cand.appendixOrd
   if (ordA !== ordB) return (ordB ?? -1) > (ordA ?? -1) ? cand : cur
   return (cand.docPos ?? Infinity) < (cur.docPos ?? Infinity) ? cand : cur

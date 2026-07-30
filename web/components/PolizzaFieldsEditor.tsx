@@ -12,7 +12,6 @@ interface Field {
   sheet?: string
   enabled?: boolean
   cells?: Cell[]
-  docHint?: string // fonte esplicita: '' auto | quietanza | regolazione | polizza | appendice
 }
 interface Profile {
   id: string
@@ -249,8 +248,8 @@ export default function PolizzaFieldsEditor() {
       </div>
 
       {/* Header colonne */}
-      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 132px 190px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
-        <span /><span /><span>{t('set.colLabel')}</span><span>{t('set.colDescription')}</span><span title={t('set.colSourceHelp')}>{t('set.colSource')}</span><span>{t('set.colCells')}</span><span /><span />
+      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
+        <span /><span /><span>{t('set.colLabel')}</span><span>{t('set.colDescription')}</span><span>{t('set.colCells')}</span><span /><span />
       </div>
 
       {/* Righe campi */}
@@ -261,7 +260,7 @@ export default function PolizzaFieldsEditor() {
             onDragStart={() => { dragIndex.current = i }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDrop(i)}
-            style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 132px 190px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
             <span style={{ cursor: 'grab', color: 'var(--c-text-muted)', textAlign: 'center' }} title="Trascina per riordinare">⋮⋮</span>
             <label style={{ display: 'inline-flex', cursor: 'pointer' }} title={f.enabled !== false ? 'Abilitato' : 'Disabilitato'}>
               <span style={{ width: 30, height: 18, borderRadius: 999, position: 'relative', background: f.enabled !== false ? 'var(--c-accent)' : 'var(--c-bg-card-alt)', border: '1px solid var(--c-border)', transition: 'background .2s' }}>
@@ -271,14 +270,6 @@ export default function PolizzaFieldsEditor() {
             </label>
             <input value={f.label} onChange={(e) => patch(i, { label: e.target.value })} placeholder="Etichetta" style={{ fontSize: 12, padding: '5px 7px' }} />
             <input value={f.description} onChange={(e) => patch(i, { description: e.target.value })} placeholder={t('set.colDescription')} style={{ fontSize: 12, padding: '5px 7px' }} />
-            <select value={f.docHint || ''} onChange={(e) => patch(i, { docHint: e.target.value })}
-              title={t('set.colSourceHelp')} style={{ fontSize: 11, padding: '4px 5px' }}>
-              <option value="">{t('set.sourceAuto')}</option>
-              <option value="quietanza">{t('set.sourceQuietanza')}</option>
-              <option value="regolazione">{t('set.sourceRegolazione')}</option>
-              <option value="polizza">{t('set.sourcePolizza')}</option>
-              <option value="appendice">{t('set.sourceAppendice')}</option>
-            </select>
             <input
               value={cellText[f.id] ?? formatCells(f.cells)}
               onChange={(e) => setCellText((p) => ({ ...p, [f.id]: e.target.value }))}

@@ -9,11 +9,6 @@ export interface PolizzaField {
   sheet?: string
   enabled?: boolean
   cells?: { sheet: string; cell: string }[]
-  // Fonte documentale esplicita del campo (dropdown «Fonte» nell'editor):
-  // '' = automatica; 'quietanza'|'regolazione'|'polizza'|'appendice' = i
-  // candidati di quel tipo vincono l'arbitrato e i documenti di quel tipo
-  // entrano sempre nel contesto del gruppo.
-  docHint?: string
 }
 
 export interface PolizzaProfile {

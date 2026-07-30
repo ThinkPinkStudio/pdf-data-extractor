@@ -26,6 +26,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
 
 ## Decisioni prese (non riaprirle)
 
+- **DOCUMENTI TUTTI UGUALI (definitiva, non tornarci MAI più)**: ogni dato può
+  stare in QUALSIASI tipologia di file. Vietata ogni logica per tipo documento:
+  niente priorità tassonomiche, niente ancore/dropdown "fonte", niente fette di
+  selezione per tipo. Decidono SOLO: descrizioni dei campi (affinità), evidenza
+  nel testo, recency — e a pari data lo spareggio LESSICALE con la descrizione
+  (`lex` sul candidato). Le uniche eccezioni ammesse sono type-blind: mai
+  escludere campi dai 3 documenti più recenti né dal documento più corposo.
+
 - **VISION DISMESSA**: il percorso vision (immagini al modello multimodale) NON
   deve esistere. I PDF scansionati passano da OCR Tesseract + modello di testo.
   Il worker web usa sempre `runWholeDossier`; il selettore "modello vision" è
@@ -35,11 +43,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   cancella la generazione lato server Ollama (si accodano generazioni-zombie
   che tengono il modello caricato per ore, `ollama stop` resta in "Stopping…").
   Cura definitiva possibile: passare i call-site a `stream:true`.
-- **Motore a stadi (polizze)**: strategia "Gruppi a copertura totale" (default)
-  o "Cascata dal più recente" (switch in Impostazioni, persiste da solo al
-  cambio — chiave `polizzaStagedCascade`, esclusa dal salvataggio pagina via
-  `EDITOR_KEYS`). Arbitro semantico prudente (promozione Δ>0.15, veto Δ>0.10,
-  altrimenti recency). Gate campo×documenti MAI sulle combinazioni canoniche.
+- **Motore a stadi (polizze)**: strategia "Gruppi a copertura totale" (default,
+  vincitrice dell'A/B sul campo) o "Cascata dal più recente" (switch in
+  Impostazioni, persiste da solo al cambio — chiave `polizzaStagedCascade`,
+  esclusa dal salvataggio pagina via `EDITOR_KEYS`). Arbitro semantico prudente
+  (promozione Δ>0.15, veto Δ>0.10, altrimenti recency + spareggio lessicale).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
 
