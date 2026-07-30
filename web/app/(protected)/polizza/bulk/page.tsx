@@ -22,7 +22,9 @@ const ERROR_BOX_STYLE: CSSProperties = {
 type DossierStatus = 'pending' | 'uploading' | 'done' | 'error'
 
 // Dossier finale da elaborare: uno o più dossier-foglia uniti dall'utente.
-interface FinalDossier { gid: string; label: string; fileIndexes: number[]; memberCount: number }
+// profileId: override esplicito (usato dai dossier-figli dello «spezzetta», che
+// ereditano il profilo scelto sulla riga della cartella madre).
+interface FinalDossier { gid: string; label: string; fileIndexes: number[]; memberCount: number; profileId?: string }
 
 function fileRelPath(f: File): string {
   return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
@@ -67,6 +69,7 @@ export default function PolizzaBulkPage() {
   const [groupOf, setGroupOf] = useState<Record<string, string>>({})    // dossier-foglia → id gruppo unito
   const [selected, setSelected] = useState<Set<string>>(new Set())      // righe spuntate per l'unione
   const [expanded, setExpanded] = useState<Set<string>>(new Set())      // dossier con lista file aperta
+  const [splitOf, setSplitOf] = useState<Set<string>>(new Set())        // gid «spezzetta»: ogni PDF = polizza a parte
   const mergeCounter = useRef(0)
 
   // Profili/tipi: elenco, tipo predefinito e scelta per-dossier (chiave = gid finale).
@@ -194,6 +197,11 @@ export default function PolizzaBulkPage() {
   const attemptedAll = uploadList.length > 0 && uploadList.every((d) => dossierStatus[d.gid] === 'done' || dossierStatus[d.gid] === 'error')
 
   function toggleInclude(name: string) { setIncluded((p) => ({ ...p, [name]: p[name] === false })) }
+  // «Spezzetta»: la riga (cartella o gruppo unito) è una raccolta di POLIZZE
+  // SINGOLE → all'avvio ogni suo PDF diventa un dossier a parte.
+  function toggleSplit(gid: string) {
+    setSplitOf((p) => { const n = new Set(p); if (n.has(gid)) n.delete(gid); else n.add(gid); return n })
+  }
   function toggleSelect(name: string) {
     setSelected((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n })
   }
@@ -251,7 +259,7 @@ export default function PolizzaBulkPage() {
       // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
       form.append('includeWords', includeText)
       form.append('excludeWords', excludeText)
-      const pid = profileOf[d.gid]
+      const pid = d.profileId !== undefined ? d.profileId : profileOf[d.gid]
       if (pid) form.append('profileId', pid) // profilo/tipo scelto per questo dossier
       for (const idx of d.fileIndexes) {
         form.append('pdf', files[idx])
@@ -269,9 +277,25 @@ export default function PolizzaBulkPage() {
     }
   }
 
+  // Espansione «spezzetta»: le righe marcate diventano UN dossier PER FILE
+  // (nome = cartella/nomefile senza .pdf, profilo ereditato dalla riga madre).
+  function expandSplits(list: FinalDossier[]): FinalDossier[] {
+    const out: FinalDossier[] = []
+    for (const d of list) {
+      if (!splitOf.has(d.gid) || d.fileIndexes.length <= 1) { out.push(d); continue }
+      const pid = profileOf[d.gid] || ''
+      for (let i = 0; i < d.fileIndexes.length; i++) {
+        const idx = d.fileIndexes[i]
+        const base = (fileRelPath(files[idx]).split('/').pop() || `file-${i + 1}`).replace(/\.pdf$/i, '')
+        out.push({ gid: `${d.gid}::${i}`, label: `${d.label}/${base}`, fileIndexes: [idx], memberCount: 1, profileId: pid })
+      }
+    }
+    return out
+  }
+
   async function handleStartUpload() {
     if (!finalDossiers.length) return
-    const list = finalDossiers
+    const list = expandSplits(finalDossiers)
     setUploadList(list)
     setPhase('uploading'); setPickError(null)
     try {
@@ -422,6 +446,7 @@ export default function PolizzaBulkPage() {
                     <tr style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--c-text-muted)' }}>
                       <th style={{ width: 56, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colProcessHelp')}>{t('bulk.colProcess')}</th>
                       <th style={{ width: 48, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colMergeHelp')}>{t('bulk.colMerge')}</th>
+                      <th style={{ width: 64, textAlign: 'center', fontWeight: 600 }} title={t('bulk.colSplitHelp')}>{t('bulk.colSplit')}</th>
                       <th style={{ textAlign: 'left', fontWeight: 600 }}>{t('bulk.colDossier')}</th>
                       {profiles.length > 0 && <th style={{ textAlign: 'left', fontWeight: 600 }}>{t('bulk.colProfile')}</th>}
                       <th style={{ textAlign: 'right', fontWeight: 600 }}>{t('bulk.colFiles')}</th>
@@ -443,12 +468,20 @@ export default function PolizzaBulkPage() {
                           <td style={{ textAlign: 'center' }}>
                             <input type="checkbox" checked={selected.has(d.dossierName)} onChange={() => toggleSelect(d.dossierName)} disabled={!inc} title={t('bulk.colMergeHelp')} />
                           </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <input type="checkbox" checked={splitOf.has(gid)} onChange={() => toggleSplit(gid)} disabled={!inc} title={t('bulk.colSplitHelp')} />
+                          </td>
                           <td style={{ fontSize: 12 }}>
                             <button type="button" onClick={() => toggleExpand(d.dossierName)} title={t('bulk.expandFiles')}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-secondary)', fontSize: 11, padding: 0, marginRight: 6, width: 12 }}>
                               {isOpen ? '▾' : '▸'}
                             </button>
                             {displayDossierName(d.dossierName)}
+                            {splitOf.has(gid) && (
+                              <span style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--c-accent-bg, var(--c-bg-card-alt))', color: 'var(--c-accent)' }}>
+                                {t('bulk.splitBadge', { n: d.fileIndexes.length })}
+                              </span>
+                            )}
                             {merged && (
                               <span style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--c-bg-card-alt)', color: 'var(--c-text-secondary)' }}>
                                 {t('bulk.mergedBadge', { n: groupSize })}{' '}
@@ -472,6 +505,7 @@ export default function PolizzaBulkPage() {
                           <tr>
                             <td />
                             <td />
+                            <td />
                             <td colSpan={profiles.length > 0 ? 3 : 2} style={{ paddingBottom: 8 }}>
                               <ul style={{ margin: 0, paddingLeft: 16, listStyle: 'disc' }}>
                                 {fileNamesOf(d).map((name, k) => (
@@ -488,7 +522,11 @@ export default function PolizzaBulkPage() {
                 </table>
               </div>
 
-              <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>{t('bulk.selectedSummary', { n: finalDossiers.length, m: selectedFiles })}</p>
+              <p style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>{t('bulk.selectedSummary', {
+                // Con lo «spezzetta» ogni PDF della riga marcata è un dossier a parte.
+                n: finalDossiers.reduce((n, d) => n + (splitOf.has(d.gid) && d.fileIndexes.length > 1 ? d.fileIndexes.length : 1), 0),
+                m: selectedFiles,
+              })}</p>
               <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={handleStartUpload} disabled={finalDossiers.length === 0}>
                 {t('bulk.startBtn')}
               </button>
