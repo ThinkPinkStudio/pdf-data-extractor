@@ -29,6 +29,9 @@ export async function POST(req: NextRequest) {
     // DEMO "Usa modello Claude": toggle + credenziali/modello Anthropic per la presentazione.
     'polizzaUseClaude', 'anthropicApiKey', 'anthropicModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
+    // Strategia motore a stadi (gruppi/cascata): senza questa chiave in whitelist
+    // il salvataggio la SCARTAVA in silenzio e lo switch tornava sempre a gruppi.
+    'polizzaStagedCascade',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyMinOverlap', 'compareFuzzyBroadEnabled',
