@@ -135,18 +135,9 @@ export default function SettingsPage() {
               : <input value={s.ollamaModel || s.llmModel} onChange={(e) => { up('ollamaModel', e.target.value); up('llmModel', e.target.value) }} placeholder="es. llama3.1" />}
           </div>
 
-          <div className="form-group">
-            <label className="label">{t('set.visionModelOllama')}</label>
-            {ollama?.models?.length
-              ? <select value={s.ollamaVisionModel || ''} onChange={(e) => up('ollamaVisionModel', e.target.value)}>
-                  <option value="">{t('set.selectPlaceholder')}</option>
-                  {ollama.models.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              : <input value={s.ollamaVisionModel || ''} onChange={(e) => up('ollamaVisionModel', e.target.value)} placeholder="es. qwen2.5vl" />}
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>
-              Consigliato per l&apos;OCR dei PDF scansionati: <code>qwen2.5vl</code> (oppure <code>minicpm-v</code>, <code>llava</code>). Nota: <code>llama3.2-vision</code> non è caricabile dalle versioni recenti di Ollama (architettura <code>mllama</code> non più supportata).
-            </p>
-          </div>
+          {/* Il campo "Modello vision" è stato RIMOSSO: il percorso vision è
+              dismesso — i PDF scansionati passano dall'OCR Tesseract e tutto va
+              al modello di testo. Mai più errori "Multimodal data provided". */}
 
           {testResult && <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`}>{testResult.msg}</div>}
           <button type="button" className="btn btn-secondary" onClick={() => handleTest()} disabled={testing}>
