@@ -2767,7 +2767,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // GATE campo×documenti: un campo si chiede su un set di documenti solo se lì
   // l'affinità raggiunge almeno il 70% della sua MIGLIORE affinità sull'intero
   // fascicolo (soglia RELATIVA: nessun assoluto da tarare, nessuna classe).
+  // ECCEZIONE DURA (regressione osservata sul campo): le combinazioni CANONICHE
+  // tipo-documento × tipo-campo non passano MAI dal filtro di affinità — il
+  // rumore degli embeddings escludeva i campi premio/imposta dalla quietanza
+  // più recente e l'agenzia dai frontespizi, perdendo per sempre i candidati
+  // giusti. Economici periodici ↔ quietanze/regolazioni; strutturali ↔
+  // polizza/appendici; anagrafica ↔ qualunque documento (è negli header).
+  const canonicalForDocs = (f, docs) => {
+    const kind = kindOf[f.id] || 'anagrafica'
+    if (kind === 'economici') return docs.some((d) => d.periodic || d.type === 'appendice')
+    if (kind === 'strutturali') return docs.some((d) => d.type === 'polizza' || d.type === 'appendice')
+    return true // anagrafica: mai gated
+  }
   const eligibleFieldsForDocs = (fields, docs) => fields.filter((f) => {
+    if (canonicalForDocs(f, docs)) return true
     const bestAff = fieldBestAffinity(f)
     if (!(bestAff > 0)) return true // nessun segnale → mai escludere per zelo
     let m = 0

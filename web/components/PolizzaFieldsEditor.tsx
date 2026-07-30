@@ -226,7 +226,18 @@ export default function PolizzaFieldsEditor() {
           <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
             <label className="label">{t('set.stagedStrategy')}</label>
             <select value={stagedCascade ? 'cascade' : 'groups'}
-              onChange={(e) => { setStagedCascade(e.target.value === 'cascade'); setSaved(false) }}
+              onChange={(e) => {
+                const v = e.target.value === 'cascade'
+                setStagedCascade(v)
+                // Persistenza IMMEDIATA: lo switch vive in questa card ma l'utente
+                // può premere il "Salva impostazioni" della pagina (che non invia
+                // questa chiave) — il valore sembrava non salvarsi mai. Ora si
+                // salva da solo al cambio, senza dipendere da alcun pulsante.
+                fetch('/api/settings', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ polizzaStagedCascade: v }),
+                }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
+              }}
               style={{ fontSize: 12 }}>
               <option value="groups">{t('set.stagedStrategyGroups')}</option>
               <option value="cascade">{t('set.stagedStrategyCascade')}</option>
