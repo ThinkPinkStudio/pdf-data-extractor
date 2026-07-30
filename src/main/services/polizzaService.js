@@ -3030,7 +3030,37 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const groupPlans = []
   for (const kind of ['strutturali', 'economici', 'anagrafica']) {
     const groupFields = partition[kind]
-    const groupDocs = selectGroupDocs(kind, analyzed)
+    // Selezione documenti DINAMICA, guidata dalle DESCRIZIONI dei campi: la
+    // base tassonomica dà solo l'ordine di lettura noto-buono, ma OGNI campo
+    // AGGIUNGE i documenti che la sua descrizione indica (affinità semantica
+    // campo×documento ≥70% della sua migliore, top-8). Cambiano le parole delle
+    // descrizioni → cambia la selezione, da sola. Caso reale: le fette fisse
+    // degli economici (2+2 periodici + 1 appendice) tagliavano fuori l'appendice
+    // di rinnovo col preventivo aggiornato → il candidato giusto non veniva
+    // MAI chiesto, e vinceva il valore vecchio della polizza base.
+    const base = selectGroupDocs(kind, analyzed)
+    const inSet = new Set(base.map((d) => d.pos))
+    const extra = []
+    for (const f of groupFields) {
+      // FONTE esplicita del campo (dropdown «Fonte»): i 3 documenti più
+      // recenti di quel tipo entrano SEMPRE nel contesto del gruppo.
+      const hint = docTypeHintFromDescription(f)
+      if (hint) {
+        for (const d of analyzed.filter((x) => x.type === hint).sort(byStagedRecency).slice(0, 3)) {
+          if (!inSet.has(d.pos)) { inSet.add(d.pos); extra.push(d) }
+        }
+      }
+      const ranked = analyzed
+        .map((d) => [fieldDocAffinity(f, d), d])
+        .sort((a, b) => b[0] - a[0])
+      const bestAff = ranked[0]?.[0] || 0
+      if (!(bestAff > 0)) continue
+      for (const [aff, d] of ranked.slice(0, 8)) {
+        if (aff >= bestAff * 0.7 && !inSet.has(d.pos)) { inSet.add(d.pos); extra.push(d) }
+      }
+    }
+    const groupDocs = extra.length ? [...base, ...extra.sort(byStagedRecency)] : base
+    if (extra.length) diag.push(`Gruppo "${kind}": +${extra.length} documenti aggiunti dalle descrizioni dei campi (${extra.slice(0, 3).map((d) => d.name).join(', ')}${extra.length > 3 ? ', …' : ''})`)
     if (!groupFields.length || !groupDocs.length) {
       diag.push(`Gruppo "${kind}": saltato (${!groupFields.length ? 'nessun campo' : 'nessun documento pertinente'})`)
       continue
