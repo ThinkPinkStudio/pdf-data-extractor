@@ -2723,6 +2723,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     missing.forEach((f, i) => descVecCache.set(f.id, vecs[i]))
   }
   // Bootstrap una volta sola: pagine + descrizioni. Su errore → lessicale.
+  // La riga di diagnostica arriva PRIMA del lavoro: su fascicoli grandi
+  // l'embedding dura minuti e senza questa riga il job sembrava fermo.
+  const totPages = analyzed.reduce((n, d) => n + (d.pages?.filter((p) => p.trim()).length || 0), 0)
+  diag.push(`Affinità semantica: embedding di ${totPages} pagine + ${activeFields.length} descrizioni in corso (${settings.embeddingModel || 'bge-m3'})…`)
+  onProgress?.({ batch: 0, batchTotal: 1 })
   try {
     await ensurePageVecs(analyzed)
     await ensureDescVecs()

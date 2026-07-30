@@ -299,8 +299,8 @@ test('arbitro semantico: collasso numerico >80% passa solo con affinità superio
   // Sub-limite pescato da una clausola, stessa affinità → rifiutato anche se datato
   const sublimite = { valore: '€. 10.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: 0.58 }
   assert.equal(pickSemanticCandidate(massimale, sublimite, kind), massimale)
-  // Riduzione genuina con affinità nettamente superiore → passa
-  const ridotto = { valore: '500.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: 0.72 }
+  // Riduzione genuina con affinità NETTAMENTE superiore (Δ > 0.15) → passa
+  const ridotto = { valore: '500.000,00', effDate: '31/12/2020', docType: 'appendice', affinity: 0.80 }
   assert.equal(pickSemanticCandidate(massimale, ridotto, kind), ridotto)
   // Senza affinità calcolabile il collasso resta prudente: rifiutato
   const massimaleNoAff = { valore: '4.000.000,00', effDate: null, docType: 'polizza', affinity: null }

@@ -283,7 +283,16 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
  * 3. affinità comparabili (o non calcolabili): decide la RECENCY — i dati nuovi
  *    sovrascrivono i vecchi, regola invariata.
  */
-export function pickSemanticCandidate(oldC, newC, kind, margin = 0.06) {
+export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
+  // Margini ASIMMETRICI e prudenti — tarati sul campo: con margine unico 0.06
+  // il rumore degli embeddings su finestre corte/numeriche RIBALTAVA la recency
+  // nella direzione sbagliata (premio totale preso dalla regolazione invece che
+  // dalla quietanza più recente). L'affinità decide SOLO con segnale forte:
+  // - promuovere contro la recency richiede Δ > 0.15;
+  // - vetare un override richiede Δ > 0.10;
+  // - altrimenti comanda la RECENCY, come nel comportamento migliore osservato.
+  const promoteMargin = opts.promoteMargin ?? 0.15
+  const vetoMargin = opts.vetoMargin ?? 0.10
   if (!oldC) return newC
   if (!newC) return oldC
   const a0 = typeof oldC.affinity === 'number' ? oldC.affinity : null
@@ -291,10 +300,10 @@ export function pickSemanticCandidate(oldC, newC, kind, margin = 0.06) {
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2
-  if (collapse && !(a0 != null && a1 != null && a1 - a0 > margin)) return oldC
+  if (collapse && !(a0 != null && a1 != null && a1 - a0 > promoteMargin)) return oldC
   if (a0 != null && a1 != null) {
-    if (a1 - a0 > margin) return newC
-    if (a0 - a1 > margin) return oldC
+    if (a1 - a0 > promoteMargin) return newC
+    if (a0 - a1 > vetoMargin) return oldC
   }
   return pickMoreRecentCandidate(oldC, newC, kind)
 }

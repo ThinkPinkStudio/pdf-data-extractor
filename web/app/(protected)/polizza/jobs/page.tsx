@@ -405,11 +405,16 @@ export default function PolizzaJobsPage() {
               {singles.map((j) => {
                 const active = j.status === 'running' || j.status === 'queued'
                 const failed = j.status === 'error'
+                const reusable = !!j.duplicateOf && (j.status === 'queued' || j.status === 'error' || j.status === 'canceled')
                 const hasValues = Object.keys(j.values || {}).length > 0
                 const valuesOpen = showValues.has(j.jobId)
                 const logOpen = showLog.has(j.jobId)
-                const name = j.dossierName || (j.scannedFiles?.length
-                  ? `${j.scannedFiles[0]}${j.scannedFiles.length > 1 ? ` (+${j.scannedFiles.length - 1})` : ''}`
+                // Nome STABILE: primo file in ordine alfabetico — l'ordine di upload
+                // del browser cambia da run a run e lo stesso fascicolo appariva con
+                // nomi diversi ("quietanza 2012 (+44)" vs "eulip … polizza (+44)").
+                const sortedFiles = [...(j.scannedFiles || [])].sort((a, b) => a.localeCompare(b))
+                const name = j.dossierName || (sortedFiles.length
+                  ? `${sortedFiles[0]}${sortedFiles.length > 1 ? ` (+${sortedFiles.length - 1})` : ''}`
                   : j.jobId.slice(0, 8))
                 return (
                   <Fragment key={j.jobId}>
@@ -427,6 +432,11 @@ export default function PolizzaJobsPage() {
                       <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                         {statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                         {j.error ? ` — ${j.error.slice(0, 120)}` : ''}
+                        {!!j.duplicateOf && (
+                          <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                            ⧉ {t('jobsDash.duplicateOf')}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '8px 14px', fontSize: 12 }}>{Object.keys(j.values || {}).length}</td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-muted)' }}>{j.updatedAt ? fmtDate(j.updatedAt) : ''}</td>
@@ -440,6 +450,12 @@ export default function PolizzaJobsPage() {
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                             title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                             ↻ {t('jobsDash.reprocess')}
+                          </button>
+                        )}
+                        {reusable && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                            title={t('jobsDash.reuseTitle')} onClick={() => reuseJobRow(j.jobId)}>
+                            ⧉ {t('jobsDash.reuse')}
                           </button>
                         )}
                         {hasValues && (
