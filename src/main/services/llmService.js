@@ -1,4 +1,4 @@
-import { resilientFetch, describeNetworkError } from './netFetch.js'
+import { resilientFetch, describeNetworkError, ollamaThinkOpts } from './netFetch.js'
 
 // ─── Diagnostica connessione provider ────────────────────────────────────────
 
@@ -84,7 +84,7 @@ export async function extractData(baseUrl, model, fields, contextChunks) {
   const res = await resilientFetch(`${baseUrl}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt, stream: false }),
+    body: JSON.stringify({ model, prompt, stream: false, ...ollamaThinkOpts(model) }),
     // 3 min: i modelli locali possono impiegare oltre un minuto, specie al primo avvio
     signal: AbortSignal.timeout(180000)
   })
@@ -101,7 +101,7 @@ export async function* streamChat(baseUrl, model, messages) {
   const res = await resilientFetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, stream: true }),
+    body: JSON.stringify({ model, messages, stream: true, ...ollamaThinkOpts(model) }),
     signal: AbortSignal.timeout(120000)
   })
 
