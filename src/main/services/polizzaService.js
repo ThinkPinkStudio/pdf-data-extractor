@@ -34,7 +34,7 @@ import {
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
-  hasLabelEvidenceNear, pickSemanticCandidate, docTypeHintFromDescription,
+  hasLabelEvidenceNear, pickSemanticCandidate,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -555,7 +555,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       temperature: 0,        // output deterministico
       num_predict: NUM_PREDICT // max token risposta
     }
-  })
+  }, { cancelFlag: settings.__cancelFlag || null })
   return content.trim()
 }
 
@@ -1136,13 +1136,20 @@ async function getOllamaContextLimit(settings, model) {
 //   - poi: se nessun token arriva per stallMs il run è morto → abort;
 //   - hardCapMs: tetto assoluto contro i loop infiniti.
 // Finché i token arrivano, NESSUN timeout: un batch legittimo può durare 15 min.
-async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs = 120000, hardCapMs = 1800000 } = {}) {
+async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs = 120000, hardCapMs = 1800000, cancelFlag = null } = {}) {
   const ac = new AbortController()
   const startedAt = Date.now()
   let lastChunkAt = null // null = primo chunk non ancora arrivato
   let abortReason = null
   const watchdog = setInterval(() => {
     const now = Date.now()
+    // ANNULLA dell'utente: chiudere la connessione fa cancellare a Ollama la
+    // generazione in corso — il job si ferma in secondi, non a fine risposta.
+    if (cancelFlag?.canceled) {
+      abortReason = 'annullato dall\'utente'
+      ac.abort()
+      return
+    }
     const sinceChunk = now - (lastChunkAt ?? startedAt)
     const budget = lastChunkAt == null ? firstChunkMs : stallMs
     if (sinceChunk > budget) {
@@ -1228,7 +1235,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       temperature: 0,
       num_predict: opts.numPredict || 3000
     }
-  }, { hardCapMs: Math.max(timeoutMs * 4, 1800000) })
+  }, { hardCapMs: Math.max(timeoutMs * 4, 1800000), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
@@ -2270,26 +2277,14 @@ function byStagedRecency(a, b) {
  * costruzione, non per prompt).
  */
 function selectGroupDocs(kind, analyzed) {
-  const of = (t) => analyzed.filter((d) => d.type === t).sort(byStagedRecency)
-  const polizza = of('polizza'), appendici = of('appendice'), condizioni = of('condizioni')
-  const altro = of('altro'), quietanze = of('quietanza'), regolazioni = of('regolazione')
-  const seen = new Set()
-  const dedupe = (list) => list.filter((d) => !seen.has(d.pos) && seen.add(d.pos))
-  if (kind === 'strutturali') {
-    return dedupe([...polizza, ...appendici, ...condizioni, ...altro])
-  }
-  if (kind === 'economici') {
-    // 2+2 periodici più recenti: con la datazione a "massima copertura" il primo
-    // è quello giusto, il secondo fa da rete se l'OCR del primo è povero.
-    return dedupe([...regolazioni.slice(0, 2), ...quietanze.slice(0, 2), ...polizza, ...appendici.slice(0, 1), ...altro.slice(0, 1)])
-  }
-  // anagrafica: polizza + i 2 periodici più recenti SUBITO DOPO (portano
-  // scadenza/decorrenza/agenzia/contraente CORRENTI: con 12 appendici davanti,
-  // sul campo il budget finiva prima che la quietanza recente entrasse nel
-  // contesto → il modello non poteva che rispondere con i dati vecchi di
-  // pagina 1) + tutte le appendici (cambio contraenza/indirizzo) + altro.
-  const newestPeriodic = [...regolazioni, ...quietanze].sort(byStagedRecency).slice(0, 2)
-  return dedupe([...polizza, ...newestPeriodic, ...appendici, ...altro])
+  // DECISIONE DEFINITIVA — documenti TUTTI UGUALI: ogni dato può stare in
+  // qualsiasi tipologia di file, quindi OGNI gruppo legge TUTTI i documenti
+  // (copertura totale garantita dai batch), ordinati dal più recente al più
+  // vecchio. Niente più fette per tipo: erano loro a tagliare fuori i
+  // documenti coi candidati giusti (es. l'appendice di rinnovo col preventivo
+  // aggiornato non veniva mai letta dal gruppo economici).
+  void kind
+  return [...analyzed].sort(byStagedRecency)
 }
 
 /**
@@ -2511,10 +2506,15 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
       || (field.type === 'date' ? cleaned : null)
       || srcDoc?.dateStr
       || null
+    const affPair = affinityFor ? await affinityFor(field, cleaned, evidenza, srcDoc) : null
     const cand = {
       valore: cleaned,
       effDate,
-      affinity: affinityFor ? await affinityFor(field, cleaned, evidenza, srcDoc) : null,
+      affinity: affPair && typeof affPair === 'object' ? affPair.aff : affPair,
+      // lex: somiglianza LESSICALE deterministica tra il contesto attorno al
+      // valore e la descrizione del campo — è l'UNICO spareggio a pari data
+      // (documenti tutti uguali: nessuna logica per tipo, decisione definitiva).
+      lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
       docType: srcDoc?.type ?? null,
       appendixOrd: srcDoc?.appendixOrd ?? null,
       docPos: srcDoc?.pos ?? null,
@@ -2522,10 +2522,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
       page: source?.page ?? '',
     }
     // ARBITRO SEMANTICO: affinità nettamente diversa → vince la più alta;
-    // collasso numerico >80% solo con affinità superiore; comparabili → recency.
-    // Ancora di tipo documento dichiarata nella descrizione del campo (es.
-    // "…dalla quietanza più recente" → i candidati quietanza vincono l'arbitrato).
-    const won = pickSemanticCandidate(best[k], cand, kindOf[k], { docTypeHint: docTypeHintFromDescription(field) })
+    // collasso numerico >80% solo con affinità superiore; comparabili → recency
+    // (a pari data: spareggio lessicale sulla descrizione, mai il tipo file).
+    const won = pickSemanticCandidate(best[k], cand, kindOf[k])
     note(k, won === cand ? 'ok' : 'ok-ma-perde-merge', cleaned, cand.affinity)
     best[k] = won
     accepted++
@@ -2821,20 +2820,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // GATE campo×documenti: un campo si chiede su un set di documenti solo se lì
   // l'affinità raggiunge almeno il 70% della sua MIGLIORE affinità sull'intero
   // fascicolo (soglia RELATIVA: nessun assoluto da tarare, nessuna classe).
-  // ECCEZIONE DURA (regressione osservata sul campo): le combinazioni CANONICHE
-  // tipo-documento × tipo-campo non passano MAI dal filtro di affinità — il
-  // rumore degli embeddings escludeva i campi premio/imposta dalla quietanza
-  // più recente e l'agenzia dai frontespizi, perdendo per sempre i candidati
-  // giusti. Economici periodici ↔ quietanze/regolazioni; strutturali ↔
-  // polizza/appendici; anagrafica ↔ qualunque documento (è negli header).
-  const canonicalForDocs = (f, docs) => {
-    const kind = kindOf[f.id] || 'anagrafica'
-    if (kind === 'economici') return docs.some((d) => d.periodic || d.type === 'appendice')
-    if (kind === 'strutturali') return docs.some((d) => d.type === 'polizza' || d.type === 'appendice')
-    return true // anagrafica: mai gated
-  }
+  // ECCEZIONE DURA, TYPE-BLIND (documenti tutti uguali — decisione definitiva):
+  // il rumore degli embeddings escludeva campi proprio dai documenti giusti,
+  // perdendo per sempre i candidati. Regola senza tipi: i 3 documenti PIÙ
+  // RECENTI e il documento PIÙ CORPOSO del fascicolo (di solito il contratto)
+  // non subiscono MAI esclusioni di campi — lì si chiede sempre tutto.
+  const neverGatePos = new Set([
+    ...[...analyzed].sort(byStagedRecency).slice(0, 3).map((d) => d.pos),
+    [...analyzed].sort((a, b) => (b.pages?.length || 0) - (a.pages?.length || 0))[0]?.pos,
+  ].filter((p) => p != null))
   const eligibleFieldsForDocs = (fields, docs) => fields.filter((f) => {
-    if (canonicalForDocs(f, docs)) return true
+    if (docs.some((d) => neverGatePos.has(d.pos))) return true
     const bestAff = fieldBestAffinity(f)
     if (!(bestAff > 0)) return true // nessun segnale → mai escludere per zelo
     let m = 0
@@ -2864,6 +2860,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (!srcDoc?.text) return null
     const win = findValueWindow(srcDoc.text, cleaned, evidenza)
     if (!win) return null
+    // lex: SEMPRE calcolata — è lo spareggio deterministico a pari data
+    // (documenti tutti uguali: decide la somiglianza con la DESCRIZIONE).
+    const lex = lexAffinity(field, normForMatch(win))
     if (embeddingsOk && descVecCache.has(field.id)) {
       try {
         const key = normForMatch(win).slice(0, 120)
@@ -2871,10 +2870,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           const [v] = await embedTexts(settings, [win.slice(0, 1200)])
           winVecCache.set(key, v)
         }
-        return cosineSim(descVecCache.get(field.id), winVecCache.get(key))
+        return { aff: cosineSim(descVecCache.get(field.id), winVecCache.get(key)), lex }
       } catch { /* singolo embed fallito → lessicale */ }
     }
-    return lexAffinity(field, normForMatch(win))
+    return { aff: lex, lex }
   }
 
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
@@ -3032,35 +3031,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const groupFields = partition[kind]
     // Selezione documenti DINAMICA, guidata dalle DESCRIZIONI dei campi: la
     // base tassonomica dà solo l'ordine di lettura noto-buono, ma OGNI campo
-    // AGGIUNGE i documenti che la sua descrizione indica (affinità semantica
-    // campo×documento ≥70% della sua migliore, top-8). Cambiano le parole delle
-    // descrizioni → cambia la selezione, da sola. Caso reale: le fette fisse
-    // degli economici (2+2 periodici + 1 appendice) tagliavano fuori l'appendice
-    // di rinnovo col preventivo aggiornato → il candidato giusto non veniva
-    // MAI chiesto, e vinceva il valore vecchio della polizza base.
-    const base = selectGroupDocs(kind, analyzed)
-    const inSet = new Set(base.map((d) => d.pos))
-    const extra = []
-    for (const f of groupFields) {
-      // FONTE esplicita del campo (dropdown «Fonte»): i 3 documenti più
-      // recenti di quel tipo entrano SEMPRE nel contesto del gruppo.
-      const hint = docTypeHintFromDescription(f)
-      if (hint) {
-        for (const d of analyzed.filter((x) => x.type === hint).sort(byStagedRecency).slice(0, 3)) {
-          if (!inSet.has(d.pos)) { inSet.add(d.pos); extra.push(d) }
-        }
-      }
-      const ranked = analyzed
-        .map((d) => [fieldDocAffinity(f, d), d])
-        .sort((a, b) => b[0] - a[0])
-      const bestAff = ranked[0]?.[0] || 0
-      if (!(bestAff > 0)) continue
-      for (const [aff, d] of ranked.slice(0, 8)) {
-        if (aff >= bestAff * 0.7 && !inSet.has(d.pos)) { inSet.add(d.pos); extra.push(d) }
-      }
-    }
-    const groupDocs = extra.length ? [...base, ...extra.sort(byStagedRecency)] : base
-    if (extra.length) diag.push(`Gruppo "${kind}": +${extra.length} documenti aggiunti dalle descrizioni dei campi (${extra.slice(0, 3).map((d) => d.name).join(', ')}${extra.length > 3 ? ', …' : ''})`)
+    // AGGIUNGE nulla e non toglie nulla: TUTTI i documenti, dal più recente al
+    // più vecchio (selectGroupDocs è ormai uniforme — documenti tutti uguali).
+    const groupDocs = selectGroupDocs(kind, analyzed)
     if (!groupFields.length || !groupDocs.length) {
       diag.push(`Gruppo "${kind}": saltato (${!groupFields.length ? 'nessun campo' : 'nessun documento pertinente'})`)
       continue
@@ -3081,32 +3054,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
-    // Batch FOCALIZZATI sul periodo corrente in testa al gruppo — documenti
-    // individuati dalla DATAZIONE dei contenuti (agnostico, zero pattern):
-    // - economici: UNO PER DOCUMENTO (prima la regolazione, poi la quietanza più
-    //   recente). Nel batch unico il modello emetteva UNA sola risposta per
-    //   campo attribuita al documento sbagliato (imposta=528 del conguaglio al
-    //   posto di 1.001,25 della rata): sdoppiando nascono candidati da ENTRAMBI
-    //   e decide l'arbitro (affinità + recency).
-    // - anagrafica: un batch con i 2 periodici più recenti insieme — contesto
-    //   piccolo per agenzia/contraente/decorrenza CORRENTI (es. "001 00 ACQUI
-    //   TERME" accanto a COD. AGENZIA), candidati datati che battono i valori
-    //   vecchi delle appendici per recency.
-    const newestQ = groupDocs.find((d) => d.type === 'quietanza')
-    const newestR = groupDocs.find((d) => d.type === 'regolazione')
+    // Batch FOCALIZZATI sul periodo corrente in testa al gruppo: i 3 documenti
+    // PIÙ RECENTI del fascicolo, uno per batch — TYPE-BLIND (documenti tutti
+    // uguali: conta solo la datazione dei contenuti). Nel batch unico il
+    // modello emetteva una sola risposta per campo attribuita al documento
+    // sbagliato: sdoppiando nascono candidati da ciascun documento recente e
+    // decide l'arbitro (affinità + recency + spareggio lessicale).
+    const newestDocs = groupDocs.slice(0, 3)
     let focusCount = 0
-    if (kind === 'economici') {
-      const focus = [newestR, newestQ].filter(Boolean)
-        .flatMap((d) => buildGroupBatches([d], budgetChars))
+    if (newestDocs.length) {
+      const focus = newestDocs.flatMap((d) => buildGroupBatches([d], budgetChars))
       focusCount = focus.length
       if (focus.length) plan.batches = [...focus, ...plan.batches]
-    } else if (kind === 'anagrafica') {
-      const focusDocs = [newestQ, newestR].filter(Boolean)
-      if (focusDocs.length) {
-        const focus = buildGroupBatches(focusDocs, budgetChars)
-        focusCount = focus.length
-        if (focus.length) plan.batches = [...focus, ...plan.batches]
-      }
     }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
     diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} sul periodo corrente + ` : ''}copertura totale, num_ctx ${batchCtx})`)

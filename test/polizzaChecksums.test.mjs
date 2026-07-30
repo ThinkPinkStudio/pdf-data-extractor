@@ -29,7 +29,6 @@ import {
   isCompanyNameAsAgency,
   isInsurerFooterPIva,
   pickSemanticCandidate,
-  docTypeHintFromDescription,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -177,13 +176,17 @@ test('recency: un valore NON datato non scavalca mai un valore datato', () => {
   assert.equal(pickMoreRecentCandidate(null, nonDatato, 'anagrafica').valore, 'B')
 })
 
-test('recency: senza date decide la priorità del tipo documento per genere', () => {
-  const daPolizza = { valore: 'P', effDate: null, docType: 'polizza', appendixOrd: null, docPos: 0 }
-  const daRegolazione = { valore: 'R', effDate: null, docType: 'regolazione', appendixOrd: null, docPos: 5 }
-  // Economico: la regolazione batte la polizza
+test('recency: senza date NESSUNA priorità di tipo — decide lo spareggio lessicale, poi la posizione', () => {
+  // DECISIONE DEFINITIVA: documenti tutti uguali. A pari (non-)data vince chi
+  // somiglia di più alla descrizione del campo (lex); senza lex, la posizione.
+  const daPolizza = { valore: 'P', effDate: null, docType: 'polizza', appendixOrd: null, docPos: 0, lex: 0.3 }
+  const daRegolazione = { valore: 'R', effDate: null, docType: 'regolazione', appendixOrd: null, docPos: 5, lex: 0.7 }
   assert.equal(pickMoreRecentCandidate(daPolizza, daRegolazione, 'economici').valore, 'R')
-  // Strutturale: la polizza batte la regolazione
-  assert.equal(pickMoreRecentCandidate(daPolizza, daRegolazione, 'strutturali').valore, 'P')
+  assert.equal(pickMoreRecentCandidate(daRegolazione, daPolizza, 'strutturali').valore, 'R')
+  // Senza lex: posizione originale più bassa (deterministico, mai il tipo)
+  const a = { valore: 'A', effDate: null, docType: 'regolazione', docPos: 5 }
+  const b = { valore: 'B', effDate: null, docType: 'polizza', docPos: 0 }
+  assert.equal(pickMoreRecentCandidate(a, b, 'economici').valore, 'B')
 })
 
 test('recency: tra appendici senza data vince l\'ordinale più alto', () => {
@@ -317,47 +320,22 @@ test('arbitro semantico: senza affinità su entrambi → pura recency; slot vuot
   assert.equal(pickSemanticCandidate(null, a, kind), a)
 })
 
-test('ancora tipo documento: descrizione con "quietanza" → la quietanza vince la regolazione anche a pari data', () => {
+test('documenti tutti uguali: a pari data lo spareggio è la somiglianza LESSICALE con la descrizione', () => {
   const kind = 'economici'
   // Caso reale EULIP: quietanza 2025 datata 31/12/2024 (scadenza rata) =
-  // stessa data della regolazione 2024 → prima dell'ancora vinceva la
-  // regolazione per priorità tassonomica (imposta 528 invece di 1.001,25).
-  const regolazione = { valore: '528', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.63 }
-  const quietanza = { valore: '1.001,25', effDate: '31/12/2024', docType: 'quietanza', affinity: 0.54 }
-  const opts = { docTypeHint: 'quietanza' }
-  assert.equal(pickSemanticCandidate(regolazione, quietanza, kind, opts), quietanza)
+  // stessa data della regolazione 2024. Nessuna priorità per tipo documento
+  // (decisione definitiva): vince il candidato il cui contesto somiglia di
+  // più alla DESCRIZIONE del campo (lex), da qualunque file provenga.
+  const regolazione = { valore: '528', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.63, lex: 0.2 }
+  const quietanza = { valore: '1.001,25', effDate: '31/12/2024', docType: 'quietanza', affinity: 0.54, lex: 0.6 }
+  assert.equal(pickSemanticCandidate(regolazione, quietanza, kind), quietanza)
   // Vale in entrambi gli ordini di arrivo
-  assert.equal(pickSemanticCandidate(quietanza, regolazione, kind, opts), quietanza)
-  // Tra due quietanze l'ancora è neutra: decide la recency ("la più recente")
-  const q2024 = { valore: '962,00', effDate: '31/12/2023', docType: 'quietanza', affinity: 0.5 }
-  assert.equal(pickSemanticCandidate(q2024, quietanza, kind, opts), quietanza)
-  // Senza ancora il comportamento resta quello di prima: a pari data la
-  // priorità tassonomica dà i campi economici alla regolazione — è ESATTAMENTE
-  // il caso che l'ancora serve a ribaltare.
-  assert.equal(pickSemanticCandidate(quietanza, regolazione, kind), regolazione)
-})
-
-test('ancora tipo documento: docTypeHintFromDescription riconosce quietanza/regolazione e ignora "polizza"', () => {
-  assert.equal(docTypeHintFromDescription({ description: "Imposta totale dalla QUIETANZA più recente", label: 'Imposta' }), 'quietanza')
-  assert.equal(docTypeHintFromDescription({ description: 'Premio di conguaglio dalla regolazione', label: '' }), 'regolazione')
-  assert.equal(docTypeHintFromDescription({ description: 'Massimale per sinistro della polizza', label: '' }), null)
-  assert.equal(docTypeHintFromDescription(null), null)
-})
-
-test('fonte esplicita (dropdown): docHint vince sul testo e ammette polizza/appendice', () => {
-  // Esplicita: qualunque dei 4 tipi, anche se la descrizione dice altro
-  assert.equal(docTypeHintFromDescription({ docHint: 'appendice', description: 'dalla quietanza più recente' }), 'appendice')
-  assert.equal(docTypeHintFromDescription({ docHint: 'polizza', description: '' }), 'polizza')
-  assert.equal(docTypeHintFromDescription({ docHint: 'QUIETANZA', description: '' }), 'quietanza')
-  // Valore sconosciuto → si torna al testo
-  assert.equal(docTypeHintFromDescription({ docHint: 'boh', description: 'premio dalla regolazione' }), 'regolazione')
-  // Nessuna fonte, nessun testo-ancora → null
-  assert.equal(docTypeHintFromDescription({ docHint: '', description: 'importo del massimale' }), null)
-  // L'ancora esplicita 'appendice' funziona nell'arbitro: appendice batte
-  // regolazione più recente (caso importo preventivo: 1.800.000 dall'appendice
-  // di rinnovo contro il consuntivo della regolazione)
-  const kind = 'economici'
-  const regolazione = { valore: '1.809.600,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.55 }
-  const appendice = { valore: '1.800.000,00', effDate: '31/12/2018', docType: 'appendice', affinity: 0.52 }
-  assert.equal(pickSemanticCandidate(regolazione, appendice, kind, { docTypeHint: 'appendice' }), appendice)
+  assert.equal(pickSemanticCandidate(quietanza, regolazione, kind), quietanza)
+  // Date DIVERSE → la recency comanda come sempre (lex è solo spareggio)
+  const q2024 = { valore: '962,00', effDate: '31/12/2023', docType: 'quietanza', affinity: 0.5, lex: 0.9 }
+  assert.equal(pickSemanticCandidate(q2024, quietanza, kind), quietanza)
+  // Senza lex su uno dei due → fallback deterministico (ordinale/posizione),
+  // mai una priorità di tipo documento
+  const senzaLex = { valore: '4.900,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.5 }
+  assert.equal(pickSemanticCandidate(quietanza, senzaLex, kind), quietanza)
 })

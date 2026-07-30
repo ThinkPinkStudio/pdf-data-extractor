@@ -259,7 +259,22 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }
     // Dispatcher: con Ollama + motore per-campo attivo usa il RAG per-campo
     // (indice in memoria), altrimenti la chiamata unica/batch storica.
-    const { data, sources, diag } = await m.extractPolizzaFromDocs(docsForIndex, fullText, settings, onProgress)
+    // Propagazione dell'ANNULLA fino a Ollama: un poller marca il flag e lo
+    // stream del motore CHIUDE la connessione → il server cancella la
+    // generazione all'istante (senza, il runner restava occupato per minuti e
+    // perfino 'ollama stop' rimaneva appeso su "Stopping…").
+    const cancelFlag = { canceled: false }
+    settings.__cancelFlag = cancelFlag
+    const cancelPoll = setInterval(() => {
+      isCanceled(job.id).then((c) => { if (c) cancelFlag.canceled = true }).catch(() => {})
+    }, 3000)
+    let extractResult
+    try {
+      extractResult = await m.extractPolizzaFromDocs(docsForIndex, fullText, settings, onProgress)
+    } finally {
+      clearInterval(cancelPoll)
+    }
+    const { data, sources, diag } = extractResult
     extractedData = data || {}
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
