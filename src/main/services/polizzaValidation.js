@@ -197,6 +197,90 @@ function matchTokens(s) {
     .filter((t) => t.length >= 3)
 }
 
+/**
+ * Rimuove dalla descrizione di un campo SOLO l'esempio, lasciando intatto tutto
+ * ciò che viene dopo.
+ *
+ * Bug visto sul campo: la vecchia regola tagliava da ", es. …" fino a FINE RIGA,
+ * e le descrizioni sono scritte su una riga sola — così metà istruzione spariva
+ * sia dal prompt sia dal vettore di affinità. Su "Parametro regolazione" restava
+ * «…la dicitura che contiene 'Retribuzioni' (oppure Salari, Fatturato, Ricavi)»
+ * e si perdeva il «VIETATO restituire da sole le parole 'Consuntivo'… ometti il
+ * campo»: il modello rispondeva con l'intestazione di colonna nuda.
+ */
+export function stripFieldExamples(desc) {
+  return String(desc || '')
+    // "(es. …)": l'esempio è tutto e solo dentro le parentesi
+    .replace(/\s*\(\s*es\.[^)]*\)/gi, '')
+    // "es. '…'" / «es. "…"»: l'esempio finisce con la citazione CHIUSA
+    .replace(/[,;:]?\s*\bes\.\s*['"«][^'"»\n]*['"»]/gi, '')
+    // "es. …" senza virgolette: finisce alla prima fine di FRASE — punto o
+    // punto-e-virgola seguito da spazio/fine testo. Il punto interno a un
+    // importo ("3.000.000,00") è seguito da una cifra, quindi non conta.
+    .replace(/[,;:]?\s*\bes\.\s[^\n]*?(?=[.;](?:\s|$)|$)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+/**
+ * Indice per la ricerca NORMALIZZATA dentro un testo: `norm` è il testo ridotto
+ * a [a-z0-9] e `map[i]` è l'indice nel testo GREZZO del carattere normalizzato
+ * i-esimo. Serve a trovare un valore ignorando maiuscole, accenti, spazi e
+ * punteggiatura (il rumore tipico dell'OCR) risalendo comunque al testo vero.
+ */
+export function buildNormIndex(text) {
+  const src = String(text || '')
+  let norm = ''
+  const map = []
+  for (let i = 0; i < src.length; i++) {
+    const lower = src[i].toLowerCase()
+    // fast path: la grande maggioranza dei caratteri è già [a-z0-9]
+    const kept = ((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9'))
+      ? lower : normForMatch(lower)
+    if (!kept) continue
+    norm += kept
+    for (let k = 0; k < kept.length; k++) map.push(i)
+  }
+  return { text: src, norm, map }
+}
+
+/**
+ * Finestra di testo GREZZO (±span char) attorno alla prima occorrenza del valore
+ * — o, in mancanza, dell'evidenza — dentro il documento sorgente. È il contesto
+ * su cui l'arbitro semantico misura l'affinità con la descrizione del campo.
+ *
+ * La ricerca avviene sul testo NORMALIZZATO: prima bastava una maiuscola diversa
+ * ("Acqui Terme" invece di "ACQUI TERME") perché la finestra non si trovasse,
+ * l'affinità risultasse `null` e l'arbitro — cieco su entrambi i lati — ricadesse
+ * sulla sola recency. Metà dei candidati testuali finiva così.
+ *
+ * @param {string|{norm:string,map:number[],text:string}} docText testo o indice
+ * @returns {string|null} finestra di testo grezzo, o null se il valore non c'è
+ */
+export function findValueWindow(docText, value, evidenza, span = 200) {
+  const idx = (docText && typeof docText === 'object' && Array.isArray(docText.map))
+    ? docText : buildNormIndex(docText)
+  const { text, norm, map } = idx
+  if (!text || !norm) return null
+  const cut = (at, len) => {
+    const start = map[at]
+    const end = map[Math.min(norm.length - 1, at + len - 1)] + 1
+    return text.slice(Math.max(0, start - span), Math.min(text.length, end + span))
+  }
+  for (const needle of [value, evidenza]) {
+    const nn = normForMatch(needle)
+    if (nn.length < 3) continue
+    const at = norm.indexOf(nn)
+    if (at !== -1) return cut(at, nn.length)
+    // Importi/date: le cifre sono l'ancora, i separatori li mette l'OCR
+    const digits = nn.replace(/\D/g, '')
+    if (digits.length < 3) continue
+    const atD = norm.indexOf(digits)
+    if (atD !== -1) return cut(atD, digits.length)
+  }
+  return null
+}
+
 // ─── Guardie di merge (visti sul campo: run EULIP 18:24) ─────────────────────
 // La regola "il documento più recente vince" è giusta quando il documento nuovo
 // RIDEFINISCE davvero il campo (rinnovo con nuovi massimali). Ma un batch di sole
@@ -403,11 +487,22 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
   if (nv.length >= 4) {
     if (normCtx.includes(nv)) return true
     const tokens = matchTokens(cleaned)
-    if (tokens.length > 0) {
-      const covered = tokens.filter((t) => normCtx.includes(t)).length
-      return covered >= Math.ceil(tokens.length * 0.8)
+    if (!tokens.length) return false
+    const hit = tokens.filter((t) => normCtx.includes(t))
+    // TOLLERANZA OCR (visto sul campo): su una scansione almeno una parola per
+    // riga esce storpiata — "olii" letto "olti" — e il modello, che la corregge,
+    // veniva punito come se avesse inventato tutto: l'attività assicurata
+    // «produzione di olii e grassi vegetali» finiva scartata come senza-evidenza
+    // e il campo restava a un valore qualsiasi di un altro documento.
+    // Si concede UNA parola non trovata (mai più di una su cinque), ma solo se
+    // le parole trovate coprono la MAGGIORANZA dei caratteri del valore: una
+    // sola parola in comune non basta mai a far passare un valore inventato.
+    if (tokens.length >= 3 && hit.length >= tokens.length - Math.max(1, Math.floor(tokens.length * 0.2))) {
+      const chars = tokens.reduce((n, t) => n + t.length, 0)
+      const hitChars = hit.reduce((n, t) => n + t.length, 0)
+      if (hitChars >= chars * 0.6) return true
     }
-    return false
+    return hit.length >= Math.ceil(tokens.length * 0.8)
   }
   // Valori cortissimi: serve l'evidenza, e deve stare nel contesto
   const ne = evidenza ? normForMatch(evidenza) : ''

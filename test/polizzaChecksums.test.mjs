@@ -29,6 +29,9 @@ import {
   isCompanyNameAsAgency,
   isInsurerFooterPIva,
   pickSemanticCandidate,
+  stripFieldExamples,
+  buildNormIndex,
+  findValueWindow,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -338,4 +341,87 @@ test('documenti tutti uguali: a pari data lo spareggio è la somiglianza LESSICA
   // mai una priorità di tipo documento
   const senzaLex = { valore: '4.900,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.5 }
   assert.equal(pickSemanticCandidate(quietanza, senzaLex, kind), quietanza)
+})
+
+// ─── Descrizioni dei campi: l'esempio si taglia, le istruzioni NO ────────────
+// Bug visto sul campo (fascicolo EULIP): il vecchio taglio ", es. …" arrivava a
+// FINE RIGA e le descrizioni sono su una riga sola, quindi tutto ciò che l'utente
+// scriveva DOPO l'esempio ("VIETATO …", "NON …", "ometti il campo") non arrivava
+// mai né al prompt né al vettore di affinità.
+
+test('stripFieldExamples: taglia SOLO l\'esempio, non le istruzioni che seguono', () => {
+  const desc = "Restituisci la grandezza economica misurata per la regolazione: la dicitura che contiene "
+    + "'Retribuzioni' (oppure Salari, Fatturato, Ricavi), es. 'Retribuzioni preventivate Inail e non "
+    + "Inail'. VIETATO restituire da sole le parole 'Consuntivo', 'Preventivo': sono intestazioni di "
+    + 'colonna, NON il parametro. Se trovi solo quelle senza il nome della grandezza, ometti il campo.'
+  const out = stripFieldExamples(desc)
+  // l'esempio sparisce…
+  assert.ok(!out.includes('preventivate Inail'), out)
+  // …ma il divieto e la regola di omissione restano
+  assert.ok(out.includes('VIETATO restituire da sole'), out)
+  assert.ok(out.includes('ometti il campo'), out)
+  assert.ok(out.includes("contiene 'Retribuzioni'"), out)
+})
+
+test('stripFieldExamples: esempio numerico senza virgolette, istruzione successiva salva', () => {
+  // Il punto DENTRO l'importo non chiude la frase (è seguito da una cifra)
+  assert.equal(
+    stripFieldExamples('Massimale per sinistro, es. 3.000.000,00. NON un premio.'),
+    'Massimale per sinistro. NON un premio.'
+  )
+  // Esempio in coda senza nulla dopo: si taglia tutto l'esempio
+  assert.equal(
+    stripFieldExamples('Tasso di regolazione per mille, es. 0,245'),
+    'Tasso di regolazione per mille'
+  )
+  // Forma tra parentesi: comportamento storico invariato
+  assert.equal(
+    stripFieldExamples("Nome dell'agenzia assicurativa (es. ACQUI TERME)"),
+    "Nome dell'agenzia assicurativa"
+  )
+  // Descrizione senza esempi: intatta
+  assert.equal(stripFieldExamples('Partita IVA del contraente'), 'Partita IVA del contraente')
+})
+
+// ─── Finestra di contesto: ricerca NORMALIZZATA ──────────────────────────────
+// Prima era letterale: una maiuscola diversa e l'affinità restava null, quindi
+// l'arbitro semantico decideva sulla sola recency (metà dei candidati testuali).
+
+test('findValueWindow: trova il valore anche con case/accenti/punteggiatura diversi', () => {
+  const testo = 'COD. AGENZIA 001 00 ACQUI TERME — polizza RCT/RCO n. 283618616 del 31/12/2024'
+  // il modello risponde "Acqui Terme", il documento scrive "ACQUI TERME"
+  const win = findValueWindow(testo, 'Acqui Terme', '')
+  assert.ok(win && win.includes('ACQUI TERME'), String(win))
+  // valore assente → null (nessuna finestra inventata)
+  assert.equal(findValueWindow(testo, 'MOGLIANO VENETO', ''), null)
+  // importo con separatori diversi da quelli dell'OCR: ancora sulle cifre
+  const importi = 'massimale per sinistro Euro 4.000.000.00 per ogni sinistro'
+  assert.ok(findValueWindow(importi, '4.000.000,00', '')?.includes('4.000.000.00'))
+})
+
+test('findValueWindow: accetta un indice precalcolato e riporta gli offset grezzi', () => {
+  const testo = "l'attività assicurata è: produzione di olii e grassi vegetali per industria"
+  const idx = buildNormIndex(testo)
+  const win = findValueWindow(idx, 'PRODUZIONE DI OLII', '')
+  assert.ok(win && win.includes('produzione di olii e grassi vegetali'), String(win))
+  // l'evidenza fa da ripiego quando il valore non compare
+  assert.ok(findValueWindow(idx, 'olii vegetali di produzione', 'grassi vegetali')?.includes('grassi vegetali'))
+})
+
+// ─── Evidenza dei testi: tolleranza al refuso OCR ────────────────────────────
+
+test('passesStagedEvidence: un solo token storpiato dall\'OCR non scarta il valore', () => {
+  const f = { id: 'attivita', label: 'Attività assicurata', type: 'text' }
+  // OCR: "olii" letto "olti". Il modello corregge il refuso → il valore è vero.
+  const ctx = normForMatch("esercente un'impresa per la produzione di olti e grassi vegetali")
+  assert.equal(passesStagedEvidence(f, 'produzione di olio e grassi vegetali', {}, ctx), true)
+  // Ma una sola parola in comune non basta MAI (i caratteri coperti sono minoranza)
+  assert.equal(passesStagedEvidence(f, 'produzione di macchinari industriali', {}, ctx), false)
+  // Due token con quello lungo mancante: sotto la maggioranza dei caratteri → no
+  const ctx2 = normForMatch('premio annuo della sezione')
+  assert.equal(passesStagedEvidence(f, 'premio annuo consuntivo regolazione', {}, ctx2), false)
+  // Valore di due parole con una assente: regola stretta invariata
+  assert.equal(passesStagedEvidence(f, 'lavoro interinale', {}, normForMatch('lavoro dipendente')), false)
+  // Valore interamente presente: passa come sempre
+  assert.equal(passesStagedEvidence(f, 'grassi vegetali', {}, ctx), true)
 })

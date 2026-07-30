@@ -35,6 +35,7 @@ import {
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
   hasLabelEvidenceNear, pickSemanticCandidate,
+  stripFieldExamples, findValueWindow, buildNormIndex,
 } from './polizzaValidation.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
@@ -1702,13 +1703,8 @@ const WHOLE_DOSSIER_SYSTEM =
 // invece di leggere i documenti (visto sul campo: massimali "3.000.000,00" e
 // importi "240.000.000,00" identici agli esempi delle descrizioni). Per i
 // provider cloud gli esempi restano: lì aiutano e non vengono copiati.
-function stripFieldExamples(desc) {
-  return String(desc || '')
-    .replace(/\s*\(\s*es\.[^)]*\)/gi, '')      // "(es. …)" tra parentesi
-    .replace(/[,;:]?\s*\bes\.\s[^\n]*$/gim, '') // ", es. …" fino a fine riga (i numeri contengono punti)
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-}
+// stripFieldExamples: importata da polizzaValidation.js (taglia SOLO l'esempio,
+// non tutto ciò che l'utente ha scritto dopo — vedi il bug del "VIETATO …").
 
 // Check anti-allucinazione sugli importi (stessa logica di mergeRollingState):
 // se il valore è un importo "puro", le sue cifre devono comparire nell'evidenza
@@ -2839,26 +2835,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   })
   // Affinità del CONTESTO attorno a un valore (per l'arbitro nel merge): finestra
   // ±200 char attorno alla prima occorrenza del valore nel documento sorgente.
-  const findValueWindow = (docText, value, evidenza) => {
-    const text = String(docText || '')
-    if (!text) return null
-    const tryNeedles = [String(value || ''), String(evidenza || '')].filter((s) => s.trim().length >= 3)
-    for (const needle of tryNeedles) {
-      let idx = text.indexOf(needle)
-      if (idx === -1) {
-        const digits = needle.replace(/\D/g, '')
-        if (digits.length >= 3) {
-          const m = text.match(new RegExp(digits.split('').join('[\\s.,]?')))
-          if (m) idx = m.index
-        }
-      }
-      if (idx !== -1) return text.slice(Math.max(0, idx - 200), idx + needle.length + 200)
-    }
-    return null
+  // La ricerca è NORMALIZZATA (findValueWindow in polizzaValidation.js): prima
+  // era letterale e una sola maiuscola diversa ("Acqui Terme" vs "ACQUI TERME")
+  // lasciava l'affinità a null — l'arbitro semantico, cieco, ricadeva sulla sola
+  // recency per metà dei candidati testuali. L'indice normalizzato di ogni
+  // documento si costruisce UNA volta sola (i candidati sono centinaia).
+  const normIndexCache = new Map() // doc.pos → { text, norm, map }
+  const normIndexOf = (doc) => {
+    if (!normIndexCache.has(doc.pos)) normIndexCache.set(doc.pos, buildNormIndex(doc.text))
+    return normIndexCache.get(doc.pos)
   }
   const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
     if (!srcDoc?.text) return null
-    const win = findValueWindow(srcDoc.text, cleaned, evidenza)
+    const win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
     if (!win) return null
     // lex: SEMPRE calcolata — è lo spareggio deterministico a pari data
     // (documenti tutti uguali: decide la somiglianza con la DESCRIZIONE).
@@ -2874,6 +2863,27 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       } catch { /* singolo embed fallito → lessicale */ }
     }
     return { aff: lex, lex }
+  }
+
+  // AFFINITÀ DEI SEED di Stadio A. I seed entravano nel merge senza affinità e
+  // senza lex: l'arbitro semantico era CIECO su di loro (a0 = null → né
+  // promozione né veto) e decideva la sola recency, così un valore letto da una
+  // riga etichettata del contratto veniva sostituito da un candidato qualsiasi
+  // di un documento più recente (attività assicurata: «produzione di olii e
+  // grassi vegetali» → «lavoro interinale»). Si misura con la STESSA funzione dei
+  // candidati del modello: stessa scala, stesso arbitro, nessun valore blindato.
+  for (const [id, cand] of Object.entries(best)) {
+    const f = fieldsById[id]
+    if (!f || !cand || cand.affinity != null) continue
+    const srcDoc = cand.file ? analyzed.find((d) => d.name === cand.file) : null
+    try {
+      const pair = await candidateAffinity(f, cand.valore, '', srcDoc)
+      if (pair) { cand.affinity = pair.aff; cand.lex = pair.lex }
+    } catch { /* seed senza affinità: resta come prima, decide la recency */ }
+  }
+  const seedAff = Object.entries(best).filter(([, c]) => typeof c?.affinity === 'number')
+  if (seedAff.length) {
+    diag.push(`Stadio A: affinità dei seed misurata — ${seedAff.map(([id, c]) => `${id}~${c.affinity.toFixed(2)}`).join(' · ')} (l'arbitro semantico non è più cieco sui seed)`)
   }
 
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
@@ -3054,21 +3064,36 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
-    // Batch FOCALIZZATI sul periodo corrente in testa al gruppo: i 3 documenti
-    // PIÙ RECENTI del fascicolo, uno per batch — TYPE-BLIND (documenti tutti
-    // uguali: conta solo la datazione dei contenuti). Nel batch unico il
-    // modello emetteva una sola risposta per campo attribuita al documento
-    // sbagliato: sdoppiando nascono candidati da ciascun documento recente e
-    // decide l'arbitro (affinità + recency + spareggio lessicale).
-    const newestDocs = groupDocs.slice(0, 3)
+    // Batch FOCALIZZATI in testa al gruppo: un documento per batch, mai mescolato
+    // agli altri. Due criteri, entrambi TYPE-BLIND (documenti tutti uguali —
+    // decidono datazione e descrizioni, mai il nome o il tipo del file):
+    //  - i 3 documenti PIÙ RECENTI del fascicolo, che portano il periodo corrente;
+    //  - i 3 documenti PIÙ AFFINI alle DESCRIZIONI dei campi del gruppo, che
+    //    portano i dati che il gruppo sta cercando.
+    // Il secondo criterio è la cura di una regressione vista in diagnostica: con
+    // TUTTI i documenti in ogni gruppo e l'ordine per sola recency, il documento
+    // più affine ai campi strutturali (qui il contratto, il più VECCHIO) finiva
+    // spezzato in coda a batch pieni di quietanze di quindici anni fa — la pagina
+    // dei massimali arrivava al modello annegata, e il massimale RCO usciva
+    // pescato da una clausola («1.000.000» invece di «4.000.000,00»). Da solo, in
+    // un batch suo, lo stesso documento lo dava giusto.
+    const groupAff = (d) => Math.max(0, ...groupFields.map((f) => fieldDocAffinity(f, d)))
+    const mostAffine = [...groupDocs]
+      .map((d) => [groupAff(d), d])
+      .sort((a, b) => b[0] - a[0] || byStagedRecency(a[1], b[1]))
+      .filter(([aff]) => aff > 0)
+      .slice(0, 3)
+      .map(([, d]) => d)
+    const focusDocs = [...new Set([...groupDocs.slice(0, 3), ...mostAffine])]
     let focusCount = 0
-    if (newestDocs.length) {
-      const focus = newestDocs.flatMap((d) => buildGroupBatches([d], budgetChars))
+    if (focusDocs.length) {
+      const focus = focusDocs.flatMap((d) => buildGroupBatches([d], budgetChars))
       focusCount = focus.length
       if (focus.length) plan.batches = [...focus, ...plan.batches]
     }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
-    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} sul periodo corrente + ` : ''}copertura totale, num_ctx ${batchCtx})`)
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} (recenti + più affini alle descrizioni) + ` : ''}copertura totale, num_ctx ${batchCtx})`)
+    if (mostAffine.length) diag.push(`Gruppo "${kind}": documenti più affini alle descrizioni → ${mostAffine.map((d) => `${d.name}~${groupAff(d).toFixed(2)}`).join(' · ')}`)
   }
   progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
 
