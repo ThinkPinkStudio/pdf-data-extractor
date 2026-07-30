@@ -81,6 +81,9 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model, system, prompt, stream: false,
+          // Modelli "pensanti" (qwen3, deepseek-r1, …): thinking OFF, altrimenti
+          // generano migliaia di token di ragionamento nascosto → timeout.
+          ...(/^(qwen3|deepseek-r1|gpt-oss|magistral|phi4-reasoning|smallthinker|exaone-deep|cogito|granite4)/i.test(model) ? { think: false } : {}),
           options: { temperature: 0.1, num_ctx: 8192, num_predict: 1024 },
         }),
         signal: AbortSignal.timeout(180000),

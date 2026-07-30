@@ -17,7 +17,7 @@ import { join } from 'path'
 // con guardie; qui lo carichiamo in modo opzionale (in ESM `require` non esiste → catch).
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
-import { resilientFetch } from './netFetch.js'
+import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
@@ -552,6 +552,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       ],
       stream: false,
       format: 'json',          // ← grammar-constrained JSON output
+      ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
       options: {
         num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
         temperature: 0,        // output deterministico
@@ -715,6 +716,7 @@ async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
       ],
       stream: false,
       format: 'json',
+      ...ollamaThinkOpts(model), // qwen3 & co.: thinking OFF
       options: { temperature: 0, num_ctx: 8192, num_predict: 3000 }
     }),
     signal: AbortSignal.timeout(300000)  // 5 min — vision è più lento
@@ -1161,6 +1163,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       ],
       stream: false,
       format: 'json',
+      ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
       options: {
         num_ctx:     numCtx,
         temperature: 0,
@@ -1212,6 +1215,7 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
       ],
       stream: false,
       format: 'json',
+      ...ollamaThinkOpts(model), // qwen3 & co.: thinking OFF
       options: {
         num_ctx:     8192,
         temperature: 0,

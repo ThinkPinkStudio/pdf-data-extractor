@@ -116,3 +116,18 @@ export function describeNetworkError(err) {
   }
   return { stage: 'network', message: raw }
 }
+
+// ─── Modelli Ollama "pensanti" ───────────────────────────────────────────────
+// Famiglie con thinking attivo di default (qwen3, deepseek-r1, …): senza
+// think:false generano migliaia di token di ragionamento NASCOSTO prima del
+// JSON — visto sul campo: 256s per 45 token utili → timeout a catena su GPU
+// consumer. Il flag va mandato SOLO ai modelli riconosciuti: su quelli non
+// pensanti alcune versioni di Ollama rifiutano la richiesta.
+export function isThinkingModel(model) {
+  return /^(qwen3|deepseek-r1|gpt-oss|magistral|phi4-reasoning|smallthinker|exaone-deep|cogito|granite4)/i.test(String(model || '').trim())
+}
+
+// Campo `think` da unire al body di /api/chat//api/generate: {} se non serve.
+export function ollamaThinkOpts(model) {
+  return isThinkingModel(model) ? { think: false } : {}
+}
