@@ -85,11 +85,13 @@ async function runJob(jobId: string): Promise<void> {
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   await updateJob(jobId, { status: 'running' })
 
-  if (job.whole_dossier) {
-    await runWholeDossier(job, files, settings, logs)
-  } else {
-    await runVisionRolling(job, files, settings, logs)
-  }
+  // SEMPRE percorso testo (OCR Tesseract + modello di testo). Il vecchio ramo
+  // vision-rolling (immagini pagina per pagina al modello vision) è stato
+  // eliminato su richiesta: coi modelli testuali configurati produceva solo
+  // errori 400 "Multimodal data provided" e job a 0 campi. I PDF scansionati
+  // passano comunque: ci pensa l'OCR Tesseract dentro il percorso testo.
+  if (!job.whole_dossier) logs.push('Nota: modalità vision dismessa — il job usa il percorso testo (OCR) come tutti.')
+  await runWholeDossier(job, files, settings, logs)
 }
 
 async function isCanceled(id: string): Promise<boolean> {
