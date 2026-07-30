@@ -33,6 +33,10 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   nel testo, recency — e a pari data lo spareggio LESSICALE con la descrizione
   (`lex` sul candidato). Le uniche eccezioni ammesse sono type-blind: mai
   escludere campi dai 3 documenti più recenti né dal documento più corposo.
+  I batch FOCALIZZATI (un documento per chiamata) si scelgono con due criteri
+  type-blind: i 3 documenti più recenti **e** i 3 più affini alle descrizioni
+  del gruppo — senza il secondo il documento più informativo (il contratto, che
+  è anche il più vecchio) finiva spezzato in coda a batch di quietanze vecchie.
 
 - **VISION DISMESSA**: il percorso vision (immagini al modello multimodale) NON
   deve esistere. I PDF scansionati passano da OCR Tesseract + modello di testo.
@@ -48,6 +52,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Impostazioni, persiste da solo al cambio — chiave `polizzaStagedCascade`,
   esclusa dal salvataggio pagina via `EDITOR_KEYS`). Arbitro semantico prudente
   (promozione Δ>0.15, veto Δ>0.10, altrimenti recency + spareggio lessicale).
+- **Descrizioni dei campi**: `stripFieldExamples` toglie SOLO l'esempio, non
+  tutto ciò che l'utente ha scritto dopo. Il vecchio taglio arrivava a fine riga
+  e le descrizioni sono su una riga sola: da "Parametro regolazione" spariva il
+  «VIETATO restituire da sole le parole 'Consuntivo'… ometti il campo», sia dal
+  prompt sia dal vettore di affinità.
+- **Affinità dei candidati**: la finestra di contesto attorno al valore si cerca
+  sul testo NORMALIZZATO (`findValueWindow`/`buildNormIndex`). Con la ricerca
+  letterale bastava una maiuscola diversa ("Acqui Terme" vs "ACQUI TERME")
+  perché l'affinità fosse `null` e l'arbitro, cieco, decidesse per sola recency.
+  Anche i seed di Stadio A hanno la loro affinità: prima entravano nudi.
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
 
