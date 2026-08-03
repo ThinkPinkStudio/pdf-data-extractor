@@ -52,6 +52,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Impostazioni, persiste da solo al cambio — chiave `polizzaStagedCascade`,
   esclusa dal salvataggio pagina via `EDITOR_KEYS`). Arbitro semantico prudente
   (promozione Δ>0.15, veto Δ>0.10, altrimenti recency + spareggio lessicale).
+- **Questionario IDD (CSA Adesioni)**: per la legenda AXA le 5 domande sono
+  OBBLIGATORIE e si valorizzano solo con TIPO MOVIMENTO "A" (fino a 20 coppie
+  CODICE DOMANDA/RISPOSTA). Quindi: `validateRecord(record, fields, idd)` blocca
+  il salvataggio di un'attivazione senza risposte, le intestazioni del tracciato
+  si dimensionano sul questionario (`trackHeadersFor`) e l'archivio mostra lo
+  stato IDD di ogni record con conferma prima di export/FTP incompleti.
+
 - **Descrizioni dei campi**: `stripFieldExamples` toglie SOLO l'esempio, non
   tutto ciò che l'utente ha scritto dopo. Il vecchio taglio arrivava a fine riga
   e le descrizioni sono su una riga sola: da "Parametro regolazione" spariva il

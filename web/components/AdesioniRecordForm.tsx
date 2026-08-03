@@ -2,6 +2,7 @@
 
 import type { AdesioniConfig, AdesioniField } from '@/lib/adesioni/config'
 import { firstOfMonthIT } from '@/lib/adesioni/coverageDates.js'
+import { iddErrorKey } from '@/lib/adesioni/recordMapper.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 export type AdesioniRecord = Record<string, unknown> & { idd?: Record<string, string> }
@@ -85,15 +86,23 @@ export default function AdesioniRecordForm({
             {isA ? t('ad.form.iddNoteA') : t('ad.form.iddNoteNotA')}
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {config.idd.map((q) => (
-              <div className="form-group" key={q.domanda} style={{ margin: 0 }}>
-                <label className="label">{q.label}</label>
-                <select value={(record.idd || {})[q.domanda] || ''} onChange={(e) => setIdd(q.domanda, e.target.value)}>
-                  <option value="">{t('set.selectPlaceholder')}</option>
-                  {q.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            ))}
+            {config.idd.map((q) => {
+              const err = errors[iddErrorKey(q.domanda)]
+              return (
+                <div className="form-group" key={q.domanda} style={{ margin: 0 }}>
+                  <label className="label">{q.label}{isA ? ' *' : ''}</label>
+                  <select
+                    value={(record.idd || {})[q.domanda] || ''}
+                    onChange={(e) => setIdd(q.domanda, e.target.value)}
+                    style={err ? { borderColor: 'var(--c-error)' } : undefined}
+                  >
+                    <option value="">{t('set.selectPlaceholder')}</option>
+                    {q.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {err && <span style={{ fontSize: 11, color: 'var(--c-error)' }}>{err === 'select' ? t('ad.form.errSelect') : t('ad.form.errRequired')}</span>}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

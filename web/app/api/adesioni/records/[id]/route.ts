@@ -21,7 +21,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = (await req.json()) as { record?: Record<string, unknown> }
   if (!body.record) return NextResponse.json({ error: 'Record mancante' }, { status: 400 })
   const config = await getAdesioniConfig()
-  const { valid, errors } = validateRecord(body.record, config.fields) as { valid: boolean; errors: Record<string, string> }
+  const { valid, errors } = validateRecord(body.record, config.fields, config.idd) as { valid: boolean; errors: Record<string, string> }
   if (!valid) return NextResponse.json({ error: 'Dati non validi', errors }, { status: 400 })
   const row = await updateRecord(params.id, body.record)
   if (!row) return NextResponse.json({ error: 'Non trovato' }, { status: 404 })

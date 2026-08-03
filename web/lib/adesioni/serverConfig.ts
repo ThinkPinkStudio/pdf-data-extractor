@@ -10,7 +10,9 @@ export async function getAdesioniConfig(): Promise<AdesioniConfig> {
   const s = await getSettings()
   return {
     fields: (s.adesioniFields as AdesioniField[] | undefined) ?? (DEFAULT_FIELDS as AdesioniField[]),
-    idd: (s.adesioniIdd as IddQuestion[] | undefined) ?? (DEFAULT_IDD as IddQuestion[]),
+    // Un questionario salvato vuoto azzererebbe le colonne CODICE DOMANDA/RISPOSTA
+    // del tracciato: in quel caso si torna alle domande di default.
+    idd: (Array.isArray(s.adesioniIdd) && s.adesioniIdd.length ? (s.adesioniIdd as IddQuestion[]) : (DEFAULT_IDD as IddQuestion[])),
     prezzi: (s.adesioniPrezzi as Record<string, PrezzoRow> | undefined) ?? (DEFAULT_PREZZI as Record<string, PrezzoRow>),
     dateOffsetDays: s.adesioniDateOffsetDays ?? 0,
   }
