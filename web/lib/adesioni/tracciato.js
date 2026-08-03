@@ -56,6 +56,44 @@ export function normHeader(h) {
     .toUpperCase()
 }
 
+// La legenda AXA ("CODICE DOMANDA + PROGRESSIVO") ammette fino a 20 coppie
+// domanda/risposta. Le intestazioni canoniche ne prevedono 5: se il questionario
+// configurato ne ha di più, il tracciato va allargato — altrimenti le risposte
+// dalla sesta in poi non avrebbero una colonna dove finire.
+export const MAX_IDD_QUESTIONS = 20
+const IDD_HEADER_RE = /^CODICE (DOMANDA|RISPOSTA) (\d+)$/
+
+/** Quante coppie CODICE DOMANDA/RISPOSTA può ospitare un elenco di intestazioni. */
+export function iddPairCapacity(headers) {
+  const seen = { DOMANDA: new Set(), RISPOSTA: new Set() }
+  for (const h of headers || []) {
+    const m = IDD_HEADER_RE.exec(normHeader(h))
+    if (m) seen[m[1]].add(Number(m[2]))
+  }
+  let n = 0
+  while (seen.DOMANDA.has(n + 1) && seen.RISPOSTA.has(n + 1)) n++
+  return n
+}
+
+/**
+ * Intestazioni del tracciato dimensionate sul questionario configurato: mai meno
+ * delle 5 coppie canoniche, mai più delle 20 ammesse dalla compagnia. Le coppie
+ * restano al loro posto (subito prima di TIPO MOVIMENTO).
+ */
+export function trackHeadersFor(idd) {
+  const wanted = Math.min(MAX_IDD_QUESTIONS, Math.max(5, Array.isArray(idd) ? idd.length : 0))
+  if (wanted === 5) return TRACCIATO_HEADERS.slice()
+  const out = []
+  for (const h of TRACCIATO_HEADERS) {
+    if (IDD_HEADER_RE.test(normHeader(h))) continue
+    if (normHeader(h) === 'TIPO MOVIMENTO') {
+      for (let i = 1; i <= wanted; i++) out.push(`CODICE DOMANDA ${i}`, `CODICE RISPOSTA ${i}`)
+    }
+    out.push(h)
+  }
+  return out
+}
+
 const YN = [{ value: 'S', label: 'Sì' }, { value: 'N', label: 'No' }]
 
 // Campi configurabili della maschera. Ogni campo è mappato a una colonna del

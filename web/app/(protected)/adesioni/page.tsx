@@ -46,7 +46,7 @@ export default function AdesioniPage() {
   const opzioneLabel = opzioneLabelFor(String(record.codice_configurazione ?? ''))
 
   function validateNow(r: AdesioniRecord): boolean {
-    const { errors: errs, valid } = validateRecord(r, config.fields) as { errors: Record<string, string>; valid: boolean }
+    const { errors: errs, valid } = validateRecord(r, config.fields, config.idd) as { errors: Record<string, string>; valid: boolean }
     setErrors(errs)
     if (!valid) setMsg({ ok: false, text: t('ad.msg.fixFields') })
     return valid

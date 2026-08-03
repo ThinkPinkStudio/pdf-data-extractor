@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AdesioniRecordForm, { type AdesioniRecord } from '@/components/AdesioniRecordForm'
 import { defaultAdesioniConfig, type AdesioniConfig } from '@/lib/adesioni/config'
-import { validateRecord } from '@/lib/adesioni/recordMapper.js'
+import { validateRecord, missingIddAnswers } from '@/lib/adesioni/recordMapper.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Row {
@@ -51,7 +51,26 @@ export default function AdesioniRecordsPage() {
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const ids = () => Array.from(sel)
 
+  // Risposte IDD mancanti su un record di attivazione: sono le colonne CODICE
+  // RISPOSTA che arriverebbero vuote in AXA.
+  const iddMissing = (r: Row): number => (missingIddAnswers(r.data, config.idd) as unknown[]).length
+
+  /**
+   * Prima di consegnare il tracciato avvisa se qualche record di attivazione ha
+   * il questionario incompleto: l'export resta possibile (l'archivio storico può
+   * averne), ma non parte più di nascosto.
+   */
+  function confirmIdd(): boolean {
+    const scope = sel.size ? rows.filter((r) => sel.has(r.id)) : rows
+    const bad = scope.filter((r) => iddMissing(r) > 0)
+    if (!bad.length) return true
+    const names = bad.slice(0, 8).map((r) => `${r.cognome} ${r.nome} (${r.identificativo})`).join('\n')
+    const more = bad.length > 8 ? `\n… +${bad.length - 8}` : ''
+    return confirm(`${t('ad.records.confirmIddIncomplete', { n: bad.length })}\n\n${names}${more}`)
+  }
+
   async function doExport(reexport: boolean) {
+    if (!confirmIdd()) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/adesioni/records/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids(), reexport }) })
@@ -63,16 +82,19 @@ export default function AdesioniRecordsPage() {
   }
   async function exportAppend(file: File | undefined) {
     if (!file) return
+    if (!confirmIdd()) return
     setBusy(true)
     const form = new FormData()
     form.append('file', file); form.append('ids', ids().join(','))
     try {
       const res = await fetch('/api/adesioni/records/export', { method: 'POST', body: form })
       if (res.ok) { download(await res.blob(), 'tracciato_aggiornato.xlsx'); setMsg({ ok: true, text: t('ad.records.appendDone') }); setSel(new Set()); load(q, statusFilter) }
+      else setMsg({ ok: false, text: (await res.json().catch(() => ({}))).error || t('ad.err.export') })
     } finally { setBusy(false) }
   }
   async function ftp(target: 'staging' | 'prod') {
     if (!sel.size) return
+    if (!confirmIdd()) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/adesioni/ftp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target, ids: ids() }) })
@@ -89,7 +111,7 @@ export default function AdesioniRecordsPage() {
 
   async function saveEdit() {
     if (!editing) return
-    const { errors: errs, valid } = validateRecord(editing.data, config.fields) as { errors: Record<string, string>; valid: boolean }
+    const { errors: errs, valid } = validateRecord(editing.data, config.fields, config.idd) as { errors: Record<string, string>; valid: boolean }
     setErrors(errs)
     if (!valid) { setMsg({ ok: false, text: t('ad.msg.fixFields') }); return }
     const res = await fetch(`/api/adesioni/records/${editing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record: editing.data }) })
@@ -131,7 +153,7 @@ export default function AdesioniRecordsPage() {
         ) : (
           <table>
             <thead>
-              <tr><th></th><th>{t('ad.records.colStatus')}</th><th>{t('ad.records.colCognome')}</th><th>{t('ad.records.colNome')}</th><th>{t('ad.records.colCf')}</th><th>{t('ad.records.colTarga')}</th><th>{t('ad.records.colIdentificativo')}</th><th>{t('ad.records.colFine')}</th><th>{t('ad.records.colSavedBy')}</th><th></th></tr>
+              <tr><th></th><th>{t('ad.records.colStatus')}</th><th>{t('ad.records.colCognome')}</th><th>{t('ad.records.colNome')}</th><th>{t('ad.records.colCf')}</th><th>{t('ad.records.colTarga')}</th><th>{t('ad.records.colIdentificativo')}</th><th>{t('ad.records.colFine')}</th><th>{t('ad.records.colIdd')}</th><th>{t('ad.records.colSavedBy')}</th><th></th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
@@ -139,6 +161,7 @@ export default function AdesioniRecordsPage() {
                   <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={t('ad.records.selectRow', { name: `${r.cognome} ${r.nome}` })} /></td>
                   <td><StatusBadge status={r.status} t={t} /></td>
                   <td>{r.cognome}</td><td>{r.nome}</td><td>{r.codice_fiscale}</td><td>{r.targa}</td><td>{r.identificativo}</td><td>{r.data_fine}</td>
+                  <td><IddBadge missing={iddMissing(r)} isA={String(r.data?.tipo_movimento || '').toUpperCase() === 'A'} t={t} /></td>
                   <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{r.saved_by || '—'}</td>
                   <td><button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setEditing(r); setErrors({}) }}>{t('ad.btn.edit')}</button></td>
                 </tr>
@@ -171,6 +194,23 @@ function StatusBadge({ status, t }: { status: 'pending' | 'archived'; t: (key: s
       background: archived ? 'var(--c-bg-card-alt)' : 'var(--c-accent-faint)',
       whiteSpace: 'nowrap',
     }}>{archived ? t('ad.records.statusArchived') : t('ad.records.filterPending')}</span>
+  )
+}
+
+// Stato del questionario IDD di un record: verde se completo, rosso col numero
+// di risposte mancanti, trattino per i movimenti che non lo prevedono (M/E).
+function IddBadge({ missing, isA, t }: { missing: number; isA: boolean; t: (key: string, vars?: Record<string, string | number>) => string }) {
+  if (!isA) return <span style={{ color: 'var(--c-text-muted)' }}>—</span>
+  const ok = missing === 0
+  return (
+    <span
+      title={ok ? t('ad.records.iddComplete') : t('ad.records.iddMissing', { n: missing })}
+      style={{
+        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
+        color: ok ? 'var(--c-accent)' : 'var(--c-error)',
+        background: ok ? 'var(--c-accent-faint)' : 'var(--c-bg-card-alt)',
+      }}
+    >{ok ? t('ad.records.iddComplete') : t('ad.records.iddMissing', { n: missing })}</span>
   )
 }
 

@@ -2,7 +2,7 @@
 // Porta xlsxFlussoWriter.js e xlsxAppend.js: le date restano testo GG/MM/AAAA
 // (numFmt '@') per preservare il formato richiesto dalla compagnia.
 import ExcelJS from 'exceljs'
-import { TRACCIATO_HEADERS } from './tracciato.js'
+import { TRACCIATO_HEADERS, iddPairCapacity, trackHeadersFor } from './tracciato.js'
 import { buildTrackRow } from './recordMapper.js'
 import type { AdesioniConfig } from './config'
 
@@ -10,14 +10,17 @@ type Rec = Record<string, unknown>
 const dataOf = (entry: Rec): Rec => (entry && (entry as { data?: Rec }).data ? (entry as { data: Rec }).data : entry)
 
 /** Crea un nuovo file tracciato con tutte le righe passate. Ritorna un Buffer .xlsx. */
-export async function writeTrackBuffer(records: Rec[], config: AdesioniConfig, headers: string[] = TRACCIATO_HEADERS): Promise<Buffer> {
+export async function writeTrackBuffer(records: Rec[], config: AdesioniConfig, headers?: string[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'CSA Adesioni — ThinkPink Studio'
   wb.created = new Date()
   const ws = wb.addWorksheet('flusso')
-  ws.addRow(headers)
+  // Le colonne del questionario seguono il numero di domande configurate: con
+  // intestazioni più corte le risposte in eccesso sparirebbero dal tracciato.
+  const cols: string[] = headers && headers.length ? headers : (trackHeadersFor(config.idd) as string[])
+  ws.addRow(cols)
   for (const entry of records || []) {
-    const row = buildTrackRow(dataOf(entry), config.fields, config.idd, headers)
+    const row = buildTrackRow(dataOf(entry), config.fields, config.idd, cols)
     const added = ws.addRow(row)
     added.eachCell((cell) => { cell.numFmt = '@' })
   }
@@ -44,6 +47,18 @@ export async function appendTrackBuffer(records: Rec[], existing: Buffer | Array
 
   const own = readSheetHeaders(ws)
   const headers = own.length ? own : TRACCIATO_HEADERS
+
+  // Il file scelto detta le colonne: se ha meno coppie CODICE DOMANDA/RISPOSTA
+  // delle domande configurate, le risposte in eccesso finirebbero nel nulla.
+  // Meglio dirlo che consegnare in AXA un tracciato monco.
+  const capacity = iddPairCapacity(headers) as number
+  const questions = Array.isArray(config.idd) ? config.idd.length : 0
+  if (questions > capacity) {
+    throw new Error(
+      `Il file selezionato ha spazio per ${capacity} domande del questionario IDD, ma ne sono configurate ${questions}: ` +
+      'esporta un nuovo tracciato invece di accodare a questo file.'
+    )
+  }
 
   const list = Array.isArray(records) ? records : []
   for (const entry of list) {

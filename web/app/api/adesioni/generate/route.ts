@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const config = await getAdesioniConfig()
     // Validazione lato server di ogni record prima della generazione.
     for (let i = 0; i < records.length; i++) {
-      const { valid, errors } = validateRecord(records[i], config.fields) as { valid: boolean; errors: Record<string, string> }
+      const { valid, errors } = validateRecord(records[i], config.fields, config.idd) as { valid: boolean; errors: Record<string, string> }
       if (!valid) return NextResponse.json({ error: `Record ${i + 1} non valido`, errors }, { status: 400 })
     }
     const zip = await generateZip(records, config, { pdf: body.pdf !== false })
