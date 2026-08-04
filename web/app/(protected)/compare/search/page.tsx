@@ -129,11 +129,19 @@ export default function CompareSearchPage() {
                       <table>
                         <thead><tr>{matchColumns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
                         <tbody>
-                          {matches.map((m, j) => (
+                          {/* Cap di VISUALIZZAZIONE: una condizione lasca può abbinare
+                              migliaia di righe B a una sola riga A — renderle tutte
+                              congela la tab. Conteggio ed export restano completi. */}
+                          {matches.slice(0, 20).map((m, j) => (
                             <tr key={j}>{matchColumns.map((c) => <td key={c}>{String(m[c] ?? '')}</td>)}</tr>
                           ))}
                         </tbody>
                       </table>
+                      {matches.length > 20 && (
+                        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '6px 0 0' }}>
+                          …e altre {matches.length - 20} corrispondenze (tutte incluse nell&apos;export XLS). Così tante corrispondenze per una sola riga indicano una condizione troppo lasca.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
