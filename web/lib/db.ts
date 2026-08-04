@@ -133,6 +133,10 @@ export async function initDb() {
       pages      JSONB NOT NULL DEFAULT '[]',
       created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
+    -- Versione del FORMATO del testo in cache (1 = piatto storico, 2 = griglia
+    -- spaziale a colonne preservate). Al bump le voci vecchie diventano miss e
+    -- si rigenerano al primo rilancio: nessuna migrazione dei dati.
+    ALTER TABLE ocr_cache ADD COLUMN IF NOT EXISTS format INTEGER NOT NULL DEFAULT 1;
 
     -- CSA Adesioni: archivio dei record generati. Il record completo vive in JSONB;
     -- alcune colonne sono denormalizzate per ricerca e scadenze.

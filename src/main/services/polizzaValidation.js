@@ -197,6 +197,53 @@ function matchTokens(s) {
     .filter((t) => t.length >= 3)
 }
 
+// Distanza di Levenshtein con TETTO: appena la distanza minima possibile supera
+// `cap` ritorna cap+1 (non serve il valore esatto, solo "entro il tetto o no").
+function boundedLevenshtein(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let rowMin = i
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (cur[j] < rowMin) rowMin = cur[j]
+    }
+    if (rowMin > cap) return cap + 1
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+/**
+ * Riconduce una chiave della risposta del modello a uno degli id campo
+ * RICHIESTI anche se il modello l'ha storpiata di 1-2 caratteri.
+ *
+ * Visto in produzione (qwen2.5 q4, Stadio E): risposta con chiave
+ * "311ac411-…" per il campo "311ac415-…" — un valore VALIDO buttato via
+ * perché la chiave non combaciava. I modelli piccoli ricopiano male gli id
+ * lunghi (UUID); il refuso è dell'id, non del dato.
+ *
+ * Prudenza: match esatto prima di tutto; fuzzy SOLO su chiavi lunghe (≥8),
+ * distanza ≤2, e SOLO se il candidato è UNIVOCO — due id compatibili → null
+ * (meglio scartare che attribuire al campo sbagliato).
+ */
+export function matchFieldKey(key, ids) {
+  const k = String(key || '')
+  if (!k) return null
+  if (ids.includes(k)) return k
+  if (k.length < 8) return null
+  let best = null
+  for (const id of ids) {
+    if (String(id).length < 8) continue
+    if (boundedLevenshtein(k, String(id), 2) <= 2) {
+      if (best) return null // ambiguo: mai tirare a indovinare tra due campi
+      best = id
+    }
+  }
+  return best
+}
+
 /**
  * Rimuove dalla descrizione di un campo SOLO l'esempio, lasciando intatto tutto
  * ciò che viene dopo.
