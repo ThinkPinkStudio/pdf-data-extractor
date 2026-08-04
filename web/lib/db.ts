@@ -101,6 +101,14 @@ export async function initDb() {
     -- rilevato alla creazione, permette all'utente di riusarne i risultati invece di
     -- rifare OCR+estrazione. Mai automatico: il riuso è un'azione esplicita.
     ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS duplicate_of TEXT;
+    -- Run di TEST: job copia che riusa i PDF del job SORGENTE (nessuna
+    -- duplicazione di pdf_base64 — getJobFiles/getJobFile risalgono al sorgente).
+    -- ON DELETE SET NULL: cancellato il sorgente, il test resta coi risultati ma
+    -- senza PDF (la route file risponde 404) — accettato e documentato.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS source_job_id TEXT REFERENCES polizza_jobs(id) ON DELETE SET NULL;
+    -- Override puntuale dei settings (whitelist nel worker) applicato DOPO
+    -- getSettings(): modello/strategia scelti nel dialog di test.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS settings_override JSONB;
 
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_email ON polizza_jobs(email);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);

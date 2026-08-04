@@ -28,6 +28,8 @@ interface JobSnapshot {
   fieldDefs?: { id: string; label: string }[]
   progress?: { docIndex: number; docTotal: number; pageIndex: number; pageTotal: number; docName: string } | null
   duplicateOf?: string | null
+  sourceJobId?: string | null
+  promptExtra?: string | null
   logs?: string[]
   updatedAt?: number
   error: string | null
@@ -70,6 +72,14 @@ export default function PolizzaJobsPage() {
   const [showFiles, setShowFiles] = useState<Set<string>>(new Set())     // jobId → elenco PDF aperto
   const [retryExcluded, setRetryExcluded] = useState<Set<string>>(new Set()) // jobId esclusi dal rilancio
   const [busy, setBusy] = useState(false)
+  // Dialog "run di TEST": job sorgente + scelte (profilo/modello/strategia/prompt)
+  const [testJob, setTestJob] = useState<JobSnapshot | null>(null)
+  const [testProfileId, setTestProfileId] = useState('')
+  const [testModel, setTestModel] = useState('')
+  const [testStrategy, setTestStrategy] = useState('')      // '' = come da impostazioni
+  const [testPrompt, setTestPrompt] = useState('')
+  const [testModels, setTestModels] = useState<string[]>([])
+  const [testProfiles, setTestProfiles] = useState<{ id: string; name: string }[]>([])
 
   const loadBatches = useCallback(async () => {
     try {
@@ -127,6 +137,38 @@ export default function PolizzaJobsPage() {
       await fetch(`/api/polizza/job/${jobId}/retry`, { method: 'POST' })
       if (openId) await loadDetail(openId)
       await loadBatches()
+    } finally { setBusy(false) }
+  }
+
+  // Apre il dialog di TEST per un job: carica (una volta) profili e modelli
+  // disponibili; i default sono "campi del job" e "modello/strategia correnti".
+  async function openTestDialog(j: JobSnapshot) {
+    setTestJob(j); setTestProfileId(''); setTestModel(''); setTestStrategy(''); setTestPrompt(j.promptExtra || '')
+    if (!testProfiles.length) {
+      try {
+        const s = await (await fetch('/api/settings')).json()
+        setTestProfiles((s.polizzaProfiles || []).map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })))
+      } catch { /* senza profili resta "campi del job" */ }
+    }
+    if (!testModels.length) {
+      try { setTestModels(((await (await fetch('/api/polizza/models')).json())?.models) || []) } catch { /* free-text */ }
+    }
+  }
+
+  async function startTestRun() {
+    if (!testJob) return
+    setBusy(true)
+    try {
+      const body: Record<string, unknown> = {}
+      if (testProfileId) body.profileId = testProfileId
+      if (testModel.trim()) body.model = testModel.trim()
+      if (testStrategy) body.stagedCascade = testStrategy === 'cascade'
+      if (testPrompt !== (testJob.promptExtra || '')) body.promptExtra = testPrompt
+      const res = await fetch(`/api/polizza/job/${testJob.jobId}/test`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      if (res.ok) { setTestJob(null); await loadBatches() }
+      else alert((await res.json())?.error || 'Errore')
     } finally { setBusy(false) }
   }
 
@@ -352,6 +394,12 @@ export default function PolizzaJobsPage() {
                                                 ↻ {t('jobsDash.reprocess')}
                                               </button>
                                             )}
+                                            {(j.status === 'done' || j.status === 'error') && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                                                title={t('jobsDash.testTitle')} onClick={() => openTestDialog(j)}>
+                                                🧪 {t('jobsDash.test')}
+                                              </button>
+                                            )}
                                             {reusable && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                                                 title={t('jobsDash.reuseTitle')} onClick={() => reuseJobRow(j.jobId)}>
@@ -442,6 +490,9 @@ export default function PolizzaJobsPage() {
       {singles !== null && singles.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table>
+            {/* Le run di TEST si mostrano SOTTO il loro job sorgente (indentate,
+                badge 🧪) così le varianti si confrontano a colpo d'occhio; un
+                test il cui sorgente sta in un batch resta riga normale. */}
             <thead>
               <tr>
                 <th style={{ padding: '10px 14px' }}>{t('jobsDash.dossierName')}</th>
@@ -453,7 +504,24 @@ export default function PolizzaJobsPage() {
               </tr>
             </thead>
             <tbody>
-              {singles.map((j) => {
+              {(() => {
+                const byId = new Set(singles.map((x) => x.jobId))
+                const testsOf = new Map<string, JobSnapshot[]>()
+                for (const x of singles) {
+                  if (x.sourceJobId && byId.has(x.sourceJobId)) {
+                    const arr = testsOf.get(x.sourceJobId) || []
+                    arr.push(x)
+                    testsOf.set(x.sourceJobId, arr)
+                  }
+                }
+                const ordered: JobSnapshot[] = []
+                for (const x of singles) {
+                  if (x.sourceJobId && byId.has(x.sourceJobId)) continue
+                  ordered.push(x)
+                  for (const tst of testsOf.get(x.jobId) || []) ordered.push(tst)
+                }
+                return ordered
+              })().map((j) => {
                 const active = j.status === 'running' || j.status === 'queued'
                 const failed = j.status === 'error'
                 const reusable = !!j.duplicateOf && (j.status === 'queued' || j.status === 'error' || j.status === 'canceled')
@@ -468,15 +536,19 @@ export default function PolizzaJobsPage() {
                 const name = j.dossierName || (sortedFiles.length
                   ? `${sortedFiles[0]}${sortedFiles.length > 1 ? ` (+${sortedFiles.length - 1})` : ''}`
                   : j.jobId.slice(0, 8))
+                const isTest = !!j.sourceJobId
                 return (
                   <Fragment key={j.jobId}>
                     <tr>
-                      <td style={{ padding: '8px 14px', fontSize: 12 }}>
+                      <td style={{ padding: '8px 14px', fontSize: 12, ...(isTest ? { paddingLeft: 32 } : {}) }}>
                         {hasValues && (
                           <button type="button" onClick={() => setShowValues((p) => toggleIn(p, j.jobId))} title={t('jobsDash.showValues')}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-secondary)', fontSize: 11, padding: 0, marginRight: 6, width: 12 }}>
                             {valuesOpen ? '▾' : '▸'}
                           </button>
+                        )}
+                        {isTest && (
+                          <span title={t('jobsDash.testBadge')} style={{ fontSize: 10, fontWeight: 700, color: 'var(--c-info)', marginRight: 6 }}>🧪</span>
                         )}
                         {name}
                       </td>
@@ -502,6 +574,12 @@ export default function PolizzaJobsPage() {
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                             title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                             ↻ {t('jobsDash.reprocess')}
+                          </button>
+                        )}
+                        {(j.status === 'done' || j.status === 'error') && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                            title={t('jobsDash.testTitle')} onClick={() => openTestDialog(j)}>
+                            🧪 {t('jobsDash.test')}
                           </button>
                         )}
                         {reusable && (
@@ -567,6 +645,51 @@ export default function PolizzaJobsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── Dialog "run di TEST": stessi PDF, profilo/modello/strategia a scelta.
+          Crea un job COPIA — l'originale non viene mai toccato. ── */}
+      {testJob && (
+        <div onClick={() => setTestJob(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '92vw', padding: 20 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🧪 {t('jobsDash.testDialogTitle')}</h3>
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>
+              {testJob.dossierName || testJob.jobId.slice(0, 8)} — {t('jobsDash.testDialogHint')}
+            </p>
+            <div className="form-group">
+              <label className="label">{t('jobsDash.testProfile')}</label>
+              <select value={testProfileId} onChange={(e) => setTestProfileId(e.target.value)} style={{ width: '100%' }}>
+                <option value="">{t('jobsDash.testProfileFrozen')}</option>
+                {testProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="label">{t('jobsDash.testModel')}</label>
+              <input list="test-models" value={testModel} onChange={(e) => setTestModel(e.target.value)}
+                placeholder={t('jobsDash.testModelPlaceholder')} style={{ width: '100%' }} />
+              <datalist id="test-models">
+                {testModels.map((m) => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+            <div className="form-group">
+              <label className="label">{t('jobsDash.testStrategy')}</label>
+              <select value={testStrategy} onChange={(e) => setTestStrategy(e.target.value)} style={{ width: '100%' }}>
+                <option value="">{t('jobsDash.testStrategyCurrent')}</option>
+                <option value="groups">{t('jobsDash.testStrategyGroups')}</option>
+                <option value="cascade">{t('jobsDash.testStrategyCascade')}</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="label">{t('jobsDash.testPrompt')}</label>
+              <textarea value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} rows={3} style={{ width: '100%', fontSize: 12 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setTestJob(null)}>{t('jobsDash.testCancel')}</button>
+              <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={startTestRun}>▶ {t('jobsDash.testStart')}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
