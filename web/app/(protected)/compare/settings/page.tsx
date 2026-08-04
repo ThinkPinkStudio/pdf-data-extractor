@@ -7,7 +7,7 @@ import { TRANSFORM_OPTIONS, defaultMatchKeys, defaultCompareConfig, workbookColu
 export default function CompareSettingsPage() {
   const { config, saveConfig, fileA, fileB } = useCompare()
   const [keys, setKeys] = useState<MatchKey[]>(config.matchKeys)
-  const [fuzzy, setFuzzy] = useState({ min: config.fuzzyMinOverlap, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad })
+  const [fuzzy, setFuzzy] = useState({ enabled: config.fuzzyEnabled, min: config.fuzzyMinOverlap, ignore: config.fuzzyIgnoreWords, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad })
   const [saved, setSaved] = useState(false)
   const [profiles, setProfiles] = useState<Record<string, CompareConfig>>({})
   const [profileName, setProfileName] = useState('')
@@ -18,12 +18,12 @@ export default function CompareSettingsPage() {
   function resetAll() {
     const d = defaultCompareConfig()
     setKeys(d.matchKeys)
-    setFuzzy({ min: d.fuzzyMinOverlap, broad: d.fuzzyBroadEnabled, broadMin: d.fuzzyMinOverlapBroad })
+    setFuzzy({ enabled: d.fuzzyEnabled, min: d.fuzzyMinOverlap, ignore: d.fuzzyIgnoreWords, broad: d.fuzzyBroadEnabled, broadMin: d.fuzzyMinOverlapBroad })
     saveConfig(d)
     flashProfile('Criteri ripristinati ai valori predefiniti.')
   }
 
-  useEffect(() => { setKeys(config.matchKeys); setFuzzy({ min: config.fuzzyMinOverlap, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad }) }, [config])
+  useEffect(() => { setKeys(config.matchKeys); setFuzzy({ enabled: config.fuzzyEnabled, min: config.fuzzyMinOverlap, ignore: config.fuzzyIgnoreWords, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad }) }, [config])
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then((d) => { if (d.compareProfiles) setProfiles(d.compareProfiles) }).catch(() => {})
   }, [])
@@ -45,7 +45,9 @@ export default function CompareSettingsPage() {
     return {
       ...config,
       matchKeys: keys,
+      fuzzyEnabled: fuzzy.enabled,
       fuzzyMinOverlap: fuzzy.min,
+      fuzzyIgnoreWords: fuzzy.ignore,
       fuzzyBroadEnabled: fuzzy.broad,
       fuzzyMinOverlapBroad: fuzzy.broadMin,
     }
@@ -70,7 +72,8 @@ export default function CompareSettingsPage() {
   }
   function loadProfile(name: string) {
     const p = profiles[name]
-    if (p) { setKeys(p.matchKeys || defaultMatchKeys()); setFuzzy({ min: p.fuzzyMinOverlap, broad: p.fuzzyBroadEnabled, broadMin: p.fuzzyMinOverlapBroad }); saveConfig(p); flashProfile(`Profilo «${name}» caricato.`) }
+    // Profili salvati prima dei campi nuovi: enabled/ignore assenti → default.
+    if (p) { setKeys(p.matchKeys || defaultMatchKeys()); setFuzzy({ enabled: p.fuzzyEnabled !== false, min: p.fuzzyMinOverlap, ignore: p.fuzzyIgnoreWords || '', broad: p.fuzzyBroadEnabled, broadMin: p.fuzzyMinOverlapBroad }); saveConfig(p); flashProfile(`Profilo «${name}» caricato.`) }
   }
   async function deleteProfile(name: string) {
     const next = { ...profiles }
@@ -151,17 +154,31 @@ export default function CompareSettingsPage() {
         {/* Fuzzy */}
         <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Fuzzy matching</h2>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 4px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={fuzzy.enabled} onChange={(e) => setFuzzy({ ...fuzzy, enabled: e.target.checked })} />
+            <span style={{ fontSize: 14 }}>Abilita confronto fuzzy («Da verificare»)</span>
+          </label>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '0 0 14px' }}>
+            Se disattivato non viene proposta nessuna coppia «da verificare»: le righe senza corrispondenza esatta restano «Solo in A»/«Solo in B».
+          </p>
           <div className="form-group">
             <label className="label">Sovrapposizione minima (chiavi)</label>
-            <input type="number" min={2} value={fuzzy.min} onChange={(e) => setFuzzy({ ...fuzzy, min: parseInt(e.target.value, 10) || 4 })} style={{ width: 100 }} />
+            <input type="number" min={2} value={fuzzy.min} onChange={(e) => setFuzzy({ ...fuzzy, min: parseInt(e.target.value, 10) || 4 })} style={{ width: 100 }} disabled={!fuzzy.enabled} />
+          </div>
+          <div className="form-group">
+            <label className="label">Parole o sequenze da ignorare</label>
+            <input value={fuzzy.ignore} onChange={(e) => setFuzzy({ ...fuzzy, ignore: e.target.value })} placeholder="es. totale, srl" style={{ width: '100%', maxWidth: 420 }} disabled={!fuzzy.enabled} />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '4px 0 0' }}>
+              Separate da virgola, minimo 2 caratteri. Rimosse dai valori prima del confronto fuzzy: utile per suffissi comuni a tutte le righe (es. il «Totale» delle tabelle pivot), che altrimenti generano coppie «da verificare» senza senso.
+            </p>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', cursor: 'pointer' }}>
-            <input type="checkbox" checked={fuzzy.broad} onChange={(e) => setFuzzy({ ...fuzzy, broad: e.target.checked })} />
+            <input type="checkbox" checked={fuzzy.broad} onChange={(e) => setFuzzy({ ...fuzzy, broad: e.target.checked })} disabled={!fuzzy.enabled} />
             <span style={{ fontSize: 14 }}>Abilita passata fuzzy ampia (tutte le colonne)</span>
           </label>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="label">Sovrapposizione minima (ampia)</label>
-            <input type="number" min={2} value={fuzzy.broadMin} onChange={(e) => setFuzzy({ ...fuzzy, broadMin: parseInt(e.target.value, 10) || 6 })} style={{ width: 100 }} disabled={!fuzzy.broad} />
+            <input type="number" min={2} value={fuzzy.broadMin} onChange={(e) => setFuzzy({ ...fuzzy, broadMin: parseInt(e.target.value, 10) || 6 })} style={{ width: 100 }} disabled={!fuzzy.enabled || !fuzzy.broad} />
           </div>
         </div>
 

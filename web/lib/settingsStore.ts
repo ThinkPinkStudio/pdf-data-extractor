@@ -100,7 +100,9 @@ export interface WebSettings {
   embeddingModel?: string
   // Portafoglio Compare (sezione separata: confronto di due Excel). Nessun LLM.
   compareMatchKeys?: MatchKey[]
+  compareFuzzyEnabled?: boolean
   compareFuzzyMinOverlap?: number
+  compareFuzzyIgnoreWords?: string
   compareFuzzyBroadEnabled?: boolean
   compareFuzzyMinOverlapBroad?: number
   compareSearchConditions?: Condition[]
@@ -143,7 +145,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -226,7 +228,9 @@ export async function getSettings(): Promise<WebSettings> {
     embeddingModel: map.embeddingModel || 'bge-m3',
     // Portafoglio Compare — tutta configurazione persistita nel DB (nessun default env).
     compareMatchKeys: json<MatchKey[]>('compareMatchKeys'),
+    compareFuzzyEnabled: bool('compareFuzzyEnabled', true),
     compareFuzzyMinOverlap: map.compareFuzzyMinOverlap ? parseInt(map.compareFuzzyMinOverlap, 10) || 4 : 4,
+    compareFuzzyIgnoreWords: map.compareFuzzyIgnoreWords || '',
     compareFuzzyBroadEnabled: bool('compareFuzzyBroadEnabled', true),
     compareFuzzyMinOverlapBroad: map.compareFuzzyMinOverlapBroad ? parseInt(map.compareFuzzyMinOverlapBroad, 10) || 6 : 6,
     compareSearchConditions: json<Condition[]>('compareSearchConditions'),

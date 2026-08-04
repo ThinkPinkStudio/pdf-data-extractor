@@ -42,12 +42,25 @@ export interface Condition {
 
 export interface CompareConfig {
   matchKeys: MatchKey[]
+  fuzzyEnabled: boolean
   fuzzyMinOverlap: number
+  fuzzyIgnoreWords: string
   fuzzyBroadEnabled: boolean
   fuzzyMinOverlapBroad: number
   searchConditions: Condition[]
   bothMatchConditions: Condition[]
   bothFilterConditions: Condition[]
+}
+
+// Opzioni fuzzy passate a compare(): un unico oggetto invece di parametri
+// sciolti, così l'interruttore principale e le parole ignorate viaggiano
+// insieme alle soglie (worker compreso).
+export interface FuzzyOpts {
+  enabled?: boolean // default true (config salvate prima del flag)
+  minOverlap?: number
+  ignoreWords?: string // testo libero: "totale, srl" (separatori: virgola, punto e virgola, a-capo)
+  broadEnabled?: boolean
+  broadMinOverlap?: number
 }
 
 export interface FuzzyPair {
@@ -103,7 +116,9 @@ export function defaultBothMatchConditions(): Condition[] {
 export function defaultCompareConfig(): CompareConfig {
   return {
     matchKeys: defaultMatchKeys(),
+    fuzzyEnabled: true,
     fuzzyMinOverlap: 4,
+    fuzzyIgnoreWords: '',
     fuzzyBroadEnabled: true,
     fuzzyMinOverlapBroad: 6,
     searchConditions: defaultSearchConditions(),
@@ -187,8 +202,7 @@ export function compare(
   dataA: Row[],
   dataB: Row[],
   keys: MatchKey[],
-  minOverlap?: number,
-  broadOpts?: { enabled?: boolean; minOverlap?: number }
+  fuzzy?: FuzzyOpts
 ): CompareResult {
   const mapsB = keys.map((k) => {
     const m = new Map<string, Row[]>()
@@ -220,7 +234,17 @@ export function compare(
   })
 
   const unmatB = dataB.filter((r) => !matchedB.has(r))
-  const { pairs, remainA, remainB } = fuzzyPass(unmatA, unmatB, keys, minOverlap)
+
+  // Interruttore PRINCIPALE del fuzzy: se spento non si propone nessuna coppia
+  // «da verificare» — le righe senza match esatto restano solo-in-A/solo-in-B.
+  // (Storicamente la passata sulle chiavi girava sempre: l'unico checkbox
+  // spegneva solo quella ampia, da qui i «da verificare» con fuzzy disattivato.)
+  if (fuzzy && fuzzy.enabled === false) {
+    return { onlyA: unmatA, onlyB: unmatB, fuzzy: [], diffA: [], diffB: [] }
+  }
+
+  const ignore = parseIgnoreWords(fuzzy?.ignoreWords)
+  const { pairs, remainA, remainB } = fuzzyPass(unmatA, unmatB, keys, fuzzy?.minOverlap, ignore)
 
   // Seconda passata fuzzy, più ampia: scansiona OGNI colonna dopo aver rimosso
   // tutto ciò che non è lettera o cifra. Gira solo su ciò che resta non abbinato.
@@ -228,10 +252,10 @@ export function compare(
   let finalRemainA = remainA
   let finalRemainB = remainB
 
-  const broadEnabled = !broadOpts || broadOpts.enabled !== false
+  const broadEnabled = !fuzzy || fuzzy.broadEnabled !== false
   if (broadEnabled && remainA.length && remainB.length) {
-    const broadN = broadOpts && Number.isInteger(broadOpts.minOverlap) && (broadOpts.minOverlap as number) >= 2 ? (broadOpts.minOverlap as number) : 6
-    const broadResult = broadFuzzyPass(remainA, remainB, broadN)
+    const broadN = fuzzy && Number.isInteger(fuzzy.broadMinOverlap) && (fuzzy.broadMinOverlap as number) >= 2 ? (fuzzy.broadMinOverlap as number) : 6
+    const broadResult = broadFuzzyPass(remainA, remainB, broadN, ignore)
     allPairs = pairs.concat(broadResult.pairs)
     finalRemainA = broadResult.remainA
     finalRemainB = broadResult.remainB
@@ -241,29 +265,47 @@ export function compare(
 }
 
 /* ─── Fuzzy per chiavi ───────────────────────────────────────────────────── */
-function alphanumSubs(str: unknown, n: number): Set<string> {
-  const s = String(str).toUpperCase().replace(/[^A-Z0-9]/g, '')
+// Parole/sequenze da ignorare nel fuzzy ("totale, srl" → ['TOTALE','SRL']):
+// vengono rimosse dai valori PRIMA di generare le sottostringhe, così un
+// suffisso comune a tutte le righe (es. il « Totale» dei pivot Excel) non
+// genera coppie «da verificare» a caso. Minimo 2 caratteri per voce.
+export function parseIgnoreWords(raw?: string): string[] {
+  return String(raw || '')
+    .split(/[,;\n]/)
+    .map((w) => alphanumOnly(w))
+    .filter((w, i, arr) => w.length >= 2 && arr.indexOf(w) === i)
+}
+
+function stripIgnored(alphanum: string, ignore: string[]): string {
+  let s = alphanum
+  for (const w of ignore) s = s.split(w).join('')
+  return s
+}
+
+function alphanumSubs(str: unknown, n: number, ignore?: string[]): Set<string> {
+  let s = String(str).toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (ignore && ignore.length) s = stripIgnored(s, ignore)
   const subs = new Set<string>()
   for (let i = 0; i <= s.length - n; i++) subs.add(s.slice(i, i + n))
   return subs
 }
 
-function rowSubs(row: Row, keys: MatchKey[], file: 'a' | 'b', n: number): Set<string> {
+function rowSubs(row: Row, keys: MatchKey[], file: 'a' | 'b', n: number, ignore?: string[]): Set<string> {
   const all = new Set<string>()
   keys.forEach((k) => {
     const col = file === 'a' ? (k.columnA ?? k.column ?? '') : (k.columnB ?? k.column ?? '')
     const val = row[col]
     if (val == null) return
-    alphanumSubs(val, n).forEach((s) => all.add(s))
+    alphanumSubs(val, n, ignore).forEach((s) => all.add(s))
   })
   return all
 }
 
-export function fuzzyPass(unmatA: Row[], unmatB: Row[], keys: MatchKey[], minOverlap?: number): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+export function fuzzyPass(unmatA: Row[], unmatB: Row[], keys: MatchKey[], minOverlap?: number, ignore?: string[]): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
   const n = Number.isInteger(minOverlap) && (minOverlap as number) >= 2 ? (minOverlap as number) : 4
   const mapB = new Map<string, Set<number>>()
   unmatB.forEach((row, bi) => {
-    rowSubs(row, keys, 'b', n).forEach((s) => {
+    rowSubs(row, keys, 'b', n, ignore).forEach((s) => {
       if (!mapB.has(s)) mapB.set(s, new Set())
       mapB.get(s)!.add(bi)
     })
@@ -276,7 +318,7 @@ export function fuzzyPass(unmatA: Row[], unmatB: Row[], keys: MatchKey[], minOve
   unmatA.forEach((rowA, ai) => {
     if (usedA.has(ai)) return
     const candidatesB = new Set<number>()
-    rowSubs(rowA, keys, 'a', n).forEach((s) => {
+    rowSubs(rowA, keys, 'a', n, ignore).forEach((s) => {
       if (mapB.has(s)) mapB.get(s)!.forEach((bi) => candidatesB.add(bi))
     })
     for (const bi of candidatesB) {
@@ -299,22 +341,23 @@ function alphanumOnly(str: unknown): string {
   return String(str).toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
 
-function broadSubsForRow(row: Row, n: number): Set<string> {
+function broadSubsForRow(row: Row, n: number, ignore?: string[]): Set<string> {
   const all = new Set<string>()
   Object.keys(row).forEach((col) => {
     const val = row[col]
     if (val == null) return
-    const s = alphanumOnly(val)
+    let s = alphanumOnly(val)
+    if (ignore && ignore.length) s = stripIgnored(s, ignore)
     for (let i = 0; i <= s.length - n; i++) all.add(s.slice(i, i + n))
   })
   return all
 }
 
-export function broadFuzzyPass(unmatA: Row[], unmatB: Row[], minOverlap?: number): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+export function broadFuzzyPass(unmatA: Row[], unmatB: Row[], minOverlap?: number, ignore?: string[]): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
   const n = Number.isInteger(minOverlap) && (minOverlap as number) >= 2 ? (minOverlap as number) : 6
   const mapB = new Map<string, Set<number>>()
   unmatB.forEach((row, bi) => {
-    broadSubsForRow(row, n).forEach((s) => {
+    broadSubsForRow(row, n, ignore).forEach((s) => {
       if (!mapB.has(s)) mapB.set(s, new Set())
       mapB.get(s)!.add(bi)
     })
@@ -327,7 +370,7 @@ export function broadFuzzyPass(unmatA: Row[], unmatB: Row[], minOverlap?: number
   unmatA.forEach((rowA, ai) => {
     if (usedA.has(ai)) return
     const candidatesB = new Set<number>()
-    broadSubsForRow(rowA, n).forEach((s) => {
+    broadSubsForRow(rowA, n, ignore).forEach((s) => {
       if (mapB.has(s)) mapB.get(s)!.forEach((bi) => candidatesB.add(bi))
     })
     for (const bi of candidatesB) {
