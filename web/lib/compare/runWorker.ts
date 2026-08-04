@@ -2,12 +2,12 @@
 
 // Helper client per eseguire un calcolo nel Web Worker e ottenerne il risultato
 // come Promise. Ogni chiamata usa un worker usa-e-getta (terminato a fine job).
-import type { Row, Condition, MatchKey } from './engine'
+import type { Row, Condition, MatchKey, FuzzyOpts } from './engine'
 
 type Req =
   | { kind: 'search'; dataA: Row[]; dataB: Row[]; conditions: Condition[] }
   | { kind: 'both'; dataA: Row[]; dataB: Row[]; matchConds: Condition[]; filterConds: Condition[] }
-  | { kind: 'compare'; dataA: Row[]; dataB: Row[]; keys: MatchKey[]; minOverlap: number; broadOpts: { enabled: boolean; minOverlap: number } }
+  | { kind: 'compare'; dataA: Row[]; dataB: Row[]; keys: MatchKey[]; fuzzy: FuzzyOpts }
 
 export function runInWorker<T>(req: Req): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -19,7 +19,7 @@ export function runInWorker<T>(req: Req): Promise<T> {
       import('./engine').then((eng) => {
         if (req.kind === 'search') resolve(eng.runInclusionSearch(req.dataA, req.dataB, req.conditions) as unknown as T)
         else if (req.kind === 'both') resolve(eng.runBothByRow(req.dataA, req.dataB, req.matchConds, req.filterConds) as unknown as T)
-        else resolve(eng.compare(req.dataA, req.dataB, req.keys, req.minOverlap, req.broadOpts) as unknown as T)
+        else resolve(eng.compare(req.dataA, req.dataB, req.keys, req.fuzzy) as unknown as T)
       }).catch(reject)
       void e
       return

@@ -25,8 +25,13 @@ export default function ComparePage() {
     try {
       const res = await runInWorker<CompareResult>({
         kind: 'compare', dataA, dataB, keys: enabledKeys,
-        minOverlap: config.fuzzyMinOverlap,
-        broadOpts: { enabled: config.fuzzyBroadEnabled, minOverlap: config.fuzzyMinOverlapBroad },
+        fuzzy: {
+          enabled: config.fuzzyEnabled,
+          minOverlap: config.fuzzyMinOverlap,
+          ignoreWords: config.fuzzyIgnoreWords,
+          broadEnabled: config.fuzzyBroadEnabled,
+          broadMinOverlap: config.fuzzyMinOverlapBroad,
+        },
       })
       setResult(res)
       setFilter('all')

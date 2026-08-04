@@ -26,7 +26,9 @@ function configFromSettings(d: Record<string, unknown>): CompareConfig {
   const base = defaultCompareConfig()
   return {
     matchKeys: Array.isArray(d.compareMatchKeys) ? (d.compareMatchKeys as CompareConfig['matchKeys']) : base.matchKeys,
+    fuzzyEnabled: d.compareFuzzyEnabled !== false,
     fuzzyMinOverlap: typeof d.compareFuzzyMinOverlap === 'number' ? d.compareFuzzyMinOverlap : base.fuzzyMinOverlap,
+    fuzzyIgnoreWords: typeof d.compareFuzzyIgnoreWords === 'string' ? d.compareFuzzyIgnoreWords : base.fuzzyIgnoreWords,
     fuzzyBroadEnabled: d.compareFuzzyBroadEnabled !== false,
     fuzzyMinOverlapBroad: typeof d.compareFuzzyMinOverlapBroad === 'number' ? d.compareFuzzyMinOverlapBroad : base.fuzzyMinOverlapBroad,
     searchConditions: Array.isArray(d.compareSearchConditions) && d.compareSearchConditions.length ? (d.compareSearchConditions as CompareConfig['searchConditions']) : base.searchConditions,
@@ -56,7 +58,11 @@ export function CompareProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         compareMatchKeys: c.matchKeys,
+        // Coercizioni: i profili salvati prima di questi campi non li hanno —
+        // undefined verrebbe scartato dalla whitelist e il DB terrebbe il vecchio valore.
+        compareFuzzyEnabled: c.fuzzyEnabled !== false,
         compareFuzzyMinOverlap: c.fuzzyMinOverlap,
+        compareFuzzyIgnoreWords: c.fuzzyIgnoreWords ?? '',
         compareFuzzyBroadEnabled: c.fuzzyBroadEnabled,
         compareFuzzyMinOverlapBroad: c.fuzzyMinOverlapBroad,
         compareSearchConditions: c.searchConditions,
