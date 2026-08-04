@@ -412,3 +412,38 @@ export function runBothMatch(dataA: Row[], dataB: Row[], matchConds: Condition[]
   })
   return pairs
 }
+
+// VERDETTO PER RIGA di A: "questa riga esiste in B?" — è la domanda vera di
+// "In Entrambi". Il vecchio runBothMatch emetteva TUTTE le coppie (A×B) che
+// soddisfacevano le condizioni: con una condizione debole o negativa
+// esplodeva nella matrice NxM, e — peggio — le righe di A SENZA corrispondenza
+// (l'informazione che serve) non comparivano da nessuna parte.
+// `matches` è troncato a maxPerRow per non far esplodere la memoria sui
+// portafogli grandi; `matchCount` è sempre il conteggio VERO.
+export interface BothRowResult { rowA: Row; matchCount: number; matches: Row[] }
+
+export function runBothByRow(
+  dataA: Row[], dataB: Row[], matchConds: Condition[], filterConds: Condition[], maxPerRow = 20
+): BothRowResult[] {
+  if (!matchConds.length) return dataA.map((rowA) => ({ rowA, matchCount: 0, matches: [] }))
+  return dataA.map((rowA) => {
+    let matchCount = 0
+    const matches: Row[] = []
+    for (const rowB of dataB) {
+      if (!evalBothConditions(rowA, rowB, matchConds)) continue
+      if (filterConds.length && !evalBothConditions(rowA, rowB, filterConds)) continue
+      matchCount++
+      if (matches.length < maxPerRow) matches.push(rowB)
+    }
+    return { rowA, matchCount, matches }
+  })
+}
+
+// true se TUTTE le condizioni di match sono negative (not_equals/not_contains):
+// una condizione negativa è vera per quasi ogni coppia → ogni riga risulta
+// "trovata" e il risultato non significa niente. La UI avvisa: i negativi
+// hanno senso nei FILTRI (restringere coppie già abbinate), non nel match.
+export function allNegativeConditions(conds: Condition[]): boolean {
+  const active = (conds || []).filter((c) => c.columnA && c.columnB)
+  return active.length > 0 && active.every((c) => c.mode === 'not_equals' || c.mode === 'not_contains')
+}
