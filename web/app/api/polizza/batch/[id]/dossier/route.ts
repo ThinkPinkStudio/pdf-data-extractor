@@ -81,6 +81,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const jobId = await addDossierToBatch({
       batchId: params.id, email: session.email, wholeDossier, fieldDefs, dossierName, files, promptExtra,
+      // Identità del profilo persistita nel job: serve al pre-check di
+      // pertinenza e ai suoi messaggi ("non pertinente al profilo X").
+      profileId: profile?.id, profileName: profile?.name,
     })
 
     startBatch(params.id) // idempotente: avvia/mantiene l'orchestratore del batch

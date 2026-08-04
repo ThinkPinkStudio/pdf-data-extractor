@@ -262,6 +262,38 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     return
   }
 
+  // ── PRE-CHECK DI PERTINENZA profilo↔contenuto (post-OCR, PRIMA di ogni
+  // chiamata LLM di estrazione). Solo per i job con un profilo scelto; salta
+  // se l'utente ha già premuto "Procedi comunque" (precheck.override).
+  // Regola ferrea: un guasto del pre-check NON ferma mai il job.
+  const precheckMode = settings.polizzaPrecheckMode || 'off'
+  if (precheckMode !== 'off' && job.profile_id && !(job.precheck as any)?.override) {
+    try {
+      const pcSvc = await importSharedService<{
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; detected: { type: string | null; keywords: string[] } }>
+      }>('polizzaPrecheckService.js')
+      // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si
+      // degrada al semantico sui field_defs congelati — mai un errore.
+      const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === job.profile_id) || null
+      const pre = await pcSvc.runPrecheck({
+        docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
+        profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
+      })
+      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000) } })
+      const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
+      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
+      if (pre.verdict === 'mismatch') {
+        await updateJob(job.id, {
+          status: 'mismatch', progress: {},
+          error: `Contenuto non pertinente al profilo "${job.profile_name || job.profile_id}"${detStr ? ` — rilevato: ${detStr}` : ''}. Verifica il profilo o premi "Procedi comunque".`,
+        })
+        return // stesso stop pulito del probe OCR: il batch prosegue coi dossier successivi
+      }
+    } catch (err: any) {
+      await appendLog(job, `Pre-check pertinenza non eseguibile (${err.message}) — si procede con l'estrazione`, logs)
+    }
+  }
+
   // polizza_numero estratto: finisce nei metadati dell'indice vettoriale (chiave di
   // business per ritrovare la stessa polizza attraverso caricamenti diversi).
   let extractedData: Record<string, string> = {}

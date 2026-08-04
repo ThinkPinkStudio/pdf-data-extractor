@@ -18,6 +18,11 @@ export interface PolizzaProfile {
   // Parole (virgole/;/newline) cercate come sottostringa nel percorso/nome cartella
   // per il pre-filtro e l'auto-riconoscimento del tipo nel bulk. Vuoto = usa `name`.
   matchKeywords?: string
+  // Parole chiave del CONTENUTO dei documenti (es. "responsabilità civile, RCT,
+  // RCO, prestatori di lavoro") — DIVERSE da matchKeywords, che agisce solo sul
+  // nome cartella: queste vengono cercate nel TESTO OCR dal pre-check di
+  // pertinenza (modo 'keywords' dello switch polizzaPrecheckMode).
+  contentKeywords?: string
   promptExtra?: string
   ocrEnabled?: boolean
   wholeDossier?: boolean
@@ -72,6 +77,12 @@ export interface WebSettings {
   // true = CASCATA dal documento più recente ("solo i buchi", con controprova
   // sulla polizza base) — sperimentale, confrontabile via Rielabora.
   polizzaStagedCascade?: boolean
+  // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' con
+  // "Procedi comunque" in UI). 'off' (default: il blocco non si attiva mai a
+  // sorpresa), 'keywords' (contentKeywords del profilo nel testo OCR; senza
+  // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
+  // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
+  polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]
   profiles?: GenericProfile[]
@@ -199,6 +210,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
+    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

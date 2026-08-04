@@ -38,6 +38,7 @@ import {
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
 } from './polizzaValidation.js'
 import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
+import { cosineSim } from './polizzaPrecheck.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -2020,11 +2021,8 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
 // isPeriodicEconomicField: importata da polizzaValidation.js (campi economici che
 // cambiano nel tempo: il valore giusto è quello del documento più recente).
 
-function cosineSim(a, b) {
-  let dot = 0, na = 0, nb = 0
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
-  return (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0
-}
+// cosineSim: importata da polizzaPrecheck.js (modulo puro, condivisa col
+// pre-controllo di pertinenza profilo↔fascicolo).
 
 // Recupero top-k per coseno, con filtro opzionale sui tipi documento e boost
 // (piccolo) per l'anno recente sui campi economici.

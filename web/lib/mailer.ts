@@ -91,18 +91,19 @@ export async function sendEmail(mail: Email) {
 // Notifica di fine elaborazione batch/bulk al proprietario (chi ha lanciato il lavoro).
 export async function sendBatchCompleteEmail(
   to: string,
-  opts: { label: string; total: number; done: number; error: number; canceled: number },
+  opts: { label: string; total: number; done: number; error: number; canceled: number; mismatch?: number },
 ) {
   const from = process.env.SMTP_FROM || 'PDF Extractor <noreply@localhost>'
   const baseUrl = process.env.MAGIC_LINK_BASE_URL || 'http://localhost:3000'
   const link = `${baseUrl}/polizza/jobs`
-  const esito = opts.error > 0 ? 'con alcuni errori' : 'con successo'
+  const esito = opts.error > 0 ? 'con alcuni errori' : (opts.mismatch ? 'con dossier da confermare' : 'con successo')
   const righe = [
     `Cartella: ${opts.label}`,
     `Dossier totali: ${opts.total}`,
     `Completati: ${opts.done}`,
     `Con errori: ${opts.error}`,
     `Annullati: ${opts.canceled}`,
+    ...(opts.mismatch ? [`Da confermare (contenuto ≠ profilo): ${opts.mismatch}`] : []),
   ]
   const mail: Email = {
     from,

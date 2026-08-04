@@ -109,6 +109,14 @@ export async function initDb() {
     -- Override puntuale dei settings (whitelist nel worker) applicato DOPO
     -- getSettings(): modello/strategia scelti nel dialog di test.
     ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS settings_override JSONB;
+    -- Identità del PROFILO scelto all'upload (prima si congelavano solo campi e
+    -- prompt): serve al pre-check di pertinenza e ai suoi messaggi di blocco.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS profile_id TEXT;
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS profile_name TEXT;
+    -- Esito del pre-check di pertinenza (verdetto, punteggio, descrizione del
+    -- contenuto rilevato, override utente da "Procedi comunque"). Lo status del
+    -- job può valere anche 'mismatch': bloccato in attesa di conferma.
+    ALTER TABLE polizza_jobs ADD COLUMN IF NOT EXISTS precheck JSONB;
 
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_email ON polizza_jobs(email);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);

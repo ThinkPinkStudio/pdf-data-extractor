@@ -9,7 +9,9 @@ export function hashPdfBase64(pdfBase64: string): string {
   return createHash('sha256').update(Buffer.from(pdfBase64, 'base64')).digest('hex')
 }
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled'
+// 'mismatch': BLOCCATO dal pre-check di pertinenza (contenuto ≠ profilo scelto),
+// in attesa del "Procedi comunque" dell'utente o di una rielaborazione.
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled' | 'mismatch'
 
 export interface JobCursor {
   docIndex?: number
@@ -46,6 +48,10 @@ export interface JobRow {
   // override puntuale dei settings (whitelist nel worker: modello/strategia).
   source_job_id: string | null
   settings_override: Record<string, unknown> | null
+  // Identità del profilo scelto all'upload + esito del pre-check di pertinenza.
+  profile_id: string | null
+  profile_name: string | null
+  precheck: Record<string, unknown> | null
   error: string | null
   logs: string[]
   created_at: number
@@ -66,17 +72,20 @@ export async function createJob(params: {
   batchId?: string
   dossierName?: string
   promptExtra?: string
+  profileId?: string
+  profileName?: string
 }): Promise<string> {
   const id = randomUUID()
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, rolling_state, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8,$9::jsonb,$10,$10)`,
+      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11::jsonb,$12,$12)`,
       [id, params.email, params.batchId ?? null, params.dossierName ?? null, params.wholeDossier,
         JSON.stringify(params.scannedFiles), JSON.stringify(params.fieldDefs),
-        params.promptExtra ?? null, JSON.stringify(params.rollingState || {}), now()]
+        params.promptExtra ?? null, params.profileId ?? null, params.profileName ?? null,
+        JSON.stringify(params.rollingState || {}), now()]
     )
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
@@ -228,6 +237,8 @@ export async function addDossierToBatch(params: {
   dossierName: string
   files: JobInputFile[]
   promptExtra?: string
+  profileId?: string
+  profileName?: string
 }): Promise<string> {
   return createJob({
     email: params.email,
@@ -239,6 +250,8 @@ export async function addDossierToBatch(params: {
     batchId: params.batchId,
     dossierName: params.dossierName,
     promptExtra: params.promptExtra,
+    profileId: params.profileId,
+    profileName: params.profileName,
   })
 }
 
@@ -247,18 +260,19 @@ export async function addDossierToBatch(params: {
 // l'orchestratore riparte dopo un restart). Ritorna proprietario, etichetta e
 // conteggi dei job; null se già notificato (o batch inesistente).
 export async function claimBatchNotification(batchId: string): Promise<
-  { email: string; label: string; total: number; done: number; error: number; canceled: number } | null
+  { email: string; label: string; total: number; done: number; error: number; canceled: number; mismatch: number } | null
 > {
   const { rows } = await pool.query<{ email: string; label: string }>(
     `UPDATE batch_jobs SET notified_at = $1 WHERE id = $2 AND notified_at IS NULL RETURNING email, label`,
     [now(), batchId]
   )
   if (!rows.length) return null
-  const { rows: counts } = await pool.query<{ total: number; done: number; error: number; canceled: number }>(
+  const { rows: counts } = await pool.query<{ total: number; done: number; error: number; canceled: number; mismatch: number }>(
     `SELECT COUNT(*)::int AS total,
        COUNT(*) FILTER (WHERE status = 'done')::int AS done,
        COUNT(*) FILTER (WHERE status = 'error')::int AS error,
-       COUNT(*) FILTER (WHERE status = 'canceled')::int AS canceled
+       COUNT(*) FILTER (WHERE status = 'canceled')::int AS canceled,
+       COUNT(*) FILTER (WHERE status = 'mismatch')::int AS mismatch
      FROM polizza_jobs WHERE batch_id = $1`,
     [batchId]
   )
@@ -301,6 +315,7 @@ export interface BatchSummary extends BatchRow {
   done: number
   error: number
   canceled: number
+  mismatch: number
 }
 
 // Lavoro CONDIVISO nel team: elenca i batch di TUTTI gli utenti (la colonna email
@@ -314,7 +329,8 @@ export async function listBatches(): Promise<BatchSummary[]> {
        COUNT(j.id) FILTER (WHERE j.status = 'running')::int AS running,
        COUNT(j.id) FILTER (WHERE j.status = 'done')::int AS done,
        COUNT(j.id) FILTER (WHERE j.status = 'error')::int AS error,
-       COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled
+       COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled,
+       COUNT(j.id) FILTER (WHERE j.status = 'mismatch')::int AS mismatch
      FROM batch_jobs b
      LEFT JOIN polizza_jobs j ON j.batch_id = b.id
      GROUP BY b.id
@@ -435,7 +451,7 @@ export async function listResumableJobs(): Promise<string[]> {
 }
 
 // Aggiornamento parziale: solo le colonne fornite. I valori JSON vengono serializzati.
-const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs', 'settings_override'])
+const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs', 'settings_override', 'precheck'])
 export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, unknown>>): Promise<void> {
   const cols = Object.keys(patch)
   if (!cols.length) return
@@ -469,6 +485,9 @@ export function jobSnapshot(job: JobRow) {
     duplicateOf: job.duplicate_of || null,
     sourceJobId: job.source_job_id || null,
     promptExtra: job.prompt_extra ?? null,
+    profileId: job.profile_id || null,
+    profileName: job.profile_name || null,
+    precheck: job.precheck || null,
     error: job.error || null,
     logs: job.logs || [],
     updatedAt: job.updated_at,
@@ -529,6 +548,27 @@ export async function resetJobForRetry(id: string, byEmail?: string): Promise<Jo
     progress: {},
     rolling_state: initRollingState(job.field_defs || []),
     sources: {},
+    // Rielaborare = ricontrollare da zero: l'esito (e l'eventuale override) del
+    // pre-check precedente non deve sopravvivere al rilancio.
+    precheck: null,
+    logs,
+  })
+  return { ...job, status: 'queued' as JobStatus }
+}
+
+// "PROCEDI COMUNQUE": l'utente conferma che il fascicolo va estratto col
+// profilo scelto nonostante il pre-check di pertinenza lo abbia bloccato
+// (falso allarme). L'override viene PERSISTITO nel precheck: al run successivo
+// il worker salta il controllo. Solo da stato 'mismatch'.
+export async function overridePrecheckAndRequeue(id: string, byEmail?: string): Promise<JobRow | null> {
+  const job = await getJob(id)
+  if (!job || job.status !== 'mismatch') return null
+  const logs = Array.isArray(job.logs) ? [...job.logs] : []
+  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Procedi comunque (pre-check di pertinenza ignorato)${byEmail ? ` da ${byEmail}` : ''} —`)
+  await updateJob(id, {
+    status: 'queued',
+    error: null,
+    precheck: { ...(job.precheck || {}), override: true },
     logs,
   })
   return { ...job, status: 'queued' as JobStatus }
