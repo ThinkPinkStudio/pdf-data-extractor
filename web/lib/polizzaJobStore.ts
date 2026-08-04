@@ -42,6 +42,10 @@ export interface JobRow {
   field_defs: { id: string; label: string; description?: string; sheet?: string }[]
   prompt_extra: string | null
   duplicate_of: string | null
+  // Run di TEST: id del job SORGENTE di cui riusa i PDF (mai duplicati) e
+  // override puntuale dei settings (whitelist nel worker: modello/strategia).
+  source_job_id: string | null
+  settings_override: Record<string, unknown> | null
   error: string | null
   logs: string[]
   created_at: number
@@ -359,22 +363,36 @@ export async function getJobStatus(id: string): Promise<JobStatus | null> {
   return rows[0]?.status ?? null
 }
 
-export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string; file_hash: string | null }[]> {
-  const { rows } = await pool.query(
-    'SELECT idx, file_name, pdf_base64, file_hash FROM polizza_job_files WHERE job_id = $1 ORDER BY idx',
-    [id]
+// I job di TEST non hanno righe in polizza_job_files: i PDF si leggono dal job
+// SORGENTE (source_job_id, risolto sempre alla RADICE alla creazione del test:
+// una sola risalita). Sorgente cancellato → nessun file (accettato).
+async function sourceJobIdOf(id: string): Promise<string | null> {
+  const { rows } = await pool.query<{ source_job_id: string | null }>(
+    'SELECT source_job_id FROM polizza_jobs WHERE id = $1', [id]
   )
-  return rows
+  return rows[0]?.source_job_id ?? null
+}
+
+export async function getJobFiles(id: string): Promise<{ idx: number; file_name: string; pdf_base64: string; file_hash: string | null }[]> {
+  const q = 'SELECT idx, file_name, pdf_base64, file_hash FROM polizza_job_files WHERE job_id = $1 ORDER BY idx'
+  const { rows } = await pool.query(q, [id])
+  if (rows.length) return rows
+  const src = await sourceJobIdOf(id)
+  if (!src) return rows
+  const { rows: fromSrc } = await pool.query(q, [src])
+  return fromSrc
 }
 
 // UN solo PDF di un job, per la visualizzazione nel browser (i valori estratti
 // citano file+pagina: da lì si apre l'originale e si verifica a mano).
 export async function getJobFile(id: string, idx: number): Promise<{ file_name: string; pdf_base64: string } | null> {
-  const { rows } = await pool.query(
-    'SELECT file_name, pdf_base64 FROM polizza_job_files WHERE job_id = $1 AND idx = $2',
-    [id, idx]
-  )
-  return rows[0] || null
+  const q = 'SELECT file_name, pdf_base64 FROM polizza_job_files WHERE job_id = $1 AND idx = $2'
+  const { rows } = await pool.query(q, [id, idx])
+  if (rows[0]) return rows[0]
+  const src = await sourceJobIdOf(id)
+  if (!src) return null
+  const { rows: fromSrc } = await pool.query(q, [src, idx])
+  return fromSrc[0] || null
 }
 
 // Estrazioni SINGOLE (fuori batch) di tutti gli utenti, per la pagina
@@ -417,7 +435,7 @@ export async function listResumableJobs(): Promise<string[]> {
 }
 
 // Aggiornamento parziale: solo le colonne fornite. I valori JSON vengono serializzati.
-const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs'])
+const JSON_COLS = new Set(['scanned_files', 'cursor', 'progress', 'rolling_state', 'sources', 'field_defs', 'logs', 'settings_override'])
 export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, unknown>>): Promise<void> {
   const cols = Object.keys(patch)
   if (!cols.length) return
@@ -449,10 +467,46 @@ export function jobSnapshot(job: JobRow) {
     sources: job.sources || {},
     progress: job.progress && Object.keys(job.progress).length ? job.progress : null,
     duplicateOf: job.duplicate_of || null,
+    sourceJobId: job.source_job_id || null,
+    promptExtra: job.prompt_extra ?? null,
     error: job.error || null,
     logs: job.logs || [],
     updatedAt: job.updated_at,
   }
+}
+
+// Run di TEST: nuovo job COPIA che riusa i PDF del sorgente (zero duplicazione,
+// zero ri-OCR grazie alla cache per hash) e NON tocca mai il job originale —
+// serve a confrontare modelli/profili/impostazioni fianco a fianco.
+// batch_id = NULL: appare tra le "Estrazioni singole", riparte al boot col
+// resumer dei singoli, mai preso dall'orchestratore batch.
+export async function createTestJob(params: {
+  sourceJobId: string
+  email: string
+  fieldDefs: JobRow['field_defs']
+  promptExtra: string | null
+  settingsOverride: Record<string, unknown>
+  label: string
+}): Promise<JobRow | null> {
+  const src = await getJob(params.sourceJobId)
+  if (!src) return null
+  // Test di un test: si risale sempre alla RADICE, così il fallback dei file
+  // resta a un solo livello e la catena non si allunga mai.
+  const rootId = src.source_job_id || src.id
+  const id = randomUUID()
+  await pool.query(
+    `INSERT INTO polizza_jobs
+       (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra,
+        rolling_state, source_job_id, settings_override, logs, created_at, updated_at)
+     VALUES ($1,$2,NULL,$3,'queued',$4,$5::jsonb,$6::jsonb,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12,$12)`,
+    [id, params.email, params.label, src.whole_dossier,
+      JSON.stringify(src.scanned_files || []), JSON.stringify(params.fieldDefs),
+      params.promptExtra, JSON.stringify(initRollingState(params.fieldDefs)),
+      rootId, JSON.stringify(params.settingsOverride || {}),
+      JSON.stringify([`[${new Date().toTimeString().slice(0, 8)}] — Run di TEST creata da "${src.dossier_name || src.id}" da ${params.email} —`]),
+      now()]
+  )
+  return getJob(id)
 }
 
 // Rilancio di un job: riporta il job in coda azzerando errore, cursore,

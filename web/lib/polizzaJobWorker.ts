@@ -81,6 +81,15 @@ async function runJob(jobId: string): Promise<void> {
   if (job.prompt_extra != null) {
     settings.polizzaPromptExtra = job.prompt_extra
   }
+  // Run di TEST: override puntuale dei settings scelto nel dialog, applicato
+  // DOPO i globali con WHITELIST rigida (mai far entrare chiavi arbitrarie dal
+  // DB nei settings in memoria) — stesso pattern di field_defs qui sopra.
+  if (job.settings_override && typeof job.settings_override === 'object') {
+    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade'] as const
+    for (const k of ALLOWED) {
+      if (job.settings_override[k] !== undefined) (settings as any)[k] = job.settings_override[k]
+    }
+  }
   const files = await getJobFiles(jobId)
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   await updateJob(jobId, { status: 'running' })
@@ -316,7 +325,11 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       isVectorIndexEnabled: (s: any) => boolean
       indexDossierPages: (args: any, s: any, log?: (m: string) => void) => Promise<{ chunks: number; collection: string }>
     }>('vectorIndexService.js')
-    if (vec.isVectorIndexEnabled(settings)) {
+    if (job.source_job_id) {
+      // Run di TEST: l'indice vettoriale NON si tocca — N run sperimentali
+      // sullo stesso fascicolo inquinerebbero la ricerca con chunk duplicati.
+      await appendLog(job, 'Indice vettoriale: SALTATO (run di test)', logs)
+    } else if (vec.isVectorIndexEnabled(settings)) {
       await appendLog(job, 'Indice vettoriale: indicizzazione in corso…', logs)
       // scopeId = job.id: l'identità dei punti è il JOB, non il nome cartella.
       // Due fascicoli con cartelle/nomi file uguali non si sovrascrivono mai, e la
