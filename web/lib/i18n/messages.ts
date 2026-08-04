@@ -66,8 +66,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'hub.adesioniDesc': 'Genera moduli di adesione AXA da un Excel flusso o da inserimento manuale.',
     // Portafoglio Compare — voci menu
     'nav.cmpCompare': 'Comparazione',
-    'nav.cmpSearch': 'Ricerca',
-    'nav.cmpBoth': 'In Entrambi',
+    'nav.cmpBoth': 'Confronto righe',
     'nav.cmpSettings': 'Configurazione',
     // CSA Adesioni — voci menu
     'nav.adAdesioni': 'Adesioni',
@@ -782,8 +781,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'hub.adesioniDesc': 'Generate AXA enrollment forms from a flusso Excel or manual entry.',
     // Portfolio Compare — menu items
     'nav.cmpCompare': 'Comparison',
-    'nav.cmpSearch': 'Search',
-    'nav.cmpBoth': 'In Both',
+    'nav.cmpBoth': 'Row matching',
     'nav.cmpSettings': 'Configuration',
     // CSA Enrollments — menu items
     'nav.adAdesioni': 'Enrollments',
