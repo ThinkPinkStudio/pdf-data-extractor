@@ -9,18 +9,22 @@ import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
 type Filter = 'all' | 'found' | 'missing'
+type View = 'verdict' | 'detail'
 
-// "In Entrambi" = VERDETTO PER RIGA: per ogni riga del File A dice se esiste
-// in B (mostrando la prima corrispondenza). La vecchia versione emetteva TUTTE
-// le coppie A×B che soddisfacevano le condizioni — con una condizione debole o
-// negativa esplodeva in una matrice NxM, e le righe SENZA riscontro (che sono
-// l'informazione utile) non comparivano da nessuna parte.
+// "CONFRONTO RIGHE" — fusione delle vecchie pagine Ricerca e In Entrambi, che
+// erano due viste della STESSA operazione (abbinare le righe di A a B secondo
+// condizioni) con condizioni salvate in due posti diversi. Un solo set di
+// condizioni, due viste sui risultati:
+//  - Esito per riga: «questa riga di A esiste in B?» (✓/✗, prima corrispondenza)
+//  - Dettaglio corrispondenze: tutte le righe B abbinate a ciascuna riga A
+// Il vecchio /compare/search reindirizza qui.
 export default function CompareBothPage() {
   const { fileA, fileB, config, saveConfig } = useCompare()
   const [matchConds, setMatchConds] = useState<Condition[]>(config.bothMatchConditions)
   const [filterConds, setFilterConds] = useState<Condition[]>(config.bothFilterConditions)
   const [results, setResults] = useState<BothRowResult[] | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  const [view, setView] = useState<View>('verdict')
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -86,14 +90,36 @@ export default function CompareBothPage() {
       colsB.forEach((c) => { out['B: ' + c] = first ? (first[c] ?? '') : '' })
       return out
     })
-    downloadRows(rows, 'righe_in_entrambi.xlsx')
+    downloadRows(rows, 'confronto_righe_esiti.xlsx')
+  }
+
+  // Export in stile «Ricerca»: una riga per CORRISPONDENZA (fino al tetto del
+  // motore per riga), con il conteggio totale sempre onesto in colonna.
+  function exportMatchesXls() {
+    if (!results) return
+    const rows: Row[] = []
+    results.forEach(({ rowA, matchCount, matches }) => {
+      if (!matchCount) {
+        const out: Row = { 'Esito': 'NON TROVATA', 'Corrispondenze totali': 0 }
+        colsA.forEach((c) => { out['A: ' + c] = rowA[c] ?? '' })
+        rows.push(out)
+        return
+      }
+      matches.forEach((m) => {
+        const out: Row = { 'Esito': 'TROVATA', 'Corrispondenze totali': matchCount }
+        colsA.forEach((c) => { out['A: ' + c] = rowA[c] ?? '' })
+        colsB.forEach((c) => { out['B: ' + c] = m[c] ?? '' })
+        rows.push(out)
+      })
+    })
+    downloadRows(rows, 'confronto_righe_corrispondenze.xlsx')
   }
 
   return (
     <>
-      <h1 className="page-title">Righe in Entrambi i File</h1>
+      <h1 className="page-title">Confronto righe (A in B)</h1>
       <p className="view-subtitle">
-        Per ogni riga del File A dice se esiste nel File B secondo le condizioni di abbinamento; le condizioni di filtro (opzionali) restringono le corrispondenze.
+        Per ogni riga del File A dice se esiste nel File B secondo le condizioni di abbinamento; la vista Dettaglio mostra tutte le corrispondenze. Le condizioni di filtro (opzionali) restringono gli abbinamenti.
       </p>
       <CompareFileBar variant="chips" />
 
@@ -125,7 +151,8 @@ export default function CompareBothPage() {
         <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB || busy}>{busy ? <><span className="spinner" /> Elaborazione…</> : 'Trova'}</button>
         <button className="btn btn-secondary" onClick={saveConds}>Salva condizioni</button>
         {saved && <span style={{ color: 'var(--c-success)', fontSize: 13 }}>Salvato ✓</span>}
-        {results && <button className="btn btn-secondary" onClick={exportXls}>Esporta XLS</button>}
+        {results && <button className="btn btn-secondary" onClick={exportXls}>Esporta esiti (XLS)</button>}
+        {results && <button className="btn btn-secondary" onClick={exportMatchesXls}>Esporta corrispondenze (XLS)</button>}
         {results && (
           <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>
             <strong>{found.length}</strong> di <strong>{results.length}</strong> righe di A trovate in B · <strong>{missing.length}</strong> non trovate
@@ -135,49 +162,98 @@ export default function CompareBothPage() {
 
       {results && (
         <>
-          <div className="filter-tabs" style={{ marginBottom: 14 }}>
-            {([
-              ['all', `Tutte (${results.length})`],
-              ['found', `Trovate (${found.length})`],
-              ['missing', `Non trovate (${missing.length})`],
-            ] as [Filter, string][]).map(([f, label]) => (
-              <button key={f} className={`tab-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{label}</button>
-            ))}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="filter-tabs">
+              {([
+                ['all', `Tutte (${results.length})`],
+                ['found', `Trovate (${found.length})`],
+                ['missing', `Non trovate (${missing.length})`],
+              ] as [Filter, string][]).map(([f, label]) => (
+                <button key={f} className={`tab-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{label}</button>
+              ))}
+            </div>
+            {/* Vista: Esito compatto (ex In Entrambi) o Dettaglio corrispondenze (ex Ricerca) */}
+            <div className="filter-tabs">
+              {([
+                ['verdict', 'Esito per riga'],
+                ['detail', 'Dettaglio corrispondenze'],
+              ] as [View, string][]).map(([v, label]) => (
+                <button key={v} className={`tab-btn ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>{label}</button>
+              ))}
+            </div>
           </div>
 
-          <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
-            {shown.length === 0 ? (
-              <div style={{ padding: 28, textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna riga in questa categoria.</div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Esito</th>
-                    {colsA.map((c) => <th key={'a' + c} className="col-a">A: {c}</th>)}
-                    {colsB.map((c) => <th key={'b' + c} className="col-b">B: {c}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map(({ rowA, matchCount, matches }, i) => {
-                    const first = matches[0]
-                    return (
-                      <tr key={i}>
-                        <td style={{ whiteSpace: 'nowrap', fontWeight: 700, color: matchCount > 0 ? 'var(--c-success)' : 'var(--c-warning, #d97706)' }}>
-                          {matchCount > 0 ? `✓ Trovata${matchCount > 1 ? ` ×${matchCount}` : ''}` : '✗ Non trovata'}
-                        </td>
-                        {colsA.map((c) => <td key={'a' + c}>{String(rowA[c] ?? '')}</td>)}
-                        {colsB.map((c) => <td key={'b' + c}>{first ? String(first[c] ?? '') : ''}</td>)}
+          {view === 'verdict' && (
+            <>
+              <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
+                {shown.length === 0 ? (
+                  <div style={{ padding: 28, textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna riga in questa categoria.</div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Esito</th>
+                        {colsA.map((c) => <th key={'a' + c} className="col-a">A: {c}</th>)}
+                        {colsB.map((c) => <th key={'b' + c} className="col-b">B: {c}</th>)}
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-          {found.some((r) => r.matchCount > 1) && (
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>
-              Le righe «×N» hanno più corrispondenze in B: qui e nell&apos;export si mostra la prima. Per vedere tutte le corrispondenze di una riga usa la pagina Ricerca.
-            </p>
+                    </thead>
+                    <tbody>
+                      {shown.map(({ rowA, matchCount, matches }, i) => {
+                        const first = matches[0]
+                        return (
+                          <tr key={i}>
+                            <td style={{ whiteSpace: 'nowrap', fontWeight: 700, color: matchCount > 0 ? 'var(--c-success)' : 'var(--c-warning, #d97706)' }}>
+                              {matchCount > 0 ? `✓ Trovata${matchCount > 1 ? ` ×${matchCount}` : ''}` : '✗ Non trovata'}
+                            </td>
+                            {colsA.map((c) => <td key={'a' + c}>{String(rowA[c] ?? '')}</td>)}
+                            {colsB.map((c) => <td key={'b' + c}>{first ? String(first[c] ?? '') : ''}</td>)}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              {found.some((r) => r.matchCount > 1) && (
+                <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8 }}>
+                  Le righe «×N» hanno più corrispondenze in B: qui si mostra la prima — passa alla vista «Dettaglio corrispondenze» per vederle tutte.
+                </p>
+              )}
+            </>
+          )}
+
+          {view === 'detail' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {shown.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nessuna riga in questa categoria.</div>
+              ) : (
+                shown.map(({ rowA, matchCount, matches }, i) => (
+                  <div key={i} className="card">
+                    <div style={{ fontSize: 12, color: matchCount ? 'var(--c-text-muted)' : 'var(--c-warning)', marginBottom: 6, textTransform: 'uppercase' }}>
+                      Riga A · {matchCount ? `${matchCount} corrispondenze` : 'nessuna corrispondenza'}
+                    </div>
+                    <div style={{ fontSize: 13, marginBottom: matchCount ? 10 : 0 }}>{Object.entries(rowA).map(([k, v]) => `${k}: ${v ?? ''}`).join('  ·  ')}</div>
+                    {matches.length > 0 && (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table>
+                          <thead><tr>{colsB.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+                          <tbody>
+                            {matches.map((m, j) => (
+                              <tr key={j}>{colsB.map((c) => <td key={c}>{String(m[c] ?? '')}</td>)}</tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {matchCount > matches.length && (
+                          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '6px 0 0' }}>
+                            …e altre {matchCount - matches.length} corrispondenze. Così tante per una sola riga indicano una condizione troppo lasca.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </>
       )}
