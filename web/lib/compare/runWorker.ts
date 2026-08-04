@@ -18,7 +18,7 @@ export function runInWorker<T>(req: Req): Promise<T> {
       // Fallback (ambienti senza Worker): esegue in modo sincrono sul main thread.
       import('./engine').then((eng) => {
         if (req.kind === 'search') resolve(eng.runInclusionSearch(req.dataA, req.dataB, req.conditions) as unknown as T)
-        else if (req.kind === 'both') resolve(eng.runBothMatch(req.dataA, req.dataB, req.matchConds, req.filterConds) as unknown as T)
+        else if (req.kind === 'both') resolve(eng.runBothByRow(req.dataA, req.dataB, req.matchConds, req.filterConds) as unknown as T)
         else resolve(eng.compare(req.dataA, req.dataB, req.keys, req.minOverlap, req.broadOpts) as unknown as T)
       }).catch(reject)
       void e
