@@ -213,6 +213,19 @@ export default function PolizzaBulkPage() {
     setProfileOf((p) => ({ ...p, [gid]: id }))
     setManualProfile((p) => new Set(p).add(gid))
   }
+  // Profilo per TUTTE le righe in un colpo solo (id === '' → campi globali).
+  // OBBLIGATORIO marcare ogni gid come scelta MANUALE: l'effect qui sopra
+  // ricalcola profileOf per i gid non-manuali e annullerebbe l'assegnazione al
+  // render successivo. Le righe «Spezzetta» ereditano già il profilo della madre.
+  function applyProfileToAll(id: string) {
+    setProfileOf(Object.fromEntries(finalDossiers.map((d) => [d.gid, id])))
+    setManualProfile(new Set(finalDossiers.map((d) => d.gid)))
+  }
+  // Torna all'auto-riconoscimento: senza scelte manuali l'effect rifà da solo
+  // detectProfile + tipo predefinito su ogni riga.
+  function resetProfilesToAuto() {
+    setManualProfile(new Set())
+  }
   // Tipo predefinito: imposta il profilo di default e, se ha parole di abbinamento,
   // riempie il filtro "parole da accettare" → l'elenco mostra solo le cartelle di quel tipo.
   function applyDefaultType(id: string) {
@@ -432,12 +445,29 @@ export default function PolizzaBulkPage() {
               <p style={{ fontSize: 13, marginBottom: 6 }}>{t('bulk.summaryTitle', { n: baseDossiers.length, m: detectedFiles })}</p>
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 12 }}>{t('bulk.reviewHint')}</p>
 
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setAllIncluded(true)}>{t('bulk.selectAll')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setAllIncluded(false)}>{t('bulk.deselectAll')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={mergeSelected} disabled={selected.size < 2}>
                   {t('bulk.mergeSelected', { n: selected.size })}
                 </button>
+                {profiles.length > 0 && finalDossiers.length > 0 && (
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginLeft: 'auto' }} title={t('bulk.applyProfileAllHelp')}>
+                    <label style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('bulk.applyProfileAll')}</label>
+                    {/* value="" fisso: è un'AZIONE (applica a N righe), non uno stato — dopo
+                        l'apply le righe restano modificabili una a una col loro dropdown */}
+                    <select value="" style={{ fontSize: 12, maxWidth: 220 }}
+                      onChange={(e) => { if (e.target.value) applyProfileToAll(e.target.value === '__global' ? '' : e.target.value) }}>
+                      <option value="">…</option>
+                      <option value="__global">{t('bulk.globalFields')}</option>
+                      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <button type="button" className="btn btn-secondary" style={{ fontSize: 11 }}
+                      onClick={resetProfilesToAuto} disabled={manualProfile.size === 0} title={t('bulk.resetProfileAutoHelp')}>
+                      {t('bulk.resetProfileAuto')}
+                    </button>
+                  </span>
+                )}
               </div>
 
               <div style={{ maxHeight: 320, overflowY: 'auto' }}>

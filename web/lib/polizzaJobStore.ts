@@ -351,6 +351,16 @@ export async function getJobFiles(id: string): Promise<{ idx: number; file_name:
   return rows
 }
 
+// UN solo PDF di un job, per la visualizzazione nel browser (i valori estratti
+// citano file+pagina: da lì si apre l'originale e si verifica a mano).
+export async function getJobFile(id: string, idx: number): Promise<{ file_name: string; pdf_base64: string } | null> {
+  const { rows } = await pool.query(
+    'SELECT file_name, pdf_base64 FROM polizza_job_files WHERE job_id = $1 AND idx = $2',
+    [id, idx]
+  )
+  return rows[0] || null
+}
+
 // Estrazioni SINGOLE (fuori batch) di tutti gli utenti, per la pagina
 // Elaborazioni: il DB le ha sempre conservate (PDF compresi), questa vista le
 // rende visibili, esportabili e rilanciabili come i batch. Le più recenti prima.

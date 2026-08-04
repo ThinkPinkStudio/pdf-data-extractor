@@ -103,9 +103,10 @@ export default function SettingsPage() {
           v{process.env.NEXT_PUBLIC_APP_VERSION || 'n/d'}
         </span>
       </h1>
-      {/* Larghezza piena: l'editor campi (etichetta+descrizione+celle) e il prompt
-          vivono qui — schiacciarli in 620px sprecava metà schermo. */}
-      <form onSubmit={handleSave} style={{ maxWidth: 1200, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Larghezza piena SENZA tetto: l'editor campi (etichetta+descrizione+celle)
+          e il prompt vivono qui — prima 620px, poi 1200, ma su schermi larghi
+          restava comunque metà monitor vuota. Le card seguono la colonna. */}
+      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Provider LLM — SOLO Ollama (locale) */}
         <div className="card">

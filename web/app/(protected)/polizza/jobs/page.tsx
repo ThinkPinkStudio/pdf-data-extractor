@@ -67,6 +67,7 @@ export default function PolizzaJobsPage() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [showValues, setShowValues] = useState<Set<string>>(new Set())   // jobId → risultati aperti
   const [showLog, setShowLog] = useState<Set<string>>(new Set())         // jobId → log aperto
+  const [showFiles, setShowFiles] = useState<Set<string>>(new Set())     // jobId → elenco PDF aperto
   const [retryExcluded, setRetryExcluded] = useState<Set<string>>(new Set()) // jobId esclusi dal rilancio
   const [busy, setBusy] = useState(false)
 
@@ -179,6 +180,48 @@ export default function PolizzaJobsPage() {
   )
   const fieldLabel = (j: JobSnapshot, id: string) => j.fieldDefs?.find((f) => f.id === id)?.label || id
 
+  // URL del PDF originale di un file del job: l'ordine di scanned_files coincide
+  // con l'idx di polizza_job_files (entrambi nascono da files[] in createJob).
+  // Con nomi duplicati indexOf prende il primo: accettabile, la pagina è nel
+  // fragment. Se il nome non si trova → null e la fonte resta testo puro.
+  const fileUrl = (j: JobSnapshot, name: string, page?: number | string) => {
+    const idx = (j.scannedFiles || []).indexOf(name)
+    if (idx < 0) return null
+    return `/api/polizza/job/${j.jobId}/file/${idx}${page ? `#page=${page}` : ''}`
+  }
+  // Fonte di un campo come LINK che apre il PDF originale alla pagina citata
+  // (verifica manuale dei valori: il cliente cerca il dato con i suoi occhi).
+  const sourceCell = (j: JobSnapshot, k: string) => {
+    const s = j.sources?.[k]
+    if (!s) return ''
+    const text = `${s.file}${s.page ? ` · pag. ${s.page}` : ''}`
+    const url = fileUrl(j, s.file, s.page)
+    if (!url) return text
+    return (
+      <a href={url} target="_blank" rel="noopener" title={t('jobsDash.openPdf')}
+        style={{ color: 'inherit', textDecoration: 'underline dotted' }}>
+        {text}
+      </a>
+    )
+  }
+  // Elenco dei PDF originali del job, ciascuno apribile in un nuovo tab.
+  const filesList = (j: JobSnapshot, colSpan: number, indent: number) => (
+    <tr>
+      <td colSpan={colSpan} style={{ padding: `4px 14px 10px ${indent}px` }}>
+        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+          {(j.scannedFiles || []).map((name, i) => (
+            <li key={`${name}-${i}`} style={{ padding: '1px 0' }}>
+              <a href={`/api/polizza/job/${j.jobId}/file/${i}`} target="_blank" rel="noopener"
+                title={t('jobsDash.openPdf')} style={{ color: 'var(--c-text-secondary)', textDecoration: 'underline dotted' }}>
+                📄 {name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </td>
+    </tr>
+  )
+
   return (
     <div style={{ maxWidth: 1300 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
@@ -256,6 +299,7 @@ export default function PolizzaJobsPage() {
                                     const stale = j.status === 'running' ? minutesSince(j.updatedAt) : null
                                     const valuesOpen = showValues.has(j.jobId)
                                     const logOpen = showLog.has(j.jobId)
+                                    const filesOpen = showFiles.has(j.jobId)
                                     return (
                                       <Fragment key={j.jobId}>
                                         <tr>
@@ -324,6 +368,12 @@ export default function PolizzaJobsPage() {
                                                 {logOpen ? t('jobsDash.hideLog') : 'Log'}
                                               </button>
                                             )}
+                                            {(j.scannedFiles?.length || 0) > 0 && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }}
+                                                title={t('jobsDash.filesTitle')} onClick={() => setShowFiles((p) => toggleIn(p, j.jobId))}>
+                                                {filesOpen ? t('jobsDash.hideFiles') : `📄 ${t('jobsDash.files')}`}
+                                              </button>
+                                            )}
                                             {active && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => cancelJobRow(j.jobId)}>
                                                 {t('jobsDash.cancel')}
@@ -341,7 +391,7 @@ export default function PolizzaJobsPage() {
                                                       <td style={{ color: 'var(--c-text-secondary)', paddingRight: 12 }}>{fieldLabel(j, k)}</td>
                                                       <td style={{ fontWeight: 600, paddingRight: 12 }}>{String(v)}</td>
                                                       <td style={{ color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                                                        {j.sources?.[k] ? `${j.sources[k].file}${j.sources[k].page ? ` · pag. ${j.sources[k].page}` : ''}` : ''}
+                                                        {sourceCell(j, k)}
                                                       </td>
                                                     </tr>
                                                   ))}
@@ -359,6 +409,7 @@ export default function PolizzaJobsPage() {
                                             </td>
                                           </tr>
                                         )}
+                                        {filesOpen && filesList(j, 4, 18)}
                                       </Fragment>
                                     )
                                   })}
@@ -409,6 +460,7 @@ export default function PolizzaJobsPage() {
                 const hasValues = Object.keys(j.values || {}).length > 0
                 const valuesOpen = showValues.has(j.jobId)
                 const logOpen = showLog.has(j.jobId)
+                const filesOpen = showFiles.has(j.jobId)
                 // Nome STABILE: primo file in ordine alfabetico — l'ordine di upload
                 // del browser cambia da run a run e lo stesso fascicolo appariva con
                 // nomi diversi ("quietanza 2012 (+44)" vs "eulip … polizza (+44)").
@@ -468,6 +520,12 @@ export default function PolizzaJobsPage() {
                             {logOpen ? t('jobsDash.hideLog') : 'Log'}
                           </button>
                         )}
+                        {(j.scannedFiles?.length || 0) > 0 && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }}
+                            title={t('jobsDash.filesTitle')} onClick={() => setShowFiles((p) => toggleIn(p, j.jobId))}>
+                            {filesOpen ? t('jobsDash.hideFiles') : `📄 ${t('jobsDash.files')}`}
+                          </button>
+                        )}
                         {active && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => cancelJobRow(j.jobId)}>
                             {t('jobsDash.cancel')}
@@ -485,7 +543,7 @@ export default function PolizzaJobsPage() {
                                   <td style={{ color: 'var(--c-text-secondary)', paddingRight: 12 }}>{fieldLabel(j, k)}</td>
                                   <td style={{ fontWeight: 600, paddingRight: 12 }}>{String(v)}</td>
                                   <td style={{ color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                                    {j.sources?.[k] ? `${j.sources[k].file}${j.sources[k].page ? ` · pag. ${j.sources[k].page}` : ''}` : ''}
+                                    {sourceCell(j, k)}
                                   </td>
                                 </tr>
                               ))}
@@ -503,6 +561,7 @@ export default function PolizzaJobsPage() {
                         </td>
                       </tr>
                     )}
+                    {filesOpen && filesList(j, 6, 32)}
                   </Fragment>
                 )
               })}
