@@ -35,8 +35,9 @@ import {
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
   hasLabelEvidenceNear, pickSemanticCandidate,
-  stripFieldExamples, findValueWindow, buildNormIndex,
+  stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
 } from './polizzaValidation.js'
+import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -221,11 +222,17 @@ async function extractTextWithPdfjsSpatial(filePath) {
  * Tutto il resto viene gestito dal modello LLM che riceve il testo pulito.
  */
 function extractFieldsWithRegex(text) {
+  // Le regex sono scritte per testo PIATTO (finestre [^\n]{0,80} sulla riga):
+  // il testo OCR ora è SPAZIALE (griglia a colonne) — si collassa sempre qui,
+  // così ogni call-site (staged, rolling desktop, legacy) resta corretto.
+  text = collapseSpatial(text)
   const found = {}
 
   // ── N° Polizza: dopo "POLIZZA", "POLIZZA N°", "POLIZZA R.C. N." ecc.
-  // Accetta anche numerazioni alfanumeriche con prefisso lettere (es. ILI0003005)
-  const polMatch = text.match(/POLIZZA\s+(?:R\.?C\.?\s+)?(?:N[°oO.\s]{0,3})?([A-Z]{0,5}\d[\d\s]{3,15})/i)
+  // Accetta anche numerazioni alfanumeriche con prefisso lettere (es. ILI0003005).
+  // Tra le cifre al più UNO spazio: il vecchio [\d\s]{3,15} inghiottiva run di
+  // spazi e CONCATENAVA cifre di colonne diverse → numero inventato plausibile.
+  const polMatch = text.match(/POLIZZA\s+(?:R\.?C\.?\s+)?(?:N[°oO.\s]{0,3})?([A-Z]{0,5}\d(?: ?\d){3,15})/i)
   if (polMatch) {
     found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
   }
@@ -1373,8 +1380,17 @@ async function ocrImageToText(base64DataUrl, lang = 'ita') {
     const tesseract = await import('tesseract.js')
     const createWorker = tesseract.createWorker || tesseract.default?.createWorker
     if (!createWorker) { _ocrUnavailable = true; return '' }
-    if (!_ocrWorker) _ocrWorker = await createWorker(lang, undefined, tessLangOptions())
-    const { data } = await _ocrWorker.recognize(base64DataUrl)
+    if (!_ocrWorker) {
+      _ocrWorker = await createWorker(lang, undefined, tessLangOptions())
+      // Migliora l'allineamento anche del testo piatto di fallback (data.text).
+      try { await _ocrWorker.setParameters({ preserve_interword_spaces: '1' }) } catch { /* parametro opzionale */ }
+    }
+    // blocks: le COORDINATE parola escono dalla stessa chiamata (zero OCR in
+    // più) e permettono di ricostruire la pagina come griglia a colonne — i
+    // layout tabellari restano incolonnati invece di venire "srotolati".
+    const { data } = await _ocrWorker.recognize(base64DataUrl, {}, { text: true, blocks: true })
+    const spatial = buildSpatialPage(data?.blocks)
+    if (spatial.trim()) return spatial
     return (data?.text || '').trim()
   } catch (e) {
     console.warn('[ocr] non disponibile/fallita, proseguo con sola immagine:', e.message)
@@ -2060,13 +2076,15 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
   diag.push(`Motore per-campo: ${activeFields.length} campi, ${docs.length} documenti`)
 
   // 1. Indice in memoria: chunk di ogni pagina con metadati (file, pagina, tipo, anno).
+  // Pagine COLLASSATE (collapseSpatial): i chunk sono frammenti a cap fisso
+  // (1200 char) — il padding della griglia spaziale li diluirebbe.
   const chunks = []
   for (const d of docs || []) {
     const name = d?.name || 'documento.pdf'
     const docType = classifyDocType(name)
     const docYear = detectDocYear(name, (d?.pages || []).join('\n'))
     ;(d?.pages || []).forEach((pageText, pIdx) => {
-      for (const t of chunkText(pageText)) {
+      for (const t of chunkText(collapseSpatial(pageText))) {
         chunks.push({ text: t, file: name, page: pIdx + 1, doc_type: docType, doc_year: docYear })
       }
     })
@@ -2232,7 +2250,14 @@ const APPENDIX_ORD_RE = /appendice\s*(?:n[°.\s]*)?(\d{1,3})/i
 function analyzeStagedDocs(docs) {
   return (docs || []).map((d, i) => {
     const name = d?.name || `documento_${i + 1}.pdf`
-    const pages = Array.isArray(d?.pages) ? d.pages.map((p) => String(p || '')) : []
+    // DOPPIO TESTO. Le pagine arrivano SPAZIALI (griglia a colonne dall'OCR):
+    // - spatialPages → i PROMPT al modello (l'allineamento è l'informazione);
+    // - pages/text (PIATTI, derivati con collapseSpatial) → regex di Stadio A,
+    //   datazione, embeddings, chunk RAG, finestre di contesto: tutte cose
+    //   scritte per righe corte, che il padding romperebbe (la regex del n°
+    //   polizza arrivava a CONCATENARE cifre di colonne diverse).
+    const spatialPages = Array.isArray(d?.pages) ? d.pages.map((p) => String(p || '')) : []
+    const pages = spatialPages.map(collapseSpatial)
     const text = pages.join('\n')
     let dateStr = latestDateExcludingEmission(text) || null
     const ym = name.match(/\b(19|20)\d{2}\b/)
@@ -2244,7 +2269,7 @@ function analyzeStagedDocs(docs) {
     }
     const om = name.match(APPENDIX_ORD_RE)
     return {
-      name, pages, text,
+      name, pages, spatialPages, text,
       normPages: pages.map((p) => normForMatch(p)),
       type: classifyDocType(name),
       dateStr,
@@ -2302,15 +2327,21 @@ function buildGroupBatches(docList, budgetChars) {
     parts = []; used = 0; names = new Set()
   }
   for (const d of docList) {
-    for (let p = 0; p < d.pages.length; p++) {
-      const t = d.pages[p]?.trim()
+    // Ai PROMPT va il testo SPAZIALE (colonne preservate); il budget si misura
+    // in caratteri UTILI (usefulLength): le run di spazi del padding costano
+    // quasi zero token ma 1:1 in char — contarle piene rimpiccioliva i batch
+    // e separava etichetta e valore, l'esatto contrario dello scopo.
+    const promptPages = d.spatialPages?.length === d.pages.length ? d.spatialPages : d.pages
+    for (let p = 0; p < promptPages.length; p++) {
+      const t = promptPages[p]?.trim()
       if (!t) continue
       let block = `[${d.name} · pag. ${p + 1}]\n${t}`
-      if (block.length > budgetChars) block = block.slice(0, budgetChars) // pagina singola oltre il budget: caso limite
-      if (used + block.length + 2 > budgetChars) flush()
+      let cost = usefulLength(block)
+      if (cost > budgetChars) { block = block.slice(0, budgetChars * 2); cost = usefulLength(block) } // pagina singola oltre il budget: caso limite
+      if (used + cost + 2 > budgetChars) flush()
       parts.push(block)
       names.add(d.name)
-      used += block.length + 2
+      used += cost + 2
     }
   }
   flush()
@@ -2352,6 +2383,7 @@ function stagedSystemPrompt(kind) {
     '3. Per OGNI campo includi "evidenza": il frammento ESATTO copiato dal documento in cui\n' +
     '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+    '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
     'FORMATO: un solo oggetto JSON\n' +
     '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
@@ -2385,6 +2417,7 @@ const STAGED_RECOVERY_SYSTEM =
   '4. "evidenza" = il frammento ESATTO copiato dagli estratti in cui compare il valore.\n' +
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2402,6 +2435,7 @@ const STAGED_CASCADE_SYSTEM =
   '   mai "è l\'unico numero della pagina" o "c\'è una parola simile vicino".\n' +
   '5. "evidenza" = frammento ESATTO copiato dal documento. Se non riesci a citarlo, usa {"valore": null}.\n' +
   '6. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  '7. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2467,9 +2501,15 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28), aff: typeof aff === 'number' ? aff : null })
   }
   let accepted = 0
-  for (const [k, e] of Object.entries(parsed || {})) {
+  for (const [k0, e] of Object.entries(parsed || {})) {
+    // Chiave storpiata dal modello (visto in produzione: "311ac411-…" per il
+    // campo "311ac415-…"): i modelli piccoli ricopiano male gli id lunghi.
+    // Fuzzy SOLO se univoco e se l'id vero non è già presente ESATTO nella
+    // risposta (altrimenti sarebbe un duplicato, non un refuso).
+    const k = byId[k0] ? k0 : (matchFieldKey(k0, Object.keys(byId).filter((id) => !(id in (parsed || {})))) || k0)
     const field = byId[k]
     if (!field) { counters.unknown++; continue }
+    if (k !== k0) note(k, 'chiave-corretta', k0)
     const val = (e && typeof e === 'object') ? e.valore : e
     if (val == null || String(val).trim() === '') { counters.sanitized++; note(k, 'vuoto/null'); continue }
     if (isPlaceholderValue(val)) { counters.placeholders++; note(k, 'placeholder', val); continue }
@@ -3282,13 +3322,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         }
         const RECOVERY_CTX_CHARS = 12000
         let ctx = ''
+        let ctxCost = 0
         const usedNames = new Set()
         for (const s of pool) {
-          const pageText = s.d.pages[s.p]
+          // Prompt con la pagina SPAZIALE (colonne preservate); budget misurato
+          // sui caratteri UTILI, o il padding dimezzava le pagine inviate.
+          const pageText = (s.d.spatialPages?.[s.p] ?? s.d.pages[s.p])
           if (!pageText.trim()) continue
           const block = `[${s.d.name} · pag. ${s.p + 1}]\n${pageText.trim()}`
-          if (ctx && ctx.length + block.length > RECOVERY_CTX_CHARS) break
-          ctx += (ctx ? '\n---\n' : '') + block.slice(0, RECOVERY_CTX_CHARS)
+          const cost = usefulLength(block)
+          if (ctx && ctxCost + cost > RECOVERY_CTX_CHARS) break
+          ctx += (ctx ? '\n---\n' : '') + (cost > RECOVERY_CTX_CHARS ? block.slice(0, RECOVERY_CTX_CHARS * 2) : block)
+          ctxCost += cost
           usedNames.add(s.d.name)
         }
         if (!ctx) continue

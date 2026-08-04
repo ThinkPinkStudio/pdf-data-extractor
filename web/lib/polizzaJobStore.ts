@@ -131,19 +131,35 @@ export async function findIdenticalCompletedJob(jobId: string): Promise<{ id: st
 // ─── Cache OCR per hash contenuto ────────────────────────────────────────────
 // L'OCR tesseract di un PDF scansionato costa minuti: lo stesso identico file
 // (doppioni tra cartelle, fascicoli ricaricati, retry) riusa i testi pagina.
+// OCR_FORMAT versiona il FORMATO del testo (2 = griglia spaziale a colonne
+// preservate): al bump le voci vecchie diventano miss e si rigenerano al primo
+// rilancio — senza, i fascicoli in cache non vedrebbero MAI il testo nuovo.
+export const OCR_FORMAT = 2
+
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {
-  const { rows } = await pool.query<{ pages: string[] }>(
-    'SELECT pages FROM ocr_cache WHERE file_hash = $1', [fileHash]
+  const { rows } = await pool.query<{ pages: string[]; format: number }>(
+    'SELECT pages, format FROM ocr_cache WHERE file_hash = $1', [fileHash]
   )
-  return rows[0]?.pages ?? null
+  if (!rows[0] || (rows[0].format ?? 1) !== OCR_FORMAT) return null
+  return rows[0].pages ?? null
+}
+
+// true se in cache c'è una voce per questo hash ma in un FORMATO vecchio:
+// serve solo al log del worker ("ri-OCR per aggiornamento formato", non "mai
+// visto") — in produzione un miss inatteso sembrerebbe una cache rotta.
+export async function hasStaleOcrCache(fileHash: string): Promise<boolean> {
+  const { rows } = await pool.query<{ format: number }>(
+    'SELECT format FROM ocr_cache WHERE file_hash = $1', [fileHash]
+  )
+  return !!rows[0] && (rows[0].format ?? 1) !== OCR_FORMAT
 }
 
 export async function putOcrCache(fileHash: string, fileName: string, pages: string[]): Promise<void> {
   await pool.query(
-    `INSERT INTO ocr_cache (file_hash, file_name, num_pages, pages, created_at)
-     VALUES ($1,$2,$3,$4::jsonb,$5)
-     ON CONFLICT (file_hash) DO UPDATE SET file_name = $2, num_pages = $3, pages = $4::jsonb`,
-    [fileHash, fileName, pages.length, JSON.stringify(pages), now()]
+    `INSERT INTO ocr_cache (file_hash, file_name, num_pages, pages, created_at, format)
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+     ON CONFLICT (file_hash) DO UPDATE SET file_name = $2, num_pages = $3, pages = $4::jsonb, format = $6`,
+    [fileHash, fileName, pages.length, JSON.stringify(pages), now(), OCR_FORMAT]
   )
 }
 

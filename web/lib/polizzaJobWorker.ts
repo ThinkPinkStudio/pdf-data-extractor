@@ -11,7 +11,7 @@ import { loadPdfServer } from './pdfRenderServer'
 import { buildSources } from './polizzaRolling'
 import { withGlobalLock } from './llmSemaphore'
 import {
-  getJob, getJobFiles, getJobStatus, updateJob, getOcrCache, putOcrCache, hashPdfBase64, type JobRow,
+  getJob, getJobFiles, getJobStatus, updateJob, getOcrCache, putOcrCache, hasStaleOcrCache, hashPdfBase64, type JobRow,
 } from './polizzaJobStore'
 
 interface PolizzaSvc {
@@ -194,6 +194,15 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // ricaricati, retry) riusa i testi pagina senza rifare render+tesseract.
     let cachedPages: string[] | null = null
     try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
+    if (!cachedPages) {
+      // Miss per BUMP DI FORMATO (testo spaziale): dirlo nel log, o in
+      // produzione il ri-OCR di un fascicolo già visto sembra una cache rotta.
+      try {
+        if (await hasStaleOcrCache(fileHash)) {
+          await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
+        }
+      } catch { /* solo log, mai bloccante */ }
+    }
     if (cachedPages && cachedPages.length) {
       const docText = cachedPages.filter(Boolean).join('\n')
       totalPagesProcessed += cachedPages.length
@@ -312,10 +321,14 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // scopeId = job.id: l'identità dei punti è il JOB, non il nome cartella.
       // Due fascicoli con cartelle/nomi file uguali non si sovrascrivono mai, e la
       // ricerca "nella polizza X" filtra per job_id, ermetica per costruzione.
+      // All'indice vanno le pagine COLLASSATE (stessa derivazione di
+      // collapseSpatial in ocrLayout.js): il padding della griglia spaziale
+      // gonfierebbe i chunk (1200 char fissi) diluendo gli embeddings.
+      const collapse = (p: string) => p.split('\n').map((l) => l.replace(/\s{2,}/g, ' ').trim()).join('\n')
       const { chunks, collection } = await vec.indexDossierPages(
         {
           dossierName: job.dossier_name || job.id,
-          files: docsForIndex,
+          files: docsForIndex.map((f) => ({ ...f, pages: f.pages.map(collapse) })),
           scopeId: job.id,
           extraPayload: {
             job_id: job.id,

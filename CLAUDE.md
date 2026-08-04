@@ -69,6 +69,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   letterale bastava una maiuscola diversa ("Acqui Terme" vs "ACQUI TERME")
   perché l'affinità fosse `null` e l'arbitro, cieco, decidesse per sola recency.
   Anche i seed di Stadio A hanno la loro affinità: prima entravano nudi.
+- **Testo OCR SPAZIALE (griglia a colonne)**: `ocrImageToText` chiede a
+  tesseract.js anche i `blocks` e ricostruisce la pagina come griglia monospace
+  (`ocrLayout.js`) — i layout tabellari restano incolonnati nei PROMPT. Le
+  regex, la datazione, gli embeddings e i chunk lavorano sul PIATTO derivato
+  (`collapseSpatial`, sdoppiamento in `analyzeStagedDocs`:
+  `spatialPages`/`pages`). I budget char si misurano in `usefulLength` (le run
+  di spazi costano ~0 token). Cache OCR versionata (`ocr_cache.format`,
+  `OCR_FORMAT=2`): al bump le voci vecchie sono miss e si rigenerano da sole.
+- **Chiavi campo storpiate**: i modelli piccoli ricopiano male gli UUID dei
+  campi ("311ac411…" per "311ac415…") — `matchFieldKey` (fuzzy ≤2, solo match
+  univoco, chiavi ≥8) li recupera in `absorbStagedEntries` invece di buttare
+  valori validi.
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
 
