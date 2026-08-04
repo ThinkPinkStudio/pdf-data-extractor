@@ -19,6 +19,8 @@ interface Profile {
   fields: Field[]
   promptExtra?: string
   matchKeywords?: string
+  // Parole del CONTENUTO (pre-check di pertinenza: cercate nel testo OCR)
+  contentKeywords?: string
 }
 
 function parseCells(str: string): Cell[] {
@@ -58,6 +60,8 @@ export default function PolizzaFieldsEditor() {
   const [consensusPasses, setConsensusPasses] = useState(3)
   // Strategia motore a stadi: false = gruppi (default), true = cascata dal più recente
   const [stagedCascade, setStagedCascade] = useState(false)
+  // Pre-check di pertinenza profilo↔fascicolo: off (default) / keywords / semantic / llm
+  const [precheckMode, setPrecheckMode] = useState('off')
   const dragIndex = useRef<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -75,6 +79,7 @@ export default function PolizzaFieldsEditor() {
       setVerificaModel(s.polizzaVerificaModel || '')
       setConsensusPasses(s.polizzaConsensusPasses || 3)
       setStagedCascade(s.polizzaStagedCascade === true)
+      setPrecheckMode(s.polizzaPrecheckMode || 'off')
       setLoading(false)
     })
   }, [])
@@ -128,6 +133,11 @@ export default function PolizzaFieldsEditor() {
     const next = [...profiles, { id: String(Date.now()), name: profileName.trim(), fields, promptExtra, matchKeywords: profileKeywords.trim() }]
     setProfiles(next); setProfileName(''); setProfileKeywords('')
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
+  }
+  // Parole chiave di CONTENUTO di un profilo (pre-check di pertinenza: cercate
+  // nel testo OCR, non nel nome cartella). Persiste su blur come le altre.
+  function setProfileContentKw(id: string, value: string) {
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, contentKeywords: value } : p)))
   }
   // Modifica in linea delle parole di abbinamento di un profilo esistente (usate nel
   // bulk per pre-filtro e auto-riconoscimento). Persiste su blur.
@@ -244,6 +254,27 @@ export default function PolizzaFieldsEditor() {
             </select>
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('set.stagedStrategyHint')}</p>
           </div>
+          <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+            <label className="label">{t('set.precheckMode')}</label>
+            <select value={precheckMode}
+              onChange={(e) => {
+                const v = e.target.value
+                setPrecheckMode(v)
+                // Persistenza immediata al cambio, come lo switch strategia qui
+                // sopra (il "Salva impostazioni" della pagina non invia questa chiave).
+                fetch('/api/settings', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ polizzaPrecheckMode: v }),
+                }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
+              }}
+              style={{ fontSize: 12 }}>
+              <option value="off">{t('set.precheckModeOff')}</option>
+              <option value="keywords">{t('set.precheckModeKeywords')}</option>
+              <option value="semantic">{t('set.precheckModeSemantic')}</option>
+              <option value="llm">{t('set.precheckModeLlm')}</option>
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('set.precheckModeHint')}</p>
+          </div>
         </div>
       </div>
 
@@ -298,6 +329,8 @@ export default function PolizzaFieldsEditor() {
                 <span style={{ flex: '1 1 140px', fontSize: 13 }}>{p.name} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
                 <input value={p.matchKeywords || ''} onChange={(e) => setProfileKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
+                <input value={p.contentKeywords || ''} onChange={(e) => setProfileContentKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                  placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => delProfile(p.id)}>{t('common.cancel')}</button>
               </div>

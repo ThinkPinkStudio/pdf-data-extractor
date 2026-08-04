@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     // Strategia motore a stadi (gruppi/cascata): senza questa chiave in whitelist
     // il salvataggio la SCARTAVA in silenzio e lo switch tornava sempre a gruppi.
     'polizzaStagedCascade',
+    // Pre-check di pertinenza profilo↔fascicolo (off/keywords/semantic/llm).
+    'polizzaPrecheckMode',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyMinOverlap', 'compareFuzzyBroadEnabled',

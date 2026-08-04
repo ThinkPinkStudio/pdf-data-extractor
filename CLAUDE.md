@@ -81,6 +81,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   campi ("311ac411…" per "311ac415…") — `matchFieldKey` (fuzzy ≤2, solo match
   univoco, chiavi ≥8) li recupera in `absorbStagedEntries` invece di buttare
   valori validi.
+- **Pre-check di pertinenza** (profilo↔contenuto): switch `polizzaPrecheckMode`
+  (default **off**; keywords/semantic/llm da confrontare sul campo). Blocca il
+  job in status `mismatch` con "Procedi comunque" in UI (override persistito in
+  `precheck.override`). Solo job con `profile_id`; ogni guasto infrastrutturale
+  → `skipped`, MAI mismatch. Parte pura in `polizzaPrecheck.js` (soglie
+  esportate), orchestratore in `polizzaPrecheckService.js`, aggancio nel worker
+  post-OCR/pre-LLM. `contentKeywords` sul profilo = parole del CONTENUTO
+  (diverse da `matchKeywords`, che agisce sul nome cartella).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
 

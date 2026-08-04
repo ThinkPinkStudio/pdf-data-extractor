@@ -15,6 +15,7 @@ interface BatchSummary {
   done: number
   error: number
   canceled: number
+  mismatch: number
 }
 
 interface JobSnapshot {
@@ -39,10 +40,12 @@ function fmtDate(epochSeconds: number) {
   return new Date(epochSeconds * 1000).toLocaleString()
 }
 
-function batchStatus(b: BatchSummary): 'running' | 'error' | 'done' | 'queued' {
+function batchStatus(b: BatchSummary): 'running' | 'error' | 'done' | 'queued' | 'mismatch' {
   if (b.running > 0 || (b.queued > 0 && b.done + b.error + b.canceled > 0)) return 'running'
   if (b.queued > 0 && b.done === 0 && b.error === 0) return 'queued'
   if (b.error > 0) return 'error'
+  // Dossier bloccati dal pre-check di pertinenza: il batch è "da confermare"
+  if ((b.mismatch || 0) > 0) return 'mismatch'
   return 'done'
 }
 
@@ -215,11 +218,26 @@ export default function PolizzaJobsPage() {
     s === 'running' ? t('jobsDash.statusRunning')
       : s === 'error' ? t('jobsDash.statusError')
         : s === 'queued' ? t('jobsDash.statusQueued')
-          : t('jobsDash.statusDone')
+          : s === 'mismatch' ? t('jobsDash.statusMismatch')
+            : t('jobsDash.statusDone')
   )
   const statusColor = (s: string) => (
-    s === 'running' ? 'var(--c-info)' : s === 'error' ? 'var(--c-error)' : s === 'queued' ? 'var(--c-text-muted)' : 'var(--c-success)'
+    s === 'running' ? 'var(--c-info)'
+      : s === 'error' ? 'var(--c-error)'
+        : s === 'queued' ? 'var(--c-text-muted)'
+          : s === 'mismatch' ? 'var(--c-warning, #d97706)'
+            : 'var(--c-success)'
   )
+
+  // "Procedi comunque": sblocca un job fermato dal pre-check di pertinenza.
+  async function proceedJobRow(jobId: string) {
+    setBusy(true)
+    try {
+      await fetch(`/api/polizza/job/${jobId}/proceed`, { method: 'POST' })
+      if (openId) await loadDetail(openId)
+      await loadBatches()
+    } finally { setBusy(false) }
+  }
   const fieldLabel = (j: JobSnapshot, id: string) => j.fieldDefs?.find((f) => f.id === id)?.label || id
 
   // URL del PDF originale di un file del job: l'ordine di scanned_files coincide
@@ -303,7 +321,7 @@ export default function PolizzaJobsPage() {
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600 }}>{b.label}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{b.email}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: statusColor(st), fontWeight: 600 }}>{statusLabel(st)}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12 }}>{t('jobsDash.progressCount', { done: b.done + b.error + b.canceled, total: b.total })}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12 }}>{t('jobsDash.progressCount', { done: b.done + b.error + b.canceled + (b.mismatch || 0), total: b.total })}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-muted)' }}>{fmtDate(b.created_at)}</td>
                     </tr>
                     {isOpen && (
@@ -388,7 +406,13 @@ export default function PolizzaJobsPage() {
                                                 ↻ {t('jobsDash.retry')}
                                               </button>
                                             )}
-                                            {(j.status === 'done' || j.status === 'canceled') && (
+                                            {j.status === 'mismatch' && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, color: 'var(--c-warning, #d97706)', fontWeight: 700 }} disabled={busy}
+                                                title={t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
+                                                ▶ {t('jobsDash.proceedAnyway')}
+                                              </button>
+                                            )}
+                                            {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch') && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                                                 title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                                                 ↻ {t('jobsDash.reprocess')}
@@ -570,7 +594,13 @@ export default function PolizzaJobsPage() {
                             ↻ {t('jobsDash.retry')}
                           </button>
                         )}
-                        {(j.status === 'done' || j.status === 'canceled') && (
+                        {j.status === 'mismatch' && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, color: 'var(--c-warning, #d97706)', fontWeight: 700 }} disabled={busy}
+                            title={t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
+                            ▶ {t('jobsDash.proceedAnyway')}
+                          </button>
+                        )}
+                        {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch') && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                             title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                             ↻ {t('jobsDash.reprocess')}
