@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
 import CompareConditions from '@/components/CompareConditions'
-import { sheetRows, allNegativeConditions, BOTH_MODE_OPTIONS, type BothRowResult, type Condition, type Row } from '@/lib/compare/engine'
+import CompareProfiles from '@/components/CompareProfiles'
+import { sheetRows, allNegativeConditions, applyRowsProfile, rowsProfileFrom, BOTH_MODE_OPTIONS, type BothRowResult, type Condition, type RowsProfile, type Row } from '@/lib/compare/engine'
 import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
@@ -18,6 +19,23 @@ type View = 'verdict' | 'detail'
 //  - Esito per riga: «questa riga di A esiste in B?» (✓/✗, prima corrispondenza)
 //  - Dettaglio corrispondenze: tutte le righe B abbinate a ciascuna riga A
 // Il vecchio /compare/search reindirizza qui.
+
+// JSON importato che contiene UN solo profilo invece di un dizionario: o un
+// oggetto con le condizioni, o (interop) un semplice array di condizioni.
+function parseRowsProfile(parsed: unknown): RowsProfile | null {
+  if (Array.isArray(parsed)) {
+    const conds = parsed as Condition[]
+    return conds.length && typeof conds[0] === 'object' && 'columnA' in conds[0]
+      ? { bothMatchConditions: conds, bothFilterConditions: [] }
+      : null
+  }
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as RowsProfile).bothMatchConditions)) {
+    const p = parsed as RowsProfile
+    return { bothMatchConditions: p.bothMatchConditions, bothFilterConditions: Array.isArray(p.bothFilterConditions) ? p.bothFilterConditions : [] }
+  }
+  return null
+}
+
 export default function CompareBothPage() {
   const { fileA, fileB, config, saveConfig } = useCompare()
   const [matchConds, setMatchConds] = useState<Condition[]>(config.bothMatchConditions)
@@ -122,6 +140,22 @@ export default function CompareBothPage() {
         Per ogni riga del File A dice se esiste nel File B secondo le condizioni di abbinamento; la vista Dettaglio mostra tutte le corrispondenze. Le condizioni di filtro (opzionali) restringono gli abbinamenti.
       </p>
       <CompareFileBar variant="chips" />
+
+      {/* Profili di QUESTA pagina: solo le condizioni. Indipendenti da quelli
+          della Comparazione (chiave di impostazioni e lista separate). */}
+      <CompareProfiles<RowsProfile>
+        settingsKey="compareBothProfiles"
+        fileName="profili_confronto_righe.json"
+        hint="Condizioni di abbinamento e di filtro di questa pagina. Sono indipendenti dai profili della Comparazione."
+        snapshot={() => rowsProfileFrom({ bothMatchConditions: matchConds, bothFilterConditions: filterConds })}
+        onLoad={(p) => {
+          const next = applyRowsProfile(config, p)
+          setMatchConds(next.bothMatchConditions)
+          setFilterConds(next.bothFilterConditions)
+          saveConfig(next)
+        }}
+        parseSingle={parseRowsProfile}
+      />
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Condizioni di abbinamento</h2>

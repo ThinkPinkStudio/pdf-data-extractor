@@ -9,10 +9,8 @@ export default function CompareSettingsPage() {
   const [keys, setKeys] = useState<MatchKey[]>(config.matchKeys)
   const [fuzzy, setFuzzy] = useState({ enabled: config.fuzzyEnabled, min: config.fuzzyMinOverlap, ignore: config.fuzzyIgnoreWords, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad })
   const [saved, setSaved] = useState(false)
-  const [profiles, setProfiles] = useState<Record<string, CompareConfig>>({})
-  const [profileName, setProfileName] = useState('')
-  const [profileMsg, setProfileMsg] = useState('')
-  const flashProfile = (m: string) => { setProfileMsg(m); setTimeout(() => setProfileMsg(''), 2500) }
+  const [msg, setMsg] = useState('')
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2500) }
 
   // Ripristina TUTTI i criteri (chiavi + fuzzy + condizioni ricerca/in-entrambi).
   function resetAll() {
@@ -20,13 +18,10 @@ export default function CompareSettingsPage() {
     setKeys(d.matchKeys)
     setFuzzy({ enabled: d.fuzzyEnabled, min: d.fuzzyMinOverlap, ignore: d.fuzzyIgnoreWords, broad: d.fuzzyBroadEnabled, broadMin: d.fuzzyMinOverlapBroad })
     saveConfig(d)
-    flashProfile('Criteri ripristinati ai valori predefiniti.')
+    flash('Criteri ripristinati ai valori predefiniti.')
   }
 
   useEffect(() => { setKeys(config.matchKeys); setFuzzy({ enabled: config.fuzzyEnabled, min: config.fuzzyMinOverlap, ignore: config.fuzzyIgnoreWords, broad: config.fuzzyBroadEnabled, broadMin: config.fuzzyMinOverlapBroad }) }, [config])
-  useEffect(() => {
-    fetch('/api/settings').then((r) => r.json()).then((d) => { if (d.compareProfiles) setProfiles(d.compareProfiles) }).catch(() => {})
-  }, [])
 
   function updKey(i: number, patch: Partial<MatchKey>) {
     setKeys((ks) => ks.map((k, idx) => (idx === i ? { ...k, ...patch } : k)))
@@ -57,50 +52,6 @@ export default function CompareSettingsPage() {
     await saveConfig(currentConfig())
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
-  }
-
-  async function saveProfiles(next: Record<string, CompareConfig>) {
-    setProfiles(next)
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ compareProfiles: next }) })
-  }
-  async function saveAsProfile() {
-    const name = profileName.trim()
-    if (!name) return
-    await saveProfiles({ ...profiles, [name]: currentConfig() })
-    setProfileName('')
-    flashProfile(`Profilo «${name}» salvato.`)
-  }
-  function loadProfile(name: string) {
-    const p = profiles[name]
-    // Profili salvati prima dei campi nuovi: enabled/ignore assenti → default.
-    if (p) { setKeys(p.matchKeys || defaultMatchKeys()); setFuzzy({ enabled: p.fuzzyEnabled !== false, min: p.fuzzyMinOverlap, ignore: p.fuzzyIgnoreWords || '', broad: p.fuzzyBroadEnabled, broadMin: p.fuzzyMinOverlapBroad }); saveConfig(p); flashProfile(`Profilo «${name}» caricato.`) }
-  }
-  async function deleteProfile(name: string) {
-    const next = { ...profiles }
-    delete next[name]
-    await saveProfiles(next)
-    flashProfile(`Profilo «${name}» eliminato.`)
-  }
-  function exportProfiles() {
-    const blob = new Blob([JSON.stringify(profiles, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'profili_compare.json'; a.click()
-    URL.revokeObjectURL(url)
-  }
-  async function importProfiles(file: File | undefined) {
-    if (!file) return
-    try {
-      const parsed = JSON.parse(await file.text())
-      // Interop col desktop: se il JSON è una SINGOLA config (ha matchKeys) lo si
-      // importa come profilo nominato dal file. Altrimenti è un dizionario di profili.
-      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as CompareConfig).matchKeys)) {
-        const name = file.name.replace(/\.json$/i, '') || 'importato'
-        await saveProfiles({ ...profiles, [name]: parsed as CompareConfig })
-      } else {
-        await saveProfiles({ ...profiles, ...(parsed as Record<string, CompareConfig>) })
-      }
-    } catch { /* file non valido: ignora */ }
   }
 
   return (
@@ -182,34 +133,13 @@ export default function CompareSettingsPage() {
           </div>
         </div>
 
-        {/* Profili */}
-        <div className="card">
-          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Profili salvati</h2>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Nome profilo" style={{ flex: 1, minWidth: 180 }} />
-            <button className="btn btn-secondary" onClick={saveAsProfile}>Salva come profilo</button>
-            <button className="btn btn-secondary" onClick={exportProfiles}>Esporta JSON</button>
-            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-              Importa JSON
-              <input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => importProfiles(e.target.files?.[0])} />
-            </label>
-          </div>
-          {Object.keys(profiles).length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--c-text-muted)', margin: 0 }}>Nessun profilo salvato.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.keys(profiles).map((name) => (
-                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ flex: 1, fontSize: 14 }}>{name}</span>
-                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => loadProfile(name)}>Carica</button>
-                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => deleteProfile(name)}>Elimina</button>
-                </div>
-              ))}
-            </div>
-          )}
-          {profileMsg && <div className="alert alert-success" style={{ marginTop: 12 }}>{profileMsg}</div>}
-        </div>
+        {/* I profili salvati sono nelle pagine che li usano: Comparazione
+            (chiavi + fuzzy) e Confronto righe (condizioni), separati. */}
+        <p style={{ fontSize: 12, color: 'var(--c-text-muted)', margin: 0 }}>
+          I profili salvati sono ora nella pagina <strong>Comparazione</strong> (chiavi di abbinamento e fuzzy) e, separatamente, in <strong>Confronto righe</strong> per le sue condizioni.
+        </p>
 
+        {msg && <div className="alert alert-success">{msg}</div>}
         {saved && <div className="alert alert-success">Configurazione salvata.</div>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={save}>Salva configurazione</button>

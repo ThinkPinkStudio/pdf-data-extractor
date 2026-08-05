@@ -127,6 +127,56 @@ export function defaultCompareConfig(): CompareConfig {
   }
 }
 
+/* ─── Profili ────────────────────────────────────────────────────────────── */
+// I profili salvati vivono nella pagina che li usa e sono INDIPENDENTI: quelli
+// della Comparazione portano solo chiavi + fuzzy, quelli del Confronto righe
+// solo le condizioni. Caricarne uno non tocca mai i criteri dell'altra pagina.
+export type ComparisonProfile = Pick<CompareConfig, 'matchKeys' | 'fuzzyEnabled' | 'fuzzyMinOverlap' | 'fuzzyIgnoreWords' | 'fuzzyBroadEnabled' | 'fuzzyMinOverlapBroad'>
+export type RowsProfile = Pick<CompareConfig, 'bothMatchConditions' | 'bothFilterConditions'>
+
+export function comparisonProfileFrom(c: CompareConfig): ComparisonProfile {
+  return {
+    matchKeys: c.matchKeys,
+    fuzzyEnabled: c.fuzzyEnabled !== false,
+    fuzzyMinOverlap: c.fuzzyMinOverlap,
+    fuzzyIgnoreWords: c.fuzzyIgnoreWords ?? '',
+    fuzzyBroadEnabled: c.fuzzyBroadEnabled !== false,
+    fuzzyMinOverlapBroad: c.fuzzyMinOverlapBroad,
+  }
+}
+
+// I profili storici erano CompareConfig INTERE (comprese le condizioni del
+// Confronto righe): qui se ne prendono solo i campi della Comparazione, con i
+// default per quelli aggiunti dopo il salvataggio.
+export function applyComparisonProfile(c: CompareConfig, p: Partial<ComparisonProfile>): CompareConfig {
+  const d = defaultCompareConfig()
+  return {
+    ...c,
+    matchKeys: Array.isArray(p.matchKeys) && p.matchKeys.length ? p.matchKeys : d.matchKeys,
+    fuzzyEnabled: p.fuzzyEnabled !== false,
+    fuzzyMinOverlap: typeof p.fuzzyMinOverlap === 'number' ? p.fuzzyMinOverlap : d.fuzzyMinOverlap,
+    fuzzyIgnoreWords: typeof p.fuzzyIgnoreWords === 'string' ? p.fuzzyIgnoreWords : d.fuzzyIgnoreWords,
+    fuzzyBroadEnabled: p.fuzzyBroadEnabled !== false,
+    fuzzyMinOverlapBroad: typeof p.fuzzyMinOverlapBroad === 'number' ? p.fuzzyMinOverlapBroad : d.fuzzyMinOverlapBroad,
+  }
+}
+
+export function rowsProfileFrom(c: Pick<CompareConfig, 'bothMatchConditions' | 'bothFilterConditions'>): RowsProfile {
+  return {
+    bothMatchConditions: c.bothMatchConditions,
+    bothFilterConditions: c.bothFilterConditions ?? [],
+  }
+}
+
+export function applyRowsProfile(c: CompareConfig, p: Partial<RowsProfile>): CompareConfig {
+  const d = defaultCompareConfig()
+  return {
+    ...c,
+    bothMatchConditions: Array.isArray(p.bothMatchConditions) && p.bothMatchConditions.length ? p.bothMatchConditions : d.bothMatchConditions,
+    bothFilterConditions: Array.isArray(p.bothFilterConditions) ? p.bothFilterConditions : [],
+  }
+}
+
 /* ─── Multi-sheet ────────────────────────────────────────────────────────── */
 export function normaliseWorkbook(raw: unknown): Workbook {
   // Retrocompat: una vecchia versione poteva restituire un semplice array di righe.

@@ -1,5 +1,5 @@
 import { pool } from './db'
-import type { MatchKey, Condition, CompareConfig } from './compare/engine'
+import type { MatchKey, Condition, CompareConfig, RowsProfile } from './compare/engine'
 
 export interface PolizzaField {
   id: string
@@ -108,7 +108,10 @@ export interface WebSettings {
   compareSearchConditions?: Condition[]
   compareBothMatchConditions?: Condition[]
   compareBothFilterConditions?: Condition[]
+  // Profili delle DUE pagine, indipendenti: Comparazione (chiavi + fuzzy) e
+  // Confronto righe (condizioni di abbinamento/filtro).
   compareProfiles?: Record<string, CompareConfig>
+  compareBothProfiles?: Record<string, RowsProfile>
   // CSA Adesioni (sezione separata: moduli AXA da Excel). Nessun LLM.
   // Campi/questionario/prezzi: se non impostati, si usano i default da tracciato.js.
   adesioniFields?: unknown[]
@@ -150,7 +153,7 @@ const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaP
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
   'compareMatchKeys', 'compareSearchConditions', 'compareBothMatchConditions',
-  'compareBothFilterConditions', 'compareProfiles',
+  'compareBothFilterConditions', 'compareProfiles', 'compareBothProfiles',
   'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniExportNotify',
   'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',
   'adesioniAttachments',
@@ -237,6 +240,7 @@ export async function getSettings(): Promise<WebSettings> {
     compareBothMatchConditions: json<Condition[]>('compareBothMatchConditions'),
     compareBothFilterConditions: json<Condition[]>('compareBothFilterConditions'),
     compareProfiles: json<Record<string, CompareConfig>>('compareProfiles'),
+    compareBothProfiles: json<Record<string, RowsProfile>>('compareBothProfiles'),
     // CSA Adesioni — configurazione persistita nel DB (default applicati lato config.ts).
     adesioniFields: json<unknown[]>('adesioniFields'),
     adesioniIdd: json<unknown[]>('adesioniIdd'),
