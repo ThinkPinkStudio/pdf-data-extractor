@@ -3,14 +3,15 @@
 import { useMemo, useState } from 'react'
 import { useCompare } from '@/lib/compare/CompareProvider'
 import CompareFileBar from '@/components/CompareFileBar'
-import { sheetRows, type CompareResult, type Row } from '@/lib/compare/engine'
+import CompareProfiles from '@/components/CompareProfiles'
+import { sheetRows, applyComparisonProfile, comparisonProfileFrom, type ComparisonProfile, type CompareResult, type Row } from '@/lib/compare/engine'
 import { runInWorker } from '@/lib/compare/runWorker'
 import { downloadRows } from '@/lib/compare/xlsx'
 
 type Filter = 'all' | 'only-a' | 'only-b' | 'fuzzy'
 
 export default function ComparePage() {
-  const { fileA, fileB, setFileA, setFileB, config } = useCompare()
+  const { fileA, fileB, setFileA, setFileB, config, saveConfig } = useCompare()
   const [result, setResult] = useState<CompareResult | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [busy, setBusy] = useState(false)
@@ -101,6 +102,17 @@ export default function ComparePage() {
       <h1 className="page-title">Comparazione Portafogli</h1>
       <p className="view-subtitle">Carica due file Excel per trovare le polizze non coincidenti.</p>
       <CompareFileBar />
+
+      {/* Profili di QUESTA pagina: chiavi di abbinamento + fuzzy (Configurazione).
+          Il Confronto righe ha i suoi, indipendenti. */}
+      <CompareProfiles<ComparisonProfile>
+        settingsKey="compareProfiles"
+        fileName="profili_comparazione.json"
+        hint="Chiavi di abbinamento e impostazioni fuzzy della Configurazione. Caricando un profilo diventano i criteri attivi della comparazione."
+        snapshot={() => comparisonProfileFrom(config)}
+        onLoad={(p) => saveConfig(applyComparisonProfile(config, p))}
+        parseSingle={(parsed) => (parsed && typeof parsed === 'object' && Array.isArray((parsed as ComparisonProfile).matchKeys) ? (parsed as ComparisonProfile) : null)}
+      />
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={run} disabled={!fileA || !fileB || busy}>{busy ? <><span className="spinner" /> Analisi in corso…</> : 'Confronta'}</button>
