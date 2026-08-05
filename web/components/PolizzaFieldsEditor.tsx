@@ -163,8 +163,11 @@ export default function PolizzaFieldsEditor() {
     setSaved(true); setTimeout(() => setSaved(false), 2500)
     await persistFields(applied, prompt)
   }
-  async function delProfile(id: string) {
-    const next = profiles.filter((p) => p.id !== id)
+  async function delProfile(profile: Profile) {
+    // Conferma esplicita: il pulsante era etichettato «Annulla» e cancellava
+    // senza chiedere — un click sbagliato buttava via il profilo.
+    if (!window.confirm(t('set.confirmDeleteProfile', { name: profile.name }))) return
+    const next = profiles.filter((p) => p.id !== profile.id)
     setProfiles(next)
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
   }
@@ -332,7 +335,7 @@ export default function PolizzaFieldsEditor() {
                 <input value={p.contentKeywords || ''} onChange={(e) => setProfileContentKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
-                <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => delProfile(p.id)}>{t('common.cancel')}</button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--c-error)' }} title={t('set.deleteProfile')} onClick={() => delProfile(p)}>🗑 {t('set.deleteProfile')}</button>
               </div>
             ))}
           </div>

@@ -89,6 +89,12 @@ export default function ComparePage() {
       ...result.diffA.map((r) => ({ Origine: `Solo in A — verificato (${fa})`, ...r })),
       ...result.onlyB.map((r) => ({ Origine: `Solo in B (${fb})`, ...r })),
       ...result.diffB.map((r) => ({ Origine: `Solo in B — verificato (${fb})`, ...r })),
+      // Coppie «da verificare» non ancora decise: due righe consecutive per
+      // coppia, legate dal numero in «Coppia» (prima non venivano esportate).
+      ...result.fuzzy.flatMap((p, i) => [
+        { Origine: `Da verificare — A (${fa})`, Coppia: i + 1, ...p.rowA },
+        { Origine: `Da verificare — B (${fb})`, Coppia: i + 1, ...p.rowB },
+      ]),
     ]
     downloadRows(rows, 'differenze_portafogli.xlsx')
   }
