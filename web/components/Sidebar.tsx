@@ -97,6 +97,12 @@ const IconBook = () => (
     <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
   </svg>
 )
+const IconTable = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" />
+    <line x1="15" y1="9" x2="15" y2="21" /><line x1="9" y1="9" x2="9" y2="21" />
+  </svg>
+)
 const IconHome = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
@@ -106,7 +112,7 @@ const IconHome = () => (
 /* ─── Sezioni separate: ogni sezione ha il proprio menu e le proprie
        Impostazioni. La sidebar mostra SOLO il menu della sezione corrente. ── */
 type NavItem = { href: string; key: string; icon: React.ReactNode }
-type Section = 'extractor' | 'compare' | 'adesioni' | 'hub'
+type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'hub'
 
 const NAV_EXTRACTOR: NavItem[] = [
   { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
@@ -141,16 +147,22 @@ const NAV_ADESIONI: NavItem[] = [
   { href: '/adesioni/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
 
+const NAV_PREMIO: NavItem[] = [
+  { href: '/premio', key: 'nav.pmCalcolo', icon: <IconTable /> },
+]
+
 const NAV_HUB: NavItem[] = [
   { href: '/extractor', key: 'nav.secExtractor', icon: <IconPDF /> },
   { href: '/compare', key: 'nav.secCompare', icon: <IconCompare /> },
   { href: '/adesioni', key: 'nav.secAdesioni', icon: <IconForm /> },
+  { href: '/premio', key: 'nav.secPremio', icon: <IconTable /> },
 ]
 
 function sectionFor(pathname: string): Section {
   if (pathname === '/hub') return 'hub'
   if (pathname === '/compare' || pathname.startsWith('/compare/')) return 'compare'
   if (pathname === '/adesioni' || pathname.startsWith('/adesioni/')) return 'adesioni'
+  if (pathname === '/premio' || pathname.startsWith('/premio/')) return 'premio'
   return 'extractor'
 }
 
@@ -158,6 +170,7 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   extractor: { name: 'PDF Extractor', subKey: 'nav.subExtractor', nav: NAV_EXTRACTOR },
   compare: { name: 'Portafoglio Compare', subKey: 'nav.subCompare', nav: NAV_COMPARE },
   adesioni: { name: 'CSA Adesioni', subKey: 'nav.subAdesioni', nav: NAV_ADESIONI },
+  premio: { name: 'Premio Lordo', subKey: 'nav.subPremio', nav: NAV_PREMIO },
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
