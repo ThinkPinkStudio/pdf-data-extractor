@@ -1,82 +1,108 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Portafoglio Compare — tema CHIARO originale (scoped)
+   Portafoglio Compare — palette della sezione (scoped)
 
-   La sezione Compare deriva dall'app desktop "Portafoglio Compare" (repo
-   csa-xsl-cfr), che ha un tema CHIARO con accento malva #C8477A. La webapp usa
-   invece un unico design system scuro. Qui riportiamo la sola sezione Compare
-   al look originale rimappando, sul sottoalbero `.compare-scope`, i token
-   --c-* del hub alla palette chiara. Le pagine esistenti usano quei token,
-   quindi tornano al look originale senza modifiche al markup.
+   La sezione deriva dall'app desktop "Portafoglio Compare" (repo csa-xsl-cfr),
+   che ha un accento MALVA #C8477A diverso dal rosa del resto della Suite.
+   Quell'identità si tiene; quello che NON si tiene più è il tema imposto:
+   prima questo file ridefiniva i token --c-* con valori chiari fissi, così la
+   sezione restava bianca anche col tema scuro attivo — l'unica di tutta la
+   Suite a non seguire l'interruttore.
 
-   Sono definiti anche i token originali (--pink, --bg, --only-a-*, ...) usati
-   dalle classi strutturali portate qui sotto (badge, righe colorate, pannelli
-   fuzzy, file-card, ecc.).
+   Ora la divisione è netta:
+   - i colori STRUTTURALI (fondi, testi, bordi, ombre) sono alias dei token
+     --c-* di globals.css, quindi cambiano da soli col tema;
+   - i colori di IDENTITÀ (malva) e quelli SEMANTICI (solo-A ambra, solo-B blu,
+     fuzzy giallo, esito verde/rosso) sono dichiarati qui in due declinazioni:
+     i valori scuri nel blocco base, quelli chiari sotto [data-theme="light"].
+
+   Del gruppo --c-* si rimappa SOLO la famiglia dell'accento, così i componenti
+   condivisi (bottoni, focus) restano malva dentro la sezione.
    ───────────────────────────────────────────────────────────────────────── */
 
-/* Il pannello contenuti (fuori dallo scope) viene schiarito quando ospita la
-   sezione Compare. */
-.main-content:has(.compare-scope) { background: #f8f7f9; }
-
 .compare-scope {
-  /* ─ Override dei token del hub → palette chiara originale ─ */
-  --c-bg-app:       #f8f7f9;
-  --c-bg-content:   #ffffff;
-  --c-bg-card:      #ffffff;
-  --c-bg-card-alt:  #f8f7f9;
-  --c-bg-hover:     #fff0f5;
-  --c-bg-input:     #ffffff;
-  --c-bg-active:    rgba(200, 71, 122, 0.10);
+  /* ─ Identità: malva, declinazione per fondo SCURO (più chiara, per stacco) ─ */
+  --pink:        #d95f92;
+  --pink-light:  #e8769c;
+  --pink-pale:   rgba(217, 95, 146, 0.14);
+  --pink-border: rgba(217, 95, 146, 0.38);
+  /* Sul tema scuro "dark" significa PIÙ ACCESO: è il colore di hover e degli
+     elementi attivi, che su fondo scuro devono schiarire, non scurire. */
+  --pink-dark:   #f08cb4;
+  --on-accent:   #ffffff;
 
-  --c-accent:       #c8477a;
-  --c-accent-hover: #9e2f5a;
-  --c-accent-dim:   rgba(200, 71, 122, 0.25);
-  --c-accent-faint: rgba(200, 71, 122, 0.08);
+  /* ─ Strutturali: seguono il tema, nessun valore fisso ─ */
+  --bg:             var(--c-bg-card-alt);
+  --surface:        var(--c-bg-card);
+  --surface-loaded: var(--c-bg-card-alt);
+  --border:         var(--c-border);
+  --border-soft:    var(--c-separator);
+  --text:           var(--c-text-primary);
+  --text-2:         var(--c-text-secondary);
+  --text-3:         var(--c-text-muted);
 
-  --c-text-primary:   #1e1a22;
-  --c-text-secondary: #6b6474;
-  --c-text-muted:     #a89fb0;
-  --c-text-accent:    #c8477a;
-  --c-text-on-accent: #ffffff;
+  /* ─ Semantici: tinte trasparenti, leggibili sul fondo scuro ─ */
+  --only-a-bg:     rgba(245, 158, 11, 0.13);
+  --only-a-border: rgba(245, 158, 11, 0.40);
+  --only-a-text:   #f0a437;
+  --only-b-bg:     rgba(59, 130, 246, 0.13);
+  --only-b-border: rgba(59, 130, 246, 0.40);
+  --only-b-text:   #7fb0f7;
+  --fuzzy-bg:      rgba(234, 179, 8, 0.13);
+  --fuzzy-border:  rgba(234, 179, 8, 0.40);
+  --fuzzy-text:    #eab308;
+  --fuzzy-ink:     #1a1b2e;   /* testo SOPRA il giallo: scuro, non bianco */
 
-  --c-border:       #ebebed;
-  --c-border-focus: #e8769c;
-  --c-separator:    #f2f0f4;
+  --ok-bg:       rgba(34, 197, 94, 0.14);
+  --ok-bg-hover: rgba(34, 197, 94, 0.24);
+  --ok-border:   rgba(34, 197, 94, 0.42);
+  --ok-text:     #4ade80;
+  --ko-bg:       rgba(239, 68, 68, 0.14);
+  --ko-bg-hover: rgba(239, 68, 68, 0.24);
+  --ko-border:   rgba(239, 68, 68, 0.42);
+  --ko-text:     #f87171;
 
-  --c-success: #2e7d32;
-  --c-error:   #c62828;
-  --c-warning: #e65100;
-
-  --gradient-logo:   linear-gradient(135deg, #c8477a 0%, #9e2f5a 100%);
-  --gradient-accent: linear-gradient(135deg, #c8477a 0%, #9e2f5a 100%);
-
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
-
-  /* ─ Token originali dell'app desktop (per le classi strutturali sotto) ─ */
-  --pink:         #c8477a;
-  --pink-light:   #e8769c;
-  --pink-pale:    #fff0f5;
-  --pink-border:  #f0d0dc;
-  --pink-dark:    #9e2f5a;
-  --bg:           #f8f7f9;
-  --surface:      #ffffff;
-  --border:       #ebebed;
-  --border-soft:  #f2f0f4;
-  --text:         #1e1a22;
-  --text-2:       #6b6474;
-  --text-3:       #a89fb0;
-  --only-a-bg:    #fff4ec;
-  --only-a-border:#f5c9a8;
-  --only-a-text:  #a0440d;
-  --only-b-bg:    #edf4ff;
-  --only-b-border:#aacaf5;
-  --only-b-text:  #1045a0;
-  --fuzzy-bg:     #fff8e7;
-  --fuzzy-border: #ffe082;
-  --fuzzy-text:   #e65100;
+  /* ─ Accento dei componenti condivisi → malva, non il rosa della Suite ─ */
+  --c-accent:       var(--pink);
+  --c-accent-hover: var(--pink-dark);
+  --c-accent-dim:   var(--pink-border);
+  --c-accent-faint: var(--pink-pale);
+  --c-text-accent:  var(--pink);
+  --c-border-focus: var(--pink-light);
+  --gradient-accent: linear-gradient(135deg, var(--pink) 0%, var(--pink-light) 100%);
+  --gradient-logo:   linear-gradient(135deg, var(--pink) 0%, var(--pink-light) 100%);
 
   color: var(--c-text-primary);
+}
+
+/* ─ Declinazione CHIARA: i valori originali dell'app desktop ─ */
+[data-theme="light"] .compare-scope {
+  --pink:        #c8477a;
+  --pink-light:  #e8769c;
+  --pink-pale:   #fff0f5;
+  --pink-border: #f0d0dc;
+  --pink-dark:   #9e2f5a;
+
+  --surface-loaded: #fffafb;
+
+  --only-a-bg:     #fff4ec;
+  --only-a-border: #f5c9a8;
+  --only-a-text:   #a0440d;
+  --only-b-bg:     #edf4ff;
+  --only-b-border: #aacaf5;
+  --only-b-text:   #1045a0;
+  --fuzzy-bg:      #fff8e7;
+  --fuzzy-border:  #ffe082;
+  --fuzzy-text:    #e65100;
+  --fuzzy-ink:     #ffffff;   /* sull'arancio chiaro il bianco funziona */
+
+  --ok-bg:       #e8f5e9;
+  --ok-bg-hover: #c8e6c9;
+  --ok-border:   #a5d6a7;
+  --ok-text:     #2e7d32;
+  --ko-bg:       #ffebee;
+  --ko-bg-hover: #ffcdd2;
+  --ko-border:   #ef9a9a;
+  --ko-text:     #c62828;
 }
 
 /* ─── Sottotitolo delle viste (view-subtitle nell'app desktop) ─────────── */
@@ -105,7 +131,7 @@
   cursor: pointer;
 }
 .compare-scope .file-card.drag-over { border-color: var(--pink); background: var(--pink-pale); }
-.compare-scope .file-card.loaded { border-style: solid; border-color: var(--pink-border); background: #fffafb; }
+.compare-scope .file-card.loaded { border-style: solid; border-color: var(--pink-border); background: var(--surface-loaded); }
 .compare-scope .file-card-label {
   font-size: 11px; font-weight: 700; letter-spacing: 1px;
   text-transform: uppercase; color: var(--text-3);
@@ -120,7 +146,7 @@
 .compare-scope .btn-browse {
   margin-top: 4px; padding: 6px 14px; border-radius: 6px;
   font-size: 12.5px; font-weight: 600; cursor: pointer;
-  background: var(--pink); color: #fff; border: 1.5px solid var(--pink);
+  background: var(--pink); color: var(--on-accent); border: 1.5px solid var(--pink);
 }
 .compare-scope .btn-browse:hover { background: var(--pink-dark); border-color: var(--pink-dark); }
 
@@ -196,16 +222,16 @@
   padding: 5px 14px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
   cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent;
 }
-.compare-scope .btn-fuzzy-same { background: #e8f5e9; border-color: #a5d6a7; color: #2e7d32; }
-.compare-scope .btn-fuzzy-same:hover { background: #c8e6c9; }
-.compare-scope .btn-fuzzy-diff { background: #ffebee; border-color: #ef9a9a; color: #c62828; }
-.compare-scope .btn-fuzzy-diff:hover { background: #ffcdd2; }
+.compare-scope .btn-fuzzy-same { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok-text); }
+.compare-scope .btn-fuzzy-same:hover { background: var(--ok-bg-hover); }
+.compare-scope .btn-fuzzy-diff { background: var(--ko-bg); border-color: var(--ko-border); color: var(--ko-text); }
+.compare-scope .btn-fuzzy-diff:hover { background: var(--ko-bg-hover); }
 .compare-scope .fuzzy-pair-hint { font-size: 11.5px; color: var(--text-3); margin-left: auto; }
 .compare-scope .fuzzy-pair--broad { border-left: 3px solid var(--fuzzy-text); }
 .compare-scope .fuzzy-empty {
   display: flex; align-items: center; gap: 10px; padding: 20px 24px;
-  color: #2e7d32; font-size: 13px; font-weight: 500;
-  background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 10px;
+  color: var(--ok-text); font-size: 13px; font-weight: 500;
+  background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: 10px;
 }
 .compare-scope .fuzzy-empty svg { flex-shrink: 0; }
 
@@ -223,7 +249,7 @@
 .compare-scope .tab-btn--fuzzy { color: var(--fuzzy-text); }
 .compare-scope .tab-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--fuzzy-text); color: #fff; border-radius: 10px; font-size: 10px;
+  background: var(--fuzzy-text); color: var(--fuzzy-ink); border-radius: 10px; font-size: 10px;
   font-weight: 700; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 3px; vertical-align: middle;
 }
 
@@ -233,4 +259,4 @@
 
 /* ─── Hint delle config-card / messaggio salvataggio ───────────────────── */
 .compare-scope .config-hint { font-size: 11.5px; color: var(--text-3); }
-.compare-scope .config-saved-msg { font-size: 13px; color: #1a7a40; font-weight: 600; }
+.compare-scope .config-saved-msg { font-size: 13px; color: var(--ok-text); font-weight: 600; }
