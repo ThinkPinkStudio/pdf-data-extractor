@@ -1,0 +1,172 @@
+/* Stili della pagina Premio Lordo.
+ *
+ * Scoped sotto .premio-scope come fa compare.css, ma con una differenza
+ * importante: qui si usano SOLO i token del tema (--c-*), mai colori fissi.
+ * compare.css ridefinisce la palette in chiaro al proprio interno e resta
+ * chiaro anche col tema scuro attivo; questa pagina invece segue il tema.
+ *
+ * La zona di caricamento ha bisogno del suo CSS e non può riusare .file-card
+ * di compare.css: quelle regole vivono dentro .compare-scope, e senza il
+ * vincolo di dimensione sull'SVG l'icona si allarga fino a riempire la card.
+ */
+
+/* ─── Zona di caricamento ─────────────────────────────────────────────── */
+
+.premio-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 20px;
+  text-align: center;
+  cursor: pointer;
+  border: 1.5px dashed var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-card-alt);
+  transition: border-color var(--t-normal), background var(--t-normal);
+}
+.premio-drop:hover { border-color: var(--c-border-focus); }
+.premio-drop.is-drag { border-color: var(--c-accent); background: var(--c-accent-faint); }
+.premio-drop.is-loaded { border-style: solid; border-color: var(--c-accent-dim); }
+
+.premio-drop-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+/* IL punto della correzione: senza questo l'SVG eredita width:100%. */
+.premio-drop .premio-drop-icon svg {
+  width: 38px;
+  height: 38px;
+  stroke-width: 1.5;
+  color: var(--c-text-muted);
+  transition: color var(--t-normal);
+}
+.premio-drop.is-loaded .premio-drop-icon svg { color: var(--c-accent); }
+
+.premio-file-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  word-break: break-all;
+  max-width: 460px;
+}
+.premio-file-meta { font-size: 11.5px; color: var(--c-text-secondary); min-height: 16px; }
+.premio-drop-hint { font-size: 11.5px; color: var(--c-text-muted); }
+
+.premio-browse {
+  margin-top: 6px;
+  padding: 6px 16px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--c-text-accent);
+  border: 1.5px solid var(--c-accent-dim);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.premio-browse:hover { background: var(--c-accent-faint); border-color: var(--c-accent); }
+
+/* ─── Riga comandi ────────────────────────────────────────────────────── */
+
+.premio-controls {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.premio-controls .form-group { margin: 0; min-width: 240px; }
+.premio-note { color: var(--c-text-muted); font-size: 12px; margin: 10px 0 0; line-height: 1.5; }
+
+/* ─── Esito ───────────────────────────────────────────────────────────── */
+
+.premio-ready {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.premio-ready h2 { margin: 0 0 4px; font-size: 17px; }
+.premio-ready p { margin: 0; color: var(--c-text-secondary); font-size: 14px; }
+
+.premio-card-title { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+
+.premio-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+}
+.premio-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  margin-bottom: 3px;
+}
+.premio-stat-value {
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Tabella aliquote ────────────────────────────────────────────────── */
+
+.premio-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.premio-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  border-bottom: 1px solid var(--c-border);
+}
+.premio-table td { padding: 7px 8px; border-bottom: 1px solid var(--c-separator); }
+.premio-table tr:last-child td { border-bottom: none; }
+.premio-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.premio-table .premio-rate {
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+
+.premio-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  font-size: 10.5px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--c-warning) 16%, transparent);
+  color: var(--c-warning);
+}
+
+/* ─── Elenchi (pareggi, segnalazioni, controlli) ──────────────────────── */
+
+.premio-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.8; color: var(--c-text-secondary); }
+.premio-list strong { color: var(--c-text-primary); }
+
+.premio-checks { list-style: none; padding: 0; margin: 0; font-size: 13.5px; line-height: 1.9; }
+.premio-checks li { display: flex; gap: 8px; align-items: baseline; }
+.premio-check-ok { color: var(--c-success); font-weight: 700; }
+.premio-check-ko { color: var(--c-error); font-weight: 700; }
+.premio-check-detail { color: var(--c-text-muted); }
+
+/* Card di avviso: bordo caldo, senza gridare */
+.card.premio-attention {
+  border-color: color-mix(in srgb, var(--c-warning) 45%, var(--c-border));
+  background: color-mix(in srgb, var(--c-warning) 6%, var(--c-bg-card));
+}
+
+@media (max-width: 640px) {
+  .premio-controls { flex-direction: column; align-items: stretch; }
+  .premio-controls .form-group { min-width: 0; }
+}
