@@ -82,11 +82,31 @@ RUN ln -s /app/web/node_modules /app/node_modules
 
 # Chromium + dipendenze di sistema per il rendering PDF (Playwright). Eseguito da
 # root (apt) prima di passare all'utente non privilegiato; i binari restano
-# leggibili/eseguibili da tutti. Un retry per assorbire i download CDN interrotti.
-RUN (npx playwright install --with-deps chromium \
-     || (echo 'retry download Chromium…' && sleep 5 && npx playwright install --with-deps chromium)) \
-    && chmod -R a+rx /ms-playwright \
-    && rm -rf /var/lib/apt/lists/*
+# leggibili/eseguibili da tutti.
+#
+# TRE TENTATIVI, non uno. Questo step scarica da DUE CDN diverse — Chromium da
+# cdn.playwright.dev/builds/cft/, FFmpeg da cdn.playwright.dev/dbazure/ — e
+# un'interruzione su una qualsiasi delle due fa fallire l'INTERO deploy con
+# exit 255. È già capitato due volte: la prima al 60% di chrome-headless-shell,
+# la seconda sullo zip di FFmpeg subito dopo che Chromium era arrivato al 100%.
+# Il singolo retry di prima non bastava. Le attese crescono (10s, 30s) perché i
+# singhiozzi della CDN durano qualche secondo; apt e i browser già scaricati non
+# si ripetono, quindi un tentativo in più costa poco.
+#
+# La verifica finale serve a non spedire in produzione un browser scaricato a
+# metà: senza, un'installazione incompleta passa il build e si scopre solo quando
+# CSA Adesioni prova a generare un PDF, cioè dal cliente.
+RUN set -eu; \
+    ok=0; \
+    for delay in 0 10 30; do \
+      [ "$delay" = 0 ] || { echo "playwright install: nuovo tentativo tra ${delay}s…"; sleep "$delay"; }; \
+      if npx playwright install --with-deps chromium; then ok=1; break; fi; \
+      echo 'playwright install fallito (download CDN interrotto?)'; \
+    done; \
+    [ "$ok" = 1 ] || { echo 'playwright install fallito dopo 3 tentativi: build interrotto'; exit 1; }; \
+    chmod -R a+rx /ms-playwright; \
+    node -e "const{chromium}=require('playwright');const fs=require('fs');const p=chromium.executablePath();fs.accessSync(p,fs.constants.X_OK);console.log('Chromium verificato:',p)"; \
+    rm -rf /var/lib/apt/lists/*
 
 # Standalone Next.js output (cambia a ogni build → dopo i layer pesanti)
 COPY --from=builder /app/web/.next/standalone ./
