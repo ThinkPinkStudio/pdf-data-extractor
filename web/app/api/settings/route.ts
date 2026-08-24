@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     // Solo Ollama: chiavi OpenAI/Anthropic rimosse dalla whitelist.
     'llmProvider', 'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
     'polizzaOcrEnabled', 'polizzaWholeDossier',
-    'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
+    'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     // DEMO "Usa modello Claude": toggle + credenziali/modello Anthropic per la presentazione.
     'polizzaUseClaude', 'anthropicApiKey', 'anthropicModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',

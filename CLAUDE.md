@@ -18,10 +18,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   32 GB di RAM. Tutto ciò che supera ~8 GB (pesi + KV cache) trabocca su CPU e
   crolla di velocità (`ollama ps` → "24%/76% CPU/GPU").
 - **Modelli in uso**: `qwen2.5:7b-instruct` è il modello di riferimento
-  (testo). `bge-m3` per gli embeddings (Qdrant + affinità semantica).
-  `qwen3:8b` è utilizzabile SOLO con thinking spento (il codice manda
-  `think:false` ai modelli "pensanti" — vedi `netFetch.js`). `llama3.1` è
-  scarso su italiano+JSON: sconsigliato.
+  (testo, 4.7 GB — entra in 8 GB VRAM con KV cache). `bge-m3` per gli
+  embeddings (Qdrant + affinità semantica) — NON cambiarlo senza rebuild
+  della collezione (dimensione vettore diversa). `qwen3:14b` (9.3 GB) NON
+  è il daily driver: supera la VRAM e spill su CPU; solo A/B notturni con
+  `think:false`. Se si vuole la famiglia Qwen3 in produzione, il candidato
+  è `qwen3:8b` (da pullare), mai 14b. `llama3.1` è scarso su italiano+JSON:
+  sconsigliato.
 - **Qdrant**: su Coolify con API key; collezione configurabile da Impostazioni.
 
 ## Decisioni prese (non riaprirle)
@@ -52,6 +55,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Impostazioni, persiste da solo al cambio — chiave `polizzaStagedCascade`,
   esclusa dal salvataggio pagina via `EDITOR_KEYS`). Arbitro semantico prudente
   (promozione Δ>0.15, veto Δ>0.10, altrimenti recency + spareggio lessicale).
+  Il dialog "Run di test" in Elaborazioni sceglie il MOTORE (per-campo / gruppi /
+  cascata): prima "gruppi/cascata" non disattivava `polizzaPerField`, quindi
+  l'A/B non girava davvero sul motore a stadi.
+- **JSON vincolato** (`polizzaConstrainedJson`, default on): Ollama riceve uno
+  JSON Schema (o GBNF se `polizzaConstrainedFormat=gbnf`) con pattern per date /
+  importi / P.IVA / tassi. Testi liberi senza pattern. Se Ollama 400, fallback a
+  `format:json`. Modulo `gbnfSchema.js`.
+- **Cross-field** (`validateCrossFields`): decorrenza < scadenza (già c'era),
+  massimale annuo ≥ sinistro, sotto-massimali ≤ sinistro, premio totale ≈
+  imponibile+imposta (±2%). Meglio vuoto che sbagliato.
 - **Questionario IDD (CSA Adesioni)**: per la legenda AXA le 5 domande sono
   OBBLIGATORIE e si valorizzano solo con TIPO MOVIMENTO "A" (fino a 20 coppie
   CODICE DOMANDA/RISPOSTA). Quindi: `validateRecord(record, fields, idd)` blocca
@@ -77,6 +90,8 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   `spatialPages`/`pages`). I budget char si misurano in `usefulLength` (le run
   di spazi costano ~0 token). Cache OCR versionata (`ocr_cache.format`,
   `OCR_FORMAT=2`): al bump le voci vecchie sono miss e si rigenerano da sole.
+  Il motore per-campo indicizza chunk PIATTI ma manda al LLM la pagina SPAZIALE
+  (stesso sdoppiamento).
 - **Chiavi campo storpiate**: i modelli piccoli ricopiano male gli UUID dei
   campi ("311ac411…" per "311ac415…") — `matchFieldKey` (fuzzy ≤2, solo match
   univoco, chiavi ≥8) li recupera in `absorbStagedEntries` invece di buttare
@@ -91,6 +106,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (diverse da `matchKeywords`, che agisce sul nome cartella).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
+- **Eval estrazione (golden EULIP)**: `src/main/services/polizzaEval.js` +
+  `test/fixtures/eulip-expected.json`. Punteggio di un JSON già estratto:
+  `node scripts/eval-polizza.mjs --actual extracted.json`. Ogni cambio a
+  modello/GBNF/strategia si misura qui PRIMA di dichiararlo un miglioramento.
+  I test del solo scorer: `test/polizzaEval.test.mjs` (niente Ollama).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

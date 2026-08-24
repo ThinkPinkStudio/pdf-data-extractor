@@ -18,6 +18,7 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
+import { ollamaFormatFor } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
@@ -36,6 +37,7 @@ import {
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
   hasLabelEvidenceNear, pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
+  validateCrossFields,
 } from './polizzaValidation.js'
 import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
@@ -557,7 +559,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt   }
     ],
-    format: 'json',          // ← grammar-constrained JSON output
+    format: ollamaFormatFor(null, 'staged', settings),
     ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
     options: {
       num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
@@ -1172,12 +1174,25 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
     }
   }, 5000)
   try {
-    const res = await resilientFetch(`${url}/api/chat`, {
+    const send = async (body) => resilientFetch(`${url}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, stream: true }),
+      body: JSON.stringify(body),
       signal: ac.signal
     })
+    let using = { ...payload, stream: true }
+    let res = await send(using)
+    // Schema/GBNF rifiutato (Ollama vecchio o grammar non compilabile):
+    // una sola retry con format:'json' — meglio JSON libero che 0 campi.
+    if (!res.ok && payload.format && payload.format !== 'json' && (res.status === 400 || res.status === 422)) {
+      const errBody = await res.text().catch(() => '')
+      if (/format|schema|grammar|gbnf/i.test(errBody) || res.status === 400) {
+        using = { ...payload, format: 'json', stream: true }
+        res = await send(using)
+      } else {
+        throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+      }
+    }
     if (!res.ok) {
       const errBody = await res.text().catch(() => '')
       throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
@@ -1237,7 +1252,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt   }
     ],
-    format: 'json',
+    format: opts.format ?? ollamaFormatFor(opts.fields, opts.shape || 'staged', settings),
     ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
     options: {
       num_ctx:     numCtx,
@@ -1325,7 +1340,7 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
     } else if (provider === 'anthropic') {
       raw = await callAnthropic(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
     } else {
-      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
+      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, { fields, shape: 'staged' })
     }
   } catch (err) {
     throw classifyLlmError(err, settings)
@@ -1851,7 +1866,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     let parsed
     try {
       const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batchText),
-        { numCtx: batchCtx, timeoutMs: 600000, diag })
+        { numCtx: batchCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
       parsed = parseJsonResponse(raw)
       consecutiveErrors = 0
     } catch (err) {
@@ -1963,7 +1978,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       diag.push(`Consolidamento finale: ${consDocs.length} documenti (~${estimateOllamaTokens(corpus.length)} token, num_ctx ${consCtx}): ${consDocs.slice(0, 6).join(', ')}${consDocs.length > 6 ? ', …' : ''}`)
 
       const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(consHeader + corpus),
-        { numCtx: consCtx, timeoutMs: 600000, diag })
+        { numCtx: consCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
       const parsed = parseJsonResponse(raw)
 
       let corrected = 0, confirmed = 0, rejected = 0
@@ -2072,18 +2087,23 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   const diag = []
   diag.push(`Motore per-campo: ${activeFields.length} campi, ${docs.length} documenti`)
+  diag.push(`Vincoli JSON: ${settings.polizzaConstrainedJson === false ? 'off (format=json)' : (settings.polizzaConstrainedFormat || 'schema')}`)
 
   // 1. Indice in memoria: chunk di ogni pagina con metadati (file, pagina, tipo, anno).
   // Pagine COLLASSATE (collapseSpatial): i chunk sono frammenti a cap fisso
   // (1200 char) — il padding della griglia spaziale li diluirebbe.
+  // Il PROMPT però riceve la pagina SPAZIALE intera (stesso sdoppiamento dello
+  // staged): le tabelle a colonne restano incolonnate.
   const chunks = []
   for (const d of docs || []) {
     const name = d?.name || 'documento.pdf'
     const docType = classifyDocType(name)
     const docYear = detectDocYear(name, (d?.pages || []).join('\n'))
     ;(d?.pages || []).forEach((pageText, pIdx) => {
-      for (const t of chunkText(collapseSpatial(pageText))) {
-        chunks.push({ text: t, file: name, page: pIdx + 1, doc_type: docType, doc_year: docYear })
+      const spatial = String(pageText || '')
+      const flat = collapseSpatial(spatial)
+      for (const t of chunkText(flat)) {
+        chunks.push({ text: t, spatialPage: spatial, file: name, page: pIdx + 1, doc_type: docType, doc_year: docYear })
       }
     })
   }
@@ -2122,7 +2142,7 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
 
   // 3-6. Una domanda per campo.
   const STRUCT_DOCTYPES = ['polizza', 'appendice', 'condizioni', 'altro']
-  const CONTEXT_CHARS = 2500
+  const CONTEXT_CHARS = 8000
   const data = {}, sources = {}
   let valued = 0, evidenceDropped = 0, absent = 0
   let consecutiveErrors = 0
@@ -2141,11 +2161,18 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
     // quietanze/regolazioni (è proprio ciò che vogliamo evitare) → campo assente.
     if (!hits.length) { absent++; continue }
 
-    let ctx = '', used = []
+    let ctx = '', ctxCost = 0, used = []
+    const seenPages = new Set()
     for (const h of hits) {
-      const block = `[${h.file} · pag. ${h.page}]\n${h.text}`
-      if (ctx.length + block.length > CONTEXT_CHARS && ctx) break
+      const pageKey = `${h.file}:${h.page}`
+      if (seenPages.has(pageKey)) continue
+      seenPages.add(pageKey)
+      const body = (h.spatialPage && h.spatialPage.trim()) ? h.spatialPage : h.text
+      const block = `[${h.file} · pag. ${h.page}]\n${body}`
+      const cost = usefulLength(block)
+      if (ctxCost + cost > CONTEXT_CHARS && ctx) break
       ctx += (ctx ? '\n---\n' : '') + block
+      ctxCost += cost
       used.push(h)
     }
     const desc = stripFieldExamples(f.description || f.label || f.id)
@@ -2159,7 +2186,7 @@ ${ctx}
 Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} oppure {} se gli estratti non contengono il valore.`
 
     const askOnce = async () => parseJsonResponse(
-      await callOllamaRolling(settings, PERFIELD_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000 })
+      await callOllamaRolling(settings, PERFIELD_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, fields: [f], shape: 'perField' })
     )
 
     let entry
@@ -2197,6 +2224,10 @@ Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} 
   }
 
   diag.push(`Per-campo: ${valued} valorizzati, ${evidenceDropped} scartati senza evidenza, ${absent} assenti su ${activeFields.length}`)
+  const xfNotes = validateCrossFields(data, activeFields, {
+    hasAnnualPeriodics: (docs || []).some((d) => isPeriodicDocName(d?.name)),
+  })
+  for (const n of xfNotes) diag.push(n)
   return { data, sources, diag }
 }
 
@@ -2581,6 +2612,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const s2 = { ...settings, ollamaModel }
   const modelLimit = await getOllamaContextLimit(s2, ollamaModel)
   diag.push(`Motore a stadi (Ollama): ${activeFields.length} campi, ${docs?.length || 0} documenti, modello ${ollamaModel} (limite contesto ${modelLimit || 'sconosciuto'})`)
+  diag.push(`Vincoli JSON: ${settings.polizzaConstrainedJson === false ? 'off (format=json)' : (settings.polizzaConstrainedFormat || 'schema')} — date/importi/P.IVA/tassi`)
 
   // ── Stage A: analisi deterministica ────────────────────────────────────────
   const analyzed = analyzeStagedDocs(docs)
@@ -3019,7 +3051,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag })
+        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -3028,7 +3060,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`${label}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -3165,7 +3197,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx, batchFieldLines), { numCtx, timeoutMs: 600000, diag })
+        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx, batchFieldLines), { numCtx, timeoutMs: 600000, diag, fields: batchFields, shape: 'staged' })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -3174,7 +3206,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`Gruppo "${kind}" batch ${bi + 1}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx, batchFieldLines), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx, batchFieldLines), { numCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: batchFields, shape: 'staged' })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -3353,7 +3385,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
         const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
         try {
-          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag })
+          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
@@ -3388,28 +3420,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── Coerenza decorrenza/scadenza ──────────────────────────────────────────
-  // La coppia deve descrivere lo stesso periodo di copertura: un inizio uguale o
-  // successivo alla fine è impossibile (visto sul campo: decorrenza 31/12/2011
-  // con scadenza 31/12/2025 — vinceva un seed vecchio). Se la decorrenza è più
-  // vecchia della scadenza di oltre ~13 mesi su una polizza con documenti
-  // periodici ANNUALI, non è la decorrenza del periodo corrente: meglio vuota.
+  // ── Coerenza cross-field ──────────────────────────────────────────────────
   {
-    const decField = activeFields.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(`${f.id} ${f.label} ${f.description || ''}`))
-    const scaField = activeFields.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(`${f.id} ${f.label} ${f.description || ''}`))
-    const decTs = decField && best[decField.id] ? dateStrToTs(normalizeDateValue(best[decField.id].valore)) : null
-    const scaTs = scaField && best[scaField.id] ? dateStrToTs(normalizeDateValue(best[scaField.id].valore)) : null
-    if (decTs != null && scaTs != null) {
-      const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
-      const hasAnnualPeriodics = analyzed.some((d) => isPeriodicDocName(d.name))
-      if (decTs >= scaTs) {
-        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} ≥ scadenza ${best[scaField.id].valore} → decorrenza svuotata (impossibile)`)
-        delete best[decField.id]
-      } else if (hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
-        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} incoerente con scadenza ${best[scaField.id].valore} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
-        delete best[decField.id]
-      }
-    }
+    const xfNotes = validateCrossFields(best, activeFields, {
+      hasAnnualPeriodics: analyzed.some((d) => isPeriodicDocName(d.name)),
+    })
+    for (const n of xfNotes) diag.push(n)
   }
 
   // ── Uscita ────────────────────────────────────────────────────────────────
@@ -3530,7 +3546,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
       // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
       // 4-6 minuti; il margine evita di buttare il lavoro per un timeout.
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag })
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
     }
   } catch (err) {
     const classified = classifyLlmError(err, settings)

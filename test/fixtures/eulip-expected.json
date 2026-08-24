@@ -1,0 +1,21 @@
+{
+  "id": "eulip",
+  "label": "Fascicolo EULIP (45 PDF)",
+  "note": "Golden di taratura da CLAUDE.md. Non è un prompt: serve solo all'eval.",
+  "fields": {
+    "polizza_numero": { "value": "283618616", "mode": "exact" },
+    "codice_fiscale_iva": { "value": "00151510344", "mode": "vat" },
+    "decorrenza": { "value": "31/12/2024", "mode": "date" },
+    "scadenza": { "value": "31/12/2025", "mode": "date" },
+    "rct_massimale_sinistro": { "value": "4.000.000,00", "mode": "amount" },
+    "rct_imposta": { "value": "1.001,25", "mode": "amount" },
+    "rct_premio_totale": { "value": "5.501,25", "mode": "amount" },
+    "agenzia": { "value": "ACQUI TERME", "mode": "text" },
+    "rct_parametro": {
+      "value": "retribuzioni",
+      "mode": "contains",
+      "forbidden": ["Premi", "Premio", "Consuntivo", "Preventivo"]
+    },
+    "rct_importo_preventivo": { "value": "1.800.000", "mode": "amount" }
+  }
+}
