@@ -26,6 +26,7 @@ interface JobSnapshot {
   scannedFiles?: string[]
   values: Record<string, string>
   sources?: Record<string, { file: string; page: number | string }>
+  reliability?: Record<string, { reliable: number; verified: string[] }>
   fieldDefs?: { id: string; label: string }[]
   progress?: { docIndex: number; docTotal: number; pageIndex: number; pageTotal: number; docName: string } | null
   duplicateOf?: string | null
@@ -463,7 +464,12 @@ export default function PolizzaJobsPage() {
                                                   {Object.entries(j.values || {}).map(([k, v]) => (
                                                     <tr key={k}>
                                                       <td style={{ color: 'var(--c-text-secondary)', paddingRight: 12 }}>{fieldLabel(j, k)}</td>
-                                                      <td style={{ fontWeight: 600, paddingRight: 12 }}>{String(v)}</td>
+                                                      <td style={{ fontWeight: 600, paddingRight: 12 }}>
+                                                        {String(v)}
+                                                        {(j.reliability?.[k]?.reliable ?? 1) < 0.45 && (
+                                                          <span title={t('jobsDash.lowReliability')} style={{ marginLeft: 6, color: 'var(--c-warn, #b45309)' }}>⚑</span>
+                                                        )}
+                                                      </td>
                                                       <td style={{ color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
                                                         {sourceCell(j, k)}
                                                       </td>
@@ -651,7 +657,12 @@ export default function PolizzaJobsPage() {
                               {Object.entries(j.values || {}).map(([k, v]) => (
                                 <tr key={k}>
                                   <td style={{ color: 'var(--c-text-secondary)', paddingRight: 12 }}>{fieldLabel(j, k)}</td>
-                                  <td style={{ fontWeight: 600, paddingRight: 12 }}>{String(v)}</td>
+                                  <td style={{ fontWeight: 600, paddingRight: 12 }}>
+                                    {String(v)}
+                                    {(j.reliability?.[k]?.reliable ?? 1) < 0.45 && (
+                                      <span title={t('jobsDash.lowReliability')} style={{ marginLeft: 6, color: 'var(--c-warn, #b45309)' }}>⚑</span>
+                                    )}
+                                  </td>
                                   <td style={{ color: 'var(--c-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
                                     {sourceCell(j, k)}
                                   </td>

@@ -18,7 +18,7 @@ interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
   extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
-  extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
+  extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; verified: string[] }> }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
@@ -100,6 +100,35 @@ async function runJob(jobId: string): Promise<void> {
   // errori 400 "Multimodal data provided" e job a 0 campi. I PDF scansionati
   // passano comunque: ci pensa l'OCR Tesseract dentro il percorso testo.
   if (!job.whole_dossier) logs.push('Nota: modalità vision dismessa — il job usa il percorso testo (OCR) come tutti.')
+
+  // Skip no-op: run di TEST con le stesse impostazioni del sorgente già completato.
+  if (job.source_job_id) {
+    const src = await getJob(job.source_job_id)
+    const srcEngine = (src?.rolling_state as any)?.__engine
+    if (src?.status === 'done' && srcEngine?.fingerprint) {
+      try {
+        const relMod = await importSharedService<{ extractFingerprint: (p: any) => string; ENGINE_REVISION: number }>('fieldReliability.js')
+        const fp = relMod.extractFingerprint({
+          fieldDefs: job.field_defs,
+          promptExtra: job.prompt_extra,
+          settingsOverride: {
+            ollamaModel: (settings as any).ollamaModel,
+            polizzaWholeDossierModel: (settings as any).polizzaWholeDossierModel,
+            polizzaStagedCascade: (settings as any).polizzaStagedCascade,
+            polizzaPerField: (settings as any).polizzaPerField,
+            polizzaConstrainedJson: (settings as any).polizzaConstrainedJson,
+            ...(job.settings_override || {}),
+          },
+        })
+        if (fp === srcEngine.fingerprint && relMod.ENGINE_REVISION === srcEngine.revision) {
+          await appendLog(job, 'Impostazioni e motore invariati: risultati del job sorgente riusati (nessuna ri-estrazione).', logs)
+          await updateJob(job.id, { status: 'done', rolling_state: src.rolling_state, sources: src.sources || {} })
+          return
+        }
+      } catch { /* si procede con l'estrazione */ }
+    }
+  }
+
   await runWholeDossier(job, files, settings, logs)
 }
 
@@ -267,10 +296,32 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // se l'utente ha già premuto "Procedi comunque" (precheck.override).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
   const precheckMode = settings.polizzaPrecheckMode || 'off'
+
+  // Abbinamento profilo↔contenuto sul testo OCR completo (zero LLM): log di
+  // verifica e matchedProfileId anche se il pre-check è off. Serve al test
+  // Cedam (in vigore/ senza "med" nel path).
+  let detectedProfileId: string | null = null
+  try {
+    const detectMod = await importSharedService<{
+      detectProfileForDossier: (p: { label: string; contentText?: string; profiles: unknown[] }) => {
+        profileId: string; via: string | null; matched: string[]; missing: string[]; score: number | null; source: string | null
+      }
+    }>('profileDetect.js')
+    const detected = detectMod.detectProfileForDossier({
+      label: job.dossier_name || '',
+      contentText: fullText,
+      profiles: settings.polizzaProfiles || [],
+    })
+    detectedProfileId = detected.profileId || null
+    if (detected.profileId) {
+      await appendLog(job, `Abbinamento contenuto: profilo ${detected.profileId} via ${detected.via || '?'} (score ${detected.score != null ? detected.score.toFixed(2) : 'n/d'}${detected.matched?.length ? `; match: ${detected.matched.join(', ')}` : ''})`, logs)
+    }
+  } catch { /* detect non fatale */ }
+
   if (precheckMode !== 'off' && job.profile_id && !(job.precheck as any)?.override) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; missing?: string[]; keywordsSource?: string | null; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
       // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si
       // degrada al semantico sui field_defs congelati — mai un errore.
@@ -279,9 +330,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
         profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
       })
-      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000) } })
+      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000), matchedProfileId: detectedProfileId || job.profile_id } })
       const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
-      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
+      const matchStr = pre.matched?.length ? ` · match: ${pre.matched.join(', ')}` : ''
+      const missStr = pre.missing?.length ? ` · assenti: ${pre.missing.join(', ')}` : ''
+      const srcStr = pre.keywordsSource ? ` · keywords da ${pre.keywordsSource}` : ''
+      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${detStr ? ` · rilevato: ${detStr}` : ''}${srcStr}${matchStr}${missStr}${pre.verdict === 'ok' ? ` · profilo ${job.profile_id}` : ''}`, logs)
       if (pre.verdict === 'mismatch') {
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
@@ -324,7 +378,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     } finally {
       clearInterval(cancelPoll)
     }
-    const { data, sources, diag } = extractResult
+    const { data, sources, diag, reliability } = extractResult
     extractedData = data || {}
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
@@ -332,7 +386,33 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     const n = Object.keys(data || {}).length
     // Converte il risultato piatto in stato rolling per lo snapshot (flatten lo riappiattisce).
     const state: Record<string, any> = {}
-    for (const [k, v] of Object.entries(data || {})) if (v != null && v !== '') state[k] = { valore: v, fonte: (sources as any)?.[k] }
+    for (const [k, v] of Object.entries(data || {})) {
+      if (v == null || v === '') continue
+      const rel = (reliability as any)?.[k]
+      state[k] = {
+        valore: v,
+        fonte: (sources as any)?.[k],
+        ...(rel && typeof rel.reliable === 'number' ? { reliable: rel.reliable, verified: rel.verified } : {}),
+      }
+    }
+    try {
+      const relMod = await importSharedService<{ extractFingerprint: (p: any) => string; ENGINE_REVISION: number }>('fieldReliability.js')
+      state.__engine = {
+        fingerprint: relMod.extractFingerprint({
+          fieldDefs: job.field_defs,
+          promptExtra: job.prompt_extra,
+          settingsOverride: {
+            ollamaModel: (settings as any).ollamaModel,
+            polizzaWholeDossierModel: (settings as any).polizzaWholeDossierModel,
+            polizzaStagedCascade: (settings as any).polizzaStagedCascade,
+            polizzaPerField: (settings as any).polizzaPerField,
+            polizzaConstrainedJson: (settings as any).polizzaConstrainedJson,
+            ...(job.settings_override || {}),
+          },
+        }),
+        revision: relMod.ENGINE_REVISION,
+      }
+    } catch { /* fingerprint non fatale */ }
     await updateJob(job.id, { rolling_state: state, sources: sources || {}, progress: {} })
     if (n === 0) {
       const hint = (diag || []).find((l) => l.startsWith('ATTENZIONE'))

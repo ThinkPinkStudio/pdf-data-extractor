@@ -19,9 +19,9 @@ export interface PolizzaProfile {
   // per il pre-filtro e l'auto-riconoscimento del tipo nel bulk. Vuoto = usa `name`.
   matchKeywords?: string
   // Parole chiave del CONTENUTO dei documenti (es. "responsabilità civile, RCT,
-  // RCO, prestatori di lavoro") — DIVERSE da matchKeywords, che agisce solo sul
-  // nome cartella: queste vengono cercate nel TESTO OCR dal pre-check di
-  // pertinenza (modo 'keywords' dello switch polizzaPrecheckMode).
+  // RCO, prestatori di lavoro") — DIVERSE da matchKeywords, che agisce sul
+  // nome cartella E, in fallback, sul testo OCR se contentKeywords è vuoto
+  // (pre-check di pertinenza e pre-filtro bulk).
   contentKeywords?: string
   promptExtra?: string
   ocrEnabled?: boolean
@@ -81,9 +81,10 @@ export interface WebSettings {
   polizzaStagedCascade?: boolean
   // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' con
   // "Procedi comunque" in UI). 'off' (default: il blocco non si attiva mai a
-  // sorpresa), 'keywords' (contentKeywords del profilo nel testo OCR; senza
-  // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
-  // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
+  // sorpresa), 'keywords' (contentKeywords nel testo OCR; se vuote si usano
+  // matchKeywords; senza nessuna keyword degrada a semantic), 'semantic'
+  // (embeddings pagine↔descrizioni), 'llm' (breve classificazione col modello).
+  // Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]

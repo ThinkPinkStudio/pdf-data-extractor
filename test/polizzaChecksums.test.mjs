@@ -33,6 +33,7 @@ import {
   buildNormIndex,
   findValueWindow,
   validateCrossFields,
+  docTrust,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -342,6 +343,15 @@ test('documenti tutti uguali: a pari data lo spareggio è la somiglianza LESSICA
   // mai una priorità di tipo documento
   const senzaLex = { valore: '4.900,00', effDate: '31/12/2024', docType: 'regolazione', affinity: 0.5 }
   assert.equal(pickSemanticCandidate(quietanza, senzaLex, kind), quietanza)
+})
+
+test('coscienza di posizione: a pari data e pari lex vince il documento con più segnali (anno/ordinale)', () => {
+  const kind = 'anagrafica'
+  const senzaAnno = { valore: 'ACQUI', effDate: '31/12/2024', affinity: 0.5, lex: 0.4, yearPresent: false, appendixOrd: null, docPos: 5 }
+  const conAnno = { valore: 'ACQUI TERME', effDate: '31/12/2024', affinity: 0.5, lex: 0.4, yearPresent: true, appendixOrd: 2, docPos: 2 }
+  assert.ok(docTrust(conAnno) > docTrust(senzaAnno))
+  assert.equal(pickSemanticCandidate(senzaAnno, conAnno, kind), conAnno)
+  assert.equal(pickSemanticCandidate(conAnno, senzaAnno, kind), conAnno)
 })
 
 // ─── Descrizioni dei campi: l'esempio si taglia, le istruzioni NO ────────────

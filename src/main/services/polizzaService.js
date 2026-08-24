@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
 import { ollamaFormatFor } from './gbnfSchema.js'
-import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
+import { embedTexts, chunkText, classifyDocType, detectDocYear, isVectorIndexEnabled, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
 // privati rimossi da questo file) + regola "il valore più recente vince".
@@ -39,8 +39,11 @@ import {
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
   validateCrossFields,
 } from './polizzaValidation.js'
-import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, extractLabelValuePairs, formatPairsBlock, pairsQuality, labelDensity } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
+import { KNOWN_TRAPS } from './knownTraps.js'
+import { buildFactsRegistry, factSupports } from './numericFacts.js'
+import { scoreFieldReliability, ENGINE_REVISION, LOW_RELIABILITY } from './fieldReliability.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -1719,6 +1722,7 @@ const WHOLE_DOSSIER_SYSTEM =
   '   letteralmente dal documento, in cui compare il valore. Se NON riesci a citare\n' +
   '   il valore copiandolo dal documento, lo stai inventando: NON restituire quel\n' +
   '   campo. NON usare MAI valori presi dalla guida campi o da esempi.\n' +
+  KNOWN_TRAPS +
   'FORMATO: un solo oggetto JSON\n' +
   '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
   'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
@@ -2073,6 +2077,7 @@ const PERFIELD_SYSTEM =
   '   estratti, in cui compare il valore. Se non riesci a citarlo, stai inventando:\n' +
   '   rispondi {}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  KNOWN_TRAPS +
   'FORMATO: un solo oggetto JSON {"valore": "...", "evidenza": "testo esatto copiato"}\n' +
   'oppure {} se il valore non è presente. Zero testo extra, zero markdown.'
 
@@ -2168,7 +2173,10 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
       if (seenPages.has(pageKey)) continue
       seenPages.add(pageKey)
       const body = (h.spatialPage && h.spatialPage.trim()) ? h.spatialPage : h.text
-      const block = `[${h.file} · pag. ${h.page}]\n${body}`
+      const pfPairs = extractLabelValuePairs(body)
+      const pfQ = pairsQuality(pfPairs, body)
+      const pfBlock = (pfQ.good && pfPairs.length) ? `${formatPairsBlock(pfPairs)}\n\n` : ''
+      const block = `[${h.file} · pag. ${h.page}]\n${pfBlock}${body}`
       const cost = usefulLength(block)
       if (ctxCost + cost > CONTEXT_CHARS && ctx) break
       ctx += (ctx ? '\n---\n' : '') + block
@@ -2228,7 +2236,16 @@ Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} 
     hasAnnualPeriodics: (docs || []).some((d) => isPeriodicDocName(d?.name)),
   })
   for (const n of xfNotes) diag.push(n)
-  return { data, sources, diag }
+  const reliability = {}
+  for (const f of activeFields) {
+    if (!(f.id in data)) continue
+    reliability[f.id] = scoreFieldReliability(
+      { valore: data[f.id], file: sources[f.id]?.file, page: sources[f.id]?.page },
+      f,
+      { evidence: !!sources[f.id] },
+    )
+  }
+  return { data, sources, diag, reliability }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2297,8 +2314,9 @@ function analyzeStagedDocs(docs) {
       }
     }
     const om = name.match(APPENDIX_ORD_RE)
+    const pairsByPage = spatialPages.map((p) => extractLabelValuePairs(p))
     return {
-      name, pages, spatialPages, text,
+      name, pages, spatialPages, text, pairsByPage,
       normPages: pages.map((p) => normForMatch(p)),
       type: classifyDocType(name),
       dateStr,
@@ -2364,7 +2382,10 @@ function buildGroupBatches(docList, budgetChars) {
     for (let p = 0; p < promptPages.length; p++) {
       const t = promptPages[p]?.trim()
       if (!t) continue
-      let block = `[${d.name} · pag. ${p + 1}]\n${t}`
+      const pairs = d.pairsByPage?.[p] || extractLabelValuePairs(t)
+      const q = pairsQuality(pairs, t)
+      const pairBlock = (q.good && pairs.length) ? `${formatPairsBlock(pairs)}\n\n` : ''
+      let block = `[${d.name} · pag. ${p + 1}]\n${pairBlock}${t}`
       let cost = usefulLength(block)
       if (cost > budgetChars) { block = block.slice(0, budgetChars * 2); cost = usefulLength(block) } // pagina singola oltre il budget: caso limite
       if (used + cost + 2 > budgetChars) flush()
@@ -2414,6 +2435,7 @@ function stagedSystemPrompt(kind) {
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
+    KNOWN_TRAPS +
     'FORMATO: un solo oggetto JSON\n' +
     '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
     'Zero testo extra, zero markdown.'
@@ -2447,6 +2469,7 @@ const STAGED_RECOVERY_SYSTEM =
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  KNOWN_TRAPS +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2465,6 +2488,7 @@ const STAGED_CASCADE_SYSTEM =
   '5. "evidenza" = frammento ESATTO copiato dal documento. Se non riesci a citarlo, usa {"valore": null}.\n' +
   '6. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '7. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  KNOWN_TRAPS +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2521,7 +2545,7 @@ function matchRealDoc(analyzed, docName) {
  * @param {Function|null} affinityFor  async (field, cleaned, evidenza, srcDoc) → number|null
  * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
-async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null) {
+async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
@@ -2561,6 +2585,13 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
     if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
 
+    // Registro dei fatti numerici: un importo/data che non esiste nel contesto
+    // (o che vive SOLO in una clausola di sub-limite) non entra nel merge.
+    if (factsRegistry) {
+      const support = factSupports(factsRegistry, field, cleaned, srcDoc)
+      if (!support.ok) { counters.guardrail++; note(k, `guardrail:${support.reason}`, cleaned); continue }
+    }
+
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
     // candidati datati correttamente.
@@ -2583,6 +2614,7 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
       docType: srcDoc?.type ?? null,
       appendixOrd: srcDoc?.appendixOrd ?? null,
       docPos: srcDoc?.pos ?? null,
+      yearPresent: !!(srcDoc?.dateStr && /\d{4}/.test(srcDoc.dateStr)),
       file: source?.file || srcDoc?.name || null,
       page: source?.page ?? '',
     }
@@ -2627,6 +2659,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (!d.dateStr) undated++
   }
   diag.push(`Stadio A: ${Object.entries(typeCounts).map(([t, n]) => `${n} ${t}`).join(', ')} — ${undated} senza data (datazione per periodo di copertura, mai per emissione)`)
+
+  // Registro dei fatti numerici (importi/date + finestra): whitelist per il merge.
+  const factsRegistry = buildFactsRegistry(analyzed)
+  const nAmounts = factsRegistry.filter((f) => f.kind === 'amount').length
+  const nDates = factsRegistry.filter((f) => f.kind === 'date').length
+  diag.push(`Registro fatti: ${nAmounts} importi e ${nDates} date ancorati al testo (veto sub-limiti / numeri inventati)`)
 
   // Partizione dei campi + mappa id → genere (per priorità documenti e merge)
   const partition = partitionFields(activeFields)
@@ -2894,6 +2932,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const neverGatePos = new Set([
     ...[...analyzed].sort(byStagedRecency).slice(0, 3).map((d) => d.pos),
     [...analyzed].sort((a, b) => (b.pages?.length || 0) - (a.pages?.length || 0))[0]?.pos,
+    [...analyzed]
+      .map((d) => {
+        const pages = d.spatialPages?.length ? d.spatialPages : d.pages
+        const den = Math.max(0, ...(pages || []).map((p) => labelDensity(p)))
+        return [den, d.pos]
+      })
+      .sort((a, b) => b[0] - a[0])
+      .filter(([den]) => den > 0)[0]?.[1],
   ].filter((p) => p != null))
   const eligibleFieldsForDocs = (fields, docs) => fields.filter((f) => {
     if (docs.some((d) => neverGatePos.has(d.pos))) return true
@@ -2917,7 +2963,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
     if (!srcDoc?.text) return null
-    const win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
+    // Se le coppie colonnari della pagina contengono il valore, la finestra
+    // è la coppia etichetta→valore (più precisa di ±200 char sul piatto).
+    let win = null
+    const nv = normForMatch(cleaned)
+    if (nv.length >= 3 && Array.isArray(srcDoc.pairsByPage)) {
+      for (const pagePairs of srcDoc.pairsByPage) {
+        const hit = (pagePairs || []).find((p) => {
+          const pv = normForMatch(p.value)
+          return pv && (pv === nv || pv.includes(nv) || (nv.length >= 6 && nv.includes(pv)))
+        })
+        if (hit) { win = `${hit.label} ${hit.value}`; break }
+      }
+    }
+    if (!win) win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
     if (!win) return null
     // lex: SEMPRE calcolata — è lo spareggio deterministico a pari data
     // (documenti tutti uguali: decide la somiglianza con la DESCRIZIONE).
@@ -2954,6 +3013,27 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const seedAff = Object.entries(best).filter(([, c]) => typeof c?.affinity === 'number')
   if (seedAff.length) {
     diag.push(`Stadio A: affinità dei seed misurata — ${seedAff.map(([id, c]) => `${id}~${c.affinity.toFixed(2)}`).join(' · ')} (l'arbitro semantico non è più cieco sui seed)`)
+  }
+
+  // Segnale dall'archivio Qdrant (stessa polizza già estratta): fatti PASSATI,
+  // priorità forte alla recency dei documenti in mano. Mai fatale.
+  let archiveHeader = ''
+  const polNum = best.polizza_numero?.valore
+  if (polNum && isVectorIndexEnabled(settings) && settings.polizzaUseArchiveHints !== false) {
+    try {
+      const hits = await searchVector({ query: `polizza ${polNum}`, polizzaNumero: String(polNum), limit: 6 }, settings)
+      if (hits.length) {
+        const lines = hits.slice(0, 6).map((h) => {
+          const meta = [h.file, h.doc_year, h.page ? `pag. ${h.page}` : null].filter(Boolean).join(' · ')
+          const text = String(h.text || '').replace(/\s+/g, ' ').slice(0, 280)
+          return `- [${meta}]: ${text}`
+        })
+        archiveHeader = `ARCHIVIO (stessa polizza, estrazioni precedenti — fatti PASSATI: i documenti ATTUALI hanno priorità se più recenti):\n${lines.join('\n')}\n\n`
+        diag.push(`Archivio Qdrant: ${hits.length} chunk della polizza ${polNum} (ancora, non fonte)`)
+      }
+    } catch (err) {
+      diag.push(`Archivio Qdrant non interrogato (${err.message})`)
+    }
   }
 
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
@@ -3034,7 +3114,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
     const docHeader = `DOCUMENTO ANALIZZATO: "${doc.name}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
-    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${archiveHeader}${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è in questo documento.`
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + buildPrompt('').length) + 3000 + 512
@@ -3080,7 +3160,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
       // controprova sulla polizza base non ha più codice speciale — i suoi
       // candidati competono con l'affinità descrizione↔contesto come gli altri.
-      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity)
+      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry)
       const filled = report.filter((r) => r.outcome === 'ok').length
       diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
@@ -3128,7 +3208,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
     plan.system = stagedSystemPrompt(kind)
-    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\n${archiveHeader}TESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
@@ -3154,7 +3234,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .filter(([aff]) => aff > 0)
       .slice(0, 3)
       .map(([, d]) => d)
-    const focusDocs = [...new Set([...groupDocs.slice(0, 3), ...mostAffine])]
+    const densest = [...groupDocs]
+      .map((d) => {
+        const pages = d.spatialPages?.length ? d.spatialPages : d.pages
+        const den = Math.max(0, ...(pages || []).map((p) => labelDensity(p)))
+        return [den, d]
+      })
+      .sort((a, b) => b[0] - a[0] || byStagedRecency(a[1], b[1]))
+      .filter(([den]) => den > 0)
+      .slice(0, 2)
+      .map(([, d]) => d)
+    const focusDocs = [...new Set([...groupDocs.slice(0, 3), ...mostAffine, ...densest])]
     let focusCount = 0
     if (focusDocs.length) {
       const focus = focusDocs.flatMap((d) => buildGroupBatches([d], budgetChars))
@@ -3162,7 +3252,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (focus.length) plan.batches = [...focus, ...plan.batches]
     }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
-    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} (recenti + più affini alle descrizioni) + ` : ''}copertura totale, num_ctx ${batchCtx})`)
+    diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} (recenti + più affini + densità etichette) + ` : ''}copertura totale, num_ctx ${batchCtx})`)
     if (mostAffine.length) diag.push(`Gruppo "${kind}": documenti più affini alle descrizioni → ${mostAffine.map((d) => `${d.name}~${groupAff(d).toFixed(2)}`).join(' · ')}`)
   }
   progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
@@ -3224,7 +3314,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
       const report = []
-      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity)
+      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
         `${batchFields.length}/${groupFields.length} campi eleggibili, ${got} proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
@@ -3359,7 +3449,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           // sui caratteri UTILI, o il padding dimezzava le pagine inviate.
           const pageText = (s.d.spatialPages?.[s.p] ?? s.d.pages[s.p])
           if (!pageText.trim()) continue
-          const block = `[${s.d.name} · pag. ${s.p + 1}]\n${pageText.trim()}`
+          const recPairs = s.d.pairsByPage?.[s.p] || extractLabelValuePairs(pageText)
+          const recQ = pairsQuality(recPairs, pageText)
+          const recPairBlock = (recQ.good && recPairs.length) ? `${formatPairsBlock(recPairs)}\n\n` : ''
+          const block = `[${s.d.name} · pag. ${s.p + 1}]\n${recPairBlock}${pageText.trim()}`
           const cost = usefulLength(block)
           if (ctx && ctxCost + cost > RECOVERY_CTX_CHARS) break
           ctx += (ctx ? '\n---\n' : '') + (cost > RECOVERY_CTX_CHARS ? block.slice(0, RECOVERY_CTX_CHARS * 2) : block)
@@ -3383,13 +3476,13 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           .join('\n')
         // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
-        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
+        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${archiveHeader}ESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
-          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity)
+          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry)
           if (recReport.length) {
             diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
           }
@@ -3428,6 +3521,71 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const n of xfNotes) diag.push(n)
   }
 
+  // ── Doppia passata zero-shot (campi testuali / affinità bassa) ────────────
+  const doublePassOk = new Set()
+  if (!abortedByErrors && settings.polizzaDoublePass !== false) {
+    const uncertain = activeFields.filter((f) => {
+      const c = best[f.id]
+      if (!c?.valore) return false
+      if (validateCodiceFiscaleIva(c.valore)) return false
+      const textual = parsePureAmount(c.valore) == null && !normalizeDateValue(c.valore)
+      const lowAff = typeof c.affinity !== 'number' || c.affinity < 0.4
+      return textual || lowAff
+    })
+    if (uncertain.length) {
+      const DOUBLE_PASS_SYSTEM =
+        'Verifichi candidati già estratti da documenti assicurativi. ' +
+        'Ricevi SOLO la lista campo/valore/coppia. Rispondi SOLO JSON: ' +
+        '{"id_campo":{"ok":true|false,"motivo":"breve"}}. ' +
+        'ok=false se il valore è un rinvio, una ragione sociale al posto di una piazza, ' +
+        'un sub-limite al posto di un massimale, o non corrisponde all\'etichetta.'
+      let dropped = 0
+      for (let i = 0; i < uncertain.length; i += 8) {
+        const batch = uncertain.slice(i, i + 8)
+        const list = batch.map((f) => {
+          const c = best[f.id]
+          return `- ${f.id} | ${f.label} | valore="${c.valore}" | aff=${c.affinity != null ? c.affinity.toFixed(2) : 'n/d'} | fonte=${c.file || '?'}`
+        }).join('\n')
+        try {
+          const raw = await callOllamaRolling(s2, DOUBLE_PASS_SYSTEM,
+            `CANDIDATI:\n${list}\n\nJSON.`,
+            { numCtx: 2048, numPredict: 80, timeoutMs: 60000, diag, format: 'json' })
+          const parsed = parseJsonResponse(raw)
+          for (const f of batch) {
+            const e = parsed?.[f.id] ?? parsed?.[f.id.toLowerCase()]
+            if (e && e.ok === false) {
+              diag.push(`Doppia passata: "${f.id}"="${best[f.id].valore}" rifiutato (${e.motivo || 'ok=false'})`)
+              delete best[f.id]
+              dropped++
+            } else if (e && e.ok === true) {
+              doublePassOk.add(f.id)
+            }
+          }
+        } catch (err) {
+          diag.push(`Doppia passata non eseguibile (${err.message}) — si conservano i valori`)
+          break
+        }
+      }
+      if (uncertain.length) diag.push(`Doppia passata: ${uncertain.length} campi incerti, ${dropped} rifiutati, ${doublePassOk.size} confermati`)
+    }
+  }
+
+  // ── Affidabilità per campo + pass selettivo sui deboli ────────────────────
+  const reliability = {}
+  for (const f of activeFields) {
+    const c = best[f.id]
+    if (!c?.valore) continue
+    const factsHit = factSupports(factsRegistry, f, c.valore, c.file ? analyzed.find((d) => d.name === c.file) : null).ok
+    const scored = scoreFieldReliability(c, f, {
+      evidence: !!(c.file),
+      factsHit,
+      doublePassOk: doublePassOk.has(f.id),
+    })
+    reliability[f.id] = scored
+    c.reliable = scored.reliable
+    c.verified = scored.verified
+  }
+
   // ── Uscita ────────────────────────────────────────────────────────────────
   const data = {}, sources = {}
   let located = 0, docOnly = 0, unsourced = 0
@@ -3437,9 +3595,59 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     else if (e.file) { sources[k] = { file: e.file, page: '' }; docOnly++ }
     else unsourced++
   }
+  const lowN = Object.values(reliability).filter((r) => r.reliable < LOW_RELIABILITY).length
+  if (lowN) diag.push(`Affidabilità: ${lowN} campi sotto soglia ${LOW_RELIABILITY} (⚑ in UI)`)
+
+  // Pass selettivo (H): campi ancora sotto soglia, non già confermati dalla
+  // doppia passata. Stesso JSON corto; un rifiuto li svuota (meglio vuoto
+  // che un valore incerto). Guasto infra → si conservano.
+  if (!abortedByErrors && settings.polizzaDoublePass !== false) {
+    const weak = activeFields.filter((f) => {
+      const r = reliability[f.id]
+      const c = best[f.id]
+      if (!c?.valore || !r || r.reliable >= LOW_RELIABILITY) return false
+      if (doublePassOk.has(f.id)) return false
+      if (validateCodiceFiscaleIva(c.valore)) return false
+      return true
+    })
+    if (weak.length) {
+      const SELECTIVE_SYSTEM =
+        'Verifichi candidati POCO AFFIDABILI già estratti. Rispondi SOLO JSON: ' +
+        '{"id_campo":{"ok":true|false,"motivo":"breve"}}. ok=false se il valore ' +
+        'non corrisponde all\'etichetta, è un rinvio, un sub-limite o una ragione sociale.'
+      let selDropped = 0
+      for (let i = 0; i < weak.length; i += 8) {
+        const batch = weak.slice(i, i + 8)
+        const list = batch.map((f) => {
+          const c = best[f.id]
+          const r = reliability[f.id]
+          return `- ${f.id} | ${f.label} | valore="${c.valore}" | reliable=${r.reliable.toFixed(2)} | fonte=${c.file || '?'}`
+        }).join('\n')
+        try {
+          const raw = await callOllamaRolling(s2, SELECTIVE_SYSTEM,
+            `CANDIDATI DEBOLI:\n${list}\n\nJSON.`,
+            { numCtx: 2048, numPredict: 80, timeoutMs: 60000, diag, format: 'json' })
+          const parsed = parseJsonResponse(raw)
+          for (const f of batch) {
+            const e = parsed?.[f.id] ?? parsed?.[f.id.toLowerCase()]
+            if (e && e.ok === false) {
+              diag.push(`Pass selettivo: "${f.id}"="${best[f.id].valore}" rifiutato (${e.motivo || 'ok=false'})`)
+              delete best[f.id]
+              delete reliability[f.id]
+              selDropped++
+            }
+          }
+        } catch (err) {
+          diag.push(`Pass selettivo non eseguibile (${err.message}) — si conservano i valori`)
+          break
+        }
+      }
+      diag.push(`Pass selettivo: ${weak.length} campi sotto soglia, ${selDropped} rifiutati`)
+    }
+  }
   diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
-  diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length}`)
-  return { data, sources, diag }
+  diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length} (rev ${ENGINE_REVISION})`)
+  return { data, sources, diag, reliability }
 }
 
 /**
