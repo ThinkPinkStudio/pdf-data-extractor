@@ -14,6 +14,7 @@ interface Settings {
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
   polizzaPerField?: boolean
+  polizzaConstrainedJson?: boolean
   polizzaUseClaude?: boolean
   anthropicApiKey?: string
   anthropicModel?: string
@@ -154,6 +155,8 @@ export default function SettingsPage() {
             <Toggle checked={!!s.polizzaWholeDossier} onChange={(v) => up('polizzaWholeDossier', v)} label={t('set.wholeDossier')} />
             <Toggle checked={s.polizzaPerField !== false} onChange={(v) => up('polizzaPerField', v)} label={t('set.perField')} />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.perFieldHelp')}</p>
+            <Toggle checked={s.polizzaConstrainedJson !== false} onChange={(v) => up('polizzaConstrainedJson', v)} label={t('set.constrainedJson')} />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.constrainedJsonHelp')}</p>
 
             {/* DEMO — Usa modello Claude (Anthropic) al posto di Ollama */}
             <div style={{ borderTop: '1px solid var(--c-border)', marginTop: 6, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>

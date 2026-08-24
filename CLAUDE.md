@@ -55,6 +55,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Impostazioni, persiste da solo al cambio — chiave `polizzaStagedCascade`,
   esclusa dal salvataggio pagina via `EDITOR_KEYS`). Arbitro semantico prudente
   (promozione Δ>0.15, veto Δ>0.10, altrimenti recency + spareggio lessicale).
+  Il dialog "Run di test" in Elaborazioni sceglie il MOTORE (per-campo / gruppi /
+  cascata): prima "gruppi/cascata" non disattivava `polizzaPerField`, quindi
+  l'A/B non girava davvero sul motore a stadi.
+- **JSON vincolato** (`polizzaConstrainedJson`, default on): Ollama riceve uno
+  JSON Schema (o GBNF se `polizzaConstrainedFormat=gbnf`) con pattern per date /
+  importi / P.IVA / tassi. Testi liberi senza pattern. Se Ollama 400, fallback a
+  `format:json`. Modulo `gbnfSchema.js`.
+- **Cross-field** (`validateCrossFields`): decorrenza < scadenza (già c'era),
+  massimale annuo ≥ sinistro, sotto-massimali ≤ sinistro, premio totale ≈
+  imponibile+imposta (±2%). Meglio vuoto che sbagliato.
 - **Questionario IDD (CSA Adesioni)**: per la legenda AXA le 5 domande sono
   OBBLIGATORIE e si valorizzano solo con TIPO MOVIMENTO "A" (fino a 20 coppie
   CODICE DOMANDA/RISPOSTA). Quindi: `validateRecord(record, fields, idd)` blocca
@@ -80,6 +90,8 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   `spatialPages`/`pages`). I budget char si misurano in `usefulLength` (le run
   di spazi costano ~0 token). Cache OCR versionata (`ocr_cache.format`,
   `OCR_FORMAT=2`): al bump le voci vecchie sono miss e si rigenerano da sole.
+  Il motore per-campo indicizza chunk PIATTI ma manda al LLM la pagina SPAZIALE
+  (stesso sdoppiamento).
 - **Chiavi campo storpiate**: i modelli piccoli ricopiano male gli UUID dei
   campi ("311ac411…" per "311ac415…") — `matchFieldKey` (fuzzy ≤2, solo match
   univoco, chiavi ≥8) li recupera in `absorbStagedEntries` invece di buttare

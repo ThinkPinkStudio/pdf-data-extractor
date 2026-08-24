@@ -600,3 +600,116 @@ export function pickMoreRecentCandidate(cur, cand, kind) {
   if (ordA !== ordB) return (ordB ?? -1) > (ordA ?? -1) ? cand : cur
   return (cand.docPos ?? Infinity) < (cur.docPos ?? Infinity) ? cand : cur
 }
+
+// ─── Validazione cross-field (post-LLM) ──────────────────────────────────────
+
+function entryValore(best, id) {
+  const e = best?.[id]
+  if (e == null) return null
+  if (typeof e === 'object' && !Array.isArray(e) && 'valore' in e) return e.valore
+  return e
+}
+
+function dropField(best, id, notes, reason) {
+  if (!id || !(id in best)) return
+  notes.push(reason)
+  delete best[id]
+}
+
+function fieldBlob(f) {
+  return `${f?.id || ''} ${f?.label || ''} ${f?.description || ''}`
+}
+
+/**
+ * Coerenza tra campi già estratti. Mutates `best` (stesso oggetto del motore a
+ * stadi: { id: { valore } } oppure mappa piatta id → stringa).
+ * Regola: meglio VUOTO che un valore logicamente impossibile.
+ *
+ * @param {object} best
+ * @param {Array} fields  definizioni campo attive
+ * @param {{ hasAnnualPeriodics?: boolean }} [opts]
+ * @returns {string[]} note diagnostiche (una per drop)
+ */
+export function validateCrossFields(best, fields, opts = {}) {
+  const notes = []
+  if (!best || typeof best !== 'object') return notes
+  const list = Array.isArray(fields) ? fields : []
+
+  // ── Decorrenza / scadenza ────────────────────────────────────────────────
+  const decField = list.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(fieldBlob(f)))
+  const scaField = list.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(fieldBlob(f)))
+  const decTs = decField ? dateStrToTs(normalizeDateValue(entryValore(best, decField.id))) : null
+  const scaTs = scaField ? dateStrToTs(normalizeDateValue(entryValore(best, scaField.id))) : null
+  if (decField && scaField && decTs != null && scaTs != null) {
+    const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
+    if (decTs >= scaTs) {
+      dropField(best, decField.id, notes,
+        `Coerenza date: decorrenza ${entryValore(best, decField.id)} ≥ scadenza ${entryValore(best, scaField.id)} → decorrenza svuotata (impossibile)`)
+    } else if (opts.hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
+      dropField(best, decField.id, notes,
+        `Coerenza date: decorrenza ${entryValore(best, decField.id)} incoerente con scadenza ${entryValore(best, scaField.id)} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
+    }
+  }
+
+  // ── Massimali per prefisso (rct_ / rcp_ / custom) ─────────────────────────
+  const massGroups = new Map()
+  for (const f of list) {
+    const m = String(f.id || '').match(/^(.*)_massimale_(sinistro|annuo|persona|danni|prestatore|mat|interr)$/)
+    if (!m) continue
+    const g = massGroups.get(m[1]) || {}
+    g[m[2]] = f
+    massGroups.set(m[1], g)
+  }
+  for (const [prefix, g] of massGroups) {
+    const amt = (role) => {
+      const f = g[role]
+      return f ? looseAmount(entryValore(best, f.id)) : null
+    }
+    const annuo = amt('annuo')
+    const sinistro = amt('sinistro')
+    if (g.annuo && g.sinistro && annuo != null && sinistro != null && annuo < sinistro) {
+      dropField(best, g.annuo.id, notes,
+        `Coerenza massimali ${prefix}: annuo ${entryValore(best, g.annuo.id)} < sinistro ${entryValore(best, g.sinistro.id)} → annuo svuotato (impossibile)`)
+    }
+    const afterSinistro = amt('sinistro') // può essere invariato
+    for (const role of ['persona', 'danni']) {
+      const sub = amt(role)
+      if (g[role] && afterSinistro != null && sub != null && sub > afterSinistro) {
+        dropField(best, g[role].id, notes,
+          `Coerenza massimali ${prefix}: ${role} ${entryValore(best, g[role].id)} > sinistro ${entryValore(best, g.sinistro.id)} → ${role} svuotato`)
+      }
+    }
+  }
+
+  // ── Premio totale ≈ imponibile + imposta (stesso prefisso RCT/RCP) ────────
+  const triples = new Map()
+  for (const f of list) {
+    const id = String(f.id || '')
+    let role = null
+    let prefix = null
+    if (/premio_imponibile$/.test(id)) { role = 'imponibile'; prefix = id.replace(/_?premio_imponibile$/, '') }
+    else if (/premio_totale$/.test(id)) { role = 'totale'; prefix = id.replace(/_?premio_totale$/, '') }
+    else if (/_imposta$/.test(id) || id === 'imposta') { role = 'imposta'; prefix = id.replace(/_?imposta$/, '') }
+    if (!role) continue
+    prefix = prefix || '_'
+    const slot = triples.get(prefix) || {}
+    slot[role] = f
+    triples.set(prefix, slot)
+  }
+  for (const [prefix, t] of triples) {
+    if (!t.totale || !t.imponibile || !t.imposta) continue
+    if (!(t.totale.id in best) || !(t.imponibile.id in best) || !(t.imposta.id in best)) continue
+    const tot = parsePureAmount(entryValore(best, t.totale.id)) ?? looseAmount(entryValore(best, t.totale.id))
+    const imp = parsePureAmount(entryValore(best, t.imponibile.id)) ?? looseAmount(entryValore(best, t.imponibile.id))
+    const tax = parsePureAmount(entryValore(best, t.imposta.id)) ?? looseAmount(entryValore(best, t.imposta.id))
+    if (tot == null || imp == null || tax == null) continue
+    const sum = imp + tax
+    const tol = Math.max(1, Math.abs(tot) * 0.02)
+    if (Math.abs(tot - sum) > tol) {
+      dropField(best, t.totale.id, notes,
+        `Coerenza premio ${prefix}: totale ${entryValore(best, t.totale.id)} ≠ imponibile+imposta ${imp}+${tax} → totale svuotato`)
+    }
+  }
+
+  return notes
+}

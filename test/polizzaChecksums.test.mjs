@@ -32,6 +32,7 @@ import {
   stripFieldExamples,
   buildNormIndex,
   findValueWindow,
+  validateCrossFields,
 } from '../src/main/services/polizzaValidation.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
@@ -424,4 +425,75 @@ test('passesStagedEvidence: un solo token storpiato dall\'OCR non scarta il valo
   assert.equal(passesStagedEvidence(f, 'lavoro interinale', {}, normForMatch('lavoro dipendente')), false)
   // Valore interamente presente: passa come sempre
   assert.equal(passesStagedEvidence(f, 'grassi vegetali', {}, ctx), true)
+})
+
+// ─── Cross-field ─────────────────────────────────────────────────────────────
+
+const XF_FIELDS = [
+  { id: 'decorrenza', label: 'Decorrenza', type: 'date' },
+  { id: 'scadenza', label: 'Scadenza', type: 'date' },
+  { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro' },
+  { id: 'rcp_massimale_annuo', label: 'Massimale annuo' },
+  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' },
+  { id: 'rct_massimale_persona', label: 'Massimale per persona' },
+  { id: 'rct_premio_imponibile', label: 'Premio imponibile' },
+  { id: 'rct_imposta', label: 'Imposta' },
+  { id: 'rct_premio_totale', label: 'Premio totale' },
+]
+
+test('validateCrossFields: decorrenza ≥ scadenza → decorrenza svuotata', () => {
+  const best = {
+    decorrenza: { valore: '31/12/2025' },
+    scadenza: { valore: '31/12/2024' },
+  }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.decorrenza, undefined)
+  assert.equal(best.scadenza.valore, '31/12/2024')
+  assert.ok(notes.some((n) => /decorrenza/.test(n)))
+})
+
+test('validateCrossFields: massimale annuo < sinistro → annuo svuotato', () => {
+  const best = {
+    rcp_massimale_sinistro: { valore: '5.000.000,00' },
+    rcp_massimale_annuo: { valore: '1.000.000,00' },
+  }
+  validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rcp_massimale_annuo, undefined)
+  assert.equal(best.rcp_massimale_sinistro.valore, '5.000.000,00')
+})
+
+test('validateCrossFields: persona > sinistro RCT → persona svuotata', () => {
+  const best = {
+    rct_massimale_sinistro: { valore: '4.000.000,00' },
+    rct_massimale_persona: { valore: '10.000.000,00' },
+  }
+  validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_massimale_persona, undefined)
+  assert.equal(best.rct_massimale_sinistro.valore, '4.000.000,00')
+})
+
+test('validateCrossFields: premio totale ≠ imponibile+imposta → totale svuotato', () => {
+  const best = {
+    rct_premio_imponibile: { valore: '4.500,00' },
+    rct_imposta: { valore: '1.001,25' },
+    rct_premio_totale: { valore: '99.999,00' },
+  }
+  validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_premio_totale, undefined)
+  assert.equal(best.rct_imposta.valore, '1.001,25')
+})
+
+test('validateCrossFields: golden EULIP coerente non viene toccato', () => {
+  const best = {
+    decorrenza: { valore: '31/12/2024' },
+    scadenza: { valore: '31/12/2025' },
+    rct_massimale_sinistro: { valore: '4.000.000,00' },
+    rct_imposta: { valore: '1.001,25' },
+    rct_premio_imponibile: { valore: '4.500,00' },
+    rct_premio_totale: { valore: '5.501,25' },
+  }
+  const notes = validateCrossFields(best, XF_FIELDS, { hasAnnualPeriodics: true })
+  assert.equal(notes.length, 0)
+  assert.equal(best.decorrenza.valore, '31/12/2024')
+  assert.equal(best.rct_premio_totale.valore, '5.501,25')
 })

@@ -165,7 +165,9 @@ export default function PolizzaJobsPage() {
       const body: Record<string, unknown> = {}
       if (testProfileId) body.profileId = testProfileId
       if (testModel.trim()) body.model = testModel.trim()
-      if (testStrategy) body.stagedCascade = testStrategy === 'cascade'
+      if (testStrategy === 'perfield') { body.perField = true }
+      else if (testStrategy === 'groups') { body.perField = false; body.stagedCascade = false }
+      else if (testStrategy === 'cascade') { body.perField = false; body.stagedCascade = true }
       if (testPrompt !== (testJob.promptExtra || '')) body.promptExtra = testPrompt
       const res = await fetch(`/api/polizza/job/${testJob.jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -707,6 +709,7 @@ export default function PolizzaJobsPage() {
               <label className="label">{t('jobsDash.testStrategy')}</label>
               <select value={testStrategy} onChange={(e) => setTestStrategy(e.target.value)} style={{ width: '100%' }}>
                 <option value="">{t('jobsDash.testStrategyCurrent')}</option>
+                <option value="perfield">{t('jobsDash.testStrategyPerField')}</option>
                 <option value="groups">{t('jobsDash.testStrategyGroups')}</option>
                 <option value="cascade">{t('jobsDash.testStrategyCascade')}</option>
               </select>

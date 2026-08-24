@@ -20,7 +20,8 @@ const defaultSettings = {
   polizzaVerificaCampi: '',                      // id/etichette dei campi da verificare (CSV); vuoto = nessuno
   polizzaVerificaModel: 'claude-sonnet-4-6',     // modello di arbitraggio quando le passate discordano
   polizzaWholeDossier: false,                    // modalità "fascicolo intero": OCR di tutto → 1 sola chiamata
-  polizzaPerField: true,                         // Ollama: motore "una domanda per campo" (RAG in memoria). Spento = fascicolo intero.
+  polizzaPerField: true,                         // Ollama: motore "una domanda per campo" (RAG in memoria). Spento = motore a stadi.
+  polizzaConstrainedJson: true,                  // Schema/GBNF su date-importi-P.IVA. false = format json libero.
   polizzaWholeDossierModel: 'claude-haiku-4-5-20251001', // modello per l'estrazione "fascicolo intero"
   // Extraction profiles
   profiles: [],

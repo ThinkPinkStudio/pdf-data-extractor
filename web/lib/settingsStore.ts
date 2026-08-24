@@ -62,6 +62,8 @@ export interface WebSettings {
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
   polizzaPerField?: boolean
+  // JSON vincolato (schema/GBNF) su date, importi, P.IVA, tassi. false = format json libero.
+  polizzaConstrainedJson?: boolean
   polizzaWholeDossierModel?: string
   // DEMO: se true, l'estrazione viene instradata al provider Anthropic (Claude)
   // invece che a Ollama. Pensato solo per le presentazioni; spento = tutto locale.
@@ -148,7 +150,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -207,6 +209,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
     polizzaPerField: bool('polizzaPerField', true),
+    polizzaConstrainedJson: bool('polizzaConstrainedJson', true),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
     polizzaFields: json<PolizzaField[]>('polizzaFields'),
