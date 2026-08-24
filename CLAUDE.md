@@ -18,10 +18,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   32 GB di RAM. Tutto ciò che supera ~8 GB (pesi + KV cache) trabocca su CPU e
   crolla di velocità (`ollama ps` → "24%/76% CPU/GPU").
 - **Modelli in uso**: `qwen2.5:7b-instruct` è il modello di riferimento
-  (testo). `bge-m3` per gli embeddings (Qdrant + affinità semantica).
-  `qwen3:8b` è utilizzabile SOLO con thinking spento (il codice manda
-  `think:false` ai modelli "pensanti" — vedi `netFetch.js`). `llama3.1` è
-  scarso su italiano+JSON: sconsigliato.
+  (testo, 4.7 GB — entra in 8 GB VRAM con KV cache). `bge-m3` per gli
+  embeddings (Qdrant + affinità semantica) — NON cambiarlo senza rebuild
+  della collezione (dimensione vettore diversa). `qwen3:14b` (9.3 GB) NON
+  è il daily driver: supera la VRAM e spill su CPU; solo A/B notturni con
+  `think:false`. Se si vuole la famiglia Qwen3 in produzione, il candidato
+  è `qwen3:8b` (da pullare), mai 14b. `llama3.1` è scarso su italiano+JSON:
+  sconsigliato.
 - **Qdrant**: su Coolify con API key; collezione configurabile da Impostazioni.
 
 ## Decisioni prese (non riaprirle)
@@ -91,6 +94,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (diverse da `matchKeywords`, che agisce sul nome cartella).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
+- **Eval estrazione (golden EULIP)**: `src/main/services/polizzaEval.js` +
+  `test/fixtures/eulip-expected.json`. Punteggio di un JSON già estratto:
+  `node scripts/eval-polizza.mjs --actual extracted.json`. Ogni cambio a
+  modello/GBNF/strategia si misura qui PRIMA di dichiararlo un miglioramento.
+  I test del solo scorer: `test/polizzaEval.test.mjs` (niente Ollama).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
