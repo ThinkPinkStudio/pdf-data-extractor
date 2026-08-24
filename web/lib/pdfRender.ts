@@ -71,3 +71,27 @@ export async function loadPdfFromFile(file: File): Promise<RenderedDoc> {
     },
   }
 }
+
+/**
+ * Anteprima TESTO nativo (prime pagine) per il pre-filtro profilo↔contenuto.
+ * Nessun OCR, nessuna chiamata LLM: solo getTextContent di pdfjs.
+ */
+export async function extractPdfTextPreview(file: File, maxPages = 2): Promise<string> {
+  const pdfjs = await getPdfjs()
+  const buf = new Uint8Array(await file.arrayBuffer())
+  const doc = await pdfjs.getDocument({ data: buf, isEvalSupported: false }).promise
+  const n = Math.min(doc.numPages, Math.max(1, maxPages))
+  const parts: string[] = []
+  try {
+    for (let p = 1; p <= n; p++) {
+      const page = await doc.getPage(p)
+      const content = await page.getTextContent({ includeMarkedContent: false })
+      const text = (content.items as { str?: string }[]).map((it) => it.str || '').join(' ')
+      if (text.trim()) parts.push(text)
+      page.cleanup()
+    }
+  } finally {
+    try { await doc.destroy() } catch { /* noop */ }
+  }
+  return parts.join('\n')
+}

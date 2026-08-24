@@ -14,6 +14,10 @@ const BUILD_FEATURES = [
   'archive-chat',         // voce Chat archivio + /api/archive/chat (1.0.107)
   'semantic-routing',     // gate campo×documento + arbitro semantico nel merge (1.0.108)
   'maintenance-panel',    // voce Dati → /maintenance + /api/admin/maintenance (1.0.109)
+  'profile-content-detect', // pre-filtro bulk: matchKeywords nel contenuto + /api/polizza/bulk/detect
+  'label-value-pairs',      // coppie etichetta→valore colonnari nel prompt (ocrLayout)
+  'numeric-facts-registry', // registro fatti numerici anti-sub-limite nel merge
+  'field-reliability',      // punteggio affidabilità per campo (⚑ in Elaborazioni)
 ]
 
 export async function GET() {

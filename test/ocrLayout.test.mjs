@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildSpatialPage, collapseSpatial, usefulLength } from '../src/main/services/ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, extractLabelValuePairs, formatPairsBlock, pairsQuality, labelDensity } from '../src/main/services/ocrLayout.js'
 import { matchFieldKey } from '../src/main/services/polizzaValidation.js'
 
 // Costruttore di blocks tesseract.js sintetici: parole {testo, x, y} con
@@ -118,4 +118,32 @@ test('matchFieldKey: prudenza — ambiguo, corto o vuoto → null', () => {
   assert.equal(matchFieldKey('', ['scadenza']), null)
   // Id corti non partecipano al fuzzy nemmeno come candidati
   assert.equal(matchFieldKey('imposta1', ['imposta']), null)
+})
+
+// ─── Coppie etichetta → valore (allineamento colonnare) ──────────────────────
+
+test('extractLabelValuePairs: etichetta sopra, valore sotto alla stessa colonna', () => {
+  const page = 'SCAD. RATA                    RATA SUCC.\n31/12/2024                    31/12/2025'
+  const pairs = extractLabelValuePairs(page)
+  const byLabel = Object.fromEntries(pairs.map((p) => [p.label, p.value]))
+  assert.equal(byLabel['SCAD. RATA'], '31/12/2024', JSON.stringify(pairs))
+  assert.equal(byLabel['RATA SUCC.'], '31/12/2025', JSON.stringify(pairs))
+  assert.ok(pairsQuality(pairs, page).good)
+  assert.ok(formatPairsBlock(pairs).includes('"SCAD. RATA" → 31/12/2024'))
+})
+
+test('extractLabelValuePairs: stessa riga "Etichetta: valore"', () => {
+  const pairs = extractLabelValuePairs('Contraente: EULIP SRL')
+  assert.ok(pairs.some((p) => /contraente/i.test(p.label) && /EULIP/i.test(p.value)), JSON.stringify(pairs))
+})
+
+test('extractLabelValuePairs: input degeneri', () => {
+  assert.deepEqual(extractLabelValuePairs(''), [])
+  assert.deepEqual(extractLabelValuePairs(null), [])
+})
+
+test('labelDensity: pagina con etichette strutturali > pagina vuota', () => {
+  const rich = 'Contraente EULIP\nMassimale 4.000.000\nPremio 5.501,25\nAgenzia ACQUI TERME\nDecorrenza 31/12/2024'
+  assert.ok(labelDensity(rich) > labelDensity('lorem ipsum dolor sit amet'), rich)
+  assert.equal(labelDensity(''), 0)
 })

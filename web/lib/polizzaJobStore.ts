@@ -1,6 +1,8 @@
 import { pool } from './db'
 import { createHash, randomUUID } from 'crypto'
 import { flattenRollingState, initRollingState } from './polizzaRolling'
+import { importSharedService } from './sharedServices'
+import { getSettings } from './settingsStore'
 
 // Identità del contenuto: SHA-256 dei byte del PDF. Stesso file = stesso hash,
 // in qualunque cartella e con qualunque nome (cache OCR, dedup, riconoscimento
@@ -491,6 +493,11 @@ export function jobSnapshot(job: JobRow) {
     error: job.error || null,
     logs: job.logs || [],
     updatedAt: job.updated_at,
+    reliability: Object.fromEntries(
+      Object.entries(job.rolling_state || {})
+        .filter(([, e]) => e && typeof e === 'object' && typeof (e as { reliable?: unknown }).reliable === 'number')
+        .map(([k, e]) => [k, { reliable: (e as { reliable: number }).reliable, verified: (e as { verified?: string[] }).verified || [] }]),
+    ),
   }
 }
 
@@ -539,6 +546,34 @@ export async function resetJobForRetry(id: string, byEmail?: string): Promise<Jo
   const job = await getJob(id)
   if (!job || job.status === 'running' || job.status === 'queued') return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
+
+  // Skip no-op: job già completato e fingerprint (campi/prompt/modello/revisione
+  // motore) identico a quello corrente → si conservano i risultati.
+  if (job.status === 'done' && (job.rolling_state as any)?.__engine?.fingerprint) {
+    try {
+      const settings = await getSettings()
+      const relMod = await importSharedService<{ extractFingerprint: (p: any) => string; ENGINE_REVISION: number }>('fieldReliability.js')
+      const fp = relMod.extractFingerprint({
+        fieldDefs: job.field_defs,
+        promptExtra: job.prompt_extra,
+        settingsOverride: {
+          ollamaModel: settings.ollamaModel,
+          polizzaWholeDossierModel: settings.polizzaWholeDossierModel,
+          polizzaStagedCascade: settings.polizzaStagedCascade,
+          polizzaPerField: settings.polizzaPerField,
+          polizzaConstrainedJson: settings.polizzaConstrainedJson,
+          ...(job.settings_override || {}),
+        },
+      })
+      const engine = (job.rolling_state as any).__engine
+      if (fp === engine.fingerprint && relMod.ENGINE_REVISION === engine.revision) {
+        logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Rielaborazione saltata: impostazioni e motore invariati${byEmail ? ` (da ${byEmail})` : ''} —`)
+        await updateJob(id, { logs })
+        return job
+      }
+    } catch { /* si procede col rilancio */ }
+  }
+
   const verb = job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
   logs.push(`[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''} —`)
   await updateJob(id, {

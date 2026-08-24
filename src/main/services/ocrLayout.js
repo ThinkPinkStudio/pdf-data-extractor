@@ -127,3 +127,127 @@ export function collapseSpatial(page) {
 export function usefulLength(s) {
   return String(s || '').replace(/ {2,}/g, ' ').length
 }
+
+// ─── Coppie ETICHETTA → VALORE (allineamento colonnare determinista) ─────────
+// Dalla griglia spaziale si ricostruiscono le coppie chiave/valore senza LLM:
+// stessa riga (celle separate da 2+ spazi), stesso cella dopo ":", riga sotto
+// alla stessa colonna. Il blocco va iniettato nel prompt PRIMA del testo grezzo
+// della pagina, così il modello piccolo non deve "scoprire" la coppia dalla
+// griglia. Type-blind: nessuna preferenza per tipo documento.
+
+const PAIR_DATE_RE = /^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/
+const PAIR_AMOUNT_RE = /^(?:€\.?\s*)?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$|^\d+,\d{2}$/
+const PAIR_VAT_RE = /^\d{11}$|^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/i
+
+function splitCells(line) {
+  const cells = []
+  let pos = 0
+  for (const part of String(line || '').split(/( {2,})/)) {
+    if (/^ +$/.test(part)) { pos += part.length; continue }
+    const t = part.trim()
+    if (t) cells.push({ text: t, col: pos })
+    pos += part.length
+  }
+  return cells
+}
+
+export function looksLikeValue(text) {
+  const t = String(text || '').trim()
+  if (!t) return false
+  if (PAIR_DATE_RE.test(t) || PAIR_AMOUNT_RE.test(t) || PAIR_VAT_RE.test(t)) return true
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(t)) return true
+  if (/^(?:€\.?\s*)?\d{4,}$/.test(t)) return true
+  // Codici agenzia / n. polizza: cifre + separatori, corti
+  if (/^[\d][\d./\s-]{2,24}$/.test(t) && /\d{3,}/.test(t) && t.length <= 24) return true
+  return false
+}
+
+export function looksLikeLabel(text) {
+  const t = String(text || '').replace(/[:.]+$/g, '').trim()
+  if (t.length < 3 || t.length > 70) return false
+  if (looksLikeValue(t)) return false
+  if (!/[a-zA-Zàèéìòù]/i.test(t)) return false
+  return true
+}
+
+function sameColumn(a, b, tol = 6) {
+  return Math.abs((a?.col ?? 0) - (b?.col ?? 0)) <= tol
+}
+
+/**
+ * Pagina spaziale → coppie { label, value, row, col }.
+ * Determinista, JS puro. Input degeneri → [].
+ */
+export function extractLabelValuePairs(spatialPage) {
+  const lines = String(spatialPage || '').split('\n')
+  const rows = lines.map((line, i) => ({ i: i + 1, cells: splitCells(line) }))
+  const pairs = []
+  const seen = new Set()
+  const add = (label, value, row, col) => {
+    const lab = String(label || '').replace(/[:]+$/g, '').trim()
+    const val = String(value || '').trim()
+    if (!lab || !val) return
+    const key = `${lab.toLowerCase()}|${val}|${row}`
+    if (seen.has(key)) return
+    seen.add(key)
+    pairs.push({ label: lab, value: val, row, col: col ?? 0 })
+  }
+
+  for (const row of rows) {
+    for (const c of row.cells) {
+      const colon = c.text.match(/^(.{3,50}?)\s*:\s+(.{1,60})$/)
+      if (colon && looksLikeLabel(colon[1]) && (looksLikeValue(colon[2]) || colon[2].length <= 48)) {
+        add(colon[1], colon[2], row.i, c.col)
+      }
+    }
+    for (let i = 0; i < row.cells.length - 1; i++) {
+      const a = row.cells[i], b = row.cells[i + 1]
+      if (looksLikeLabel(a.text) && looksLikeValue(b.text)) add(a.text, b.text, row.i, a.col)
+    }
+  }
+
+  for (let r = 0; r < rows.length - 1; r++) {
+    for (const a of rows[r].cells) {
+      if (!looksLikeLabel(a.text)) continue
+      const below = rows[r + 1].cells.filter((b) => looksLikeValue(b.text) && sameColumn(a, b, 6))
+      if (below.length === 1) add(a.text, below[0].text, rows[r].i, a.col)
+    }
+  }
+  return pairs
+}
+
+/** true se la ristrutturazione è abbastanza densa da valere i token extra. */
+export function pairsQuality(pairs, page) {
+  const n = Array.isArray(pairs) ? pairs.length : 0
+  const lines = String(page || '').split('\n').filter((l) => l.trim()).length
+  return { count: n, good: n >= 3 || (n >= 1 && lines > 0 && n >= lines / 20) }
+}
+
+export function formatPairsBlock(pairs) {
+  if (!Array.isArray(pairs) || !pairs.length) return ''
+  return 'COPPIE ETICHETTA → VALORE (allineamento colonnare della pagina):\n'
+    + pairs.slice(0, 80).map((p) => `RIGA ${p.row} — "${p.label}" → ${p.value}`).join('\n')
+}
+
+// Etichette strutturali type-blind: densità di DATI in una pagina, non tipo file.
+const DENSITY_LABELS = [
+  'scadenza', 'decorrenza', 'massimale', 'premio', 'contraente', 'agenzia',
+  'polizza', 'imposta', 'tasso', 'preventivo', 'franchigia', 'partita',
+  'fiscale', 'indirizzo', 'compagnia', 'quietanza', 'appendice', 'effetto',
+]
+
+/**
+ * Densità di etichette strutturali in una pagina (0..1). Type-blind:
+ * misura quanto la pagina PARLA di dati di polizza, indipendentemente dal
+ * nome file. Usata per i batch focalizzati (G).
+ */
+export function labelDensity(page) {
+  const n = String(page || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (usefulLength(n) < 40) return 0
+  let hits = 0
+  for (const l of DENSITY_LABELS) if (n.includes(l)) hits++
+  return hits / DENSITY_LABELS.length
+}

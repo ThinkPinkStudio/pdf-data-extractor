@@ -10,9 +10,10 @@
 import { embedTexts } from './vectorIndexService.js'
 import { streamChatWithProvider } from './llmService.js'
 import {
-  normalizeForPrecheck, parseContentKeywords, keywordVerdict, cosineSim,
+  normalizeForPrecheck, keywordVerdict, cosineSim,
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
 } from './polizzaPrecheck.js'
+import { resolveContentKeywords } from './profileDetect.js'
 
 // Cap dei costi: il pre-check deve costare SECONDI, non minuti.
 const MAX_PAGES_EMBED = 40      // prime 2 pagine per documento, fino a 40 testi
@@ -33,7 +34,8 @@ const collapse = (p) => String(p || '').split('\n').map((l) => l.replace(/\s{2,}
  *                    matched?:string[], missing?:string[], detected:{type:string|null, keywords:string[]}}>}
  */
 export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode, settings }) {
-  const kws = parseContentKeywords(profile?.contentKeywords)
+  const resolved = resolveContentKeywords(profile)
+  const kws = resolved.keywords
   const normText = normalizeForPrecheck((docs || []).map((d) => (d.pages || []).join('\n')).join('\n'))
 
   let keyword = null
@@ -89,7 +91,7 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
             type: typeof parsed?.tipo === 'string' ? parsed.tipo.slice(0, 120) : null,
             keywords: Array.isArray(parsed?.parole_chiave) ? parsed.parole_chiave.map((k) => String(k).slice(0, 40)).slice(0, 8) : [],
           }
-          const profileTerms = [profile?.name || profileName || '', profile?.contentKeywords || '', ...(fieldDefs || []).map((f) => f?.label || '')]
+          const profileTerms = [profile?.name || profileName || '', profile?.contentKeywords || '', profile?.matchKeywords || '', ...(fieldDefs || []).map((f) => f?.label || '')]
           llm = llmComparisonScore(detected, profileTerms)
         }
       }
@@ -106,5 +108,6 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
     ...decision,
     ...(keyword ? { matched: keyword.matched, missing: keyword.missing } : {}),
     detected,
+    keywordsSource: resolved.source,
   }
 }

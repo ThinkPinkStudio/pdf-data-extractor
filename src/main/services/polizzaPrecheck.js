@@ -97,7 +97,7 @@ export function llmComparisonScore(detected, profileTerms) {
  * VERDETTO finale, con tutte le degradazioni esplicite:
  * - mode 'off' o nessun profilo → 'skipped' (i job coi campi globali non hanno
  *   un "profilo" con cui confrontare);
- * - 'keywords' senza contentKeywords configurate → degrada a 'semantic';
+ * - 'keywords' senza contentKeywords E senza matchKeywords → degrada a 'semantic';
  * - input del metodo non disponibile (embeddings giù, LLM muto) → 'skipped':
  *   MAI bloccare un job per un guasto infrastrutturale.
  *

@@ -564,6 +564,20 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
 // è la somiglianza lessicale col testo della descrizione del campo (`lex`).
 
 /**
+ * Affidabilità di posizione del documento sorgente (type-blind): presenza
+ * di data, ordinale d'appendice, presenza di un anno. Usata come spareggio
+ * quando recency e lex sono pari — MAI il tipo file.
+ */
+export function docTrust(c) {
+  if (!c) return 0
+  let s = 0
+  if (c.effDate) s += 2
+  if (c.appendixOrd != null && Number(c.appendixOrd) >= 0) s += 1
+  if (c.yearPresent) s += 1
+  return s
+}
+
+/**
  * Sceglie tra il candidato corrente e uno nuovo secondo la regola vincolante
  * "il documento piu' recente vince" — MAI per ordine di inserimento.
  *
@@ -596,6 +610,10 @@ export function pickMoreRecentCandidate(cur, cand, kind) {
   const lexA = typeof cur.lex === 'number' ? cur.lex : null
   const lexB = typeof cand.lex === 'number' ? cand.lex : null
   if (lexA != null && lexB != null && lexA !== lexB) return lexB > lexA ? cand : cur
+  // Coscienza di posizione: a pari lex (o lex assente) pesa l'affidabilità
+  // del documento (data + ordinale + anno), poi l'ordinale d'appendice, poi pos.
+  const tA = docTrust(cur), tB = docTrust(cand)
+  if (tA !== tB) return tB > tA ? cand : cur
   const ordA = cur.appendixOrd, ordB = cand.appendixOrd
   if (ordA !== ordB) return (ordB ?? -1) > (ordA ?? -1) ? cand : cur
   return (cand.docPos ?? Infinity) < (cur.docPos ?? Infinity) ? cand : cur

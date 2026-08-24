@@ -99,3 +99,13 @@ test('topContentTerms: termini frequenti senza boilerplate assicurativo', () => 
   assert.deepEqual(terms.slice(0, 2), ['incendio', 'fabbricati'])
   assert.ok(!terms.includes('polizza') && !terms.includes('compagnia'))
 })
+
+test('decidePrecheck keywords: matchKeywords contano come hasContentKeywords (fallback)', () => {
+  // Il servizio fa il fallback; la parte pura deve trattare hasContentKeywords
+  // true anche quando le parole arrivano da matchKeywords, non da contentKeywords.
+  const d = decidePrecheck({
+    mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0.33 },
+  })
+  assert.equal(d.verdict, 'ok')
+  assert.equal(d.mode, 'keywords')
+})

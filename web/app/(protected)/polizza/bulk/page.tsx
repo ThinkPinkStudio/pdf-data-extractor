@@ -77,6 +77,7 @@ export default function PolizzaBulkPage() {
   const [defaultType, setDefaultType] = useState('')                    // id profilo predefinito
   const [profileOf, setProfileOf] = useState<Record<string, string>>({}) // gid → id profilo
   const [manualProfile, setManualProfile] = useState<Set<string>>(new Set()) // gid con scelta manuale
+  const [contentAssign, setContentAssign] = useState<Record<string, string>>({}) // gid → profilo dal pre-filtro contenuto
 
   const [batchId, setBatchId] = useState<string | null>(null)
   const [phase, setPhase] = useState<'select' | 'uploading' | 'started'>('select')
@@ -120,6 +121,7 @@ export default function PolizzaBulkPage() {
     setExpanded(new Set())
     setProfileOf({})
     setManualProfile(new Set())
+    setContentAssign({})
   }, [files, filters])
 
   function handlePick(fileList: FileList | null) {
@@ -183,12 +185,51 @@ export default function PolizzaBulkPage() {
       for (const d of finalDossiers) {
         next[d.gid] = (manualProfile.has(d.gid) && prev[d.gid] !== undefined)
           ? prev[d.gid]
-          : (detectProfile(d.label) || defaultType)
+          : (contentAssign[d.gid] !== undefined ? (contentAssign[d.gid] || defaultType) : (detectProfile(d.label) || defaultType))
       }
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalDossiers, profiles, defaultType, manualProfile])
+  }, [finalDossiers, profiles, defaultType, manualProfile, contentAssign])
+
+  // Pre-filtro sul CONTENUTO: testo nativo delle prime pagine (nessun LLM).
+  // Se l'OCR/testo è disponibile, vince sul solo percorso — è il caso
+  // "in vigore/" senza "med" nel path ma con CEDAM/sanitari nel PDF.
+  useEffect(() => {
+    if (!finalDossiers.length || !profiles.length || !files.length) return
+    let cancelled = false
+    ;(async () => {
+      const { extractPdfTextPreview } = await import('@/lib/pdfRender')
+      const dossiers: { gid: string; label: string; text: string }[] = []
+      for (const d of finalDossiers.slice(0, 40)) {
+        const parts: string[] = []
+        for (const idx of d.fileIndexes.slice(0, 2)) {
+          const f = files[idx]
+          if (!f) continue
+          try { parts.push(await extractPdfTextPreview(f, 2)) } catch { /* PDF senza testo nativo */ }
+        }
+        dossiers.push({ gid: d.gid, label: d.label, text: parts.join('\n') })
+        if (cancelled) return
+      }
+      if (cancelled || !dossiers.some((x) => x.text.trim())) return
+      try {
+        const res = await fetch('/api/polizza/bulk/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dossiers }),
+        })
+        if (!res.ok || cancelled) return
+        const json = await res.json()
+        const next: Record<string, string> = {}
+        for (const [gid, a] of Object.entries(json.assignments || {})) {
+          const pid = (a as { profileId?: string })?.profileId
+          if (typeof pid === 'string') next[gid] = pid
+        }
+        if (!cancelled) setContentAssign(next)
+      } catch { /* pre-filtro contenuto opzionale */ }
+    })()
+    return () => { cancelled = true }
+  }, [finalDossiers, profiles, files])
 
   const detectedFiles = baseDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
   const selectedFiles = finalDossiers.reduce((n, d) => n + d.fileIndexes.length, 0)
