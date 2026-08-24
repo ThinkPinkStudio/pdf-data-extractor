@@ -7,8 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { detectProfileForDossier, resolveContentKeywords, profilePathKeywords } from '../src/main/services/profileDetect.js'
-import { normalizeForPrecheck, keywordVerdict, KEYWORD_MIN_RATIO } from '../src/main/services/polizzaPrecheck.js'
+import { detectProfileForDossier, resolveContentKeywords, profilePathKeywords, contentKeywordVerdict, isSignificantContent } from '../src/main/services/profileDetect.js'
+import { normalizeForPrecheck, KEYWORD_MIN_RATIO } from '../src/main/services/polizzaPrecheck.js'
 
 const V2 = {
   id: '1785512148086',
@@ -29,6 +29,8 @@ const ABIT = {
 const PROFILES = [V2, FAB, ABIT]
 
 const CEDAM = 'POLIZZA RISCHI SANITARI PRIVATI — CEDAM ITALIA SRL — responsabilità civile professionale'
+// Frontespizio come descritto dal campione (niente "med"/"medico"/"professionale").
+const CEDAM_FRONT = 'POLIZZA RISCHI SANITARI PRIVATI — CEDAM ITALIA SRL'
 const FABBRICATI = 'GLOBALE FABBRICATI — INCENDIO ESPLOSIONE SCOPPIO — fabbricato in Via della Libertà'
 
 test('resolveContentKeywords: fallback a matchKeywords se contentKeywords vuote', () => {
@@ -41,11 +43,18 @@ test('resolveContentKeywords: fallback a matchKeywords se contentKeywords vuote'
   assert.deepEqual(withContent.keywords, ['rischi sanitari', 'cedam'])
 })
 
-test('keywordVerdict: "prof" del nome profilo matcha "professionale" nel testo Cedam', () => {
-  const norm = normalizeForPrecheck(CEDAM)
-  const v = keywordVerdict(resolveContentKeywords(V2).keywords, norm)
+test('contentKeywordVerdict: "prof" del nome profilo matcha "professionale" nel testo Cedam', () => {
+  const v = contentKeywordVerdict(V2, normalizeForPrecheck(CEDAM))
   assert.ok(v.matched.length, JSON.stringify(v))
   assert.ok(v.ratio >= KEYWORD_MIN_RATIO, JSON.stringify(v))
+  assert.ok(isSignificantContent(v), JSON.stringify(v))
+})
+
+test('contentKeywordVerdict: frontespizio Cedam (solo SANITARI, niente med) matcha V2 via stem', () => {
+  const v = contentKeywordVerdict(V2, normalizeForPrecheck(CEDAM_FRONT))
+  assert.ok(v.matched.length, JSON.stringify(v))
+  assert.ok(v.variants.some((x) => /sanitar/i.test(x)), JSON.stringify(v))
+  assert.ok(isSignificantContent(v), JSON.stringify(v))
 })
 
 test('detectProfileForDossier: in vigore/ (niente "med" nel path) → RC PROF MED V2 dal contenuto', () => {
@@ -53,6 +62,12 @@ test('detectProfileForDossier: in vigore/ (niente "med" nel path) → RC PROF ME
   assert.equal(r.profileId, V2.id)
   assert.equal(r.via, 'content')
   assert.ok(r.matched.length, JSON.stringify(r))
+})
+
+test('detectProfileForDossier: in vigore/ + solo "RISCHI SANITARI PRIVATI / CEDAM" → V2', () => {
+  const r = detectProfileForDossier({ label: 'in vigore', contentText: CEDAM_FRONT, profiles: PROFILES })
+  assert.equal(r.profileId, V2.id, JSON.stringify(r))
+  assert.equal(r.via, 'content')
 })
 
 test('detectProfileForDossier: Fabbricati/ NON ruba il profilo sanitario', () => {
@@ -65,6 +80,11 @@ test('detectProfileForDossier: Fabbricati/ NON ruba il profilo sanitario', () =>
   // Path "libertà" non matcha; contenuto "fabbricat"/"incendio" sì, o path vuoto
   // con contenuto che non ha "med" abbastanza da battere Fabbricati.
   assert.notEqual(r.profileId, V2.id)
+})
+
+test('isSignificantContent: "med" in "medesimo" da solo NON basta', () => {
+  const v = contentKeywordVerdict(V2, normalizeForPrecheck('il medesimo contratto è in rinnovo'))
+  assert.equal(isSignificantContent(v), false, JSON.stringify(v))
 })
 
 test('detectProfileForDossier: Abitazione/DiGrazia dal percorso', () => {

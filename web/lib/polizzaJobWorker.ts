@@ -296,6 +296,28 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // se l'utente ha già premuto "Procedi comunque" (precheck.override).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
   const precheckMode = settings.polizzaPrecheckMode || 'off'
+
+  // Abbinamento profilo↔contenuto sul testo OCR completo (zero LLM): log di
+  // verifica e matchedProfileId anche se il pre-check è off. Serve al test
+  // Cedam (in vigore/ senza "med" nel path).
+  let detectedProfileId: string | null = null
+  try {
+    const detectMod = await importSharedService<{
+      detectProfileForDossier: (p: { label: string; contentText?: string; profiles: unknown[] }) => {
+        profileId: string; via: string | null; matched: string[]; missing: string[]; score: number | null; source: string | null
+      }
+    }>('profileDetect.js')
+    const detected = detectMod.detectProfileForDossier({
+      label: job.dossier_name || '',
+      contentText: fullText,
+      profiles: settings.polizzaProfiles || [],
+    })
+    detectedProfileId = detected.profileId || null
+    if (detected.profileId) {
+      await appendLog(job, `Abbinamento contenuto: profilo ${detected.profileId} via ${detected.via || '?'} (score ${detected.score != null ? detected.score.toFixed(2) : 'n/d'}${detected.matched?.length ? `; match: ${detected.matched.join(', ')}` : ''})`, logs)
+    }
+  } catch { /* detect non fatale */ }
+
   if (precheckMode !== 'off' && job.profile_id && !(job.precheck as any)?.override) {
     try {
       const pcSvc = await importSharedService<{
@@ -308,7 +330,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
         profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
       })
-      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000), matchedProfileId: job.profile_id } })
+      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000), matchedProfileId: detectedProfileId || job.profile_id } })
       const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
       const matchStr = pre.matched?.length ? ` · match: ${pre.matched.join(', ')}` : ''
       const missStr = pre.missing?.length ? ` · assenti: ${pre.missing.join(', ')}` : ''

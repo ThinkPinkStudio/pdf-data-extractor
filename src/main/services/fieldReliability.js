@@ -10,7 +10,7 @@
 import { parsePureAmount, validateCodiceFiscaleIva } from './polizzaValidation.js'
 import { normalizeDateValue } from './polizzaDates.js'
 
-export const ENGINE_REVISION = 3
+export const ENGINE_REVISION = 4
 
 export const LOW_RELIABILITY = 0.45
 

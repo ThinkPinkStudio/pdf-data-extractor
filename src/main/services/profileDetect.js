@@ -12,8 +12,65 @@
  */
 
 import {
-  parseContentKeywords, keywordVerdict, normalizeForPrecheck, KEYWORD_MIN_RATIO,
+  parseContentKeywords, normalizeForPrecheck, KEYWORD_MIN_RATIO,
 } from './polizzaPrecheck.js'
+
+/**
+ * Espansioni type-blind dei fusti corti usati in matchKeywords / nome profilo.
+ * "med" NON è sottostringa di "CEDAM" né di "SANITARI": senza queste
+ * espansioni il fascicolo Cedam (RISCHI SANITARI PRIVATI) non matcherebbe
+ * RC PROF MED V2. Non classifica il TIPO di file: amplia solo il lessico
+ * del profilo. Il rapporto si calcola sulle keyword PRIMARIE (uno stem
+ * contato una volta), così le espansioni non diluiscono la soglia.
+ */
+const STEM_EXPAND = {
+  med: ['medico', 'medici', 'medicina', 'sanitari', 'sanitaria', 'sanitario'],
+  prof: ['professionale', 'professionisti'],
+  rct: ['responsabilita civile'],
+  rco: ['prestatori'],
+  rcp: ['professionale'],
+}
+
+function variantsOf(keyword) {
+  const n = normalizeForPrecheck(keyword)
+  return n ? [keyword, ...(STEM_EXPAND[n] || [])] : [keyword]
+}
+
+/**
+ * Verdetto contenuto: un fusto matcha se LUI o una sua espansione compare
+ * nel testo. `matched` elenca le keyword primarie colpite; `variants` le
+ * forme trovate nel testo (per il log e per scartare i match di 3 lettere
+ * tipo "med" in "medesimo").
+ */
+export function contentKeywordVerdict(profile, normText) {
+  const resolved = resolveContentKeywords(profile)
+  const kws = resolved.keywords
+  if (!kws.length) {
+    return { matched: [], missing: [], ratio: 0, source: resolved.source, variants: [] }
+  }
+  if (!normText) {
+    return { matched: [], missing: kws, ratio: 0, source: resolved.source, variants: [] }
+  }
+  const matched = [], missing = [], variants = []
+  for (const k of kws) {
+    const hit = variantsOf(k).find((x) => normText.includes(normalizeForPrecheck(x)))
+    if (hit) { matched.push(k); variants.push(hit) }
+    else missing.push(k)
+  }
+  return {
+    matched, missing,
+    ratio: matched.length / kws.length,
+    source: resolved.source,
+    variants,
+  }
+}
+
+/** Un solo fusto di 3 lettere ("med"⊂"medesimo") non assegna un profilo. */
+export function isSignificantContent(verdict, minRatio = KEYWORD_MIN_RATIO) {
+  if (!verdict || verdict.ratio < minRatio) return false
+  const forms = (verdict.variants && verdict.variants.length) ? verdict.variants : (verdict.matched || [])
+  return forms.some((k) => normalizeForPrecheck(k).length >= 4) || (verdict.matched || []).length >= 2
+}
 
 /** Parole di CONTENUTO: contentKeywords se presenti, altrimenti matchKeywords
  *  più i token del NOME profilo (es. "RC PROF MED V2" → prof, med). Il nome
@@ -67,20 +124,17 @@ export function detectProfileForDossier({ label, contentText, profiles, minRatio
 
   const normContent = contentText ? normalizeForPrecheck(contentText) : ''
   const scored = list.map((p) => {
-    const resolved = resolveContentKeywords(p)
-    const content = (normContent && resolved.keywords.length)
-      ? keywordVerdict(resolved.keywords, normContent)
-      : { matched: [], missing: resolved.keywords, ratio: 0 }
+    const content = contentKeywordVerdict(p, normContent)
     return {
       p,
       pathHit: pathHit(p, label),
       content,
-      contentSource: resolved.source,
+      contentSource: content.source,
     }
   })
 
   const contentWinners = scored
-    .filter((s) => s.content.ratio >= minRatio)
+    .filter((s) => isSignificantContent(s.content, minRatio))
     .sort((a, b) => b.content.ratio - a.content.ratio
       || b.content.matched.length - a.content.matched.length
       || String(a.p.name || '').localeCompare(String(b.p.name || '')))

@@ -10,10 +10,10 @@
 import { embedTexts } from './vectorIndexService.js'
 import { streamChatWithProvider } from './llmService.js'
 import {
-  normalizeForPrecheck, keywordVerdict, cosineSim,
+  normalizeForPrecheck, cosineSim,
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
 } from './polizzaPrecheck.js'
-import { resolveContentKeywords } from './profileDetect.js'
+import { contentKeywordVerdict, resolveContentKeywords } from './profileDetect.js'
 
 // Cap dei costi: il pre-check deve costare SECONDI, non minuti.
 const MAX_PAGES_EMBED = 40      // prime 2 pagine per documento, fino a 40 testi
@@ -46,7 +46,12 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
   const effective = (mode === 'keywords' && !kws.length) ? 'semantic' : mode
 
   if (effective === 'keywords') {
-    keyword = normText ? keywordVerdict(kws, normText) : null
+    if (normText) {
+      const v = contentKeywordVerdict(profile, normText)
+      keyword = { matched: v.matched, missing: v.missing, ratio: v.ratio, variants: v.variants }
+    } else {
+      keyword = null
+    }
   } else if (effective === 'semantic') {
     try {
       const fields = (fieldDefs || []).filter((f) => f?.label)

@@ -3597,6 +3597,54 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   const lowN = Object.values(reliability).filter((r) => r.reliable < LOW_RELIABILITY).length
   if (lowN) diag.push(`Affidabilità: ${lowN} campi sotto soglia ${LOW_RELIABILITY} (⚑ in UI)`)
+
+  // Pass selettivo (H): campi ancora sotto soglia, non già confermati dalla
+  // doppia passata. Stesso JSON corto; un rifiuto li svuota (meglio vuoto
+  // che un valore incerto). Guasto infra → si conservano.
+  if (!abortedByErrors && settings.polizzaDoublePass !== false) {
+    const weak = activeFields.filter((f) => {
+      const r = reliability[f.id]
+      const c = best[f.id]
+      if (!c?.valore || !r || r.reliable >= LOW_RELIABILITY) return false
+      if (doublePassOk.has(f.id)) return false
+      if (validateCodiceFiscaleIva(c.valore)) return false
+      return true
+    })
+    if (weak.length) {
+      const SELECTIVE_SYSTEM =
+        'Verifichi candidati POCO AFFIDABILI già estratti. Rispondi SOLO JSON: ' +
+        '{"id_campo":{"ok":true|false,"motivo":"breve"}}. ok=false se il valore ' +
+        'non corrisponde all\'etichetta, è un rinvio, un sub-limite o una ragione sociale.'
+      let selDropped = 0
+      for (let i = 0; i < weak.length; i += 8) {
+        const batch = weak.slice(i, i + 8)
+        const list = batch.map((f) => {
+          const c = best[f.id]
+          const r = reliability[f.id]
+          return `- ${f.id} | ${f.label} | valore="${c.valore}" | reliable=${r.reliable.toFixed(2)} | fonte=${c.file || '?'}`
+        }).join('\n')
+        try {
+          const raw = await callOllamaRolling(s2, SELECTIVE_SYSTEM,
+            `CANDIDATI DEBOLI:\n${list}\n\nJSON.`,
+            { numCtx: 2048, numPredict: 80, timeoutMs: 60000, diag, format: 'json' })
+          const parsed = parseJsonResponse(raw)
+          for (const f of batch) {
+            const e = parsed?.[f.id] ?? parsed?.[f.id.toLowerCase()]
+            if (e && e.ok === false) {
+              diag.push(`Pass selettivo: "${f.id}"="${best[f.id].valore}" rifiutato (${e.motivo || 'ok=false'})`)
+              delete best[f.id]
+              delete reliability[f.id]
+              selDropped++
+            }
+          }
+        } catch (err) {
+          diag.push(`Pass selettivo non eseguibile (${err.message}) — si conservano i valori`)
+          break
+        }
+      }
+      diag.push(`Pass selettivo: ${weak.length} campi sotto soglia, ${selDropped} rifiutati`)
+    }
+  }
   diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
   diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length} (rev ${ENGINE_REVISION})`)
   return { data, sources, diag, reliability }

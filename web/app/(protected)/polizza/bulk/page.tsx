@@ -203,10 +203,10 @@ export default function PolizzaBulkPage() {
       const dossiers: { gid: string; label: string; text: string }[] = []
       for (const d of finalDossiers.slice(0, 40)) {
         const parts: string[] = []
-        for (const idx of d.fileIndexes.slice(0, 2)) {
+        for (const idx of d.fileIndexes.slice(0, 8)) {
           const f = files[idx]
           if (!f) continue
-          try { parts.push(await extractPdfTextPreview(f, 2)) } catch { /* PDF senza testo nativo */ }
+          try { parts.push(await extractPdfTextPreview(f, 4)) } catch { /* PDF senza testo nativo */ }
         }
         dossiers.push({ gid: d.gid, label: d.label, text: parts.join('\n') })
         if (cancelled) return
@@ -223,7 +223,7 @@ export default function PolizzaBulkPage() {
         const next: Record<string, string> = {}
         for (const [gid, a] of Object.entries(json.assignments || {})) {
           const pid = (a as { profileId?: string })?.profileId
-          if (typeof pid === 'string') next[gid] = pid
+          if (typeof pid === 'string' && pid) next[gid] = pid
         }
         if (!cancelled) setContentAssign(next)
       } catch { /* pre-filtro contenuto opzionale */ }
