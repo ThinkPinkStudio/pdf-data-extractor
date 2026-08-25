@@ -2,6 +2,9 @@
  * Schema del tracciato AXA Partners (polizza 191025) e configurazione di default
  * della maschera. Modulo PURO (nessun import Electron) → testabile in Node.
  *
+ * Nomenclatura file SFTP (legenda I14 vers.15): "{polizza}_{aaaammgg}.xlsx",
+ * es. "191025_20251021.xlsx". La data è quella di invio (calendario Europe/Rome).
+ *
  * Le intestazioni qui sotto riproducono ESATTAMENTE quelle del flusso fornito
  * dalla compagnia (compresi gli apostrofi tipografici), così il file `.xlsx` in
  * uscita rispetta il formato richiesto. In lettura il match è comunque tollerante
@@ -73,6 +76,35 @@ export function iddPairCapacity(headers) {
   let n = 0
   while (seen.DOMANDA.has(n + 1) && seen.RISPOSTA.has(n + 1)) n++
   return n
+}
+
+export const DEFAULT_POLICY_NUMBER = '191025'
+
+/** Numero polizza da usare nel nome file: campo fisso della maschera, altrimenti 191025. */
+export function policyNumberFromFields(fields) {
+  const f = Array.isArray(fields) ? fields.find((x) => x && x.id === 'numero_polizza') : null
+  const raw = String((f && f.fixed) || '').trim()
+  const clean = raw.replace(/[^\w.-]+/g, '')
+  return clean || DEFAULT_POLICY_NUMBER
+}
+
+/** Data di calendario Europe/Rome in forma aaaammgg (invio giornaliero AXA). */
+export function yyyymmddRome(when) {
+  const d = when instanceof Date && !Number.isNaN(when.getTime()) ? when : new Date()
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d).replace(/-/g, '')
+}
+
+/**
+ * Nome del file tracciato per SFTP AXA: "{polizza}_{aaaammgg}.xlsx".
+ * Esempio dalla legenda: "191025_20251021.xlsx".
+ */
+export function trackExportFileName(fields, when) {
+  return `${policyNumberFromFields(fields)}_${yyyymmddRome(when)}.xlsx`
 }
 
 /**
