@@ -128,10 +128,15 @@ async function ftpTest(profile, protocol) {
   })
 }
 
-async function ftpUpload(profile, protocol, localPath, onProgress) {
+function remoteFileName(localPath, remoteName) {
+  const fromArg = String(remoteName || '').trim()
+  return fromArg || basename(localPath)
+}
+
+async function ftpUpload(profile, protocol, localPath, onProgress, remoteName) {
   return withFtpClient(profile, protocol, async (client) => {
     const dir = String(profile.dir || '').trim()
-    const name = basename(localPath)
+    const name = remoteFileName(localPath, remoteName)
     try {
       if (dir) await client.ensureDir(dir)
       if (onProgress) client.trackProgress((info) => onProgress(info.bytes))
@@ -252,10 +257,10 @@ async function sftpTest(profile, protocol) {
   })
 }
 
-async function sftpUpload(profile, protocol, localPath, onProgress) {
+async function sftpUpload(profile, protocol, localPath, onProgress, remoteName) {
   return withSftpClient(profile, protocol, async (sftp) => {
     const dir = String(profile.dir || '').trim().replace(/\/$/, '')
-    const name = basename(localPath)
+    const name = remoteFileName(localPath, remoteName)
     const remotePath = dir ? `${dir}/${name}` : name
     try {
       if (dir && !(await sftp.exists(dir))) await sftp.mkdir(dir, true)
@@ -277,11 +282,15 @@ export async function testConnection(profile) {
   return protocol === 'sftp' ? sftpTest(profile, protocol) : ftpTest(profile, protocol)
 }
 
-/** Carica un file locale nella cartella remota del profilo, con avanzamento opzionale. Ritorna { ok, remotePath }. */
-export async function uploadFile(profile, localPath, onProgress) {
+/**
+ * Carica un file locale nella cartella remota del profilo, con avanzamento opzionale.
+ * `remoteName` è il nome sul server (la nomenclatura AXA); se manca si usa il basename locale.
+ * Ritorna { ok, remotePath }.
+ */
+export async function uploadFile(profile, localPath, onProgress, remoteName) {
   assertProfile(profile)
   const protocol = protocolOf(profile)
   return protocol === 'sftp'
-    ? sftpUpload(profile, protocol, localPath, onProgress)
-    : ftpUpload(profile, protocol, localPath, onProgress)
+    ? sftpUpload(profile, protocol, localPath, onProgress, remoteName)
+    : ftpUpload(profile, protocol, localPath, onProgress, remoteName)
 }

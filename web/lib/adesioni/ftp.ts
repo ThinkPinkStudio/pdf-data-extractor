@@ -12,10 +12,14 @@ export async function testFtp(profile: FtpConfig): Promise<{ ok: boolean; dir?: 
 }
 
 export async function uploadBufferToFtp(profile: FtpConfig, buffer: Buffer, filename: string): Promise<{ ok: boolean; remotePath?: string }> {
-  const tmp = path.join(os.tmpdir(), `csa-${Date.now()}-${filename.replace(/[^\w.-]+/g, '_')}`)
+  // Il file temporaneo ha un prefisso univoco, ma sul server deve arrivarci
+  // esattamente `filename` (nomenclatura AXA "{polizza}_{aaaammgg}.xlsx"):
+  // uploadFile usava il basename locale e pubblicava "csa-<ts>-…xlsx".
+  const remoteName = String(filename || 'tracciato.xlsx').replace(/[^\w.-]+/g, '_') || 'tracciato.xlsx'
+  const tmp = path.join(os.tmpdir(), `csa-${Date.now()}-${remoteName}`)
   writeFileSync(tmp, buffer)
   try {
-    return (await uploadFile(profile, tmp)) as { ok: boolean; remotePath?: string }
+    return (await uploadFile(profile, tmp, undefined, remoteName)) as { ok: boolean; remotePath?: string }
   } finally {
     try { unlinkSync(tmp) } catch { /* ignore */ }
   }

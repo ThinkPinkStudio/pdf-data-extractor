@@ -6,6 +6,7 @@ import { listRecords, getRecordsByIds } from '@/lib/adesioni/recordsStore'
 import { writeTrackBuffer } from '@/lib/adesioni/xlsxTracciato'
 import { testFtp, uploadBufferToFtp } from '@/lib/adesioni/ftp'
 import { resolveNotifyRecipients, sendExportSummary } from '@/lib/adesioni/mail'
+import { trackExportFileName } from '@/lib/adesioni/tracciato.js'
 
 export const runtime = 'nodejs'
 
@@ -37,7 +38,8 @@ export async function POST(req: NextRequest) {
 
     const rows = body.ids && body.ids.length ? await getRecordsByIds(body.ids) : await listRecords()
     const buffer = await writeTrackBuffer(rows.map((r) => r.data), full)
-    const filename = `tracciato_${target}.xlsx`
+    // Legenda AXA I14: "{polizza}_{aaaammgg}.xlsx" (es. "191025_20251021.xlsx").
+    const filename = trackExportFileName(full.fields)
     const up = await uploadBufferToFtp(profile, buffer, filename)
 
     // Notifica email di riepilogo (best-effort).
@@ -53,8 +55,8 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* email best-effort */ }
 
-    await logAction({ email: session.email, action: 'adesioni.ftp.upload', metadata: { target, count: rows.length, remotePath: up.remotePath } })
-    return NextResponse.json({ ok: true, remotePath: up.remotePath, count: rows.length, notified })
+    await logAction({ email: session.email, action: 'adesioni.ftp.upload', metadata: { target, count: rows.length, filename, remotePath: up.remotePath } })
+    return NextResponse.json({ ok: true, remotePath: up.remotePath, filename, count: rows.length, notified })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message || 'Errore FTP' }, { status: 500 })
   }
