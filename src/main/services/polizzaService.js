@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
 import { ollamaFormatFor } from './gbnfSchema.js'
-import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
+import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
 // privati rimossi da questo file) + regola "il valore più recente vince".
@@ -39,8 +39,15 @@ import {
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
   validateCrossFields,
 } from './polizzaValidation.js'
-import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
+import { buildFactsRegistry } from './polizzaFactsRegistry.js'
+import { buildReliabilityMap, RELIABILITY_THRESHOLD } from './polizzaReliability.js'
+import {
+  selectFieldsToDoubleCheck, buildDoubleCheckPrompt, parseDoubleCheck,
+  runAutoValidation, DEFAULT_MAX_FIELDS, AUTO_VERIFY_SYSTEM,
+} from './polizzaAutoValidate.js'
+import { loadArchiveContext } from './polizzaArchiveContext.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -1698,6 +1705,18 @@ export async function ocrPageText(imageBase64, settings = {}) {
   return ocrImageToText(imageBase64)
 }
 
+// Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un
+// blocco di "negative few-shot" iniettato in TUTTI i motori di estrazione PRIMA
+// del blocco FORMATO. Tipo-blind (spie generiche, mai per categoria di documento)
+// e a costo zero LLM: solo più token nel prompt.
+const KNOWN_TRAPS_SYSTEM_TEXT =
+  'TRAPPOLE CONOSCIUTE (non cascarci):\n' +
+  '- Un sotto-limite o sub-massimale di una garanzia speciale (es. 10.000,00) NON è il massimale della polizza: ometti se il campo è il massimale.\n' +
+  '- Un nome societario (es. "...S.p.A.", "...Srl", compagnia di assicurazione o sede legale) NON è una agenzia/piazza: ometti se compare una dicitura societaria.\n' +
+  '- Una P.IVA/Codice Fiscale presente SOLO nell\'intestazione/footer della compagnia assicuratrice (Sede legale…, partita IVA contraente) NON è quella del contraente: ometti.\n' +
+  '- L\'attività "rinvio" (la polizza copre SOLO l\'attività di rinvio) NON è l\'attività assicurata: usa quella effettiva, mai "rinvio".\n' +
+  '- Decorrenza e scadenza: usa quelle del periodo di copertura PIÙ RECENTE, non di una quietanza vecchia che riporta un\'altra decorrenza/scadenza.\n'
+
 const WHOLE_DOSSIER_SYSTEM =
   'Sei un estrattore esperto di dati da fascicoli assicurativi italiani (RC).\n' +
   'Ricevi il TESTO (OCR) di TUTTI i documenti di UNA pratica, etichettati per nome file\n' +
@@ -1719,6 +1738,7 @@ const WHOLE_DOSSIER_SYSTEM =
   '   letteralmente dal documento, in cui compare il valore. Se NON riesci a citare\n' +
   '   il valore copiandolo dal documento, lo stai inventando: NON restituire quel\n' +
   '   campo. NON usare MAI valori presi dalla guida campi o da esempi.\n' +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON\n' +
   '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
   'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
@@ -2073,8 +2093,25 @@ const PERFIELD_SYSTEM =
   '   estratti, in cui compare il valore. Se non riesci a citarlo, stai inventando:\n' +
   '   rispondi {}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"valore": "...", "evidenza": "testo esatto copiato"}\n' +
   'oppure {} se il valore non è presente. Zero testo extra, zero markdown.'
+
+/**
+ * Aggiunge (MAI al posto di) il blocco strutturato `ETICHETTA ⟶ VALORE` a un
+ * testo di pagina che entra nel prompt. Se l'aligner colonnare produce coppie,
+ * queste vengono anteposte come "ESTRATTI STRUTTURATI", seguite sempre dal
+ * testo grezzo (spaziale o piatto) sotto.
+ */
+function withPairs(pageText) {
+  const t = String(pageText || '')
+  const pairs = detectLabelValuePairs(t)
+  if (!pairs.length) return t
+  const structured = pairs
+    .map((p) => `RIGA ${p.row} — "${p.label}" → ${p.value}`)
+    .join('\n')
+  return `ESTRATTI STRUTTURATI:\n${structured}\n\nTESTO:\n${t}`
+}
 
 /**
  * Estrazione "per campo": indice in memoria (embeddings locali via Ollama) +
@@ -2167,7 +2204,7 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
       const pageKey = `${h.file}:${h.page}`
       if (seenPages.has(pageKey)) continue
       seenPages.add(pageKey)
-      const body = (h.spatialPage && h.spatialPage.trim()) ? h.spatialPage : h.text
+      const body = (h.spatialPage && h.spatialPage.trim()) ? withPairs(h.spatialPage) : h.text
       const block = `[${h.file} · pag. ${h.page}]\n${body}`
       const cost = usefulLength(block)
       if (ctxCost + cost > CONTEXT_CHARS && ctx) break
@@ -2364,7 +2401,7 @@ function buildGroupBatches(docList, budgetChars) {
     for (let p = 0; p < promptPages.length; p++) {
       const t = promptPages[p]?.trim()
       if (!t) continue
-      let block = `[${d.name} · pag. ${p + 1}]\n${t}`
+      let block = `[${d.name} · pag. ${p + 1}]\n${withPairs(t)}`
       let cost = usefulLength(block)
       if (cost > budgetChars) { block = block.slice(0, budgetChars * 2); cost = usefulLength(block) } // pagina singola oltre il budget: caso limite
       if (used + cost + 2 > budgetChars) flush()
@@ -2414,6 +2451,7 @@ function stagedSystemPrompt(kind) {
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
+    `${KNOWN_TRAPS_SYSTEM_TEXT}` +
     'FORMATO: un solo oggetto JSON\n' +
     '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
     'Zero testo extra, zero markdown.'
@@ -2447,6 +2485,7 @@ const STAGED_RECOVERY_SYSTEM =
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2620,6 +2659,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     diag.push('Nessun testo utilizzabile nei documenti.')
     return { data: {}, sources: {}, diag }
   }
+
+  // ── Registro dei fatti numerici (guardia anti-fantasma, deterministica) ─────
+  // DOPO Stadio A, costo una volta per fascicolo. Serve alla verifica di evidenza
+  // e alla whitelist di importi plausibili (merge). Integrazione CONSERVATIVA:
+  // qui SOLO diagnostica — il registro NON detta il merge né tocca l'arbitro
+  // semantico (rischio regressione su casi buoni tarati sul campo).
+  const factsRegistry = buildFactsRegistry(analyzed.map((d) => ({ text: d.text, name: d.name })))
+  diag.push(`Registro fatti: ${factsRegistry.facts.length} voci numeriche su ${analyzed.length} documenti (guardia anti-fantasma, deterministica)`)
   const typeCounts = {}
   let undated = 0
   for (const d of analyzed) {
@@ -2787,7 +2834,25 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
   // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
   // nel merge per recency come ogni altro candidato (mai valori blindati).
-  const promptExtra = (settings.polizzaPromptExtra || '').trim()
+  let promptExtra = (settings.polizzaPromptExtra || '').trim()
+  // Archivio Qdrant (FEATURE E, OPT-IN): contesto storico della STESSA polizza,
+  // SOLO come supporto (mai precedenza sulla recency del documento attuale).
+  // DEFAULT OFF: senza settings.polizzaArchivio === true nessuna chiamata a
+  // Qdrant. Un guasto di Qdrant → skip silenzioso (mai throw).
+  if (settings.polizzaArchivio === true) {
+    const polizzaNumero = String(best.polizza_numero?.valore || '').trim()
+    if (polizzaNumero) {
+      const archBlock = await loadArchiveContext({
+        polizzaNumero,
+        settings,
+        diag,
+        search: (pn) => searchVector({ query: pn, polizzaNumero: pn, limit: 8 }, settings),
+      })
+      if (archBlock) promptExtra = [promptExtra, archBlock].filter(Boolean).join('\n')
+    } else {
+      diag.push('Archivio Qdrant: polizza_numero non estratto → contesto storico saltato.')
+    }
+  }
   // 24K di contesto per i gruppi: sul campo (diagnostica) i 16K col rapporto
   // prudente lasciavano 1/3 del contesto inutilizzato E fuori restavano proprio
   // le pagine coi dati (attività a pag. 23, P.IVA contraente a pag. 10). qwen2.5
@@ -3420,6 +3485,71 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
+  // ── Affidabilità per campo (credenza, deterministica e A-POSTERIORI) ──────
+  // Nessuna nuova chiamata LLM per il PUNTEGGIO: pesa i dati GIÀ nei candidati
+  // `best[k]`/`sources` (evidenza di pagina, checksum, recency, comparsa in più
+  // documenti, affinità). Calcolata QUI (prima della cross-field) perché alimenta
+  // la selezione dei campi dubbi dell'auto-verifica zero-shot (FEATURE B).
+  // Documenti TUTTI UGUALI: MAI una priorità per tipo documento.
+  const docNorms = analyzed.map((d) => ({ name: d.name, norm: normForMatch(d.text) }))
+  const seenCountsById = {}
+  for (const [id, cand] of Object.entries(best)) {
+    const vn = normForMatch(cand.valore)
+    if (!vn) { seenCountsById[id] = 1; continue }
+    let n = 0
+    for (const dn of docNorms) if (dn.norm.includes(vn)) n++
+    seenCountsById[id] = n
+  }
+  const checksumsById = {}
+  for (const [id, cand] of Object.entries(best)) {
+    const f = fieldsById[id]
+    if (!f) continue
+    const blob = `${f.id || ''} ${f.label || ''} ${f.description || ''}`
+    if (/iva|c\s*\.?\s*f\s*\.?|fiscale|p\s*\.?\s*i\s*\.?\s*v\s*\.?/i.test(blob) && validateCodiceFiscaleIva(cand.valore)) {
+      checksumsById[id] = true
+    }
+  }
+  const reliability = buildReliabilityMap(best, fieldsById, { checksumsById, seenCountsById })
+
+  // ── Auto-verifica zero-shot (FEATURE B, OPT-IN) ───────────────────────────
+  // Una SECONDA chiamata LLM breve sui testi SENZA checksum e con poca
+  // affidabilità: conferma o SCARTA il valore PRIMA della cross-field. DEFAULT
+  // OFF: senza settings.polizzaAutoVerify === true questo ramo non viene eseguito
+  // (→ comportamento identico a oggi). Regola ferrea: errore o parse fallito →
+  // CONSERVA (mai bloccare per un fallimento del guard rail).
+  if (settings.polizzaAutoVerify === true) {
+    const evidenceFor = (id, cand) => {
+      const srcDoc = cand?.file ? analyzed.find((d) => d.name === cand.file) : null
+      if (!srcDoc?.text) return ''
+      try {
+        const win = findValueWindow(buildNormIndex(srcDoc.text), String(cand.valore ?? ''), '')
+        return (win || '').slice(0, 160)
+      } catch { return '' }
+    }
+    const verifyCall = async (userPrompt) => callOllamaRolling(s2, AUTO_VERIFY_SYSTEM, userPrompt, {
+      numCtx: 8192, numPredict: 40, timeoutMs: 60000, diag, format: 'json',
+    })
+    try {
+      const beforeCount = Object.keys(best).length
+      const summary = await runAutoValidation({
+        best, fieldsById, checksumsById, reliabilityById: reliability, settings,
+        callModel: verifyCall, getEvidence: evidenceFor, opts: { max: DEFAULT_MAX_FIELDS },
+      })
+      if (summary.calls > 0) {
+        diag.push(`Auto-verifica zero-shot: ${summary.calls} campi ricontrollati, ${summary.scartati} scartati (${beforeCount} → ${Object.keys(best).length} campi)`)
+      }
+    } catch (err) {
+      diag.push(`Auto-verifica zero-shot non eseguita (${err.message}) — i valori non sono stati modificati.`)
+    }
+  }
+
+  const lowIds = Object.entries(reliability).filter(([, r]) => r.reliable < RELIABILITY_THRESHOLD).map(([id]) => id)
+  if (lowIds.length) {
+    diag.push(`Affidabilità: ${lowIds.length} campi sotto soglia ${RELIABILITY_THRESHOLD} (${lowIds.join(', ')})`)
+  } else {
+    diag.push(`Affidabilità: tutti i ${Object.keys(reliability).length} campi sopra soglia ${RELIABILITY_THRESHOLD}`)
+  }
+
   // ── Coerenza cross-field ──────────────────────────────────────────────────
   {
     const xfNotes = validateCrossFields(best, activeFields, {
@@ -3438,8 +3568,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     else unsourced++
   }
   diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
+
   diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length}`)
-  return { data, sources, diag }
+  return { data, sources, diag, reliability }
 }
 
 /**

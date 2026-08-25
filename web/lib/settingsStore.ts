@@ -85,6 +85,13 @@ export interface WebSettings {
   // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
   // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
+  // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):
+  // non cambia il comportamento del motore. true = abilitata.
+  polizzaAutoVerify?: boolean
+  // Contesto storico dall'archivio Qdrant (FEATURE E): blocco "ARCHIVIO (storico)"
+  // per la stessa polizza. Solo supporto, mai precedenza sulla recency. DEFAULT OFF.
+  polizzaArchivio?: boolean
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]
   profiles?: GenericProfile[]
@@ -150,7 +157,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaUseClaude', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -218,6 +225,8 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
+    polizzaAutoVerify: bool('polizzaAutoVerify', false),
+    polizzaArchivio: bool('polizzaArchivio', false),
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),

@@ -17,8 +17,8 @@ import {
 interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
-  extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
-  extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[] }>
+  extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
+  extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
@@ -281,7 +281,8 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       })
       await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000) } })
       const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
-      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
+      const kwsStr = pre.matched?.length ? ` · parole chiave trovate: ${pre.matched.join(', ')}` : ''
+      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
       if (pre.verdict === 'mismatch') {
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
@@ -324,7 +325,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     } finally {
       clearInterval(cancelPoll)
     }
-    const { data, sources, diag } = extractResult
+    const { data, sources, diag, reliability } = extractResult
     extractedData = data || {}
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
@@ -333,6 +334,13 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // Converte il risultato piatto in stato rolling per lo snapshot (flatten lo riappiattisce).
     const state: Record<string, any> = {}
     for (const [k, v] of Object.entries(data || {})) if (v != null && v !== '') state[k] = { valore: v, fonte: (sources as any)?.[k] }
+    // Affidabilità (credenza) per campo, quando prodotta dal motore a stadi:
+    // salvata in un marker _reliability della rolling_state. Gli helper di
+    // flatten/buildSources la saltano perché non è una entry con `valore`/`fonte`,
+    // e jobSnapshot la espone come `basReliability` senza toccare i valori.
+    if (reliability && typeof reliability === 'object' && Object.keys(reliability).length) {
+      state._reliability = reliability
+    }
     await updateJob(job.id, { rolling_state: state, sources: sources || {}, progress: {} })
     if (n === 0) {
       const hint = (diag || []).find((l) => l.startsWith('ATTENZIONE'))

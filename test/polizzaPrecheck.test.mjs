@@ -35,6 +35,26 @@ test('keywordVerdict: match a sottostringa normalizzata, frasi comprese', () => 
   assert.deepEqual(keywordVerdict([], text), { matched: [], missing: [], ratio: 0 })
 })
 
+test('fallback contentKeywords→matchKeywords: profilo senza contentKeywords ma con matchKeywords medico', () => {
+  // Simula il profilo RC PROF MED V2: contentKeywords assente, matchKeywords con "MEDICO, medico, med".
+  // Stessa logica di runPrecheck: parseContentKeywords(undefined) → [] che è truthy,
+  // quindi il fallback va deciso sulla LUNGHEZZA, non con ||.
+  const profile = { contentKeywords: undefined, matchKeywords: 'MEDICO, medico, med' }
+  const contentKws = parseContentKeywords(profile?.contentKeywords)
+  const kws = contentKws.length ? contentKws : parseContentKeywords(profile?.matchKeywords)
+  assert.deepEqual(kws, ['MEDICO', 'medico', 'med'])
+  // documento RCT/Cedac rischi sanitari: il testo contiene MEDICO e medico → ratio alto
+  const okText = normalizeForPrecheck('RC professionale rischi sanitari — MEDICO e medico assicurato')
+  const vOk = keywordVerdict(kws, okText)
+  assert.ok(vOk.ratio >= KEYWORD_MIN_RATIO, `ratio ${vOk.ratio} < ${KEYWORD_MIN_RATIO}`)
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: vOk }).verdict, 'ok')
+  // documento estraneo (fabbricati): nessuna keyword → mismatch
+  const noText = normalizeForPrecheck('Incendio fabbricati — esplosione scoppio danni alle cose')
+  const vNo = keywordVerdict(kws, noText)
+  assert.deepEqual(vNo.matched, [])
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: vNo }).verdict, 'mismatch')
+})
+
 test('cosineSim: vettori noti', () => {
   assert.equal(cosineSim([1, 0], [1, 0]), 1)
   assert.equal(cosineSim([1, 0], [0, 1]), 0)

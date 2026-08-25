@@ -481,6 +481,7 @@ export function jobSnapshot(job: JobRow) {
     fieldDefs: job.field_defs || [],
     values: flattenRollingState(job.rolling_state),
     sources: job.sources || {},
+    basReliability: (job.rolling_state as any)?._reliability || null,
     progress: job.progress && Object.keys(job.progress).length ? job.progress : null,
     duplicateOf: job.duplicate_of || null,
     sourceJobId: job.source_job_id || null,

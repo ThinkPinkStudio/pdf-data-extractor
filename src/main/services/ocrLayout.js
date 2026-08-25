@@ -127,3 +127,220 @@ export function collapseSpatial(page) {
 export function usefulLength(s) {
   return String(s || '').replace(/ {2,}/g, ' ').length
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ALIGNER COLONNARE DETERMINISTA (feature A): coppie ETICHETTA ⟶ VALORE.
+//
+// La griglia spaziale conserva le colonne ma come testo libero con spazi; i
+// modelli piccoli leggono la struttura come rumore. Qui si ricostruiscono in
+// modo DETERMINISTICO le coppie `ETICHETTA ⟶ VALORE` adiacenti, in modo
+// TIPO-BLIND (nessuna ipotesi su polizze/fatture/regolazioni).
+//
+// Limiti (messi in chiaro): il rumore OCR può produrre etichette sbagliate e
+// "stare sulla stessa colonna" è un'euristica. L'implementazione è quindi
+// PRUDENTE: meglio poche coppie corrette che tante inventate — se la struttura
+// di una pagina non parla, si ritorna []. La guardia di verità resta A VALLE
+// (evidence check / merge). Il blocco deve andare nel prompt in AGGIUNTA, mai
+// al posto del testo spaziale grezzo.
+//
+// Algoritmo (deterministico, spiegabile):
+//   1. tokenizza ogni riga in parole con la colonna-x di inizio;
+//   2. raggruppa in CELLE: run di token separati da ≤1 spazio (i collisionali
+//      di buildSpatialPage), gap ≥2 apre una nuova cella;
+//   3. SOTTO-RIGA (same row): un token che termina con ":" è un'etichetta; il
+//      valore è la run di token successiva della STESSA riga, purché contenga
+//      un token value-like (data/numero);
+//   4. STESSA COLONNA: se una riga è fatta solo di etichette (nessun valore) e
+//      la riga sotto ha valori, associa ogni valore al label della cella più
+//      vicina in colonna-x (entro COL_TOL);
+//   5. filtri: BOILERPLATE (pag., data, pagina, n., rif.), etichette vuote,
+//      valori non value-like o troppo lunghi; cap di coppie per pagina.
+//
+// @param {string[]|string} lines  righe della griglia OPPURE il testo di una
+//   pagina (viene diviso in righe)
+// @returns {Array<{row:number,label:string,value:string,column:number}>}
+export function detectLabelValuePairs(lines) {
+  const raw = Array.isArray(lines) ? lines : String(lines || '').split('\n')
+  const rows = raw.map((l, i) => ({ idx: i + 1, toks: tokenizeLine(l), cells: null }))
+  for (const r of rows) r.cells = lineCells(r.toks)
+
+  const pairs = []
+
+  // ── Passaggio 1: SOTTO-RIGA (colon) ──────────────────────────────────────
+  for (const r of rows) {
+    let pendingLabel = []    // token di etichetta accumulati prima di un ':'
+    let colLabel = null      // etichetta corrente dopo aver trovato un ':'
+    let valToks = []         // token del valore corrente (stessa riga)
+    for (let i = 0; i < r.toks.length; i++) {
+      const t = r.toks[i]
+      if (t.text.endsWith(':')) {
+        // flush di una eventuale coppia precedente sulla stessa riga
+        if (colLabel !== null) {
+          const pair = buildPair(r.idx, colLabel, valToks, null)
+          if (pair) pairs.push(pair)
+        }
+        // la label = token precedenti (non-valore) + questo, meno i ':' finali
+        colLabel = [...pendingLabel, t.text.slice(0, -1)].join(' ')
+        pendingLabel = []
+        valToks = []
+      } else if (colLabel !== null) {
+        valToks.push(t.text)
+      } else if (!isValueLike(t.text)) {
+        pendingLabel.push(t.text)
+      }
+    }
+    if (colLabel !== null) {
+      const pair = buildPair(r.idx, colLabel, valToks, null)
+      if (pair) pairs.push(pair)
+    }
+  }
+
+  // ── Passaggio 2: STESSA COLONNA (griglia) ────────────────────────────────
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (!r.toks.length) continue
+    // riga "sola etichette": nessun token value-like e almeno una cella
+    if (r.toks.some((t) => isValueLike(t.text))) continue
+    const next = rows[i + 1]
+    if (!next || !next.toks.length) continue
+    // la riga sotto deve portare almeno un valore per associare le colonne
+    if (!next.toks.some((t) => isValueLike(t.text))) continue
+
+    for (const cell of r.cells) {
+      if (badLabel(cell.text)) continue
+      // trova nella riga sotto il token-valore più vicino in colonna (x)
+      let best = null
+      let bestD = Infinity
+      for (const tk of next.toks) {
+        if (!isValueLike(tk.text)) continue
+        const d = Math.abs(cell.x - tk.x)
+        if (d <= COL_TOL && d < bestD) { best = tk; bestD = d }
+      }
+      if (!best) continue
+      const pair = { row: i + 1, label: cell.text.trim(), value: best.text, column: cell.x }
+      if (acceptable(pair)) pairs.push(pair)
+    }
+  }
+
+  return prunePairs(pairs)
+}
+
+// Build di una coppia dal passaggio colon: normalizza e valida.
+function buildPair(row, label, valToks, column) {
+  const lab = cleanLabel(label)
+  const val = (valToks || []).join(' ').trim()
+  const pair = { row, label: lab, value: val, column: column ?? null }
+  return acceptable(pair) ? pair : null
+}
+
+// Rendibilità di una coppia grezza: label sensata, valore value-like e non
+// troppo lungo/multitoken.
+function acceptable(p) {
+  if (!p || badLabel(p.label)) return false
+  if (badValue(p.value)) return false
+  return true
+}
+
+// Un token è un VALORE se ha la forma di data/numero/importo; le parole brevi
+// alfanumeriche ("ACQUI", "TERME") NON lo sono (niente cifre).
+function isValueLike(tok) {
+  const t = String(tok || '').trim()
+  if (!t) return false
+  if (/^[+-]?\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(t)) return true
+  if (/^[+-]?\d{4}$/.test(t)) return true
+  if (/^[+-]?\d{1,3}(\.\d{3})*(,\d+)?[€¢]?$/.test(t)) return true
+  if (/^[+-]?\d+(,\d+)?[ ]?[€%]?$/.test(t)) return true
+  if (/\d/.test(t) && t.replace(/[0-9.,:€%/+ -]/g, '').length <= 1) return true
+  return false
+}
+
+// Tokenizza una riga della griglia: token {text, x} con x = colonna di inizio.
+function tokenizeLine(line) {
+  const toks = []
+  const s = String(line || '')
+  let i = 0
+  while (i < s.length) {
+    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++
+    if (i >= s.length) break
+    const start = i
+    while (i < s.length && s[i] !== ' ' && s[i] !== '\t') i++
+    toks.push({ text: s.slice(start, i), x: start })
+  }
+  return toks
+}
+
+// Raggruppa i token di una riga in CELLE. Una cell vengono separatori di
+// ≤1 spazio (collisionali della griglia); run di spazi ≥ CELL_GAP = confine.
+function lineCells(toks) {
+  const cells = []
+  if (!toks.length) return cells
+  let cur = { x: toks[0].x, tokens: [toks[0].text] }
+  for (let i = 1; i < toks.length; i++) {
+    const prevEnd = toks[i - 1].x + toks[i - 1].text.length
+    const gap = toks[i].x - prevEnd
+    if (gap >= CELL_GAP) {
+      cells.push(toCell(cur))
+      cur = { x: toks[i].x, tokens: [toks[i].text] }
+    } else {
+      cur.tokens.push(toks[i].text)
+    }
+  }
+  cells.push(toCell(cur))
+  return cells
+}
+function toCell(c) {
+  const text = c.tokens.join(' ')
+  return { x: c.x, text, end: c.x + text.length }
+}
+
+// Un'etichetta è sterile se boilerplate, troppo corta o puro numero.
+function badLabel(label) {
+  const l = String(label || '').trim()
+  if (!l || l.length < 2) return true
+  if (BOILERPLATE_LABELS.has(l.toLowerCase())) return true
+  if (/^[\d.,:/-]+$/.test(l)) return true
+  return false
+}
+
+// Un valore è scartabile se vuoto, troppo lungo/multitoken o senza cifre.
+function badValue(value) {
+  const t = String(value || '').trim()
+  if (!t) return true
+  if (t.length > MAX_VAL_CHARS) return true
+  const nTok = t.split(/\s+/).length
+  if (nTok > MAX_VAL_TOKENS) return true
+  if (!/\d/.test(t)) return true
+  return false
+}
+
+// Toglie i ':' finali (e le estetiche) da una label; trims.
+function cleanLabel(l) {
+  return String(l || '').replace(/:+$/g, '').trim()
+}
+
+const MAX_VAL_CHARS = 50
+const MAX_VAL_TOKENS = 5
+const MAX_PAIRS_PAGE = 12
+const COL_TOL = 3
+const CELL_GAP = 2
+
+const BOILERPLATE_LABELS = new Set([
+  'pag', 'p', 'pg', 'pagina', 'p.', 'n', 'n.', 'nr', 'nr.', 'n°', 'num', 'no.',
+  'rif', 'rif.', 'tel', 'tel.', 'fax', 'email', 'e-mail', 'cc', 'c.c',
+  'data', 'dat', 'di', 'e', 'il', 'la', 'le', 'l', 'del', 'della', 'delle',
+  'dei', 'per', 'con', 'su', 'oggetto', 'sede', 'cod', 'cod.', 'numero',
+])
+
+// Rimozione duplicati + cappello (compatto).
+function prunePairs(pairs) {
+  const seen = new Set()
+  const out = []
+  for (const p of pairs) {
+    const k = `${p.row}|${p.label}|${p.value}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(p)
+    if (out.length >= MAX_PAIRS_PAGE) break
+  }
+  return out
+}
