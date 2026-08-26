@@ -1,0 +1,77 @@
+RUN 3 (mancanti veri): 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="Data retroattività" | 6e39add8-de2c-4d48-b231-f03cd4e05bd5="Sinistri e circostanze " | rct_massimale_danni="Franchigia base"
+· batch 0/1   · batch 1/10   · batch 2/10   · batch 3/10   · batch 4/10   · batch 5/10   · batch 6/10   · batch 7/10   · batch 8/10   · batch 9/10   · batch 10/10   · batch 11/13   · batch 12/13   · batch 13/13   
+Fatto in 69.1s.
+DATA:
+  89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee = (VUOTO)
+  6e39add8-de2c-4d48-b231-f03cd4e05bd5 = (VUOTO)
+  rct_massimale_danni = (VUOTO)
+
+DIAG:
+Motore a stadi (Ollama): 3 campi, 2 documenti, modello qwen2.5:7b-instruct (limite contesto 32768)
+Vincoli JSON: schema — date/importi/P.IVA/tassi
+Documenti-questionario/opzioni (per contenuto): Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf — i loro importi NON valgono come dati strutturali dei campi
+Registro fatti: 559 voci numeriche su 2 documenti (guardia anti-fantasma, deterministica)
+Stadio A: 1 quietanza, 1 polizza — 0 senza data (datazione per periodo di copertura, mai per emissione)
+Affinità semantica: embedding di 14 pagine + 3 descrizioni in corso (bge-m3)…
+Affinità semantica attiva (bge-m3): 14 pagine + 3 descrizioni embeddate — instradamento e arbitrato guidati dalle DESCRIZIONI dei campi
+Strategia Stadio B: GRUPPI a copertura totale — modello qwen2.5:7b-instruct
+Gruppo "economici": saltato (nessun campo)
+Gruppo "strutturali": 2 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "strutturali": budget testo ~30276 char/batch (riserva 1909 token guida + 12% margine su 24576 num_ctx)
+Gruppo "strutturali": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.56 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.45
+Gruppo "anagrafica": 1 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "anagrafica": budget testo ~30276 char/batch (riserva 1966 token guida + 12% margine su 24576 num_ctx)
+Gruppo "anagrafica": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.58 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.42
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 3.5s · token letti dal server: 3511 · token generati: 153
+Gruppo "strutturali" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 2/2 campi eleggibili, 2 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza, 1 guardrail
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="14/10/2025" [guardrail:rinvio-attivita] · rct_massimale_danni="2.862,16" [senza-evidenza]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 7.8s · token letti dal server: 14270 · token generati: 148
+ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama (letti 14270 token su ~22518 stimati). Aumenta num_ctx o riduci i documenti per chiamata.
+Gruppo "strutturali" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 2/2 campi eleggibili, 2 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza, 1 guardrail
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="31/12/2020" [senza-evidenza] · rct_massimale_danni="3.000.000,00" [veto:opzione-questionario]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 4.0s · token letti dal server: 5367 · token generati: 167
+Gruppo "strutturali" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 2/2 campi eleggibili, 2 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 2 senza evidenza
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="31/12/2020" [senza-evidenza] · rct_massimale_danni="7.500,00" [senza-evidenza]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 8.0s · token letti dal server: 14143 · token generati: 159
+ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama (letti 14143 token su ~22594 stimati). Aumenta num_ctx o riduci i documenti per chiamata.
+Gruppo "strutturali" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 2/2 campi eleggibili, 2 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza, 1 guardrail
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="31/12/2020" [senza-evidenza] · rct_massimale_danni="2.000.000,00" [veto:opzione-questionario]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 4.7s · token letti dal server: 6912 · token generati: 159
+Gruppo "strutturali" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 2/2 campi eleggibili, 2 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza, 1 guardrail
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="31/12/2020" [senza-evidenza] · rct_massimale_danni="3.000.000,00" [veto:opzione-questionario]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 2.8s · token letti dal server: 3576 · token generati: 89
+Gruppo "anagrafica" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 1/1 campi eleggibili, 1 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 6.8s · token letti dal server: 14335 · token generati: 85
+ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama (letti 14335 token su ~22576 stimati). Aumenta num_ctx o riduci i documenti per chiamata.
+Gruppo "anagrafica" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 1/1 campi eleggibili, 1 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 3.0s · token letti dal server: 5432 · token generati: 86
+Gruppo "anagrafica" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 1/1 campi eleggibili, 1 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 6.8s · token letti dal server: 14208 · token generati: 85
+ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama (letti 14208 token su ~22651 stimati). Aumenta num_ctx o riduci i documenti per chiamata.
+Gruppo "anagrafica" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 1/1 campi eleggibili, 1 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Ollama: modello qwen2.5:7b-instruct · num_ctx 24576 · durata 3.7s · token letti dal server: 6977 · token generati: 86
+Gruppo "anagrafica" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 1/1 campi eleggibili, 1 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="Nessuno" [placeholder]
+Recupero [strutturali] campi 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee — pagine inviate: Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p6, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p12, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p9, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p13, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p11, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p8
+Ollama: modello qwen2.5:7b-instruct · num_ctx 8192 · durata 6.9s · token letti dal server: 6182 · token generati: 44
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee": {"valore": null, "evidenza": "non indicato"}}
+Recupero [anagrafica] campi 6e39add8-de2c-4d48-b231-f03cd4e05bd5 — pagine inviate: Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p12, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p10, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p6, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p5, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p13, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p9
+Ollama: modello qwen2.5:7b-instruct · num_ctx 8192 · durata 3.2s · token letti dal server: 5385 · token generati: 91
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Recupero [anagrafica]: nessun campo recuperato — risposta del modello: {"6e39add8-de2c-4d48-b231-f03cd4e05bd5": {"valore": "non indicato", "evidenza": "AVVERTENZA: da compilare solo in caso di risposta diversa da “Nessuno” ad almen
+Recupero [strutturali] campi rct_massimale_danni — pagine inviate: Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p10, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p1, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p6, NEBULONI_CARLO_MARIO_quietanza_2025.pdf·p1, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p2, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf·p9
+Ollama: modello qwen2.5:7b-instruct · num_ctx 8192 · durata 3.1s · token letti dal server: 7389 · token generati: 27
+  ↳ rct_massimale_danni [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"rct_massimale_danni": {"valore": null, "evidenza": "non indicato"}}
+Stadio E (recupero mirato): 3 campi vuoti → 3 chiamate: recuperati 0, ancora vuoti 3 — restano vuoti (meglio vuoto che sbagliato)
+Affidabilità: tutti i 0 campi sopra soglia 0.5
+Passata deterministica: 0 campi sovrascritti su 14 hint trovati nella cache OCR
+Fonti: 0 campi localizzati (file+pagina), 0 con solo nome documento, 0 senza fonte
+Motore a stadi completato: 0 campi validi su 3
+
+Salvato in out/experiment_staged_subset.json

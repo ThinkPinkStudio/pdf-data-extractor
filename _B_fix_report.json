@@ -1,0 +1,238 @@
+{
+  "caso": "B",
+  "profilo": "RC PROF MED V2",
+  "modello": "qwen2.5:7b-instruct",
+  "ollamaUrl": "http://192.168.37.10:11434",
+  "totale": 28,
+  "ok": 6,
+  "emptyOk": 6,
+  "wrong": 13,
+  "missing": 3,
+  "verdetto": "12/28",
+  "rows": [
+    {
+      "campo": "polizza_numero",
+      "label": "N° Polizza",
+      "atteso": "RCM00010027822",
+      "estratto": "RCM00010027822",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "compagnia",
+      "label": "Compagnia",
+      "atteso": "AmTrust Assicurazioni S.p.A.",
+      "estratto": "Amtrust Assicurazioni S.p.A.",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "contraente",
+      "label": "Contraente/Assicurato",
+      "atteso": "MAURO CARLO NEBULONI",
+      "estratto": "MAURO CARLO NEBULONI",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "codice_fiscale_iva",
+      "label": "P. IVA / Cod. Fiscale",
+      "atteso": "NBLMCR58L23D0033D (dedotto dal testo)",
+      "estratto": "NBLMCR58L23D033D",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "indirizzo",
+      "label": "Indirizzo",
+      "atteso": "VIA AMENDOLA 8 - ABBIATEGRASSO (MI) 20081",
+      "estratto": "VIA AMENDOLA,8, ABBIATEGRASSO",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "agenzia",
+      "label": "Agenzia",
+      "atteso": "SIMPLECLICK/ITALIA AGENCY",
+      "estratto": "ABBIATEGRASSO",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "decorrenza",
+      "label": "Decorrenza",
+      "atteso": "14/10/2021",
+      "estratto": "14/10/2025",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "scadenza",
+      "label": "Scadenza",
+      "atteso": "14/10/2025",
+      "estratto": "14/10/2026",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_imposta",
+      "label": "Tacito Rinnovo",
+      "atteso": "Sì",
+      "estratto": "si",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "atteso": "3.499,00",
+      "estratto": "2.862,16",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_premio_imponibile",
+      "label": "Frazionamento",
+      "atteso": "Annuale",
+      "estratto": "annuale",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "attivita",
+      "label": "Professione dichiarata",
+      "atteso": "Attività libero professionale assicurata: Radiodiagnostica (esclusa mammografia)",
+      "estratto": "Reumatologia, Medicina dello sport, Oculistica - oftalmologia (esclusa chirurgia estetica), Otorinolaringoiatria (esclusa chirurgia estetica), Oculistica - oftalmologia inclusa chirurgia estetica pertinente, Otorinolaringoiatria inclusa chirurgia estetica pertinente, Chirurgia oncologica ortopedica, Chirurgia ricostruttiva, Chirurgia oncologica e senologica, Ginecologia 7 : con fecondazione - assistita I, Chirurgia maxillo facciale (esclusa chirurgia estetica), Chirurgia andrologica, Chirurgia urologica, Chirurgia maxillo facciale inclusa chirurgia estetica pertinente, Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali), Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali)",
+      "fonte": "",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+      "label": "Fatturato dichiarato",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "c125c0d1-695b-4755-81db-e99137169686",
+      "label": "Retroattività",
+      "atteso": "da data specifica (illimitata? non chiaro)",
+      "estratto": "10 anni limitata",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+      "label": "Data retroattività",
+      "atteso": "14/10/2014",
+      "estratto": "01/07/2025",
+      "fonte": "NEBULONI_CARLO_MARIO_quietanza_2025.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+      "label": "Sinistri e circostanze",
+      "atteso": "1 sinistro dichiarato (scheda/quietanza: Richieste di risarcimento - Sì)",
+      "estratto": "Reumatologia, Medicina dello sport, Oculistica - oftalmologia (esclusa chirurgia estetica), Otorinolaringoiatria (esclusa chirurgia estetica), Oculistica - oftalmologia inclusa chirurgia estetica pertinente, Otorinolaringoiatria inclusa chirurgia estetica pertinente, Chirurgia oncologica ortopedica, Chirurgia ricostruttiva, Chirurgia oncologica e senologica, Ginecologia 7 : con fecondazione - assistita I, Chirurgia maxillo facciale (esclusa chirurgia estetica), Chirurgia andrologica, Chirurgia urologica, Chirurgia maxillo facciale inclusa chirurgia estetica pertinente, Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali), Ortopedia  con traumatologia inclusi interventi spinali",
+      "fonte": "",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "atteso": "2.000.000,00",
+      "estratto": "2.000.000,00",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_persona",
+      "label": "Massimale annuo",
+      "atteso": "6.000.000,00",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_massimale_danni",
+      "label": "Franchigia base",
+      "atteso": "10.000,00",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_massimale_prestatore",
+      "label": "Scoperto base",
+      "atteso": "non indicato",
+      "estratto": "10.000,00",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_parametro",
+      "label": "Sottolimiti",
+      "atteso": "Ruolo apicale e direzione sanitaria - perdite patrimoniali € 200.000,00",
+      "estratto": "Altre Perdite Patrimoniali  e conduzione  dello studio (RCT-RCO)",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_importo_preventivo",
+      "label": "Estensioni operative",
+      "atteso": "Medicina estetica NO; Attività invasive minori Sì; Attività invasive e mezzi di soccorso Sì; Ruolo apicale e direzione sanitaria - Perdite patrimoniali 200.000,00",
+      "estratto": "Altre Perdite Patrimoniali e conduzione dello studio (RCT-RCO)",
+      "fonte": "Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_tasso",
+      "label": "Esclusioni particolari",
+      "atteso": "non presente (esclusioni non riportate in scheda; rimando alle condizioni di polizza del Set Informativo)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_premio_imponibile",
+      "label": "Condizioni particolari, aggiuntive",
+      "atteso": "Sottoscrizione della polizza firmata il 09/10/2024 presso Milano; tacito rinnovo, annuale; efficacia decorrenza/scadenza",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rcp_scoperto_min_mondo",
+      "label": "Tutela",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+      "label": "Massimale Tutela",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "6d1e131a-9700-4409-85b9-e476de07204e",
+      "label": "Franchigia Tutela",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+      "label": "Premio Lordo Tutela",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    }
+  ]
+}

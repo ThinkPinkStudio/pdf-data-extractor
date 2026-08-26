@@ -1,0 +1,67 @@
+{
+  "data": "2026-08-25T21:00:00+02:00",
+  "profilo": { "id": "1785512148086", "nome": "RC PROF MED V2", "campi": 28 },
+  "fascicolo": "campione polizze x test 07 08 2026 1 / in vigore",
+  "ground_truth": "_nonreg_report.json",
+  "baseline_7b": "16/28 (9 OK + 7 EMPTY-ok)",
+  "ollama_url": "http://localhost:11434",
+  "embedding_ok": true,
+  "embedding_model": "bge-m3",
+  "nota_embedding": "bge-m3 pullato durante la sessione; ATTIVO nel run 14b (diag: 'Affinità semantica attiva (bge-m3)').",
+  "strategiaMotore": "staged-gruppi (perField=false, cascade=false)",
+  "constrainedJson": true,
+  "modelli_locali": ["qwen3.5:9b", "qwen2.5:14b"],
+  "per_modello": {
+    "qwen3.5:9b": {
+      "esito": "FALLITO - nessun punteggio",
+      "secs": null,
+      "ok": null, "val": null, "wrong": null, "missing": null,
+      "punteggio": "n/d",
+      "motivo": "Il server Ollama locale si è spento durante il run (send 'fetch failed' ripetuti → 'Ollama non raggiungibile'). Provato a numCtx 24576 e 16384: entrambi crash. Modello 9b TENUTA stretta: la corriera 1 stampava 8 GB di con, la 9b (6.6GB) + 24k ctx ha fatto cadere il server. JSON generato: chiave 'id_campo' duplicata (non usa gli ID reali) quando ha risposto.",
+      "diag_parziale": [
+        "batch 1 JSON non-parsobile: {'id_campo': {...}} chiave generica duplicata",
+        "Affinità semantica NON disponibile all'avvio (bge-m3 non ancora pronto) → lessico",
+        "primi batch FALLITI per fetch failed → INTERROTTO con 4 campi"
+      ]
+    },
+    "qwen2.5:14b": {
+      "secs": 1298.3,
+      "numCtx": 16384,
+      "ok": 4, "val": null, "wrong": 4, "missing": 8,
+      "emptyOk": 12,
+      "punteggio": "16/28",
+      "deltaVsBaseline": "0 (pari a 16/28, distribuzione diversa)",
+      "sintesi": "OK 4 + EMPTY-ok 12 · WRONG 4 · MISSING 8",
+      "tabella": [
+        { "id": "polizza_numero", "label": "N° Polizza", "atteso": "781949596", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "compagnia", "label": "Compagnia", "atteso": "UNIPOLSAI ASSICURAZIONI S.P.A.", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "contraente", "label": "Contraente/Assicurato", "atteso": "CEDAM ITALIA SRL", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "codice_fiscale_iva", "label": "P. IVA / Cod. Fiscale", "atteso": "00587800137", "estratto": "00587800137", "esito": "OK", "fonte": "Cedam_Italia_Rcto_PROFF_polizza.pdf" },
+        { "id": "indirizzo", "label": "Indirizzo", "atteso": "VIA CERVA 22", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "agenzia", "label": "Agenzia", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "decorrenza", "label": "Decorrenza", "atteso": "31/12/2025", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "scadenza", "label": "Scadenza", "atteso": "31/12/2026", "estratto": "31/12/2026", "esito": "OK", "fonte": "Cedam_Italia_Srl_Rc_professionale_q.za_25_26.pdf" },
+        { "id": "rcp_imposta", "label": "Tacito Rinnovo", "atteso": "Sì", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "rcp_premio_totale", "label": "Premio lordo", "atteso": "13.068,01", "estratto": "13.068,01", "esito": "OK", "fonte": "Cedam_Italia_Srl_Rc_professionale_q.za_25_26.pdf" },
+        { "id": "rcp_premio_imponibile", "label": "Frazionamento", "atteso": "annuale", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "attivita", "label": "Professione dichiarata", "atteso": "CENTRI DIAGNOSTICI", "estratto": "tecnico di laboratorio", "esito": "WRONG", "fonte": "Cedam_Italia_Rcto_PROFF_polizza.pdf" },
+        { "id": "e1d90f78-3e3a-4e42-be90-001b8c34c05a", "label": "Fatturato dichiarato", "atteso": "8.045.000,00", "estratto": "4.000.000,00", "esito": "WRONG", "fonte": "Cedam_Italia_Rcto_atto_2018_aumento_massimale.pdf" },
+        { "id": "c125c0d1-695b-4755-81db-e99137169686", "label": "Retroattività", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee", "label": "Data retroattività", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "6e39add8-de2c-4d48-b231-f03cd4e05bd5", "label": "Sinistri e circostanze", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "rct_massimale_sinistro", "label": "Massimale per sinistro", "atteso": "7.500.000,00", "estratto": "20.000,00", "esito": "WRONG", "fonte": "cedam16032026092828.pdf" },
+        { "id": "rct_massimale_persona", "label": "Massimale annuo", "atteso": "7.500.000,00", "estratto": "", "esito": "MISSING", "fonte": "" },
+        { "id": "rct_massimale_danni", "label": "Franchigia base", "atteso": "20.000,00", "estratto": "20.000,00", "esito": "OK", "fonte": "cedam16032026092828.pdf" },
+        { "id": "rct_massimale_prestatore", "label": "Scoperto base", "atteso": "(non presente)", "estratto": "1.000,00", "esito": "WRONG", "fonte": "Cedam_Italia_Rcto_PROFF_polizza.pdf" },
+        { "id": "rct_parametro", "label": "Sottolimiti", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "rct_importo_preventivo", "label": "Estensioni operative", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "rct_tasso", "label": "Esclusioni particolari", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "rct_premio_imponibile", "label": "Condizioni particolari aggiuntive", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "rcp_scoperto_min_mondo", "label": "Tutela", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308", "label": "Massimale Tutela", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "6d1e131a-9700-4409-85b9-e476de07204e", "label": "Franchigia Tutela", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" },
+        { "id": "0df0e5bc-c285-444f-a653-b8dbe1daab16", "label": "Premio Lordo Tutela", "atteso": "(non presente)", "estratto": "", "esito": "EMPTY-ok", "fonte": "" }
+      ]
+    }
+  }
+}

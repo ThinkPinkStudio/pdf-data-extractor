@@ -1,0 +1,150 @@
+Profilo: "RC PROF MED V2" (id 1785512148086) — 28 campi attivi
+
+— NEBULONI_CARLO_MARIO_quietanza_2025.pdf → 1 pagine da cache OCR, useful 0
+— Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf → 13 pagine da cache OCR, useful 0
+
+========== RUN 1-28 — 28 campi ==========
+Campi: polizza_numero, compagnia, contraente, codice_fiscale_iva, indirizzo, agenzia, decorrenza, scadenza, rcp_imposta, rcp_premio_totale, rcp_premio_imponibile, attivita, e1d90f78-3e3a-4e42-be90-001b8c34c05a, c125c0d1-695b-4755-81db-e99137169686, 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee, 6e39add8-de2c-4d48-b231-f03cd4e05bd5, rct_massimale_sinistro, rct_massimale_persona, rct_massimale_danni, rct_massimale_prestatore, rct_parametro, rct_importo_preventivo, rct_tasso, rct_premio_imponibile, rcp_scoperto_min_mondo, c23c8480-d1bd-4ed7-adb2-f0b0dd999308, 6d1e131a-9700-4409-85b9-e476de07204e, 0df0e5bc-c285-444f-a653-b8dbe1daab16
+Lancio extractPolizzaStaged su http://192.168.37.10:11434/qwen2.5:7b-instruct numCtx 24576 …
+· batch 0/1   · batch 1/15   · batch 2/15   · batch 3/15   · batch 4/15   · batch 5/15   · batch 6/15   · batch 7/15   · batch 8/15   · batch 9/15   · batch 10/15   · batch 11/15   · batch 12/15   · batch 13/15   · batch 14/15   · batch 15/15   · batch 16/25   · batch 17/25   · batch 18/25   · batch 19/25   · batch 20/25   · batch 21/25   · batch 22/25   · batch 23/25   · batch 24/25   · batch 25/25   
+Fatto in 359.8s.
+
+— DATA (campi richiesti) —
+  polizza_numero = "RCM00010027822"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  compagnia = "Amtrust Assicurazioni S.p.A."  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  contraente = "MAURO CARLO NEBULONI"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  codice_fiscale_iva = "NBLMCR58L23D033D"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  indirizzo = "VIA AMENDOLA,8, ABBIATEGRASSO, 20081"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  agenzia = "ABBIATEGRASSO"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.1]
+  decorrenza = "14/10/2025"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  scadenza = "14/10/2026"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  rcp_imposta = "si"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.1]
+  rcp_premio_totale = "5.724,32"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  rcp_premio_imponibile = "Annuale"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  attivita = "Reumatologia, Medicina dello sport, Oculistica - oftalmologia (esclusa chirurgia estetica), Otorinolaringoiatria (esclusa chirurgia estetica), Oculistica - oftalmologia inclusa chirurgia estetica pertinente, Otorinolaringoiatria inclusa chirurgia estetica pertinente, Chirurgia oncologica ortopedica, Chirurgia ricostruttiva, Chirurgia oncologica e senologica, Ginecologia 7 : con fecondazione - assistita I, Chirurgia maxillo facciale (esclusa chirurgia estetica), Chirurgia andrologica, Chirurgia urologica, Chirurgia maxillo facciale inclusa chirurgia estetica pertinente, Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali), Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali)"
+  e1d90f78-3e3a-4e42-be90-001b8c34c05a = "3.499,00"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.1]
+  c125c0d1-695b-4755-81db-e99137169686 = "10 anni limitata"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.11]
+  89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee = (VUOTO)
+  6e39add8-de2c-4d48-b231-f03cd4e05bd5 = (VUOTO)
+  rct_massimale_sinistro = (VUOTO)
+  rct_massimale_persona = (VUOTO)
+  rct_massimale_danni = (VUOTO)
+  rct_massimale_prestatore = "10.000,00"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.10]
+  rct_parametro = "Altre Perdite Patrimoniali  e conduzione  dello studio (RCT-RCO)"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.2]
+  rct_importo_preventivo = "Altre Perdite Patrimoniali e conduzione dello studio (RCT-RCO)"  [Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf · pag.2]
+  rct_tasso = (VUOTO)
+  rct_premio_imponibile = (VUOTO)
+  rcp_scoperto_min_mondo = (VUOTO)
+  c23c8480-d1bd-4ed7-adb2-f0b0dd999308 = (VUOTO)
+  6d1e131a-9700-4409-85b9-e476de07204e = (VUOTO)
+  0df0e5bc-c285-444f-a653-b8dbe1daab16 = (VUOTO)
+
+— DIAG (righe utili) —
+Motore a stadi (Ollama): 28 campi, 2 documenti, modello qwen2.5:7b-instruct (limite contesto 32768)
+Vincoli JSON: schema — date/importi/P.IVA/tassi
+Stadio A: 1 quietanza, 1 polizza — 0 senza data (datazione per periodo di copertura, mai per emissione)
+Strategia Stadio B: GRUPPI a copertura totale — modello qwen2.5:7b-instruct
+Gruppo "strutturali": 13 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "strutturali": budget testo ~30276 char/batch (riserva 2631 token guida + 12% margine su 24576 num_ctx)
+Gruppo "strutturali": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.69 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.59
+Gruppo "economici": 5 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "economici": budget testo ~30276 char/batch (riserva 2025 token guida + 12% margine su 24576 num_ctx)
+Gruppo "economici": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.54 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.52
+Gruppo "anagrafica": 10 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "anagrafica": budget testo ~30276 char/batch (riserva 2359 token guida + 12% margine su 24576 num_ctx)
+Gruppo "anagrafica": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.62 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.57
+Gruppo "strutturali" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 13/13 campi eleggibili, 13 proposti — scartati: 4 placeholder, 0 sanitizzazione/checksum, 7 senza evidenza, 2 guardrail
+  ↳ attivita="Medico" [guardrail:rinvio-attivita] · c125c0d1-695b-4755-81db-e99137169686="non indicato" [placeholder] · 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="01/07/2025" [guardrail:rinvio-attivita] · rct_massimale_sinistro="3.499.000,00" [senza-evidenza] · rct_massimale_persona="3.499.000,00" [senza-evidenza] · rct_massimale_danni="3.499.000,00" [senza-evidenza] · rct_massimale_prestatore="3.499.000,00" [senza-evidenza] · rct_parametro="non indicato" [placeholder] · rct_importo_preventivo="non indicato" [placeholder] · rcp_scoperto_min_mondo="non indicato" [placeholder] · c23c8480-d1bd-4ed7-adb2-f0b0dd999308="3.499.000,00" [senza-evidenza] · 6d1e131a-9700-4409-85b9-e476de07204e="3.499.000,00" [senza-evidenza] · 0df0e5bc-c285-444f-a653-b8dbe1daab16="3.499.000,00" [senza-evidenza]
+Gruppo "strutturali" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 13/13 campi eleggibili, 13 proposti — scartati: 0 placeholder, 1 sanitizzazione/checksum, 3 senza evidenza, 5 guardrail
+  ↳ attivita="Medico" [guardrail:rinvio-attivita] · c125c0d1-695b-4755-81db-e99137169686="Massimale per Sinistro" [sanitizzato] · 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="14/10/2014" [guardrail:rinvio-attivita] · rct_massimale_sinistro="2.000.000,00" [veto:opzione-questionario] · rct_massimale_persona="6.000.000,00" [veto:opzione-questionario] · rct_massimale_danni="2.000.000,00" [veto:opzione-questionario] · rct_massimale_prestatore="10.000,00"~0.56 ✓ · rct_parametro="RC OPERAI: 1.000.000,00" [senza-evidenza] · rct_importo_preventivo="Altre Perdite Patrimoniali e"~0.47 ✓ · rcp_scoperto_min_mondo="Tutela legale: presente" ✓ · c23c8480-d1bd-4ed7-adb2-f0b0dd999308="100.000,00" [senza-evidenza] · 6d1e131a-9700-4409-85b9-e476de07204e="250,00"~0.68 ✓ · 0df0e5bc-c285-444f-a653-b8dbe1daab16="15.000,00" [senza-evidenza]
+Gruppo "strutturali" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 13/13 campi eleggibili, 13 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 8 senza evidenza, 1 guardrail
+  ↳ attivita="Reumatologia, Medicina dello" ✓ · c125c0d1-695b-4755-81db-e99137169686="10 anni limitata"~0.58 ✓ · 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="10/10/2022" [senza-evidenza] · rct_massimale_sinistro="10.000.000,00" [senza-evidenza] · rct_massimale_persona="10.000.000,00" [senza-evidenza] · rct_massimale_danni="10.000,00" [senza-evidenza] · rct_massimale_prestatore="100.000,00" [senza-evidenza] · rct_parametro="RC OPERAI: 1.000.000,00, RC " [veto:opzione-questionario] · rct_importo_preventivo="RC OPERAI, RC MEDICO, RC PRO" [senza-evidenza] · rcp_scoperto_min_mondo="non indicato" [placeholder] · c23c8480-d1bd-4ed7-adb2-f0b0dd999308="100.000,00" [senza-evidenza] · 6d1e131a-9700-4409-85b9-e476de07204e="250,00"~0.68 ✓ · 0df0e5bc-c285-444f-a653-b8dbe1daab16="15.000,00" [senza-evidenza]
+Gruppo "strutturali" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 13/13 campi eleggibili, 13 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 5 senza evidenza, 4 guardrail
+  ↳ attivita="Medico" [guardrail:rinvio-attivita] · c125c0d1-695b-4755-81db-e99137169686="non indicato" [placeholder] · 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="14/10/2024" [guardrail:rinvio-attivita] · rct_massimale_sinistro="2.000.000,00" [veto:opzione-questionario] · rct_massimale_persona="6.000.000,00" [veto:opzione-questionario] · rct_massimale_danni="2.862,16" [senza-evidenza] · rct_massimale_prestatore="1.000,00" [senza-evidenza] · rct_parametro="Altre Perdite Patrimoniali  "~0.53 ✓ · rct_importo_preventivo="no" [senza-evidenza] · rcp_scoperto_min_mondo="Tutela legale: presente" ✓ · c23c8480-d1bd-4ed7-adb2-f0b0dd999308="100.000,00" [senza-evidenza] · 6d1e131a-9700-4409-85b9-e476de07204e="250,00"~0.68 [ok-ma-perde-merge] · 0df0e5bc-c285-444f-a653-b8dbe1daab16="15.000,00" [senza-evidenza]
+Gruppo "strutturali" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 13/13 campi eleggibili, 13 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 5 senza evidenza, 3 guardrail
+  ↳ attivita="Reumatologia, Medicina dello" [ok-ma-perde-merge] · c125c0d1-695b-4755-81db-e99137169686="10 anni" [guardrail:rinvio-attivita] · 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee="20/06/2023" [senza-evidenza] · rct_massimale_sinistro="1.000.000,00" [veto:opzione-questionario] · rct_massimale_persona="3.000.000,00" [veto:opzione-questionario] · rct_massimale_danni="2.500,00" [senza-evidenza] · rct_massimale_prestatore="10.000,00"~0.56 ✓ · rct_parametro="RC OPERAI: 1.000.000,00" [senza-evidenza] · rct_importo_preventivo="Non indicato" [placeholder] · rcp_scoperto_min_mondo="Tutela legale: presente" [ok-ma-perde-merge] · c23c8480-d1bd-4ed7-adb2-f0b0dd999308="100.000,00" [senza-evidenza] · 6d1e131a-9700-4409-85b9-e476de07204e="250,00"~0.68 [ok-ma-perde-merge] · 0df0e5bc-c285-444f-a653-b8dbe1daab16="15.000,00" [senza-evidenza]
+Gruppo "economici" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 5/5 campi eleggibili, 5 proposti — scartati: 3 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza
+  ↳ rcp_imposta="null" [placeholder] · rcp_premio_totale="3.499,00" [senza-evidenza] · rcp_premio_imponibile="annuale"~0.48 ✓ · rct_tasso="null" [placeholder] · rct_premio_imponibile="null" [placeholder]
+Gruppo "economici" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 5/5 campi eleggibili, 5 proposti — scartati: 2 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza
+  ↳ rcp_imposta="si" [senza-evidenza] · rcp_premio_totale="3.499,00"~0.72 ✓ · rcp_premio_imponibile="annuale"~0.51 ✓ · rct_tasso="non indicato" [placeholder] · rct_premio_imponibile="non indicato" [placeholder]
+Gruppo "economici" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 5/5 campi eleggibili, 5 proposti — scartati: 3 placeholder, 0 sanitizzazione/checksum, 2 senza evidenza
+  ↳ rcp_imposta="non indicato" [placeholder] · rcp_premio_totale="3.000.000,00" [senza-evidenza] · rcp_premio_imponibile="annuale" [senza-evidenza] · rct_tasso="non indicato" [placeholder] · rct_premio_imponibile="non indicato" [placeholder]
+Gruppo "economici" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 5/5 campi eleggibili, 5 proposti — scartati: 2 placeholder, 0 sanitizzazione/checksum, 2 senza evidenza
+  ↳ rcp_imposta="Sì" [senza-evidenza] · rcp_premio_totale="2.862,16" [senza-evidenza] · rcp_premio_imponibile="Annuale"~0.48 ✓ · rct_tasso="Non indicato" [placeholder] · rct_premio_imponibile="Non indicato" [placeholder]
+Gruppo "economici" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 5/5 campi eleggibili, 5 proposti — scartati: 3 placeholder, 0 sanitizzazione/checksum, 1 senza evidenza, 1 guardrail
+  ↳ rcp_imposta="Non indicato" [placeholder] · rcp_premio_totale="3.000.000,00" [veto:opzione-questionario] · rcp_premio_imponibile="Annuale" [senza-evidenza] · rct_tasso="Non indicato" [placeholder] · rct_premio_imponibile="Non indicato" [placeholder]
+Gruppo "anagrafica" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 10/10 campi eleggibili, 10 proposti — scartati: 0 placeholder, 2 sanitizzazione/checksum, 1 senza evidenza
+  ↳ polizza_numero="RCM00010027822"~0.64 ✓ · compagnia="Amtrust Assicurazioni S.p.A."~0.49 ✓ · contraente="MAURO CARLO NEBULONI"~0.54 ✓ · codice_fiscale_iva="NBLMCR58L23D033D"~0.51 ✓ · indirizzo="VIA AMENDOLA,8, ABBIATEGRASS"~0.57 ✓ · agenzia="SIMPLE ITALIA AGENCY" [sanitizzato] · decorrenza="14/10/2025"~0.45 ✓ · scadenza="14/10/2026"~0.45 ✓ · e1d90f78-3e3a-4e42-be90-001b8c34c05a="2862,16" [senza-evidenza] · 6e39add8-de2c-4d48-b231-f03cd4e05bd5="Contratto di Assicurazione p" [sanitizzato]
+Gruppo "anagrafica" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 10/10 campi eleggibili, 10 proposti — scartati: 1 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+  ↳ polizza_numero="RCM00010027822"~0.64 [ok-ma-perde-merge] · compagnia="AmTrust Assicurazioni S.p.A."~0.50 [ok-ma-perde-merge] · contraente="MAURO CARLO NEBULONI"~0.57 [ok-ma-perde-merge] · codice_fiscale_iva="NBLMCR58L23D033D"~0.59 [ok-ma-perde-merge] · indirizzo="VIA AMENDOLA, 8, ABBIATEGRAS"~0.58 [ok-ma-perde-merge] · agenzia="ABBIATEGRASSO"~0.45 ✓ · decorrenza="14/10/2024"~0.51 [ok-ma-perde-merge] · scadenza="14/10/2025"~0.49 [ok-ma-perde-merge] · e1d90f78-3e3a-4e42-be90-001b8c34c05a="3.499,00"~0.54 ✓ · 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Gruppo "anagrafica" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 10/10 campi eleggibili, 10 proposti — scartati: 1 placeholder, 1 sanitizzazione/checksum, 4 senza evidenza
+  ↳ polizza_numero="781949596" [senza-evidenza] · compagnia="AmTrust Assicurazioni S.p.A."~0.50 [ok-ma-perde-merge] · contraente="Mauro Carlo Nebuloni"~0.57 [ok-ma-perde-merge] · codice_fiscale_iva="02876540112" [sanitizzato] · indirizzo="Via Cavour 22, Milano" [ok-ma-perde-merge] · agenzia="Milano"~0.51 [ok-ma-perde-merge] · decorrenza="01/01/2023" [senza-evidenza] · scadenza="31/12/2026" [senza-evidenza] · e1d90f78-3e3a-4e42-be90-001b8c34c05a="13.158,70" [senza-evidenza] · 6e39add8-de2c-4d48-b231-f03cd4e05bd5="non indicato" [placeholder]
+Gruppo "anagrafica" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 10/10 campi eleggibili, 10 proposti — scartati: 0 placeholder, 1 sanitizzazione/checksum, 1 senza evidenza
+  ↳ polizza_numero="RCM00010027822"~0.64 [ok-ma-perde-merge] · compagnia="Amtrust Medico Protetto Ed.0"~0.54 [ok-ma-perde-merge] · contraente="MAURO CARLO NEBULONI"~0.54 [ok-ma-perde-merge] · codice_fiscale_iva="NBLMCR58L23D033D"~0.51 [ok-ma-perde-merge] · indirizzo="VIA AMENDOLA,8, ABBIATEGRASS"~0.57 [ok-ma-perde-merge] · agenzia="ABBIATEGRASSO"~0.45 [ok-ma-perde-merge] · decorrenza="14/10/2024"~0.51 [ok-ma-perde-merge] · scadenza="14/10/2025"~0.45 [ok-ma-perde-merge] · e1d90f78-3e3a-4e42-be90-001b8c34c05a="2862,16" [senza-evidenza] · 6e39add8-de2c-4d48-b231-f03cd4e05bd5="Massimale per Sinistro: 2000" [sanitizzato]
+Gruppo "anagrafica" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 10/10 campi eleggibili, 10 proposti — scartati: 1 placeholder, 1 sanitizzazione/checksum, 4 senza evidenza
+  ↳ polizza_numero="781949596" [senza-evidenza] · compagnia="AmTrust Assicurazioni S.p.A."~0.50 [ok-ma-perde-merge] · contraente="Nebuloni Mauro Carlo" [ok-ma-perde-merge] · codice_fiscale_iva="01917540518" [sanitizzato] · indirizzo="Via Clerici 14, Milano" [ok-ma-perde-merge] · agenzia="Milano"~0.51 [ok-ma-perde-merge] · decorrenza="01/01/2024" [senza-evidenza] · scadenza="31/12/2026" [senza-evidenza] · e1d90f78-3e3a-4e42-be90-001b8c34c05a="13.158,70" [senza-evidenza] · 6e39add8-de2c-4d48-b231-f03cd4e05bd5="Nessuno" [placeholder]
+  ↳ 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee": {"valore": null, "evidenza": "non indicato"}}
+  ↳ 6e39add8-de2c-4d48-b231-f03cd4e05bd5 [vuoto/null]
+Recupero [anagrafica]: nessun campo recuperato — risposta del modello: {"6e39add8-de2c-4d48-b231-f03cd4e05bd5": {"valore": null, "evidenza": "non indicato"}}
+  ↳ rct_massimale_sinistro [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"rct_massimale_sinistro": {"valore": null, "evidenza": "Massimale per Periodo di Assicurazione /Serie di Sinistri\nIl Massimale per Periodo di Assicurazione /S
+  ↳ rct_tasso [vuoto/null]
+Recupero [economici]: nessun campo recuperato — risposta del modello: {"rct_tasso": {"valore": null, "evidenza": "non indicato"}}
+  ↳ rct_massimale_persona [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"rct_massimale_persona": {"valore": null, "evidenza": "non indicato"}}
+  ↳ rct_premio_imponibile [vuoto/null]
+Recupero [economici]: nessun campo recuperato — risposta del modello: {"rct_premio_imponibile": {"valore": null, "evidenza": "Premio Imponibile (euro) | Imposte (euro) | Totale Premio (euro) | 2.862,16 636,84 3.499,00"}}
+  ↳ rct_massimale_danni [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"rct_massimale_danni": {"valore": null, "evidenza": "non indicato"}}
+  ↳ c23c8480-d1bd-4ed7-adb2-f0b0dd999308 [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"c23c8480-d1bd-4ed7-adb2-f0b0dd999308": {"valore": null, "evidenza": "Massimale per Sinistro 2.000.000,00\nMassimale per Periodo /Serie di sinistri\n 6.000.000
+  ↳ 0df0e5bc-c285-444f-a653-b8dbe1daab16 [vuoto/null]
+Recupero [strutturali]: nessun campo recuperato — risposta del modello: {"0df0e5bc-c285-444f-a653-b8dbe1daab16": {"valore": null, "evidenza": "non indicato"}}
+Stadio E (recupero mirato): 10 campi vuoti → 10 chiamate: recuperati 1, ancora vuoti 9 — restano vuoti (meglio vuoto che sbagliato)
+Guardrail Tutela: nessuna evidenza della garanzia nel fascicolo → "rcp_scoperto_min_mondo" (Tutela) svuotato (meglio vuoto che sbagliato)
+Guardrail Tutela: nessuna evidenza della garanzia nel fascicolo → "6d1e131a-9700-4409-85b9-e476de07204e" (Franchigia Tutela) svuotato (meglio vuoto che sbagliato)
+[deterministico] rcp_premio_totale: 2.862,16 (fonte: NEBULONI_CARLO_MARIO_quietanza_2025.pdf p1 riga 1, conf 0.92)
+[deterministico] rcp_premio_totale: 5.724,32 (= imponibile 2.862,16 + imposta 2.862,16, premio lordo completato)
+Motore a stadi completato: 17 campi validi su 28
+
+
+
+——— RUN 1 VERDETTO: 17 OK, 11 VUOTI ————
+OK: polizza_numero, compagnia, contraente, codice_fiscale_iva, indirizzo, agenzia, decorrenza, scadenza, rcp_imposta, rcp_premio_totale, rcp_premio_imponibile, attivita, e1d90f78-3e3a-4e42-be90-001b8c34c05a, c125c0d1-695b-4755-81db-e99137169686, rct_massimale_prestatore, rct_parametro, rct_importo_preventivo
+VUOTI: 89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee, 6e39add8-de2c-4d48-b231-f03cd4e05bd5, rct_massimale_sinistro, rct_massimale_persona, rct_massimale_danni, rct_tasso, rct_premio_imponibile, rcp_scoperto_min_mondo, c23c8480-d1bd-4ed7-adb2-f0b0dd999308, 6d1e131a-9700-4409-85b9-e476de07204e, 0df0e5bc-c285-444f-a653-b8dbe1daab16
+
+========== RUN 2-solo3 — 3 campi ==========
+Campi: compagnia, contraente, codice_fiscale_iva
+Lancio extractPolizzaStaged su http://192.168.37.10:11434/qwen2.5:7b-instruct numCtx 24576 …
+· batch 0/1   · batch 1/5   · batch 2/5   · batch 3/5   · batch 4/5   · batch 5/5   
+Fatto in 38.8s.
+
+— DATA (campi richiesti) —
+  compagnia = "AmTrust Assicurazioni S.p.A."  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  contraente = "MAURO CARLO NEBULONI"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+  codice_fiscale_iva = "NBLMCR58L23D033D"  [NEBULONI_CARLO_MARIO_quietanza_2025.pdf · pag.1]
+
+— DIAG (righe utili) —
+Motore a stadi (Ollama): 3 campi, 2 documenti, modello qwen2.5:7b-instruct (limite contesto 32768)
+Vincoli JSON: schema — date/importi/P.IVA/tassi
+Stadio A: 1 quietanza, 1 polizza — 0 senza data (datazione per periodo di copertura, mai per emissione)
+Strategia Stadio B: GRUPPI a copertura totale — modello qwen2.5:7b-instruct
+Gruppo "strutturali": saltato (nessun campo)
+Gruppo "economici": saltato (nessun campo)
+Gruppo "anagrafica": 3 campi, 2 documenti (~191914 char) → 5 batch (3 focalizzati (recenti + più affini alle descrizioni) + copertura totale, num_ctx 24576)
+Gruppo "anagrafica": budget testo ~30276 char/batch (riserva 2047 token guida + 12% margine su 24576 num_ctx)
+Gruppo "anagrafica": documenti più affini alle descrizioni → Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf~0.58 · NEBULONI_CARLO_MARIO_quietanza_2025.pdf~0.51
+Gruppo "anagrafica" batch 1/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf): 3/3 campi eleggibili, 3 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+Gruppo "anagrafica" batch 2/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 3/3 campi eleggibili, 3 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+Gruppo "anagrafica" batch 3/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 3/3 campi eleggibili, 3 proposti — scartati: 0 placeholder, 1 sanitizzazione/checksum, 0 senza evidenza
+  ↳ compagnia="AmTrust Assicurazioni S.p.A."~0.50 [ok-ma-perde-merge] · contraente="Mauro Carlo Nebuloni"~0.57 [ok-ma-perde-merge] · codice_fiscale_iva="01917540518" [sanitizzato]
+Gruppo "anagrafica" batch 4/5 (NEBULONI_CARLO_MARIO_quietanza_2025.pdf, Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 3/3 campi eleggibili, 3 proposti — scartati: 0 placeholder, 0 sanitizzazione/checksum, 0 senza evidenza
+Gruppo "anagrafica" batch 5/5 (Nebuloni_Mauro_Carlo_Rc_Professionale_Polizza.pdf): 3/3 campi eleggibili, 3 proposti — scartati: 0 placeholder, 1 sanitizzazione/checksum, 0 senza evidenza
+  ↳ compagnia="AmTrust Assicurazioni S.p.A."~0.50 [ok-ma-perde-merge] · contraente="Nebuloni Mauro Carlo" [ok-ma-perde-merge] · codice_fiscale_iva="01917540518" [sanitizzato]
+Stadio E: nessun campo mancante, recupero non necessario.
+Motore a stadi completato: 3 campi validi su 3
+
+
+
+Salvato in out/experiment_staged_subset.json

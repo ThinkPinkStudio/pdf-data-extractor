@@ -1,0 +1,325 @@
+{
+  "verdetto": "non regressione: >=12 (OK)",
+  "conteggio": "9/28 (di cui 7 vuoti corretti)",
+  "campiCorretti": 9,
+  "vuotiCorretti": 7,
+  "wrong": 10,
+  "missing": 2,
+  "baselineStorica": "12/28 (7 corretti + 5 vuoti legittimi, ultimo run misurabile _probe_finali)",
+  "baselineRicalcolataConStessoScorer": "11/28 ok + 3 vuoti legittimi",
+  "data": "2026-08-25T18:15:07+00:00",
+  "profilo": {
+    "id": "1785512148086",
+    "nome": "RC PROF MED V2",
+    "campi": 28
+  },
+  "fascicolo": "campione polizze x test 07 08 2026 1 / in vigore",
+  "modello": "qwen2.5:7b-instruct",
+  "embedding": "bge-m3",
+  "ollamaUrl": "http://192.168.37.10:11434",
+  "strategiaMotore": "staged-gruppi (perField=false, cascade=false)",
+  "note": "Confronto onesto col golden letto nei PDF del fascicolo CEDAM in vigore (vedi prep_casi_report). Campo corretto = non vuoto e corrisponde all atteso; atteso \"non presente/indicato\" -> vuoto. NON applicato il golden EULIP (fascicolo diverso).",
+  "regressioni": [
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "prima": "OK",
+      "ora": "WRONG",
+      "estratto": "10.689,58",
+      "fonte": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "nota": "voto peggiorato rispetto al run baseline _probe_finale"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "prima": "OK",
+      "ora": "WRONG",
+      "estratto": "20.000,00",
+      "fonte": "cedam16032026092828.pdf · pag.2",
+      "nota": "voto peggiorato rispetto al run baseline _probe_finale"
+    },
+    {
+      "campo": "rct_massimale_persona",
+      "label": "Massimale annuo",
+      "prima": "WRONG",
+      "ora": "MISSING",
+      "estratto": "",
+      "fonte": "",
+      "nota": "voto peggiorato rispetto al run baseline _probe_finale"
+    }
+  ],
+  "trueRegressionsDaOK": [
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "primaValore": "13068,01",
+      "ora": "WRONG",
+      "oraValore": "10.689,58",
+      "fonte": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "primaValore": "7.500.000,00",
+      "ora": "WRONG",
+      "oraValore": "20.000,00",
+      "fonte": "cedam16032026092828.pdf · pag.2"
+    }
+  ],
+  "migliorie": [
+    {
+      "campo": "rcp_scoperto_min_mondo",
+      "label": "Tutela",
+      "prima": "WRONG",
+      "ora": "EMPTY-ok",
+      "estratto": ""
+    },
+    {
+      "campo": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+      "label": "Massimale Tutela",
+      "prima": "WRONG",
+      "ora": "EMPTY-ok",
+      "estratto": ""
+    },
+    {
+      "campo": "6d1e131a-9700-4409-85b9-e476de07204e",
+      "label": "Franchigia Tutela",
+      "prima": "WRONG",
+      "ora": "EMPTY-ok",
+      "estratto": ""
+    },
+    {
+      "campo": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+      "label": "Premio Lordo Tutela",
+      "prima": "WRONG",
+      "ora": "EMPTY-ok",
+      "estratto": ""
+    }
+  ],
+  "rows": [
+    {
+      "campo": "polizza_numero",
+      "label": "N° Polizza",
+      "atteso": "781949596",
+      "estratto": "781949596",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "compagnia",
+      "label": "Compagnia",
+      "atteso": "UNIPOLSAI ASSICURAZIONI S.P.A.",
+      "estratto": "UNIPOL ASSICURAZIONI S.p.A.",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "contraente",
+      "label": "Contraente/Assicurato",
+      "atteso": "CEDAM ITALIA SRL",
+      "estratto": "CEDAM ITALIA SRL",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "codice_fiscale_iva",
+      "label": "P. IVA / Cod. Fiscale",
+      "atteso": "00587800137",
+      "estratto": "00587800137",
+      "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "indirizzo",
+      "label": "Indirizzo",
+      "atteso": "VIA CERVA 22",
+      "estratto": "VIA CERVA, 22, 20122 MILANO",
+      "fonteEstratta": "dichiarazione.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "agenzia",
+      "label": "Agenzia",
+      "atteso": "(non presente)",
+      "estratto": "S. Donato M.",
+      "fonteEstratta": "Cedam Italia - Rcto - regolazione premio 2024.pdf · pag.1",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "decorrenza",
+      "label": "Decorrenza",
+      "atteso": "31/12/2025",
+      "estratto": "31/12/2025",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "scadenza",
+      "label": "Scadenza",
+      "atteso": "31/12/2026",
+      "estratto": "31/12/2026",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_imposta",
+      "label": "Tacito Rinnovo",
+      "atteso": "Sì",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "atteso": "13.068,01",
+      "estratto": "10.689,58",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_premio_imponibile",
+      "label": "Frazionamento",
+      "atteso": "annuale",
+      "estratto": "annuale",
+      "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "attivita",
+      "label": "Professione dichiarata",
+      "atteso": "CENTRI DIAGNOSTICI",
+      "estratto": "CENTRI DIAGNOSTICI",
+      "fonteEstratta": "dichiarazione.pdf · pag.1",
+      "esito": "OK"
+    },
+    {
+      "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+      "label": "Fatturato dichiarato",
+      "atteso": "8.045.000,00",
+      "estratto": "4.000.000,00",
+      "fonteEstratta": "Cedam Italia - Rcto - atto 2018 aumento massimale.pdf · pag.2",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "c125c0d1-695b-4755-81db-e99137169686",
+      "label": "Retroattività",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+      "label": "Data retroattività",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+      "label": "Sinistri e circostanze ",
+      "atteso": "(non presente)",
+      "estratto": "Ramo di competenza: Responsabilità Civile",
+      "fonteEstratta": "app RP CEDAM 24-25.pdf · pag.1",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "atteso": "7.500.000,00",
+      "estratto": "20.000,00",
+      "fonteEstratta": "cedam16032026092828.pdf · pag.2",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_massimale_persona",
+      "label": "Massimale annuo",
+      "atteso": "7.500.000,00",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_massimale_danni",
+      "label": "Franchigia base",
+      "atteso": "20.000,00",
+      "estratto": "20.000,00",
+      "fonteEstratta": "cedam16032026092828.pdf · pag.2",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_prestatore",
+      "label": "Scoperto base",
+      "atteso": "(non presente)",
+      "estratto": "1.000,00",
+      "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.25",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_parametro",
+      "label": "Sottolimiti",
+      "atteso": "(non presente)",
+      "estratto": "RCO: 2.000.000,00\nRCT: 1.000.000,00",
+      "fonteEstratta": "Nuovo Questionario Assuntivo Strutture Sanitarie.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_importo_preventivo",
+      "label": "Estensioni operative",
+      "atteso": "(non presente)",
+      "estratto": "Preventivo Fatturato 4.000.000,00",
+      "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_tasso",
+      "label": "Esclusioni particolari",
+      "atteso": "(non presente)",
+      "estratto": "1,815x*",
+      "fonteEstratta": "Cedam Italia - Rcto - atto 2018 aumento massimale.pdf · pag.2",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_premio_imponibile",
+      "label": "Condizioni particolari, aggiuntiive",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_scoperto_min_mondo",
+      "label": "Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+      "label": "Massimale Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "6d1e131a-9700-4409-85b9-e476de07204e",
+      "label": "Franchigia Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+      "label": "Premio Lordo Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonteEstratta": "",
+      "esito": "EMPTY-ok"
+    }
+  ]
+}

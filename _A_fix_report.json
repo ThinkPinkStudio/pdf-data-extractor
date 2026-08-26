@@ -1,0 +1,294 @@
+{
+  "caso": "A",
+  "profilo": "Rc Professionale V3",
+  "modello": "qwen2.5:7b-instruct",
+  "ollamaUrl": "http://192.168.37.10:11434",
+  "totale": 35,
+  "ok": 10,
+  "emptyOk": 7,
+  "wrong": 12,
+  "missing": 6,
+  "verdetto": "17/35",
+  "rows": [
+    {
+      "campo": "polizza_numero",
+      "label": "N° Polizza",
+      "atteso": "781949596",
+      "estratto": "781949596",
+      "fonte": "Cedam_Italia_Rcto_regolazione_premio_2024.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "compagnia",
+      "label": "Compagnia",
+      "atteso": "UnipolSai Assicurazioni S.p.A.",
+      "estratto": "Unipol Assicurazioni S.p.A.",
+      "fonte": "Cedam_Italia_Rcto_regolazione_premio_2024.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "contraente",
+      "label": "Contraente/Assicurato",
+      "atteso": "CEDAM ITALIA SRL",
+      "estratto": "Cedam Italia SRL",
+      "fonte": "Cedam_Italia_Rcto_regolazione_premio_2024.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "codice_fiscale_iva",
+      "label": "P. IVA / Cod. Fiscale",
+      "atteso": "00587800137",
+      "estratto": "00587800137",
+      "fonte": "Cedam_Italia_Rcto_PROFF_polizza.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "indirizzo",
+      "label": "Indirizzo",
+      "atteso": "VIA CERVA 22 - 20122 MILANO",
+      "estratto": "VIA CERVA, 22 - 20122 MILANO",
+      "fonte": "dichiarazione.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "agenzia",
+      "label": "Agenzia",
+      "atteso": "CSA-CONSULENZE & SOLUZIONI AZIENDALI SRL",
+      "estratto": "S. Donato M.",
+      "fonte": "app_RP_CEDAM_24_25.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "decorrenza",
+      "label": "Decorrenza",
+      "atteso": "01/07/2010",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "scadenza",
+      "label": "Scadenza",
+      "atteso": "31/12/2026",
+      "estratto": "31/12/2026",
+      "fonte": "Cedam_Italia_Srl_Rc_professionale_q.za_25_26.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_imposta",
+      "label": "Tacito Rinnovo",
+      "atteso": "Sì",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "atteso": "13.068,01",
+      "estratto": "13.068,01",
+      "fonte": "Cedam_Italia_Srl_Rc_professionale_q.za_25_26.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_premio_imponibile",
+      "label": "Frazionamento",
+      "atteso": "Annuale",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "attivita",
+      "label": "Professione dichiarata",
+      "atteso": "Centri diagnostici CEDAM ITALIA SRL; prelievi ed esami del sangue, esami radiologici, mammografie, MOC, ecografia, ecocolor doppler, ecocardiografia, visite specialistiche di cardiologia/angiologia/dermatologia/ginecologia/oculistica/ortopedia/otorinolaringoiatria/medicina del lavoro",
+      "estratto": "Strutture sanitarie",
+      "fonte": "Nuovo_Questionario_Assuntivo_Strutture_Sanitarie.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+      "label": "Fatturato dichiarato",
+      "atteso": "8.045.000,00",
+      "estratto": "8.045.000,00",
+      "fonte": "app_RP_CEDAM_24_25.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "c125c0d1-695b-4755-81db-e99137169686",
+      "label": "Retroattività",
+      "atteso": "non indicato",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+      "label": "Data retroattività",
+      "atteso": "non indicato",
+      "estratto": "31/12/2025",
+      "fonte": "Cedam_Italia_Srl_Rc_professionale_q.za_25_26.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+      "label": "Sinistri e circostanze",
+      "atteso": "nessun sinistro dichiarato",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "atteso": "7.500.000,00",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_persona",
+      "label": "Massimale annuo",
+      "atteso": "7.500.000,00",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_danni",
+      "label": "Franchigia base",
+      "atteso": "20.000,00",
+      "estratto": "20.000,00",
+      "fonte": "cedam16032026092828.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_prestatore",
+      "label": "Scoperto base",
+      "atteso": "non indicato",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_parametro",
+      "label": "Sottolimiti",
+      "atteso": "RCT 2.000.000 per persona e 2.000.000 per danni a cose; RCO 2.000.000 per infortunato; garanzia AIDS/HIV max € 260.000; fonti radioattive max € 260.000; errato trattamento dati € 52.000; parcheggi franchigia € 154,94; committenza auto franchigia € 260; danni acqua/condutture franchigia € 250 e limite € 160.000; Q medico competente max € 260.000",
+      "estratto": "10% per sinistro con minimo di 1.500,00 e massimo di 10.000,00",
+      "fonte": "Cedam_Italia_Rcto_PROFF_polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_importo_preventivo",
+      "label": "Estensioni operative",
+      "atteso": "A/A1 RC personale non dipendente; G errato trattamento dati; F fonti radioattive; L RC direttore sanitario; Q medico igienista e del lavoro/medico competente; garanzia AIDS/HIV, virus C e DELTA; attività complementari (parcheggi, insegne, guardiani, mensa, fiere, macchinari, pulizie, raggi X); condizione aggiuntive A/A1/F/G/I/L/Q",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_tasso",
+      "label": "Esclusioni particolari",
+      "atteso": "furto; cose in consegna/custodia; assestamento/franamenti terreno e danni da interruzioni di attività; opere in costruzione; inquinamento e falde; internet provider; energia atomica; esplosivi; interventi chirurgici; danni estetici e fisionomici; implantologia; fonti radioattive (salvo estensione F); sperimentazione clinica e riproduzione assistita (art. 19 e 26)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_premio_imponibile",
+      "label": "Condizioni particolari",
+      "atteso": "atto 2018 aumento massimale a 5.000.000, atto 2019 massimale 7.500.000 + franchigia frontale 20.000 + tasso 3,26‰; app R9 regolazione premio 31/12/2023-31/12/2024; app R10 regolazione 31/12/2024-31/12/2025; clausola broker; tacito rinnovo SI; regolazione premio SI",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_imposta",
+      "label": "Visto leggero",
+      "atteso": "non indicato",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_premio_totale",
+      "label": "Massimale visto leggero",
+      "atteso": "non indicato",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_prodotti",
+      "label": "Sindaco / Revisore",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_qualifica",
+      "label": "ODV / CDA",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_massimale_sinistro",
+      "label": "Progettazione / DL",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_massimale_annuo",
+      "label": "Legge Merloni / Appalti",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_massimale_mat",
+      "label": "Visto pesante / bonus edilizi",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_massimale_interr",
+      "label": "Massimale visto pesante",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_scoperto_min_mondo",
+      "label": "Attività giudiziale / stragiudiziale",
+      "atteso": "non presente",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_scoperto_max_mondo",
+      "label": "Incarichi giudiziari",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rcp_scoperto_min_usa",
+      "label": "Custodia documenti / valori",
+      "atteso": "non presente",
+      "estratto": "7.500.000,00",
+      "fonte": "dichiarazione.pdf",
+      "esito": "WRONG"
+    }
+  ]
+}

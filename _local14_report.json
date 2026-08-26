@@ -1,0 +1,242 @@
+{
+  "profilo": "RC PROF MED V2",
+  "modello": "qwen2.5:14b",
+  "embedding": "bge-m3",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "numCtx": 16384,
+  "secs": "730.6",
+  "errore": null,
+  "strategia": "staged-gruppi (perField=false, cascade=false, grounding=off)",
+  "verdetto": "16/28",
+  "ok": 4,
+  "emptyOk": 12,
+  "wrong": 4,
+  "missing": 8,
+  "baseline": "9/28 (di cui 7 vuoti corretti)",
+  "rows": [
+    {
+      "campo": "polizza_numero",
+      "label": "N° Polizza",
+      "atteso": "781949596",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "compagnia",
+      "label": "Compagnia",
+      "atteso": "UNIPOLSAI ASSICURAZIONI S.P.A.",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "contraente",
+      "label": "Contraente/Assicurato",
+      "atteso": "CEDAM ITALIA SRL",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "codice_fiscale_iva",
+      "label": "P. IVA / Cod. Fiscale",
+      "atteso": "00587800137",
+      "estratto": "00587800137",
+      "fonte": "Cedam Italia - Rcto + PROFF - polizza.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "indirizzo",
+      "label": "Indirizzo",
+      "atteso": "VIA CERVA 22",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "agenzia",
+      "label": "Agenzia",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "decorrenza",
+      "label": "Decorrenza",
+      "atteso": "31/12/2025",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "scadenza",
+      "label": "Scadenza",
+      "atteso": "31/12/2026",
+      "estratto": "31/12/2026",
+      "fonte": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_imposta",
+      "label": "Tacito Rinnovo",
+      "atteso": "Sì",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rcp_premio_totale",
+      "label": "Premio lordo",
+      "atteso": "13.068,01",
+      "estratto": "13.068,01",
+      "fonte": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rcp_premio_imponibile",
+      "label": "Frazionamento",
+      "atteso": "annuale",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "attivita",
+      "label": "Professione dichiarata",
+      "atteso": "CENTRI DIAGNOSTICI",
+      "estratto": "tecnico di laboratorio",
+      "fonte": "Cedam Italia - Rcto + PROFF - polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+      "label": "Fatturato dichiarato",
+      "atteso": "8.045.000,00",
+      "estratto": "4.000.000,00",
+      "fonte": "Cedam Italia - Rcto - atto 2018 aumento massimale.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "c125c0d1-695b-4755-81db-e99137169686",
+      "label": "Retroattività",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+      "label": "Data retroattività",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+      "label": "Sinistri e circostanze ",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_massimale_sinistro",
+      "label": "Massimale per sinistro",
+      "atteso": "7.500.000,00",
+      "estratto": "20.000,00",
+      "fonte": "cedam16032026092828.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_massimale_persona",
+      "label": "Massimale annuo",
+      "atteso": "7.500.000,00",
+      "estratto": "",
+      "fonte": "",
+      "esito": "MISSING"
+    },
+    {
+      "campo": "rct_massimale_danni",
+      "label": "Franchigia base",
+      "atteso": "20.000,00",
+      "estratto": "20.000,00",
+      "fonte": "cedam16032026092828.pdf",
+      "esito": "OK"
+    },
+    {
+      "campo": "rct_massimale_prestatore",
+      "label": "Scoperto base",
+      "atteso": "(non presente)",
+      "estratto": "1.000,00",
+      "fonte": "Cedam Italia - Rcto + PROFF - polizza.pdf",
+      "esito": "WRONG"
+    },
+    {
+      "campo": "rct_parametro",
+      "label": "Sottolimiti",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_importo_preventivo",
+      "label": "Estensioni operative",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_tasso",
+      "label": "Esclusioni particolari",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rct_premio_imponibile",
+      "label": "Condizioni particolari, aggiuntiive",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "rcp_scoperto_min_mondo",
+      "label": "Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+      "label": "Massimale Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "6d1e131a-9700-4409-85b9-e476de07204e",
+      "label": "Franchigia Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    },
+    {
+      "campo": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+      "label": "Premio Lordo Tutela",
+      "atteso": "(non presente)",
+      "estratto": "",
+      "fonte": "",
+      "esito": "EMPTY-ok"
+    }
+  ]
+}

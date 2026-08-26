@@ -1,0 +1,811 @@
+{
+  "genere": "A/B esteso — verdetto aggregato",
+  "data": "2026-08-25T17:27:18.483Z",
+  "casi": {
+    "A": {
+      "nome": "CEDAM ITALIA SRL - RC Professionale (RCT/RCO rischi sanitari)",
+      "profilo": "Rc Professionale V3",
+      "counts": {
+        "tot": 35,
+        "ok": 7,
+        "emptyOk": 6,
+        "wrong": 21,
+        "missing": 1
+      },
+      "deterministicLines": [
+        "[deterministico] rcp_premio_totale: 10.689,58 (fonte: Cedam Italia Srl - Rc professionale - q.za 25 26.pdf p1 riga 1, conf 0.92)",
+        "[deterministico] e1d90f78-3e3a-4e42-be90-001b8c34c05a: 4.000.000,00 (fonte: Cedam Italia - Rcto - atto 2018 aumento massimale.pdf p2 riga 2, conf 0.9)",
+        "[deterministico] rct_massimale_danni: 20.000,00 (fonte: cedam16032026092828.pdf p2 riga 2, conf 0.95)",
+        "[deterministico] rct_massimale_prestatore: 1.000,00 (fonte: Cedam Italia - Rcto + PROFF - polizza.pdf p25 riga 25, conf 0.9)",
+        "Passata deterministica: 4 campi sovrascritti su 38 hint trovati nella cache OCR"
+      ],
+      "rows": [
+        {
+          "campo": "polizza_numero",
+          "label": "N° Polizza",
+          "atteso": "781949596",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "estratto": "781949596",
+          "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "esito": "OK",
+          "note": "Numero attuale; sostituisce il precedente 6001103839253 (vedi atti e quietanza). In scheda di polizza storica compare 6001103839253 (frontespizio, occhiello)."
+        },
+        {
+          "campo": "compagnia",
+          "label": "Compagnia",
+          "atteso": "UnipolSai Assicurazioni S.p.A.",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "estratto": "Unipol Assicurazioni S.p.A.",
+          "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "MILANO ASSICURAZIONI S.p.A. (gruppo Unipol/Fondiaria-SAI) nella polizza storica; gli atti recenti sono intestati UnipolSai. Prevale il nome attuale della compagnia su atti recenti."
+        },
+        {
+          "campo": "contraente",
+          "label": "Contraente/Assicurato",
+          "atteso": "CEDAM ITALIA SRL",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "IL CONTRAENTE",
+          "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.9",
+          "esito": "WRONG",
+          "note": "Stesso contraente e assicurato, con più sedi operative (Milano, Parabiago, Cusano Milanino, Lodi, Bollate)."
+        },
+        {
+          "campo": "codice_fiscale_iva",
+          "label": "P. IVA / Cod. Fiscale",
+          "atteso": "00587800137",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "00587800137",
+          "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "esito": "OK",
+          "note": ""
+        },
+        {
+          "campo": "indirizzo",
+          "label": "Indirizzo",
+          "atteso": "VIA CERVA 22 - 20122 MILANO",
+          "fonteAttesa": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "estratto": "VIA CERVA, 22 - 20122 MILANO",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "OK",
+          "note": "Sede. In polizza indicati più siti operativi, sede e domicilio legale in VIA CERVA 22, 20122 MILANO."
+        },
+        {
+          "campo": "agenzia",
+          "label": "Agenzia",
+          "atteso": "CSA-CONSULENZE & SOLUZIONI AZIENDALI SRL",
+          "fonteAttesa": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "estratto": "S. Donato M. (MI)",
+          "fonteEstratta": "Cedam Italia - Rcto - regolazione premio 2024.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Canale broker CSA-CONSULENZE & SOLUZ.AZ.SRL (quietanza 2025-26). Nella polizza storica l'intermediario era MARENGHI ASS.; negli atti recenti compare 'GERENZA MI-TO MARENGHI SRL' e 'BROKER CSA-CONSULENZE & SOLUZIONI'. Agente/agenzia gestore: canale broker CSA-CONSULENZE & SOLUZIONI AZIENDALI."
+        },
+        {
+          "campo": "decorrenza",
+          "label": "Decorrenza",
+          "atteso": "01/07/2010",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "31/12/2025",
+          "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Polizza storica decorrenza 31/07/2010; rinnovata a cadenza annuale con effetto quietanza 31/12/2025 e scadenza 31/12/2026."
+        },
+        {
+          "campo": "scadenza",
+          "label": "Scadenza",
+          "atteso": "31/12/2026",
+          "fonteAttesa": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "estratto": "31/12/2026",
+          "fonteEstratta": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf",
+          "esito": "OK",
+          "note": "Scadenza della rata/periodo corrente indicata nella quietanza 2025-26."
+        },
+        {
+          "campo": "rcp_imposta",
+          "label": "Tacito Rinnovo",
+          "atteso": "Sì",
+          "fonteAttesa": "Cedam Italia Srl - Rc professionale - q.za 25 26.pdf · pag.1",
+          "estratto": "0",
+          "fonteEstratta": "dichiarazione.pdf",
+          "esito": "WRONG",
+          "note": "Campo 'Tacito rinnovo: SI' (atto di quietanza)."
+        },
+        {
+          "campo": "rcp_premio_totale",
+          "label": "Premio lordo",
+          "atteso": "13.068,01",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Premio annuale lordo corrente (rate successive 10.689,58+2.378,43=13.068,01). Sull'applicazione R10 è indicato anche premio lordo 13.158,70 (di regolazione)."
+        },
+        {
+          "campo": "rcp_premio_imponibile",
+          "label": "Frazionamento",
+          "atteso": "Annuale",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.1",
+          "estratto": "0",
+          "fonteEstratta": "dichiarazione.pdf",
+          "esito": "WRONG",
+          "note": "'Frazionamento premio: ANNUALE'."
+        },
+        {
+          "campo": "attivita",
+          "label": "Professione dichiarata",
+          "atteso": "Centri diagnostici CEDAM ITALIA SRL; prelievi ed esami del sangue, esami radiologici, mammografie, MOC, ecografia, ecocolor doppler, ecocardiografia, visite specialistiche di cardiologia/angiologia/dermatologia/ginecologia/oculistica/ortopedia/otorinolaringoiatria/medicina del lavoro",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.11",
+          "estratto": "CENTRI DIAGNOSTICI",
+          "fonteEstratta": "Nuovo Questionario Assuntivo Strutture Sanitarie.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Descrizione del rischio dal corpo della polizza."
+        },
+        {
+          "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+          "label": "Fatturato dichiarato",
+          "atteso": "8.045.000,00",
+          "fonteAttesa": "Cedam Italia - Rcto - regolazione premio 2024.pdf · pag.1",
+          "estratto": "4.000.000,00",
+          "fonteEstratta": "Cedam Italia - Rcto - atto 2018 aumento massimale.pdf · pag.2",
+          "esito": "WRONG",
+          "note": "Dato consuntivo del parametro retribuzioni (regolazione R9/R10); parametro in euro '8.045.000,00'."
+        },
+        {
+          "campo": "c125c0d1-695b-4755-81db-e99137169686",
+          "label": "Retroattività",
+          "atteso": "non indicato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": "Nei documenti non risulta esplicitata una retroattività (clausola atto 2019 indica solo franchigia frontale)."
+        },
+        {
+          "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+          "label": "Data retroattività",
+          "atteso": "non indicato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        },
+        {
+          "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+          "label": "Sinistri e circostanze ",
+          "atteso": "nessun sinistro dichiarato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.21",
+          "estratto": "CENTRI DIAGNOSTICI",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Il contraente dichiara di non aver mai avuto sinistri (pag. 21 'Dichiarazioni del contraente')."
+        },
+        {
+          "campo": "rct_massimale_sinistro",
+          "label": "Massimale per sinistro",
+          "atteso": "7.500.000,00",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "OK",
+          "note": "'elevare il massimale RCT/O/Aggregato ad € 7.500.000,00' (allegato atto 2019)."
+        },
+        {
+          "campo": "rct_massimale_persona",
+          "label": "Massimale annuo",
+          "atteso": "7.500.000,00",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "OK",
+          "note": "Massimale aggregato/annuo indicato come RCT/O/Aggregato in allegato atto 2019."
+        },
+        {
+          "campo": "rct_massimale_danni",
+          "label": "Franchigia base",
+          "atteso": "20.000,00",
+          "fonteAttesa": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "estratto": "20.000,00",
+          "fonteEstratta": "cedam16032026092828.pdf · pag.2",
+          "esito": "OK",
+          "note": "Franchigia frontale per ogni tipo di danno, compresa la condizione aggiuntiva A), € 20.000."
+        },
+        {
+          "campo": "rct_massimale_prestatore",
+          "label": "Scoperto base",
+          "atteso": "non indicato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "1.000,00",
+          "fonteEstratta": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.25",
+          "esito": "WRONG",
+          "note": "Nessuno scoperto generale indicato. Sono presenti scoperti specifici su estensioni: G) errato trattamento dati 10% min 1.000,00; Q) medico competente 10% con min 500 e max 10.000; L) direttore sanitario danni patrimoniali 10% min 1.500 max 10.000."
+        },
+        {
+          "campo": "rct_parametro",
+          "label": "Sottolimiti",
+          "atteso": "RCT 2.000.000 per persona e 2.000.000 per danni a cose; RCO 2.000.000 per infortunato; garanzia AIDS/HIV max € 260.000; fonti radioattive max € 260.000; errato trattamento dati € 52.000; parcheggi franchigia € 154,94; committenza auto franchigia € 260; danni acqua/condutture franchigia € 250 e limite € 160.000; Q medico competente max € 260.000",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "franchigia frontale per ogni tipo di danno di € 20.000",
+          "fonteEstratta": "Cedam Italia - Rcto - atto 2019 aumento massimale + inserim. franchigia front..pdf · pag.2",
+          "esito": "WRONG",
+          "note": "Sottolimiti di garanzia ed estensioni (polizza e condizioni aggiuntive). Nota: i massimali storici di polizza base (2.000.000) sono stati elevati a 7.500.000 dal 2019; i sottolimiti su garanzie aggiuntive restano."
+        },
+        {
+          "campo": "rct_importo_preventivo",
+          "label": "Estensioni operative",
+          "atteso": "A/A1 RC personale non dipendente; G errato trattamento dati; F fonti radioattive; L RC direttore sanitario; Q medico igienista e del lavoro/medico competente; garanzia AIDS/HIV, virus C e DELTA; attività complementari (parcheggi, insegne, guardiani, mensa, fiere, macchinari, pulizie, raggi X); condizione aggiuntive A/A1/F/G/I/L/Q",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.23",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Condizioni aggiuntive richiamate in frontespizio: A-A1-F-G-I-L-Q."
+        },
+        {
+          "campo": "rct_tasso",
+          "label": "Esclusioni particolari",
+          "atteso": "furto; cose in consegna/custodia; assestamento/franamenti terreno e danni da interruzioni di attività; opere in costruzione; inquinamento e falde; internet provider; energia atomica; esplosivi; interventi chirurgici; danni estetici e fisionomici; implantologia; fonti radioattive (salvo estensione F); sperimentazione clinica e riproduzione assistita (art. 19 e 26)",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.14",
+          "estratto": "0",
+          "fonteEstratta": "dichiarazione.pdf",
+          "esito": "WRONG",
+          "note": "Rischi esclusi ex artt. 19 e 26 della polizza."
+        },
+        {
+          "campo": "rct_premio_imponibile",
+          "label": "Condizioni particolari",
+          "atteso": "atto 2018 aumento massimale a 5.000.000, atto 2019 massimale 7.500.000 + franchigia frontale 20.000 + tasso 3,26‰; app R9 regolazione premio 31/12/2023-31/12/2024; app R10 regolazione 31/12/2024-31/12/2025; clausola broker; tacito rinnovo SI; regolazione premio SI",
+          "fonteAttesa": "Cedam Italia - Rcto - regolazione premio 2024.pdf · pag.1",
+          "estratto": "0",
+          "fonteEstratta": "dichiarazione.pdf",
+          "esito": "WRONG",
+          "note": "Appendici di variazione e regolazione del premio incluse nel fascicolo."
+        },
+        {
+          "campo": "rct_imposta",
+          "label": "Visto leggero",
+          "atteso": "non indicato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "0",
+          "fonteEstratta": "dichiarazione.pdf",
+          "esito": "EMPTY-ok",
+          "note": "Nessun riferimento a visto leggero nel fascicolo."
+        },
+        {
+          "campo": "rct_premio_totale",
+          "label": "Massimale visto leggero",
+          "atteso": "non indicato",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        },
+        {
+          "campo": "rcp_prodotti",
+          "label": "Sindaco / Revisore",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": "Nessuna copertura di incarichi di sindaco/revisore."
+        },
+        {
+          "campo": "rcp_qualifica",
+          "label": "ODV / CDA",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        },
+        {
+          "campo": "rcp_massimale_sinistro",
+          "label": "Progettazione / DL",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_massimale_annuo",
+          "label": "Legge Merloni / Appalti",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_massimale_mat",
+          "label": "Visto pesante / bonus edilizi",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_massimale_interr",
+          "label": "Massimale visto pesante",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_scoperto_min_mondo",
+          "label": "Attività giudiziale / stragiudiziale",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_scoperto_max_mondo",
+          "label": "Incarichi giudiziari",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "rcp_scoperto_min_usa",
+          "label": "Custodia documenti / valori",
+          "atteso": "non presente",
+          "fonteAttesa": "Cedam Italia - Rcto + PROFF - polizza.pdf · pag.1",
+          "estratto": "7.500.000,00",
+          "fonteEstratta": "dichiarazione.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        }
+      ]
+    },
+    "B": {
+      "nome": "NEBULONI MAURO CARLO - RC Professionale Medico (AmTrust Medico Protetto)",
+      "profilo": "RC PROF MED V2",
+      "counts": {
+        "tot": 28,
+        "ok": 4,
+        "emptyOk": 5,
+        "wrong": 13,
+        "missing": 6
+      },
+      "deterministicLines": [
+        "[deterministico] rcp_premio_totale: 2.862,16 (fonte: NEBULONI CARLO MARIO quietanza 2025.pdf p1 riga 1, conf 0.92)",
+        "Passata deterministica: 1 campi sovrascritti su 14 hint trovati nella cache OCR"
+      ],
+      "rows": [
+        {
+          "campo": "polizza_numero",
+          "label": "N° Polizza",
+          "atteso": "RCM00010027822",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Numero contratto AmTrust Medico Protetto (scheda di polizza)."
+        },
+        {
+          "campo": "compagnia",
+          "label": "Compagnia",
+          "atteso": "AmTrust Assicurazioni S.p.A.",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "AmTrust Assicurazioni S.p.A.",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "OK",
+          "note": ""
+        },
+        {
+          "campo": "contraente",
+          "label": "Contraente/Assicurato",
+          "atteso": "MAURO CARLO NEBULONI",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "MAURO CARLO NEBULONI",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "OK",
+          "note": ""
+        },
+        {
+          "campo": "codice_fiscale_iva",
+          "label": "P. IVA / Cod. Fiscale",
+          "atteso": "NBLMCR58L23D0033D (dedotto dal testo)",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "NBLMCR58L23D033D",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Codice fiscale riportato nello scarso testo; da verificare a video (l'OCR/testo estratto è frammentario)."
+        },
+        {
+          "campo": "indirizzo",
+          "label": "Indirizzo",
+          "atteso": "VIA AMENDOLA 8 - ABBIATEGRASSO (MI) 20081",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "VIA AMENDOLA,8, ABBIATEGRASSO",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": ""
+        },
+        {
+          "campo": "agenzia",
+          "label": "Agenzia",
+          "atteso": "SIMPLECLICK/ITALIA AGENCY",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "SIMPLE ITALIA AGENCY",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Nel testo compare '+SIMPL€ ITALIAAGENCY' (intermediario/agenzia); non è presente un nome di agenzia tradizionale. Da verificare a video."
+        },
+        {
+          "campo": "decorrenza",
+          "label": "Decorrenza",
+          "atteso": "14/10/2021",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "14/10/2025",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Decorrenza dalle ore 24 del 14/10/2021 (il testo è frammentario: 'L41L012021'; coerente con scadenza e prossima quietanza 14/10/2025, annuale). Da confermare a video."
+        },
+        {
+          "campo": "scadenza",
+          "label": "Scadenza",
+          "atteso": "14/10/2025",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "14/10/2026",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "'Scade alle ore 24 del 14/10/2025' + prossima quietanza 14/10/2025 (annuale)."
+        },
+        {
+          "campo": "rcp_imposta",
+          "label": "Tacito Rinnovo",
+          "atteso": "Sì",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "si",
+          "fonteEstratta": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "esito": "OK",
+          "note": "Campo 'Tacito rinnovo: Sì' (in scheda)."
+        },
+        {
+          "campo": "rcp_premio_totale",
+          "label": "Premio lordo",
+          "atteso": "3.499,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "2.862,16",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Totale premio (euro) 3.499,00 (imponibile 2.862,16 + imposte 636,84)."
+        },
+        {
+          "campo": "rcp_premio_imponibile",
+          "label": "Frazionamento",
+          "atteso": "Annuale",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "annuale",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "OK",
+          "note": ""
+        },
+        {
+          "campo": "attivita",
+          "label": "Professione dichiarata",
+          "atteso": "Attività libero professionale assicurata: Radiodiagnostica (esclusa mammografia)",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "Reumatologia, Medicina dello sport, Oculistica - oftalmologia (esclusa chirurgia estetica), Otorinolaringoiatria (esclusa chirurgia estetica), Oculistica - oftalmologia inclusa chirurgia estetica pertinente, Otorinolaringoiatria inclusa chirurgia estetica pertinente, Chirurgia oncologica ortopedica, Chirurgia ricostruttiva, Chirurgia oncologica e senologica, Ginecologia 7 : con fecondazione - assistita, Chirurgia maxillo facciale (esclusa chirurgia estetica), Chirurgia andrologica, Chirurgia urologica, Chirurgia maxillo facciale inclusa chirurgia estetica pertinente, Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali), Chirurgia addominale, Chirurgia bariatrica, Chirurgia pediatrica, Chirurgia proctologica, Chirurgia dell'apparato digerente - gastroenterologia, Nefrologia chirurgica, Chirurgia ginecologica (esclusa ostetricia), Chirurgia fetale, Pediatria = con neonatologia - e TIN, Chirurgia della mano, Cardiochirurgia, Chirurgia estetica plastica, Ginecologia e ostetricia con assistenza al parto, Ortopedia - con traumatologia - (esclusi - interventi o spinali)",
+          "fonteEstratta": "",
+          "esito": "WRONG",
+          "note": "Da elenco attività della scheda AmTrust Medico Protetto."
+        },
+        {
+          "campo": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+          "label": "Fatturato dichiarato",
+          "atteso": "non presente",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "estratto": "3499,00",
+          "fonteEstratta": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Nessun fatturato nel documento."
+        },
+        {
+          "campo": "c125c0d1-695b-4755-81db-e99137169686",
+          "label": "Retroattività",
+          "atteso": "da data specifica (illimitata? non chiaro)",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "10 anni limitata",
+          "fonteEstratta": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.11",
+          "esito": "WRONG",
+          "note": "Nel testo: 'attività svolta esclusivamente presso struttura / Data termine attività cessata'; retroattività campo non esplicito. Data iniziale retroattiva '14/10/2014' da questionario."
+        },
+        {
+          "campo": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+          "label": "Data retroattività",
+          "atteso": "14/10/2014",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Data retroattività indicata nella sezione dati assicurato/sinistri."
+        },
+        {
+          "campo": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+          "label": "Sinistri e circostanze ",
+          "atteso": "1 sinistro dichiarato (scheda/quietanza: Richieste di risarcimento - Sì)",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.4",
+          "estratto": "Contratto di Assicurazione per la Responsabilità Civile Professionale del Medico",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf · pag.1",
+          "esito": "WRONG",
+          "note": "Nella scheda Rischi: 'neglultimi 5 anni ha ricevuto Richieste di risarcimento: Sì', 'Sinistrosità: Sì'. Nel questionario la sezione sinistri è compilata."
+        },
+        {
+          "campo": "rct_massimale_sinistro",
+          "label": "Massimale per sinistro",
+          "atteso": "2.000.000,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Linea Professione Protetta: massimale per sinistro 2.000.000,00."
+        },
+        {
+          "campo": "rct_massimale_persona",
+          "label": "Massimale annuo",
+          "atteso": "6.000.000,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Massimale per periodo/seria di sinistri 6.000.000,00."
+        },
+        {
+          "campo": "rct_massimale_danni",
+          "label": "Franchigia base",
+          "atteso": "10.000,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Franchigia € 10.000,00 (scheda)."
+        },
+        {
+          "campo": "rct_massimale_prestatore",
+          "label": "Scoperto base",
+          "atteso": "non indicato",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "10000,00",
+          "fonteEstratta": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.10",
+          "esito": "WRONG",
+          "note": "Nessuno scoperto indicato in scheda."
+        },
+        {
+          "campo": "rct_parametro",
+          "label": "Sottolimiti",
+          "atteso": "Ruolo apicale e direzione sanitaria - perdite patrimoniali € 200.000,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "RC MEDICO: 3.499.000,00",
+          "fonteEstratta": "NEBULONI CARLO MARIO quietanza 2025.pdf",
+          "esito": "WRONG",
+          "note": "Unica garanzia aggiuntiva opzionale attivata. Altri sottolimiti non espliciti."
+        },
+        {
+          "campo": "rct_importo_preventivo",
+          "label": "Estensioni operative",
+          "atteso": "Medicina estetica NO; Attività invasive minori Sì; Attività invasive e mezzi di soccorso Sì; Ruolo apicale e direzione sanitaria - Perdite patrimoniali 200.000,00",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "Altre Perdite Patrimoniali e conduzione dello studio (RCT-RCO)",
+          "fonteEstratta": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "esito": "WRONG",
+          "note": "Estensioni di garanzia e opzionali attivate da scheda."
+        },
+        {
+          "campo": "rct_tasso",
+          "label": "Esclusioni particolari",
+          "atteso": "non presente (esclusioni non riportate in scheda; rimando alle condizioni di polizza del Set Informativo)",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": "La scheda rimanda alle Condizioni di Assicurazione (non incluse nel fascicolo)."
+        },
+        {
+          "campo": "rct_premio_imponibile",
+          "label": "Condizioni particolari, aggiuntiive",
+          "atteso": "Sottoscrizione della polizza firmata il 09/10/2024 presso Milano; tacito rinnovo, annuale; efficacia decorrenza/scadenza",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.5",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "MISSING",
+          "note": "Condizioni particolari: documento informativo Set Informativo Ed 06/2024 Agg 07/2025."
+        },
+        {
+          "campo": "rcp_scoperto_min_mondo",
+          "label": "Tutela",
+          "atteso": "non presente",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": "Nessuna garanzia Tutela/Tutela legale."
+        },
+        {
+          "campo": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+          "label": "Massimale Tutela",
+          "atteso": "non presente",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        },
+        {
+          "campo": "6d1e131a-9700-4409-85b9-e476de07204e",
+          "label": "Franchigia Tutela",
+          "atteso": "non presente",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        },
+        {
+          "campo": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+          "label": "Premio Lordo Tutela",
+          "atteso": "non presente",
+          "fonteAttesa": "Nebuloni Mauro Carlo - Rc Professionale - Polizza.pdf · pag.2",
+          "estratto": "",
+          "fonteEstratta": "",
+          "esito": "EMPTY-ok",
+          "note": ""
+        }
+      ]
+    }
+  },
+  "casoC": {
+    "profiloA": "Rc Professionale V3",
+    "profiloB": "RC PROF MED V2",
+    "docs": [
+      "cond della libertà 55 - Gloable Fabbricati - polizza .pdf",
+      "cond della libertà 55 - Gloable Fabbricati - q.za 25 26.pdf"
+    ],
+    "keywords": {
+      "A": {
+        "verdict": "ok",
+        "mode": "keywords",
+        "score": 0.3333333333333333,
+        "threshold": 0.2,
+        "reason": "parole chiave del profilo trovate nel contenuto",
+        "matched": [
+          "prof"
+        ],
+        "missing": [
+          "professionale",
+          "pofess"
+        ],
+        "detected": {
+          "type": null,
+          "keywords": [
+            "nobis",
+            "personali",
+            "settore",
+            "trattamento",
+            "finalita"
+          ]
+        }
+      },
+      "B": {
+        "verdict": "ok",
+        "mode": "keywords",
+        "score": 0.3333333333333333,
+        "threshold": 0.2,
+        "reason": "parole chiave del profilo trovate nel contenuto",
+        "matched": [
+          "med"
+        ],
+        "missing": [
+          "MEDICO",
+          "medico"
+        ],
+        "detected": {
+          "type": null,
+          "keywords": [
+            "nobis",
+            "personali",
+            "settore",
+            "trattamento",
+            "finalita"
+          ]
+        }
+      }
+    },
+    "semantic": {
+      "A": {
+        "verdict": "ok",
+        "mode": "semantic",
+        "score": 0.4599363723074815,
+        "threshold": 0.45,
+        "reason": "contenuto affine alle descrizioni dei campi",
+        "matched": [],
+        "missing": [],
+        "detected": {
+          "type": null,
+          "keywords": [
+            "nobis",
+            "personali",
+            "settore",
+            "trattamento",
+            "finalita"
+          ]
+        }
+      },
+      "B": {
+        "verdict": "ok",
+        "mode": "semantic",
+        "score": 0.498076805039301,
+        "threshold": 0.45,
+        "reason": "contenuto affine alle descrizioni dei campi",
+        "matched": [],
+        "missing": [],
+        "detected": {
+          "type": null,
+          "keywords": [
+            "nobis",
+            "personali",
+            "settore",
+            "trattamento",
+            "finalita"
+          ]
+        }
+      }
+    },
+    "llm": {
+      "A": {
+        "verdict": "mismatch",
+        "mode": "llm",
+        "score": 0.1111111111111111,
+        "threshold": 0.2,
+        "reason": "tipo rilevato incompatibile col profilo",
+        "matched": [],
+        "missing": [],
+        "detected": {
+          "type": "responsabilità civile terzi e prestatori",
+          "keywords": [
+            "polizza",
+            "assicurazione",
+            "condominio",
+            "incendio",
+            "rischio"
+          ]
+        }
+      },
+      "B": {
+        "verdict": "mismatch",
+        "mode": "llm",
+        "score": 0.09090909090909091,
+        "threshold": 0.2,
+        "reason": "tipo rilevato incompatibile col profilo",
+        "matched": [],
+        "missing": [],
+        "detected": {
+          "type": "responsabilità civile terzi e prestatori",
+          "keywords": [
+            "condominio",
+            "incendio",
+            "responsabilità civile",
+            "assicurazione immobili",
+            "premio"
+          ]
+        }
+      }
+    }
+  }
+}
