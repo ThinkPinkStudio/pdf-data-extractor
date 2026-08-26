@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const profile = profileId
       ? (settings.polizzaProfiles || []).find((p) => p.id === profileId) || null
       : null
-    let fields: { id: string; label: string; description?: string; sheet?: string; enabled?: boolean }[]
+    let fields: { id: string; label: string; description?: string; type?: string; sheet?: string; enabled?: boolean }[]
     let wholeDossier: boolean
     let promptExtra: string
     if (profile) {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       wholeDossier = !!g.wholeDossier
       promptExtra = settings.polizzaPromptExtra || ''
     }
-    const fieldDefs = fields.map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    const fieldDefs = fields.map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
     const files: JobInputFile[] = await Promise.all(kept.map(async (k) => ({
       file_name: k.file.name,
       pdf_base64: Buffer.from(await k.file.arrayBuffer()).toString('base64'),

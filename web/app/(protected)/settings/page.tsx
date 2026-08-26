@@ -15,6 +15,7 @@ interface Settings {
   polizzaWholeDossier?: boolean
   polizzaPerField?: boolean
   polizzaConstrainedJson?: boolean
+  polizzaBatchContext?: number
   polizzaUseClaude?: boolean
   anthropicApiKey?: string
   anthropicModel?: string
@@ -157,6 +158,23 @@ export default function SettingsPage() {
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.perFieldHelp')}</p>
             <Toggle checked={s.polizzaConstrainedJson !== false} onChange={(v) => up('polizzaConstrainedJson', v)} label={t('set.constrainedJson')} />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.constrainedJsonHelp')}</p>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="label">{t('set.batchContext')}</label>
+              <input
+                type="number"
+                min={1}
+                step={1024}
+                value={s.polizzaBatchContext || 24576}
+                onChange={(e) => up('polizzaBatchContext', e.target.value ? parseInt(e.target.value, 10) || 24576 : undefined)}
+              />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>
+                {t('set.batchContextHelp')}{' '}
+                {(s.polizzaBatchContext || 24576) > 24576
+                  ? <span style={{ color: 'var(--c-warning, #f0ad4e)' }}>{t('set.batchContextWarn')}</span>
+                  : null}
+              </p>
+            </div>
 
             {/* DEMO — Usa modello Claude (Anthropic) al posto di Ollama */}
             <div style={{ borderTop: '1px solid var(--c-border)', marginTop: 6, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>

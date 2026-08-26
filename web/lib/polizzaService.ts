@@ -9,6 +9,7 @@ export interface PolizzaFieldDef {
   id: string
   label: string
   description?: string
+  type?: string
   sheet?: string
   enabled?: boolean
 }
@@ -106,7 +107,7 @@ export async function extractPolizza(pdfPaths: string[]): Promise<PolizzaResult>
   const custom = (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields
   const configured: PolizzaFieldDef[] = (custom && custom.length > 0 ? custom : m.ALL_POLIZZA_FIELDS)
     .filter((f) => f.enabled !== false)
-    .map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    .map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
 
   const valueCount = Object.values(data || {}).filter((v) => v !== null && v !== undefined && v !== '').length
   log.push(`Campi valorizzati: ${valueCount}/${configured.length}`)

@@ -29,6 +29,40 @@ test('fieldValueKind: date / vat / amount / rate / text', () => {
   assert.equal(fieldValueKind({ id: 'rct_parametro', label: 'Parametro regolazione' }), 'text')
 })
 
+test('fieldValueKind: la description "TESTO…" vince sull\'id numerico', () => {
+  // Il bug Cedam: rcp_imposta/rcp_premio_imponibile/rct_tasso… hanno id
+  // numerici (→amount/rate), ma la DESCRIPTION dice TESTO→ un numero non va
+  // restituito. La DESCRIPTION è la fonte di tipo (stessa regola di
+  // isTextualField): il GBNF/JSON non deve imporre una number.
+  const casi = [
+    { id: 'rcp_imposta', label: 'Imposta', description: 'TESTO (SÌ/NO). Tacito rinnovo: SÌ oppure NO.' },
+    { id: 'rcp_premio_imponibile', label: 'Premio imponibile', description: 'TESTO (elenco). Fraccionamento: annuale, semestrale…' },
+    { id: 'rct_tasso', label: 'Tasso', description: 'TESTO. …esclusioni particolari…' },
+    { id: 'rct_importo_preventivo', label: 'Importo preventivo', description: 'TESTO (elenco). Estensioni operative…' },
+    { id: 'rcp_scoperto_min_mondo', label: 'Scoperto', description: 'TESTO. Tutela…' },
+    { id: '6e39add8', label: 'Sinistri', description: 'TESTO (elenco). Sinistri e circostanze…' },
+  ]
+  for (const f of casi) {
+    assert.equal(fieldValueKind(f), 'text', `"${f.id}" deve essere text (description TESTO)`)
+  }
+  // Il massimale (NUMERO/IMPORTO) resta amount anche se la descrizione parla di cifre
+  assert.equal(fieldValueKind({ id: 'rct_massimale_sinistro', label: 'Massimale', description: 'NUMERO/IMPORTO.' }), 'amount')
+})
+
+test('fieldValueKind: il type ESPLICITO forzato vincola anche con description TESTO', () => {
+  // Fonte di verità esplicita (task): un utente che imposta type 'number' su
+  // un campo impone il pattern amount, anche se la description contiene "TESTO".
+  assert.equal(fieldValueKind({ id: 'rcp_imposta', type: 'number', description: 'TESTO (SÌ/NO).' }), 'amount')
+  assert.equal(fieldValueKind({ id: 'x', type: 'percent', description: 'TESTO. ...' }), 'rate')
+  assert.equal(fieldValueKind({ id: 'x', type: 'fiscal', description: 'TESTO. ...' }), 'vat')
+  assert.equal(fieldValueKind({ id: 'x', type: 'date', description: 'TESTO. ...' }), 'date')
+  // boolean/enum restano stringa libera (testo), MAI un pattern importo
+  assert.equal(fieldValueKind({ id: 'x', type: 'boolean' }), 'text')
+  assert.equal(fieldValueKind({ id: 'x', type: 'enum' }), 'text')
+  // type 'text' esplicito è il default storico (debole): la description decide
+  assert.equal(fieldValueKind({ id: 'rct_massimale_sinistro', type: 'text', description: 'NUMERO/IMPORTO.' }), 'amount')
+})
+
 test('VALUE_PATTERNS: date/amount/vat accettano i golden EULIP', () => {
   const re = (k) => new RegExp(VALUE_PATTERNS[k])
   assert.equal(re('date').test('31/12/2024'), true)
@@ -66,6 +100,34 @@ test('buildJsonSchema perField: ammette oggetto vuoto (non trovato)', () => {
   const filled = s.oneOf[1]
   assert.ok(filled.required.includes('valore'))
   assert.ok(filled.required.includes('evidenza'))
+})
+
+test('buildJsonSchema perField con grounding: ammette source+confidence (citazione)', () => {
+  const s = buildJsonSchema([{ id: 'rct_massimale_sinistro', label: 'Massimale', type: 'number' }], 'perField', { grounding: true })
+  const filled = s.oneOf[1]
+  // il formato che il grounding richiede, con i pattern di tipo.
+  // `line` è OPZIONALE: le finestre per-field sono a livello di PAGINA
+  // (doc+page), la riga precisa c'è solo quando il modello la cita.
+  assert.ok(filled.properties.source)
+  assert.deepEqual(filled.properties.source.required, ['doc', 'page'])
+  assert.ok(filled.properties.confidence)
+  assert.equal(filled.properties.confidence.type, 'number')
+  assert.match(filled.properties.valore.anyOf[0].pattern, /\d/)
+  // senza grounding lo schema NON ammette source/confidence (chiavi vietate)
+  const plain = buildJsonSchema([{ id: 'rct_massimale_sinistro', type: 'number' }], 'perField')
+  assert.equal(plain.oneOf[1].properties.source, undefined)
+})
+
+test('ollamaFormatFor: con grounding per-field produce schema con source', () => {
+  const f = [{ id: 'decorrenza', type: 'date' }]
+  const grounded = ollamaFormatFor(f, 'perField', { polizzaGrounding: true })
+  assert.equal(grounded.oneOf[1].properties.source.required[0], 'doc')
+  const plain = ollamaFormatFor(f, 'perField', {})
+  assert.equal(plain.oneOf[1].properties.source, undefined)
+  // gbnf con grounding include source-obj
+  const g = ollamaFormatFor(f, 'perField', { polizzaGrounding: true, polizzaConstrainedFormat: 'gbnf' })
+  assert.match(g, /source-obj/)
+  assert.match(g, /\\"doc\\"/)
 })
 
 test('buildGbnfGrammar staged: contiene i vincoli e gli id campo', () => {

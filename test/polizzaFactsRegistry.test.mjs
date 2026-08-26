@@ -117,3 +117,171 @@ test('type-blind: il registro non distingue tipi documento', () => {
   assert.equal(isFactPlausible(reg, MASSIMALE, '2.000.000,00'), true)
   assert.equal(isFactPlausible(reg, { id: 'x_casa', label: 'Premio casa' }, '450,00'), true)
 })
+
+// ─── Nuove funzioni di veto (Problema 1: opzioni questionario + duplicati) ───
+import {
+  detectOptionLikeText, vetoOptionSourceOnly, vetoStructuralDuplicate,
+  demandsDistinctValue, factDocCount,
+} from '../src/main/services/polizzaFactsRegistry.js'
+import {
+  vetoForeignNatureMassimale,
+} from '../src/main/services/polizzaFactsRegistry.js'
+
+test('detectOptionLikeText: riconosce un questionario dal contenuto, senza considerare il nome file', () => {
+  assert.equal(detectOptionLikeText('Domanda 1: che massimale vuole? ☐ 1.000.000 ☐ 5.000.000'), true)
+  assert.equal(detectOptionLikeText('Scelta tra i seguenti massimali'), true)
+  assert.equal(detectOptionLikeText('Nuovo questionario assuntivo struttura sanitaria'), true)
+  assert.equal(detectOptionLikeText('Polizza base: massimale sinistro 7.500.000,00'), false) // testo polizza pulito
+})
+
+test('vetoOptionSourceOnly: cifra presente SOLO in un doc-questionario → veto (true)', () => {
+  const q = 'Questionario: ☐ 1.000.000,00'
+  const reg = { facts: [{ kind: 'amount', value: 1_000_000, doc: 'questionario.pdf' }], index: new Map() }
+  const optionDocs = new Set(['questionario.pdf'])
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '1.000.000,00' }), true)
+})
+
+test('vetoOptionSourceOnly: cifra presente anche in polizza (non-opzione) → NON vetta', () => {
+  const reg = { facts: [
+    { kind: 'amount', value: 7_500_000, doc: 'questionario.pdf' },
+    { kind: 'amount', value: 7_500_000, doc: 'polizza.pdf' },
+  ], index: new Map() }
+  const optionDocs = new Set(['questionario.pdf'])
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '7.500.000,00' }), false)
+})
+
+test('vetoOptionSourceOnly: cifra solo in doc-opzione ma piccola → non vetta', () => {
+  const reg = { facts: [{ kind: 'amount', value: 500, doc: 'questionario.pdf' }], index: new Map() }
+  const optionDocs = new Set(['questionario.pdf'])
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '500,00' }), false) // sotto soglia
+})
+
+test('vetoOptionSourceOnly PER-PAGINA: la cifra della SCHEDA REALE non è vetata anche se il file contiene il questionario', () => {
+  // Fascicolo AmTrust B: un solo file con la scheda (p2: 2.000.000,00) e il
+  // modulo (p10: opzioni). Prima il file era marcato INTERO come opzione e il
+  // massimale reale della scheda veniva bloccato ([veto:opzione-questionario]).
+  const reg = { facts: [
+    { kind: 'amount', value: 2_000_000, doc: 'B-polizza.pdf', page: 2 },
+    { kind: 'amount', value: 2_000_000, doc: 'B-polizza.pdf', page: 10 },
+  ], index: new Map() }
+  const optionDocs = new Set(['B-polizza.pdf'])
+  const optionPages = new Set(['B-polizza.pdf|10'])
+  // La cifra esiste alla pagina 2 (scheda, NON opzione) → non vettare.
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '2.000.000,00' }, optionPages), false)
+})
+
+test('vetoOptionSourceOnly PER-PAGINA: la cifra SOLO in pagine-opzione resta vetata', () => {
+  const reg = { facts: [
+    { kind: 'amount', value: 1_000_000, doc: 'questionario.pdf', page: 14 },
+    { kind: 'amount', value: 1_000_000, doc: 'questionario.pdf', page: 16 },
+  ], index: new Map() }
+  const optionDocs = new Set(['questionario.pdf'])
+  const optionPages = new Set(['questionario.pdf|14', 'questionario.pdf|16'])
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '1.000.000,00' }, optionPages), true)
+})
+
+test('vetoOptionSourceOnly PER-PAGINA: senza optionPages resta il comportamento storico per-file', () => {
+  // Back-compat: se il chiamante non passa le pagine-opzione, il veto usa solo i
+  // nomi documento — un file marcato opzione blocca tutte le sue cifre.
+  const reg = { facts: [
+    { kind: 'amount', value: 2_000_000, doc: 'B-polizza.pdf', page: 2 },
+  ], index: new Map() }
+  const optionDocs = new Set(['B-polizza.pdf'])
+  assert.equal(vetoOptionSourceOnly(reg, optionDocs, { valore: '2.000.000,00' }), true)
+})
+
+test('demandsDistinctValue: solo quando la description vieta il riuso', () => {
+  assert.equal(demandsDistinctValue({ description: 'DEVE essere diverso dal massimale (non 7500)' }), true)
+  assert.equal(demandsDistinctValue({ description: 'non riutilizzare il massimale' }), true)
+  assert.equal(demandsDistinctValue({ description: 'Massimale per ogni sinistro' }), false)
+  assert.equal(demandsDistinctValue({ description: 'Tacito rinnovo Sì o No' }), false)
+})
+
+test('vetoStructuralDuplicate: veto su spill di un importo in campo che esige valore distinto', () => {
+  const campoDistinto = { description: 'Franchigia base. DEVE essere diversa dal massimale, non 7500' }
+  const best = { massimale: { valore: '7.500.000,00' } }
+  // 7.500.000 è già nel campo massimale diverso → spill → veto
+  assert.equal(vetoStructuralDuplicate(campoDistinto, { valore: '7.500.000,00' }, best, 'franchigia'), true)
+  // valore DIVERSO (2500) → no veto
+  assert.equal(vetoStructuralDuplicate(campoDistinto, { valore: '2.500,00' }, best, 'franchigia'), false)
+})
+
+test('vetoStructuralDuplicate: campo che NON esige valore distinto → mai veto', () => {
+  const campoNormale = { description: 'Massimale per singolo sinistro' }
+  const best = { altro: { valore: '7.500.000,00' } }
+  assert.equal(vetoStructuralDuplicate(campoNormale, { valore: '7.500.000,00' }, best, 'cand'), false)
+})
+
+test('factDocCount: numero di documenti distinti che testimoniano una cifra', () => {
+  const reg = { facts: [
+    { kind: 'amount', value: 7_500_000, doc: 'q.pdf' },
+    { kind: 'amount', value: 7_500_000, doc: 'polizza.pdf' },
+    { kind: 'amount', value: 4_000_000, doc: 'appendice.pdf' },
+  ], index: new Map() }
+  assert.equal(factDocCount(reg, 7_500_000), 2)
+  assert.equal(factDocCount(reg, 4_000_000), 1)
+  assert.equal(factDocCount(reg, 999_999), 0)
+})
+
+// ─── NATURA ESTRANEA MASSIMALE (generalizzazione CEDAM) ─────────────────────
+// Il 7.500.000 della dichiarazione è un MASSIMALE. Un campo che non è un
+// massimale NON deve riceverlo (spill di natura). Regola MONOTONA: mai
+// euristiche "non presente" per decidere — si giudica solo se il REGISTRO
+// dimostra che l'importo è esclusivamente un massimale.
+// ───────────────────────────────────────────────────────────────────────────
+
+function registryWithMassimaleOnly() {
+  return buildFactsRegistry([
+    { name: 'dichiarazione.pdf', pages: ['Massimali Assicurati: RCT/RCO Euro 7.500.000,00 Unico per sinistro'] },
+  ])
+}
+
+test('vetoForeignNatureMassimale: il 7.500.000 (solo massimale nel registro) NON va su un campo non-massimale', () => {
+  const reg = registryWithMassimaleOnly()
+  const campoEstensioni = { id: 'rct_importo_preventivo', label: 'Estensioni operative', description: 'Estrai le estensioni effettivamente operanti.' }
+  assert.equal(vetoForeignNatureMassimale(reg, campoEstensioni, '7.500.000,00'), true)
+  const campoEsclusioni = { id: 'rct_tasso', label: 'Esclusioni particolari', description: 'Estrai le esclusioni particolari o rilevanti.' }
+  assert.equal(vetoForeignNatureMassimale(reg, campoEsclusioni, '7.500.000,00'), true)
+  const campoTutela = { id: 'rcp_scoperto_min_mondo', label: 'Attività giudiziale', description: 'Verifica se coperte attività giudiziale...' }
+  assert.equal(vetoForeignNatureMassimale(reg, campoTutela, '7.500.000,00'), true)
+})
+
+test('vetoForeignNatureMassimale: MAI su un campo massimale (per sinistro o annuo), anche con lo stesso importo', () => {
+  const reg = registryWithMassimaleOnly()
+  const campoMassimaleSinistro = {
+    id: 'rct_massimale_sinistro',
+    label: 'Massimale per sinistro',
+    description: 'NUMERO/IMPORTO (euro). Massimale per singolo sinistro (per esempio 7.500.000,00). Non riutilizzare un valore identico (es. massimale annuo, franchigia).',
+  }
+  assert.equal(vetoForeignNatureMassimale(reg, campoMassimaleSinistro, '7.500.000,00'), false)
+  const campoMassimaleAnnuo = { id: 'rct_massimale_persona', label: 'Massimale annuo', description: 'Massimale annuo aggregato' }
+  assert.equal(vetoForeignNatureMassimale(reg, campoMassimaleAnnuo, '7.500.000,00'), false)
+})
+
+test('vetoForeignNatureMassimale: un campo con "massimale" per un\'ALTRA garanzia (RC Prodotti) NON è il massimale del contratto → veto', () => {
+  const reg = registryWithMassimaleOnly()
+  const coperturaConMassimale = { id: 'rcp_massimale_mat', label: 'Visto pesante / bonus edilizi', description: 'Massimale RC Prodotti per danni materiali, es. 5.000.000,00' }
+  // Il 7.500.000 della dichiarazione è un massimale per sinistro del contratto,
+  // non il massimale RC Prodotti: il campo delle coperture non deve riceverlo.
+  assert.equal(vetoForeignNatureMassimale(reg, coperturaConMassimale, '7.500.000,00'), true)
+})
+
+test('vetoForeignNatureMassimale: un importo che nel registro NON è solo massimale NON viene vetato (premio/fatturato)', () => {
+  const reg = buildFactsRegistry([
+    { name: 'dichiarazione.pdf', pages: ['Fatturato dichiarato 7.500.000,00 per quotazione premio'] },
+  ])
+  const campoNonMassimale = { id: 'rct_importo_preventivo', label: 'Estensioni operative', description: 'Estrai le estensioni.' }
+  // L'importo ha natura "premio/fatturato", non "solo massimale" → mai veto
+  assert.equal(vetoForeignNatureMassimale(reg, campoNonMassimale, '7.500.000,00'), false)
+})
+
+test('vetoForeignNatureMassimale: senza registro, o per importo piccolo, nessun veto (mai euristiche di assenza)', () => {
+  const reg = buildFactsRegistry([
+    { name: 'dichiarazione.pdf', pages: ['Massimali Assicurati: RCT/RCO Euro 7.500.000,00 Unico per sinistro'] },
+  ])
+  const f = { id: 'rct_importo_preventivo', label: 'Estensioni operative', description: '' }
+  // importo piccolo: mai veto
+  assert.equal(vetoForeignNatureMassimale(reg, f, '20.000,00'), false)
+  // nessun registro → non si giudica (mai veto per assenza di dati)
+  assert.equal(vetoForeignNatureMassimale(null, f, '7.500.000,00'), false)
+})

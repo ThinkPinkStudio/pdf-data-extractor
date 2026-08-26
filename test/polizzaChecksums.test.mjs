@@ -14,10 +14,14 @@ import assert from 'node:assert/strict'
 import {
   parsePureAmount,
   isPlaceholderValue,
+  isTextualField,
+  isTextualZeroPlaceholder,
+  isTextualNumericOnly,
   isValidPartitaIva,
   isValidCodiceFiscale,
   validateCodiceFiscaleIva,
   isStructuralField,
+  isGarbageIdentifier,
   isPeriodicEconomicField,
   partitionFields,
   normForMatch,
@@ -28,10 +32,14 @@ import {
   isRinvioAttivita,
   isCompanyNameAsAgency,
   isInsurerFooterPIva,
+  isOtherCoverageDocName,
+  isPremiumField,
+  isOtherCoveragePremiumSource,
   pickSemanticCandidate,
   stripFieldExamples,
   buildNormIndex,
   findValueWindow,
+  hasOcrDigitRun,
   validateCrossFields,
 } from '../src/main/services/polizzaValidation.js'
 
@@ -56,6 +64,77 @@ test('placeholder: i valori legittimi sopravvivono (mai match substring)', () =>
   ]) {
     assert.equal(isPlaceholderValue(v), false, `"${v}" NON deve essere placeholder`)
   }
+})
+
+// ─── FIX D2 — IDENTIFICATIVI ALFANUMERICI SPORCHI (garbage OCR) ──────────────
+// Un numero di polizza/proposta/preventivo è una stringa alfanumerica pulita.
+// Un candidato con artefatti OCR ("3ROL]]D") o con troppi caratteri non
+// alfanumerici è spazzatura: si scarta, mai si "ripara" (non inventare).
+test('D2 isGarbageIdentifier: artefatti OCR adiacenti identici → true', () => {
+  assert.equal(isGarbageIdentifier('3ROL]]D'), true)   // PROF.LE: garbage
+  assert.equal(isGarbageIdentifier('RCM((20100'), true)
+  assert.equal(isGarbageIdentifier('ELP--2024'), true)
+  assert.equal(isGarbageIdentifier('P%OL|20'), false)  // no run identico adiacente
+})
+
+test('D2 isGarbageIdentifier: meno del 70% alfanumerici → true (senza run adiacenti identici)', () => {
+  assert.equal(isGarbageIdentifier('A..%%&&##'), true) // 1 alnum su 9 → ratio basso
+  assert.equal(isGarbageIdentifier('12ab..cd..'), true) // molti separatori sparsi
+  assert.equal(isGarbageIdentifier('ABC.!.(.)%'), true) // pochi alfanumerici, nessun run
+})
+
+test('D2 isGarbageIdentifier: identificativi reali puliti → false', () => {
+  assert.equal(isGarbageIdentifier('RCM20100036608'), false) // il valore vero (solo alnum)
+  assert.equal(isGarbageIdentifier('ILI0003005'), false)
+  assert.equal(isGarbageIdentifier('410000880'), false)
+  assert.equal(isGarbageIdentifier('RCM-2010-0036608'), false) // solo '-' come separatore
+  assert.equal(isGarbageIdentifier(''), false)
+  assert.equal(isGarbageIdentifier(null), false)
+})
+
+test('D2 isGarbageIdentifier: UUID/id con singolo separatore → false, doppio separatore → true', () => {
+  // Un UUID/codice con separatori SINGOLI ("-") è pulito e sopravvive.
+  assert.equal(isGarbageIdentifier('311ac411-3e3a-4e42-be90-001b'), false)
+  // Un doppio separatore adiacente ("--") è il marker del rumore OCR → garbage.
+  assert.equal(isGarbageIdentifier('RCM--2024--0001'), true)
+})
+
+// ─── Filtro anti-0 per campi TESTO (Problema 2) ──────────────────────────────
+
+test('anti-0 testo: "0" è non-valido su campi TESTO (description con prefisso TESTO)', () => {
+  const campoTesto = { description: 'TESTO. Tacito rinnovo: Sì, No oppure Non indicato, MAI con un numero/0' }
+  const campoTestoElenco = { description: 'TESTO (elenco). Tutti i sottolimiti' }
+  for (const v of ['0', '0,00', '0.00', '€ 0', '0.0']) {
+    assert.equal(isTextualZeroPlaceholder(campoTesto, v), true, `"${v}" su campo TESTO deve essere placeholder`)
+    assert.equal(isTextualZeroPlaceholder(campoTestoElenco, v), true, `"${v}" su campo TESTO (elenco) deve essere placeholder`)
+  }
+})
+
+test('anti-0 testo: NON colpisce i campi NUMERO/IMPORTO (premio, massimale)', () => {
+  const premio = { description: 'NUMERO/IMPORTO. Premio lordo annuo totale (es. 5.501,25)' }
+  const massimale = { description: 'NUMERO/IMPORTO (euro). Massimale per singolo sinistro (es. 7.500.000,00)' }
+  // lo 0 può essere un premio/massimale legittimo (o un valore semantico): non va filtato
+  assert.equal(isTextualZeroPlaceholder(premio, '0'), false)
+  assert.equal(isTextualZeroPlaceholder(massimale, '0,00'), false)
+})
+
+test('anti-0 testo: un TESTO che esplicita SÌ/NO ma descrive numeri tabulati è comunque testo', () => {
+  // Il prefisso è la fonte di tipo: qui è TESTO, lo 0 resta placeholder anche se
+  // la descrizione contiene una cifra d'esempio.
+  const campo = { description: 'TESTO (SÌ/NO). Tacito rinnovo: rispondi Sì o No, MAI 0' }
+  assert.equal(isTextualZeroPlaceholder(campo, '0'), true)
+  assert.equal(isTextualZeroPlaceholder(campo, 'No'), false)
+})
+
+test('anti-0 testo: campo testuale ma con valore testuale vero → non toccato', () => {
+  const campo = { description: 'TESTO. Frazionamento di pagamento (annuale, semestrale)' }
+  assert.equal(isTextualZeroPlaceholder(campo, 'annuale'), false)
+  assert.equal(isTextualZeroPlaceholder(campo, '0'), true)
+})
+
+test('anti-0 testo: campo senza prefisso TESTO non viene mai bloccato per 0', () => {
+  const campoNeutro = { description: 'Premio lordo totale in euro' }
+  assert.equal(isTextualZeroPlaceholder(campoNeutro, '0'), false)
 })
 
 // ─── Checksum P.IVA ──────────────────────────────────────────────────────────
@@ -155,6 +234,49 @@ test('evidenza: le riformattazioni del modello non vengono punite', () => {
     'commercio di autoveicoli usati e ricambi', {}, CTX), false)
 })
 
+// ─── Evidenza di importo: tolleranza alla lettera OCR interposta ─────────────
+// Bug sul campo (fascicolo Cedam): il 7.500.000,00 della dichiarazione 2026
+// veniva marcato [senza-evidenza] e scartato PRIMA del merge per recency,
+// perché una lettera di confusione OCR (0→O) nel testo SPAZIALE rompeva la run
+// contigua "7500000" che il vecchio check cercava con normCtx.includes().
+// L'atto 2018 col 5.000.000,00 restava l'unico candidato e vinceva per default.
+
+test('hasOcrDigitRun: run esatta → sì; run con LETTERA OCR interposta → sì (contigua)', () => {
+  assert.equal(hasOcrDigitRun('massimale 7.500.000 unico', '7500000'), true)
+  // La lettera-fantasma 0→O spezzava il run nel vecchio normCtx.includes()
+  assert.equal(hasOcrDigitRun('massimali assicurati 7.500O000 unico', '7500000'), true)
+  // 'l' per '1' e 's' per '5' (confusioni OCR classiche)
+  assert.equal(hasOcrDigitRun('somma 4.0O0.0O0,00', '4000000'), true)
+  // lettera NON di confusione (es. una parola) NON vale: la run deve restare densa
+  assert.equal(hasOcrDigitRun('massimale Euro settecento', '7500000'), false)
+  // Niente sottosequenze: un numero più grande NON valida uno più piccolo
+  assert.equal(hasOcrDigitRun('75.000.000', '7500000'), false)
+  assert.equal(hasOcrDigitRun('750.000', '7500000'), false)
+})
+
+test('evidenza importi: il 7.500.000 con 0→O OCR supera il check (fascicolo Cedam)', () => {
+  const f = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
+  // Contesto SPAZIALE del batch come arriva al modello (griglia a colonne)
+  const ctx = 'Massimali Assicurati: RCT/RCO Euro 7.500O000,00 Unico per sinistro'
+  const nctx = normForMatch(ctx)
+  // Il vecchio check fallirebbe: la run continua "7500000" NON c'è più
+  assert.equal(nctx.includes('7500000'), false)
+  // ma le cifre sono DAVVERO nel testo → l'evidenza passa ora
+  assert.equal(passesStagedEvidence(f, '7.500.000,00', {}, nctx), true)
+})
+
+test('evidenza importi: resta severa sugli importi NON presenti (nessun nuovo falso positivo)', () => {
+  const f = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
+  const nctx = normForMatch('Massimali Assicurati: RCT/RCO Euro 7.500O000,00')
+  // Importo inventato non nel contesto → ancora scartato
+  assert.equal(passesStagedEvidence(f, '9.500.000,00', {}, nctx), false)
+  // Importo che esiste ma con cifre DIVERSE (7.500.000 vs 750.000) → scartato
+  assert.equal(passesStagedEvidence(f, '750.000,00', {}, nctx), false)
+  // Evidenza fabbricata assente dal contesto → scartato
+  assert.equal(passesStagedEvidence(f, '9.500.000,00',
+    { evidenza: 'Massimali Assicurati: RCT/RCO Euro 9.500O000,00 come da polizza' }, nctx), false)
+})
+
 test('evidenza: le date devono comparire nel contesto', () => {
   const f = { id: 'scadenza', label: 'Scadenza', type: 'date' }
   assert.equal(passesStagedEvidence(f, '31/12/2025', {}, CTX), true)
@@ -178,6 +300,30 @@ test('recency: un valore NON datato non scavalca mai un valore datato', () => {
   assert.equal(pickMoreRecentCandidate(datato, nonDatato, 'anagrafica').valore, 'A')
   // ...ma un non datato riempie un candidato datato assente
   assert.equal(pickMoreRecentCandidate(null, nonDatato, 'anagrafica').valore, 'B')
+})
+
+test('merge Cedam: il 7.500.000 della dichiarazione 2026 vince sul 5.000.000 dell\'atto 2018', () => {
+  // Il flusso completo del bug: finché l'evidenza era rotta, il candidato recente
+  // veniva scartato PRIMA del merge e l'atto vecchio vinceva per default.
+  // Ora, con l'evidenza robusta all'OCR, il 7.500.000 entra nel merge e la
+  // recency lo fa vincere (affinità comparabili o leggermente favorevoli).
+  const campo = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
+  const ctx = normForMatch('Dichiarazione 31/07/2026 — Massimali Assicurati: RCT/RCO Euro 7.500O000,00 Unico per sinistro')
+  // L'evidenza passa con la lettera OCR
+  assert.equal(passesStagedEvidence(campo, '7.500.000,00', {}, ctx), true)
+
+  const atto2018 = { valore: '5.000.000,00', effDate: '31/12/2018', docType: 'atto', affinity: 0.6, lex: 0.4, docPos: 5 }
+  const dichiarazione2026 = { valore: '7.500.000,00', effDate: '31/07/2026', docType: 'dichiarazione', affinity: 0.62, lex: 0.5, docPos: 1 }
+  // Con il candidato recente arrivato al merge, l'arbitro semantico:
+  // - affinità comparabili → recency → vince il 2026;
+  assert.equal(pickSemanticCandidate(atto2018, dichiarazione2026, 'strutturali').valore, '7.500.000,00')
+  // - vale in entrambi gli ordini di arrivo
+  assert.equal(pickSemanticCandidate(dichiarazione2026, atto2018, 'strutturali').valore, '7.500.000,00')
+
+  // La recency NON è assoluta: con affinità NETTAMENTE più bassa sul 2026
+  // (Δ > vetoMargin), vince comunque l'atto 2018 con la descrizione più vicina.
+  const lontano = { valore: '7.500.000,00', effDate: '31/07/2026', docType: 'dichiarazione', affinity: 0.42, lex: 0.3, docPos: 1 }
+  assert.equal(pickSemanticCandidate(atto2018, lontano, 'strutturali').valore, '5.000.000,00')
 })
 
 test('recency: senza date NESSUNA priorità di tipo — decide lo spareggio lessicale, poi la posizione', () => {
@@ -260,6 +406,21 @@ test('attività: i rinvii/parafrasi non sono una descrizione', () => {
   assert.equal(isRinvioAttivita('vedi polizza'), true)
   assert.equal(isRinvioAttivita("esercente un'impresa per la produzione di olii e grassi vegetali per industria alimentare cosmetica e farmaceutica"), false)
   assert.equal(isRinvioAttivita('produzione di olii e grassi vegetali'), false)
+})
+
+test('attività: date e importi puri NON sono rinvii (data retroattività 14/10/2014)', () => {
+  // Fascicolo B: la "Data retroattività" (14/10/2014) proposta dalla scheda era
+  // scartata dal guardrail rinvio-attivita perché il campo "Data retroattività"
+  // matcha /attivit/ come substring e la data breve (<12 char) tornava `true`.
+  assert.equal(isRinvioAttivita('14/10/2014'), false)
+  assert.equal(isRinvioAttivita('14/10/2025'), false)
+  assert.equal(isRinvioAttivita('31/12/2020'), false)
+  // Importo puro: non è un rinvio.
+  assert.equal(isRinvioAttivita('10.000,00'), false)
+  assert.equal(isRinvioAttivita('500.000'), false)
+  // Un rinvio vero resta un rinvio.
+  assert.equal(isRinvioAttivita("di cui alla clausola precedente"), true)
+  assert.equal(isRinvioAttivita("come da polizza"), true)
 })
 
 test('agenzia: la denominazione della compagnia non è un\'agenzia', () => {
@@ -435,6 +596,7 @@ const XF_FIELDS = [
   { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro' },
   { id: 'rcp_massimale_annuo', label: 'Massimale annuo' },
   { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' },
+  { id: 'rct_massimale_annuo', label: 'Massimale annuo' },
   { id: 'rct_massimale_persona', label: 'Massimale per persona' },
   { id: 'rct_premio_imponibile', label: 'Premio imponibile' },
   { id: 'rct_imposta', label: 'Imposta' },
@@ -462,25 +624,61 @@ test('validateCrossFields: massimale annuo < sinistro → annuo svuotato', () =>
   assert.equal(best.rcp_massimale_sinistro.valore, '5.000.000,00')
 })
 
-test('validateCrossFields: persona > sinistro RCT → persona svuotata', () => {
+test('validateCrossFields: persona 10.000.000 > sinistro 4.000.000 (fattore 2,5) NON svuota — annuo aggregato legittimo', () => {
   const best = {
     rct_massimale_sinistro: { valore: '4.000.000,00' },
     rct_massimale_persona: { valore: '10.000.000,00' },
   }
   validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_massimale_persona, undefined)
+  assert.equal(best.rct_massimale_persona.valore, '10.000.000,00', 'fattore 2,5: il per-persona (annuo aggregato) può superare il per-sinistro')
   assert.equal(best.rct_massimale_sinistro.valore, '4.000.000,00')
 })
 
-test('validateCrossFields: premio totale ≠ imponibile+imposta → totale svuotato', () => {
+test('validateCrossFields: persona 6.000.000 > sinistro 2.000.000 (fattore 3) NON svuota — legittimo sul campo B/PROF.LE', () => {
+  const best = {
+    rct_massimale_sinistro: { valore: '2.000.000,00' },
+    rct_massimale_persona: { valore: '6.000.000,00' },
+  }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_massimale_persona.valore, '6.000.000,00', 'il fattore 3 è la situazione legittima (annuo aggregato > per sinistro)')
+  assert.equal(best.rct_massimale_sinistro.valore, '2.000.000,00')
+  assert.ok(!notes.some((n) => /massimali/.test(n)), 'nessuna nota di violazione per il caso legittimo')
+})
+
+test('validateCrossFields: persona 6.000.000 > sinistro 1.000.000 (fattore 6) NON svuota — il 5-6× è legittimo su RC-professione', () => {
+  const best = {
+    rct_massimale_sinistro: { valore: '1.000.000,00' },
+    rct_massimale_persona: { valore: '6.000.000,00' },
+  }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_massimale_persona.valore, '6.000.000,00', 'rapporto 6: persona > sinistro NON è spill, resta')
+  assert.equal(best.rct_massimale_sinistro.valore, '1.000.000,00')
+  assert.ok(!notes.some((n) => /persona/.test(n)))
+})
+
+test('validateCrossFields: persona > annuo valorizzato → persona svuotata (sottolimite impossibile), anche con fattore piccolo', () => {
+  const best = {
+    rct_massimale_sinistro: { valore: '2.000.000,00' },
+    rct_massimale_annuo: { valore: '2.500.000,00' },
+    rct_massimale_persona: { valore: '3.000.000,00' },
+  }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_massimale_persona, undefined, 'persona > annuo è una violazione PALESE di sottolimite')
+  assert.equal(best.rct_massimale_sinistro.valore, '2.000.000,00')
+  assert.equal(best.rct_massimale_annuo.valore, '2.500.000,00')
+  assert.ok(notes.some((n) => /sottolimite impossibile/.test(n)))
+})
+
+test('validateCrossFields: premio totale ≠ imponibile+imposta → totale dichiarato MANTENUTO (mai svuotato/calcolato)', () => {
   const best = {
     rct_premio_imponibile: { valore: '4.500,00' },
     rct_imposta: { valore: '1.001,25' },
     rct_premio_totale: { valore: '99.999,00' },
   }
-  validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_premio_totale, undefined)
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(best.rct_premio_totale.valore, '99.999,00', 'il totale dichiarato resta il dato reale')
   assert.equal(best.rct_imposta.valore, '1.001,25')
+  assert.ok(notes.some((n) => /totale dichiarato/.test(n)), 'nota diagnostica di incoerenza presente')
 })
 
 test('validateCrossFields: golden EULIP coerente non viene toccato', () => {
@@ -496,4 +694,111 @@ test('validateCrossFields: golden EULIP coerente non viene toccato', () => {
   assert.equal(notes.length, 0)
   assert.equal(best.decorrenza.valore, '31/12/2024')
   assert.equal(best.rct_premio_totale.valore, '5.501,25')
+})
+
+// ─── Numerico in campo TESTO: "meglio vuoto che dato sbagliato" ─────────────
+// Un A/B reale sul fascicolo Cedam ha mostrato i campi la cui description è
+// TESTO… uscire con numeri/importi al posto del testo (rcp_imposta→1,32 per il
+// "tacito rinnovo" SÌ/NO, rcp_premio_imponibile→13.068,00 per il frazionamento,
+// rct_tasso→75,00, rct_premio_imponibile→13.068,00, rct_importo_preventivo→"4",
+// rcp_scoperto_min_mondo→"4"). Il guard isTextualNumericOnly ripulisce via
+// sanitizeFieldValue i campi TESTO da un valore puramente numerico, SENZA mai
+// toccare i campi NUMERO/IMPORTO.
+
+const TEX_FIELD = { id: 'rcp_imposta', label: 'Imposta', description: 'TESTO (SÌ/NO). Tacito rinnovo automatico della polizza: SÌ oppure NO.', type: 'text' }
+const NUM_FIELD = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', description: 'NUMERO/IMPORTO, es. 4.000.000,00', type: 'text' }
+
+test('isTextualField: type FORTE esplicito vince sulla description (fonte di verità)', () => {
+  // Il type esplicito è la fonte di verità: un campo dichiarato NUMERO/IMPORTO
+  // (type 'number') resta numerico anche se la description sembra testuale.
+  assert.equal(isTextualField({ type: 'number', description: 'TESTO. Qualcosa' }), false)
+  // ... e un campo dichiarato TESTO resta testuale anche se la description tace.
+  assert.equal(isTextualField({ type: 'text', description: 'VALORE qualsiasi' }), false)
+})
+
+test('isTextualField: type \'text\' è il default STORICO: decide la description', () => {
+  // type:'text' è scritto su quasi tutti i campi già salvati senza valore
+  // semantico: NON deve trasformare un NUMERO/IMPORTO in testo per un refuso.
+  const numDesc = { id: 'x', type: 'text', description: 'NUMERO/IMPORTO (euro). Massimale…' }
+  assert.equal(isTextualField(numDesc), false)
+  const testoDesc = { id: 'x', type: 'text', description: 'TESTO (elenco). Sinistri…' }
+  assert.equal(isTextualField(testoDesc), true)
+})
+
+test('isTextualNumericOnly: valori numerici puri su campo TESTO vengono scartati', () => {
+  for (const v of ['13.068,00', '4', '1,2', '75,00', '1,32', '0', '45,6', '1.800.000']) {
+    assert.equal(isTextualNumericOnly(TEX_FIELD, v), true, `"${v}" deve essere scartato su campo TESTO`)
+  }
+})
+
+test('isTextualNumericOnly: non scarta valori testuali con cifre dentro', () => {
+  for (const v of ['SÌ', 'No', 'annuale', 'semestrale', 'retribuzioni', 'CENTRI DIAGNOSTICI', 'produzione di olii e grassi', 'Via Roma 12', 'IVA 22%']) {
+    assert.equal(isTextualNumericOnly(TEX_FIELD, v), false, `"${v}" è testo, NON va scartato`)
+  }
+})
+
+test('isTextualNumericOnly: NON tocca i campi NUMERO/IMPORTO', () => {
+  for (const v of ['13.068,00', '4', '75,00', '1.800.000', '1,2']) {
+    assert.equal(isTextualNumericOnly(NUM_FIELD, v), false, `"${v}" su NUMERO/IMPORTO resta`)
+  }
+})
+
+test('isTextualNumericOnly: sinistri non accetta l\'attività (numero/codice)', () => {
+  // 6e39add8 (sinistri e circostanze) è TESTO-elenco: il modello metteva
+  // l'attività "CENTRI DIAGNOSTICI" al posto dei sinistri. Un codice/numero non
+  // è un elenco di sinistri: il guard lo deve scartare (meglio vuoto).
+  const sinistri = { id: '6e39add8', description: 'TESTO (elenco). Sinistri e circostanze denunciate', type: 'text' }
+  assert.equal(isTextualNumericOnly(sinistri, '4'), true)
+  assert.equal(isTextualNumericOnly(sinistri, '001'), true)
+  // L'attività come testo reale resta (non è un numero puro)
+  assert.equal(isTextualNumericOnly(sinistri, 'CENTRI DIAGNOSTICI'), false)
+})
+
+// ─── Guardia "premio da copertura diversa" (PROF.LE) ────────────────────────
+// Il fascicolo RC PROF.LE contiene più coperture: una RC professionale vera
+// ("01. RC PROFESSIONE SANITARIA", premio 61,00) e una RC INFORTUNI (premio
+// 25,00). I documenti di copertura NON-RC non possono popolare i campi premio
+// della RC professionale. "Le regole scelgono, non inventano": il 25,00 resta
+// valido solo se è davvero il premio RC; lo si esclude solo quando la fonte è
+// un documento di altra copertura.
+
+test('Fix PROF.LE: documento "RC INFORTUNI" È riconosciuto come copertura diversa', () => {
+  assert.equal(isOtherCoverageDocName('01. RC INFORTUNI.pdf'), true)
+  assert.equal(isOtherCoverageDocName('RC INFORTUNI INFORTUNI.pdf'), true)
+  assert.equal(isOtherCoverageDocName('TUTELA LEGALE.pdf'), true)
+  assert.equal(isOtherCoverageDocName('Certificato di guida.pdf'), true)
+  assert.equal(isOtherCoverageDocName('01. RC PROFESSIONE SANITARIA.pdf'), false)
+  assert.equal(isOtherCoverageDocName('polizza.pdf'), false)
+  assert.equal(isOtherCoverageDocName('quietanza 2025.pdf'), false)
+})
+
+test('Fix PROF.LE: il candidato premio da "RC INFORTUNI" è vetato per i campi premio RC', () => {
+  const rcpPremio = { id: 'rcp_premio_totale', label: 'Premio totale', description: 'Premio della RC professionale' }
+  assert.equal(isPremiumField(rcpPremio), true)
+  assert.equal(isOtherCoveragePremiumSource(rcpPremio, '01. RC INFORTUNI.pdf'), true)
+})
+
+test('Fix PROF.LE: il documento RC professionale NON veta lo stesso campo premio', () => {
+  const rcpPremio = { id: 'rcp_premio_totale', label: 'Premio totale' }
+  assert.equal(isOtherCoveragePremiumSource(rcpPremio, '01. RC PROFESSIONE SANITARIA.pdf'), false)
+  assert.equal(isOtherCoveragePremiumSource(rcpPremio, 'polizza RC professionale.pdf'), false)
+})
+
+test('Fix PROF.LE: la guardia premio NON tocca i campi non-premio né la parola "infortuni" in un campo non-premio', () => {
+  // Un campo strutturale/altro ramo non è premio: la guardia è inerte.
+  const massimale = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
+  assert.equal(isPremiumField(massimale), false)
+  assert.equal(isOtherCoveragePremiumSource(massimale, '01. RC INFORTUNI.pdf'), false)
+})
+
+test('Fix PROF.LE: isPremiumField riconosce premio totale/imponibile/imposta ma non massimali/scoperti', () => {
+  assert.equal(isPremiumField({ id: 'rcp_premio_totale', label: 'Premio totale' }), true)
+  assert.equal(isPremiumField({ id: 'rct_premio_imponibile', label: 'Premio imponibile' }), true)
+  assert.equal(isPremiumField({ id: 'rcp_imposta', label: 'Imposta' }), true)
+  assert.equal(isPremiumField({ id: 'rct_premio_lordo_annuo', label: 'Premio lordo annuo' }), true)
+  assert.equal(isPremiumField({ id: 'rct_massimale_danni', label: 'Franchigia base' }), false)
+  assert.equal(isPremiumField({ id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }), false)
+  // id RIUSATO con label testuale: NON è un campo premio (Frazionamento / Tacito Rinnovo)
+  assert.equal(isPremiumField({ id: 'rcp_premio_imponibile', label: 'Frazionamento' }), false)
+  assert.equal(isPremiumField({ id: 'rcp_imposta', label: 'Tacito Rinnovo' }), false)
 })

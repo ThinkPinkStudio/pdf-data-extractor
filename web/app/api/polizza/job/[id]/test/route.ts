@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? (settings.polizzaProfiles || []).find((p) => p.id === body.profileId) || null
     : null
   const fieldDefs = profile
-    ? (profile.fields || []).filter((f) => f.enabled !== false).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    ? (profile.fields || []).filter((f) => f.enabled !== false).map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
     : (src.field_defs || [])
   if (!fieldDefs.length) return NextResponse.json({ error: 'Nessun campo: né profilo valido né campi congelati nel job' }, { status: 400 })
   const promptExtra = body.promptExtra !== undefined

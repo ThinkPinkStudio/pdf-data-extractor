@@ -14,18 +14,58 @@
  * fallback a `json`.
  *
  * Modulo PURO — test/gbnfSchema.test.mjs.
+ *
+ * ─── Fonte del tipo (decisione del task) ─────────────────────────────────────
+ * Il tipo del valore di un campo è la fonte di verità ESPLICITA `field.type`
+ * (scelta dall'utente nell'editor campi, chiavi canoniche in polizzaFieldKind),
+ * con fallback AL PREFISSO della description ("TESTO…", "NUMERO/IMPORTO…",
+ * "SÌ/NO", "PERCENTUALE…") e infine id/label. `fieldKind` centralizza la regola.
  */
+
+import { fieldKind } from './polizzaFieldKind.js'
 
 // ─── Classificazione del valore ──────────────────────────────────────────────
 
 /**
  * Che tipo di vincolo applicare al `valore` di un campo.
- * `date` dal type configurato; il resto da id/etichetta (i profili utente
- * rinomano spesso le label, gli id default restano stabili).
+ *
+ * Fonte di verità in ordine:
+ * 1. il `type` ESPLICITO del campo, se è un kind FORTE (number/percent/fiscal/
+ *    date): vince su qualunque description/id. boolean/enum → stringa libera.
+ * 2. `type` esplicito 'text' (o assente) = default storico "debole": per NON
+ *    rompere i profili già salvati resta il percorso legacy — description con
+ *    prefisso TESTO → testo libero; id/label dei default del gestionale
+ *    (massimale/premio/imposta → amount, tasso → rate, codice_fiscale_iva → vat).
  */
 export function fieldValueKind(field) {
   if (!field) return 'text'
-  if (field.type === 'date') return 'date'
+  const kind = fieldKind(field)
+  if (kind === 'number') {
+    // NUMERO DOCUMENTO (polizza/proposta/appendice/…): è un IDENTIFICATIVO
+    // alfanumerico, NON un importo ("RCM00010027822", "781949596"). Il prefisso
+    // description "NUMERO." da solo NON basta per decidere amount: si guarda al
+    // blob (id+label+descrizione): se è un "numero documento" → testo libero,
+    // altrimenti amount.
+    const blob = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
+    if (/numero\s+(di\s+|della\s+|delle\s+|del\s+)?(polizz|proposta|preventiv|appendic|contratt|adesion)|n[°.]?\s*(polizz|propost|preventiv|appendic)/i.test(blob)) return 'text'
+    return 'amount'
+  }
+  if (kind === 'percent') return 'rate'
+  if (kind === 'fiscal') return 'vat'
+  if (kind === 'date') return 'date'
+  // boolean ("SÌ/NO") ed enum ("elenco di valori liberi") restano testi liberi:
+  // un pattern li costringerebbe a un vocabolario chiuso che non hanno.
+  if (kind === 'boolean' || kind === 'enum') return 'text'
+  // kind === 'text' (da type 'text', da description "TESTO…", o default):
+  // percorso legacy, identico al comportamento pre-esplicito.
+  // MAI imporre un numero su un campo che la DESCRIPTION dichiara TESTO
+  // (stessa fonte di tipo di isTextualField): nei profili Rivisto (es. "TESTO
+  // (SÌ/NO)." per l'imposta, "TESTO (elenco)." per i sinistri) un prefisso
+  // "TESTO…" ha la priorità sull'ID numerico (premio/imposta/tasso). Su quei
+  // campi anche un ID "…_imposta" o "…_tasso" non deve produrre pattern
+  // amount/rate, altrimenti il modello è COSTRETTO a rispondere con un numero
+  // (visto sul campo: rcp_imposta → 1,32; rct_tasso → 75,00).
+  if (/TESTO/.test(String(field.description || ''))) return 'text'
   const id = String(field.id || '')
   const blob = `${id} ${field.label || ''} ${field.description || ''}`
   if (id === 'codice_fiscale_iva' || /codice_fiscale_iva/.test(id)) return 'vat'
@@ -80,20 +120,48 @@ function entrySchema(kind, { requiredEvidence = false } = {}) {
   return { type: 'object', properties: props, required, additionalProperties: false }
 }
 
+// Schema per-field che il grounding richiede: oltre a valore/evidenza deve
+// ammettere la citazione {source:{doc,page,line}} e la confidenza, altrimenti il
+// modello non può riferire DOVE ha trovato il valore e verifyGroundedValue scarta
+// tutto con "doc undefined". Mantiene i pattern per ciascun kind.
+function groundedEntrySchema(kind) {
+  const props = {
+    valore: {
+      anyOf: [
+        stringSchema(kind),
+        { type: 'null' },
+      ],
+    },
+    source: {
+      type: 'object',
+      properties: {
+        doc: { type: 'integer' },
+        page: { type: 'integer' },
+        line: { type: 'integer' },
+      },
+      required: ['doc', 'page'],
+      additionalProperties: false,
+    },
+    confidence: { type: 'number' },
+  }
+  return { type: 'object', properties: props, required: ['valore'], additionalProperties: false }
+}
+
 /**
  * @param {Array<{id:string,label?:string,type?:string,description?:string}>} fields
  * @param {'staged'|'perField'} shape
  */
-export function buildJsonSchema(fields, shape = 'staged') {
+export function buildJsonSchema(fields, shape = 'staged', opts = {}) {
   const list = Array.isArray(fields) ? fields.filter((f) => f && f.id) : []
   if (shape === 'perField') {
     const kind = fieldValueKind(list[0])
     // {} è la risposta corretta "non trovato". oneOf: oggetto vuoto O entry.
+    const entry = opts.grounding === true ? groundedEntrySchema(kind) : entrySchema(kind, { requiredEvidence: true })
     return {
       $schema: 'https://json-schema.org/draft/07/schema#',
       oneOf: [
         { type: 'object', additionalProperties: false, properties: {} },
-        entrySchema(kind, { requiredEvidence: true }),
+        entry,
       ],
     }
   }
@@ -142,11 +210,22 @@ function gbnfEntryRule(name, kind) {
     + ` ("," ws "\\"data_validita\\"" ws ":" ws (date | null))? ws "}"`
 }
 
-export function buildGbnfGrammar(fields, shape = 'staged') {
+export function buildGbnfGrammar(fields, shape = 'staged', opts = {}) {
   const list = Array.isArray(fields) ? fields.filter((f) => f && f.id) : []
   if (shape === 'perField') {
     const kind = fieldValueKind(list[0])
     const v = gbnfValoreRhs(kind)
+    if (opts?.grounding === true) {
+      // Per-field CON grounding: la risposta deve includere la citazione
+      // {source:{doc,page,line}, confidence} per la verifica deterministica.
+      return `root ::= "{" ws "}" | "{" ws "\\"valore\\"" ws ":" ws (${v} | null)`
+        + ` ("," ws "\\"source\\"" ws ":" ws source-obj)`
+        + ` ("," ws "\\"confidence\\"" ws ":" ws number)`
+        + ` ws "}"\n`
+        + `source-obj ::= "{" ws "\\"doc\\"" ws ":" ws number ws "," ws "\\"page\\"" ws ":" ws number (ws "," ws "\\"line\\"" ws ":" ws number)? ws "}"\n`
+        + `number ::= "0" | ([1-9] [0-9]*) | ("-" ("0" | ([1-9] [0-9]*))) (([.,] [0-9]+)?)\n`
+        + GBNF_COMMON
+    }
     return `root ::= "{" ws "}" | "{" ws "\\"valore\\"" ws ":" ws (${v} | null)`
       + ` ("," ws "\\"evidenza\\"" ws ":" ws string) ws "}"`
       + GBNF_COMMON
@@ -178,6 +257,14 @@ export function ollamaFormatFor(fields, shape, settings) {
   if (mode === 'json') return 'json'
   const list = Array.isArray(fields) ? fields : []
   if (shape !== 'perField' && !list.length) return 'json'
+  const grounding = settings?.polizzaGrounding === true
+  // Se il per-field gira CON grounding, lo schema per-field deve ammettere la
+  // citazione {source:{doc,page,line}, confidence}: il modello deve poter dire
+  // DOVE ha trovato il valore, altrimenti verifyGroundedValue scarta tutto.
+  if (grounding) {
+    if (mode === 'gbnf') return buildGbnfGrammar(list, shape, { grounding })
+    return buildJsonSchema(list, shape, { grounding })
+  }
   if (mode === 'gbnf') return buildGbnfGrammar(list, shape)
   return buildJsonSchema(list, shape)
 }

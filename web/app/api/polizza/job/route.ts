@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const { fields, wholeDossier } = await getFieldsAndMapping()
-    const fieldDefs = (fields || []).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    const fieldDefs = (fields || []).map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
     const rollingState = initRollingState(fieldDefs)
 
     const inputFiles = await Promise.all(pdfFiles.map(async (f) => ({
