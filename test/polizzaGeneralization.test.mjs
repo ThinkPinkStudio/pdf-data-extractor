@@ -123,24 +123,26 @@ test('R6 isBareGlobalFranchigia: garanzia reale → false', () => {
 
 // ── Regola 3/10: MAI calcolare il premio lordo (imponibile+imposta) ─────────
 test('R3/10 completePremiumTotals: NON scrive mai un totale calcolato → totale resta il valore dichiarato', () => {
+  const PID = '99c9ad06-8441-54c4-bfe2-ddf440faf11c' // rcp_premio_totale
   const best = {
-    rcp_premio_imponibile: { valore: '2.862,16' },
-    rcp_imposta: { valore: '2.862,16' }, // premio RATA scambiato per imposta: l'azzardo che causò la regressione
-    rcp_premio_totale: { valore: '3.499,00' },
+    'b9c59183-72a3-5aa1-b34c-1df8e80f28f3': { valore: '2.862,16' },
+    '37ab743b-316e-58a4-8fe4-3112bc6d2139': { valore: '2.862,16' }, // premio RATA scambiato per imposta
+    [PID]: { valore: '3.499,00' },
   }
   const docs = [{
     name: 'quietanza', type: 'quietanza', text:
       'Imponibile 2.862,16 Imposta 636,84 TOTALE 3.499,00 gold rincond 3499',
   }]
   const byKind = buildNumericHints(docs).byKind
-  const fields = [{ id: 'rcp_premio_totale', label: 'Premio lordo annuo' }]
+  const fields = [{ id: PID, label: 'Premio lordo annuo' }]
   const diag = []
   const n = completePremiumTotals(best, fields, byKind, diag)
   assert.equal(n, 0, 'NON deve completare alcun totale')
-  assert.equal(best.rcp_premio_totale.valore, '3.499,00', 'il totale dichiarato va MANTENUTO')
+  assert.equal(best[PID].valore, '3.499,00', 'il totale dichiarato va MANTENUTO')
 })
 
 test('R3/10 completePremiumTotals: totale mancante → NON scrive imponibile+imposta (resta assente)', () => {
+  const PID = '99c9ad06-8441-54c4-bfe2-ddf440faf11c' // rcp_premio_totale
   const docs = [{
     name: 'quietanza', type: 'quietanza', text:
       'Imponibile 10.689,58  Imposta 2.378,43  TOTALE 13.068,01 gold',
@@ -151,30 +153,31 @@ test('R3/10 completePremiumTotals: totale mancante → NON scrive imponibile+imp
   assert.ok(imp && imp.value.includes('10.689,58'), 'imponibile trovato')
   assert.ok(tax && tax.value.includes('2.378,43'), 'imposta trovata')
   const best = {}
-  const fields = [{ id: 'rcp_premio_totale', label: 'Premio lordo annuo' }]
+  const fields = [{ id: PID, label: 'Premio lordo annuo' }]
   const diag = []
   const n = completePremiumTotals(best, fields, byKind, diag)
   assert.equal(n, 0)
-  assert.ok(!('rcp_premio_totale' in best), 'il campo premio totale NON deve essere scritto')
+  assert.ok(!(PID in best), 'il campo premio totale NON deve essere scritto')
   assert.ok(diag.some((d) => d.includes('totale premio NON recuperato')), 'deve segnalare totale non recuperato')
 })
 
 test('R3/10 completePremiumTotals: totale già corretto (>= imponibile) NON cambiato', () => {
+  const PID = '99c9ad06-8441-54c4-bfe2-ddf440faf11c' // rcp_premio_totale
   const docs = [{
     name: 'quietanza', type: 'quietanza', text:
       'Imponibile 2.862,16 Imposta 636,84 TOTALE 3.499,00 gold rincond 3499',
   }]
   const byKind = buildNumericHints(docs).byKind
-  const best = { rcp_premio_totale: { valore: '3.499,00' } }
-  const fields = [{ id: 'rcp_premio_totale', label: 'Premio lordo annuo' }]
+  const best = { [PID]: { valore: '3.499,00' } }
+  const fields = [{ id: PID, label: 'Premio lordo annuo' }]
   const n = completePremiumTotals(best, fields, byKind)
   assert.equal(n, 0)
-  assert.equal(best.rcp_premio_totale.valore, '3.499,00')
+  assert.equal(best[PID].valore, '3.499,00')
 })
 
 test('R3/10 completePremiumTotals: senza imposta nota → nessun completamento', () => {
   const best = {}
-  const fields = [{ id: 'rcp_premio_totale', label: 'Premio lordo annuo' }]
+  const fields = [{ id: '99c9ad06-8441-54c4-bfe2-ddf440faf11c', label: 'Premio lordo annuo' }]
   assert.equal(completePremiumTotals(best, fields, new Map()), 0)
 })
 
@@ -245,13 +248,14 @@ test('R1/R9 integrati: override non inserisce franchigia nei massimali', () => {
 })
 
 test('R3 diag prefix determinista presente in completePremiumTotals', () => {
+  const PID = '99c9ad06-8441-54c4-bfe2-ddf440faf11c' // rcp_premio_totale
   const docs = [{
     name: 'q', type: 'quietanza', text: 'Imponibile 100,00 Imposta 22,00',
   }]
   const byKind = buildNumericHints(docs).byKind
   const best = {}
   const diag = []
-  completePremiumTotals(best, [{ id: 'rcp_premio_totale', label: 'Premio lordo' }], byKind, diag)
-  assert.ok(!best.rcp_premio_totale, 'il totale calcolato NON deve mai comparire')
+  completePremiumTotals(best, [{ id: PID, label: 'Premio lordo' }], byKind, diag)
+  assert.ok(!best[PID], 'il totale calcolato NON deve mai comparire')
   assert.ok(diag.some((d) => d.includes('totale premio NON recuperato')), `diag=${diag.join(' | ')}`)
 })

@@ -221,7 +221,10 @@ export default function PolizzaPage() {
     if (!extracted) return
     setExporting(true); setExportMsg(null)
     try {
-      const suggestedName = `polizza_${extracted.polizza_numero || 'rc'}_${(extracted.contraente || 'dati').split(' ')[0]}`
+      const fidByLabel = (re: RegExp) => (fields.find((f) => re.test(` ${f.label} ${f.description} `) ))?.id
+      const polNum = extracted[fidByLabel(/polizz|numero polizz/i) as string]
+      const cont = extracted[fidByLabel(/^contraente|contraente/i) as string]
+      const suggestedName = `polizza_${polNum || 'rc'}_${(cont || 'dati').split(' ')[0]}`
       const res = await fetch('/api/polizza/export-new', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: extracted, suggestedName }),
       })

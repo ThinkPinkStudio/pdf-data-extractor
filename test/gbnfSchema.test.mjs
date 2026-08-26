@@ -19,14 +19,20 @@ const fields = [
   { id: 'attivita', label: 'Attività assicurata', type: 'text' },
 ]
 
-test('fieldValueKind: date / vat / amount / rate / text', () => {
+test('fieldValueKind: date / vat / amount / rate / text (type-blind, da label/description)', () => {
   assert.equal(fieldValueKind({ id: 'decorrenza', type: 'date' }), 'date')
-  assert.equal(fieldValueKind({ id: 'codice_fiscale_iva' }), 'vat')
-  assert.equal(fieldValueKind({ id: 'rct_massimale_sinistro', label: 'Massimale' }), 'amount')
-  assert.equal(fieldValueKind({ id: 'rct_imposta', label: 'Imposta' }), 'amount')
-  assert.equal(fieldValueKind({ id: 'rct_tasso', label: 'Tasso' }), 'rate')
-  assert.equal(fieldValueKind({ id: 'attivita', label: 'Attività' }), 'text')
-  assert.equal(fieldValueKind({ id: 'rct_parametro', label: 'Parametro regolazione' }), 'text')
+  // L'id NON indica più la natura (ora è un UUID): decide label/description.
+  assert.equal(fieldValueKind({ label: 'P. IVA / Cod. Fiscale' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'Partita IVA' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'Codice fiscale' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'Massimale' }), 'amount')
+  assert.equal(fieldValueKind({ label: 'Imposta' }), 'amount')
+  assert.equal(fieldValueKind({ label: 'Tasso' }), 'rate')
+  assert.equal(fieldValueKind({ label: 'Attività' }), 'text')
+  assert.equal(fieldValueKind({ label: 'Parametro regolazione' }), 'text')
+  // Un id casuale senza label/description di natura NON produce un pattern:
+  // resta testo libero (nessun falso amount/rate dal nome UUID).
+  assert.equal(fieldValueKind({ id: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59' }), 'text')
 })
 
 test('fieldValueKind: la description "TESTO…" vince sull\'id numerico', () => {

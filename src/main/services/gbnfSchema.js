@@ -66,11 +66,10 @@ export function fieldValueKind(field) {
   // amount/rate, altrimenti il modello è COSTRETTO a rispondere con un numero
   // (visto sul campo: rcp_imposta → 1,32; rct_tasso → 75,00).
   if (/TESTO/.test(String(field.description || ''))) return 'text'
-  const id = String(field.id || '')
-  const blob = `${id} ${field.label || ''} ${field.description || ''}`
-  if (id === 'codice_fiscale_iva' || /codice_fiscale_iva/.test(id)) return 'vat'
-  if (/_tasso$/.test(id) || /\btasso\b/i.test(blob)) return 'rate'
-  if (/massimale|premio|imposta|importo|scoperto/.test(id) || /massimale|premio|imposta|importo|scoperto/i.test(field.label || '')) {
+  const blob = `${field.label || ''} ${field.description || ''}`
+  if (/p\s*\.?\s*iva|cod\.?\s*fiscale|codice fiscale|partita iva/i.test(blob)) return 'vat'
+  if (/\btasso\b/i.test(blob)) return 'rate'
+  if (/massimale|premio|imposta|importo|scoperto|franchig/i.test(blob)) {
     return 'amount'
   }
   return 'text'

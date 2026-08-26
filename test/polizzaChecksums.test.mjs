@@ -42,6 +42,7 @@ import {
   hasOcrDigitRun,
   validateCrossFields,
 } from '../src/main/services/polizzaValidation.js'
+import { fieldNatura } from '../src/main/services/polizzaFieldKind.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
 
@@ -590,110 +591,123 @@ test('passesStagedEvidence: un solo token storpiato dall\'OCR non scarta il valo
 
 // ─── Cross-field ─────────────────────────────────────────────────────────────
 
+// ─── Cross-field type-blind ─────────────────────────────────────────────────
+// I campi ora hanno id UUID casuali: la natura si ricava da label/description
+// (helper fieldNatura), MAI dal nome dell'id. Profilo realistico MONO-sezione
+// (RC Professionale): massimali sinistro/annuo/persona + premio imponibile/
+// imposta/totale, tutti con id UUID stabili (deterministici).
+const XF_IDS = {
+  decorrenza: '4dc720d8-8237-5084-b288-fd32bd1d19c6',
+  scadenza: '22408456-185d-5803-b489-02af1a084911',
+  massimale_sinistro: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59',
+  massimale_annuo: 'ac724518-d10e-55c5-95b7-10c700365820',
+  massimale_persona: '71c0eafb-77ef-5751-92e9-9b4cb872b10a',
+  premio_imponibile: 'b9c59183-72a3-5aa1-b34c-1df8e80f28f3',
+  imposta: '37ab743b-316e-58a4-8fe4-3112bc6d2139',
+  premio_totale: '545374de-c000-5905-8c62-d36f9fdf7f43',
+}
 const XF_FIELDS = [
-  { id: 'decorrenza', label: 'Decorrenza', type: 'date' },
-  { id: 'scadenza', label: 'Scadenza', type: 'date' },
-  { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro' },
-  { id: 'rcp_massimale_annuo', label: 'Massimale annuo' },
-  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' },
-  { id: 'rct_massimale_annuo', label: 'Massimale annuo' },
-  { id: 'rct_massimale_persona', label: 'Massimale per persona' },
-  { id: 'rct_premio_imponibile', label: 'Premio imponibile' },
-  { id: 'rct_imposta', label: 'Imposta' },
-  { id: 'rct_premio_totale', label: 'Premio totale' },
+  { id: XF_IDS.decorrenza, label: 'Decorrenza', type: 'date' },
+  { id: XF_IDS.scadenza, label: 'Scadenza', type: 'date' },
+  { id: XF_IDS.massimale_sinistro, label: 'Massimale per sinistro' },
+  { id: XF_IDS.massimale_annuo, label: 'Massimale annuo' },
+  { id: XF_IDS.massimale_persona, label: 'Massimale per persona' },
+  { id: XF_IDS.premio_imponibile, label: 'Premio imponibile' },
+  { id: XF_IDS.imposta, label: 'Imposta' },
+  { id: XF_IDS.premio_totale, label: 'Premio totale' },
 ]
 
 test('validateCrossFields: decorrenza ≥ scadenza → decorrenza svuotata', () => {
   const best = {
-    decorrenza: { valore: '31/12/2025' },
-    scadenza: { valore: '31/12/2024' },
+    [XF_IDS.decorrenza]: { valore: '31/12/2025' },
+    [XF_IDS.scadenza]: { valore: '31/12/2024' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.decorrenza, undefined)
-  assert.equal(best.scadenza.valore, '31/12/2024')
+  assert.equal(best[XF_IDS.decorrenza], undefined)
+  assert.equal(best[XF_IDS.scadenza].valore, '31/12/2024')
   assert.ok(notes.some((n) => /decorrenza/.test(n)))
 })
 
 test('validateCrossFields: massimale annuo < sinistro → annuo svuotato', () => {
   const best = {
-    rcp_massimale_sinistro: { valore: '5.000.000,00' },
-    rcp_massimale_annuo: { valore: '1.000.000,00' },
+    [XF_IDS.massimale_sinistro]: { valore: '5.000.000,00' },
+    [XF_IDS.massimale_annuo]: { valore: '1.000.000,00' },
   }
   validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rcp_massimale_annuo, undefined)
-  assert.equal(best.rcp_massimale_sinistro.valore, '5.000.000,00')
+  assert.equal(best[XF_IDS.massimale_annuo], undefined)
+  assert.equal(best[XF_IDS.massimale_sinistro].valore, '5.000.000,00')
 })
 
 test('validateCrossFields: persona 10.000.000 > sinistro 4.000.000 (fattore 2,5) NON svuota — annuo aggregato legittimo', () => {
   const best = {
-    rct_massimale_sinistro: { valore: '4.000.000,00' },
-    rct_massimale_persona: { valore: '10.000.000,00' },
+    [XF_IDS.massimale_sinistro]: { valore: '4.000.000,00' },
+    [XF_IDS.massimale_persona]: { valore: '10.000.000,00' },
   }
   validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_massimale_persona.valore, '10.000.000,00', 'fattore 2,5: il per-persona (annuo aggregato) può superare il per-sinistro')
-  assert.equal(best.rct_massimale_sinistro.valore, '4.000.000,00')
+  assert.equal(best[XF_IDS.massimale_persona].valore, '10.000.000,00', 'fattore 2,5: il per-persona (annuo aggregato) può superare il per-sinistro')
+  assert.equal(best[XF_IDS.massimale_sinistro].valore, '4.000.000,00')
 })
 
 test('validateCrossFields: persona 6.000.000 > sinistro 2.000.000 (fattore 3) NON svuota — legittimo sul campo B/PROF.LE', () => {
   const best = {
-    rct_massimale_sinistro: { valore: '2.000.000,00' },
-    rct_massimale_persona: { valore: '6.000.000,00' },
+    [XF_IDS.massimale_sinistro]: { valore: '2.000.000,00' },
+    [XF_IDS.massimale_persona]: { valore: '6.000.000,00' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_massimale_persona.valore, '6.000.000,00', 'il fattore 3 è la situazione legittima (annuo aggregato > per sinistro)')
-  assert.equal(best.rct_massimale_sinistro.valore, '2.000.000,00')
+  assert.equal(best[XF_IDS.massimale_persona].valore, '6.000.000,00', 'il fattore 3 è la situazione legittima (annuo aggregato > per sinistro)')
+  assert.equal(best[XF_IDS.massimale_sinistro].valore, '2.000.000,00')
   assert.ok(!notes.some((n) => /massimali/.test(n)), 'nessuna nota di violazione per il caso legittimo')
 })
 
 test('validateCrossFields: persona 6.000.000 > sinistro 1.000.000 (fattore 6) NON svuota — il 5-6× è legittimo su RC-professione', () => {
   const best = {
-    rct_massimale_sinistro: { valore: '1.000.000,00' },
-    rct_massimale_persona: { valore: '6.000.000,00' },
+    [XF_IDS.massimale_sinistro]: { valore: '1.000.000,00' },
+    [XF_IDS.massimale_persona]: { valore: '6.000.000,00' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_massimale_persona.valore, '6.000.000,00', 'rapporto 6: persona > sinistro NON è spill, resta')
-  assert.equal(best.rct_massimale_sinistro.valore, '1.000.000,00')
+  assert.equal(best[XF_IDS.massimale_persona].valore, '6.000.000,00', 'rapporto 6: persona > sinistro NON è spill, resta')
+  assert.equal(best[XF_IDS.massimale_sinistro].valore, '1.000.000,00')
   assert.ok(!notes.some((n) => /persona/.test(n)))
 })
 
 test('validateCrossFields: persona > annuo valorizzato → persona svuotata (sottolimite impossibile), anche con fattore piccolo', () => {
   const best = {
-    rct_massimale_sinistro: { valore: '2.000.000,00' },
-    rct_massimale_annuo: { valore: '2.500.000,00' },
-    rct_massimale_persona: { valore: '3.000.000,00' },
+    [XF_IDS.massimale_sinistro]: { valore: '2.000.000,00' },
+    [XF_IDS.massimale_annuo]: { valore: '2.500.000,00' },
+    [XF_IDS.massimale_persona]: { valore: '3.000.000,00' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_massimale_persona, undefined, 'persona > annuo è una violazione PALESE di sottolimite')
-  assert.equal(best.rct_massimale_sinistro.valore, '2.000.000,00')
-  assert.equal(best.rct_massimale_annuo.valore, '2.500.000,00')
+  assert.equal(best[XF_IDS.massimale_persona], undefined, 'persona > annuo è una violazione PALESE di sottolimite')
+  assert.equal(best[XF_IDS.massimale_sinistro].valore, '2.000.000,00')
+  assert.equal(best[XF_IDS.massimale_annuo].valore, '2.500.000,00')
   assert.ok(notes.some((n) => /sottolimite impossibile/.test(n)))
 })
 
 test('validateCrossFields: premio totale ≠ imponibile+imposta → totale dichiarato MANTENUTO (mai svuotato/calcolato)', () => {
   const best = {
-    rct_premio_imponibile: { valore: '4.500,00' },
-    rct_imposta: { valore: '1.001,25' },
-    rct_premio_totale: { valore: '99.999,00' },
+    [XF_IDS.premio_imponibile]: { valore: '4.500,00' },
+    [XF_IDS.imposta]: { valore: '1.001,25' },
+    [XF_IDS.premio_totale]: { valore: '99.999,00' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best.rct_premio_totale.valore, '99.999,00', 'il totale dichiarato resta il dato reale')
-  assert.equal(best.rct_imposta.valore, '1.001,25')
+  assert.equal(best[XF_IDS.premio_totale].valore, '99.999,00', 'il totale dichiarato resta il dato reale')
+  assert.equal(best[XF_IDS.imposta].valore, '1.001,25')
   assert.ok(notes.some((n) => /totale dichiarato/.test(n)), 'nota diagnostica di incoerenza presente')
 })
 
 test('validateCrossFields: golden EULIP coerente non viene toccato', () => {
   const best = {
-    decorrenza: { valore: '31/12/2024' },
-    scadenza: { valore: '31/12/2025' },
-    rct_massimale_sinistro: { valore: '4.000.000,00' },
-    rct_imposta: { valore: '1.001,25' },
-    rct_premio_imponibile: { valore: '4.500,00' },
-    rct_premio_totale: { valore: '5.501,25' },
+    [XF_IDS.decorrenza]: { valore: '31/12/2024' },
+    [XF_IDS.scadenza]: { valore: '31/12/2025' },
+    [XF_IDS.massimale_sinistro]: { valore: '4.000.000,00' },
+    [XF_IDS.imposta]: { valore: '1.001,25' },
+    [XF_IDS.premio_imponibile]: { valore: '4.500,00' },
+    [XF_IDS.premio_totale]: { valore: '5.501,25' },
   }
   const notes = validateCrossFields(best, XF_FIELDS, { hasAnnualPeriodics: true })
   assert.equal(notes.length, 0)
-  assert.equal(best.decorrenza.valore, '31/12/2024')
-  assert.equal(best.rct_premio_totale.valore, '5.501,25')
+  assert.equal(best[XF_IDS.decorrenza].valore, '31/12/2024')
+  assert.equal(best[XF_IDS.premio_totale].valore, '5.501,25')
 })
 
 // ─── Numerico in campo TESTO: "meglio vuoto che dato sbagliato" ─────────────
@@ -801,4 +815,66 @@ test('Fix PROF.LE: isPremiumField riconosce premio totale/imponibile/imposta ma 
   // id RIUSATO con label testuale: NON è un campo premio (Frazionamento / Tacito Rinnovo)
   assert.equal(isPremiumField({ id: 'rcp_premio_imponibile', label: 'Frazionamento' }), false)
   assert.equal(isPremiumField({ id: 'rcp_imposta', label: 'Tacito Rinnovo' }), false)
+})
+
+// ─── Type-blind: un profilo con id UUID si comporta come uno con id parlante ─
+// L'id non deve più influenzare la natura/validazione: lo stesso campo definito
+// con id parlante o con id UUID deve produrre lo STESSO comportamento.
+
+test('validateCrossFields: id UUID e id parlante danno lo STESSO esito (solo label/description contano)', () => {
+  // Profilo con id parlanti (definizione di campo e best key coincidono).
+  const fParl = [
+    { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' },
+    { id: 'rct_massimale_annuo', label: 'Massimale annuo' },
+  ]
+  const bestParl = {
+    rct_massimale_sinistro: { valore: '5.000.000,00' },
+    rct_massimale_annuo: { valore: '1.000.000,00' },
+  }
+  const notesParl = validateCrossFields(bestParl, fParl)
+  assert.equal(bestParl.rct_massimale_annuo, undefined, 'annuo < sinistro con id parlante → svuotato')
+
+  // Profilo con id UUID (stesse label): stesso esito.
+  const fUuid = [
+    { id: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59', label: 'Massimale per sinistro' },
+    { id: 'ac724518-d10e-55c5-95b7-10c700365820', label: 'Massimale annuo' },
+  ]
+  const bestUuid = {
+    '94cbee3c-f83b-5b95-87b8-8b68d02d6d59': { valore: '5.000.000,00' },
+    'ac724518-d10e-55c5-95b7-10c700365820': { valore: '1.000.000,00' },
+  }
+  const notesUuid = validateCrossFields(bestUuid, fUuid)
+  assert.equal(bestUuid['ac724518-d10e-55c5-95b7-10c700365820'], undefined, 'annuo < sinistro con id UUID → svuotato')
+  assert.equal(notesParl.length, notesUuid.length, 'stesse note diagnostiche (stessa logica)')
+})
+
+// ─── Description riscritte guidano attività/massimale (type-blind) ──────────
+// Le description riscritte (attivita → professione unica; massimali persona/
+// danni/prestatore → niente massimale per sinistro) devono pilotare l'helper
+// di natura e i guard-rail senza dipendere dall'id.
+
+test('description riscritta: attività unica vs elenco non cambia la natura (attivita)', () => {
+  const att = { id: 'a5d4976c-6838-5083-b0cd-3aaf7f04f0e5', label: 'Professione dichiarata', description: 'TESTO. Estrarre la SINGOLA attività/professione assicurata (es. Radiodiagnostica), dalla sezione attiva, NON un elenco.' }
+  assert.equal(fieldNatura(att), 'attivita')
+  // Un elenco numerico su un campo TESTO attività viene scartato (isTextualNumericOnly),
+  // mentre la professione testuale resta.
+  assert.equal(isTextualNumericOnly(att, '13.068,00'), true)
+  assert.equal(isTextualNumericOnly(att, 'Radiodiagnostica'), false)
+})
+
+test('descrizione riscritta: massimali persona/danni/prestatore come massimale (non per-sinistro)', () => {
+  const persona = { id: '71c0eafb-77ef-5751-92e9-9b4cb872b10a', label: 'Massimale per persona', description: 'NUMERO/IMPORTO. Massimale per persona. NON usare il valore del massimale per sinistro.' }
+  assert.equal(fieldNatura(persona), 'massimale_persona')
+  // Con la descrizione riscritta il prefisso TESTO non c'è più (è NUMERO/IMPORTO):
+  // il campo resta un importo (validazione numerica attiva, non svuotato).
+  assert.equal(isTextualNumericOnly(persona, '3.000.000,00'), false)
+})
+
+test('descrizione riscritta: tacito rinnovo / frazionamento restano TESTO (MAI numeri)', () => {
+  const tacito = { id: '4d22a044-eec5-599f-974d-f27efbeac4d9', label: 'Tacito Rinnovo', description: 'TESTO (SÌ/NO). Tacito rinnovo: rispondi SOLO Sì, No, Non indicato. MAI un numero/importo.' }
+  const fraz = { id: '510c0f10-6135-5957-a42c-8ccf1b0226de', label: 'Frazionamento', description: 'TESTO. Frazionamento: annuale, semestrale, trimestrale, mensile. MAI un numero/importo.' }
+  assert.equal(isTextualNumericOnly(tacito, '1'), true)
+  assert.equal(isTextualNumericOnly(tacito, 'Sì'), false)
+  assert.equal(isTextualNumericOnly(fraz, '75,00'), true)
+  assert.equal(isTextualNumericOnly(fraz, 'annuale'), false)
 })

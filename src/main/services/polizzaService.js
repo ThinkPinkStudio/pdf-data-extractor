@@ -123,46 +123,46 @@ export const CSA_MAPPING = {
 // ─── Campi per il foglio RCT_O ────────────────────────────────────────────────
 
 export const RCT_FIELDS = [
-  { id: 'polizza_numero',          label: 'N° Polizza',                         sheet: 'RCT_O', description: 'Numero di polizza (es. 410000880)', type: 'number' },
-  { id: 'compagnia',               label: 'Compagnia',                           sheet: 'RCT_O', description: 'Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)', type: 'text' },
-  { id: 'contraente',              label: 'Contraente/Assicurato',               sheet: 'RCT_O', description: 'Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)', type: 'text' },
-  { id: 'codice_fiscale_iva',      label: 'P. IVA / Cod. Fiscale',              sheet: 'RCT_O', description: 'Partita IVA o codice fiscale del contraente', type: 'fiscal' },
-  { id: 'indirizzo',               label: 'Indirizzo',                           sheet: 'RCT_O', description: 'Indirizzo completo del domicilio/sede del contraente', type: 'text' },
-  { id: 'agenzia',                 label: 'Agenzia',                             sheet: 'RCT_O', description: "Nome dell'agenzia assicurativa (es. ACQUI TERME)", type: 'text' },
-  { id: 'decorrenza',              label: 'Decorrenza',                          sheet: 'RCT_O', description: 'Data di decorrenza della polizza (es. 31/12/2021)', type: 'date' },
-  { id: 'scadenza',                label: 'Scadenza',                            sheet: 'RCT_O', description: 'Data di scadenza della polizza (es. 31/12/2022)', type: 'date' },
-  { id: 'attivita',                label: 'Attività assicurata',                 sheet: 'RCT_O', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text' },
-  { id: 'rct_massimale_sinistro',  label: 'Massimale per sinistro',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'number' },
-  { id: 'rct_massimale_persona',   label: 'Massimale per persona',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'number' },
-  { id: 'rct_massimale_danni',     label: 'Massimale danni materiali',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'number' },
-  { id: 'rct_massimale_prestatore',label: 'Massimale per prestatore',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'number' },
-  { id: 'rct_parametro',           label: 'Parametro regolazione',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
-  { id: 'rct_importo_preventivo',  label: 'Importo preventivo parametro', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'number' },
-  { id: 'rct_tasso',               label: 'Tasso regolazione ‰',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'percent' },
-  { id: 'rct_premio_imponibile',   label: 'Premio imponibile',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'number' },
-  { id: 'rct_imposta',             label: 'Imposta',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'number' },
-  { id: 'rct_premio_totale',       label: 'Premio totale',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'number' }
+  { id: '1ec23911-3e7d-5549-b2e2-be3db9d06ee8',          label: 'N° Polizza',                         sheet: 'RCT_O', description: 'Numero di polizza (es. 410000880)', type: 'number' },
+  { id: '36b66bf8-bb9f-5c0e-a947-3d3858349b54',               label: 'Compagnia',                           sheet: 'RCT_O', description: 'Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)', type: 'text' },
+  { id: '45c1347c-0b2e-52e8-96c7-7787644858d3',              label: 'Contraente/Assicurato',               sheet: 'RCT_O', description: 'Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)', type: 'text' },
+  { id: '6f260040-ae1d-56d8-a185-1eb178e384fb',      label: 'P. IVA / Cod. Fiscale',              sheet: 'RCT_O', description: 'Partita IVA o codice fiscale del contraente', type: 'fiscal' },
+  { id: 'eb8525bc-e808-56a2-aa3d-cefb25da2b6f',               label: 'Indirizzo',                           sheet: 'RCT_O', description: 'Indirizzo completo del domicilio/sede del contraente', type: 'text' },
+  { id: '4ffc5b95-9f28-551a-b587-12f4ea740b12',                 label: 'Agenzia',                             sheet: 'RCT_O', description: "Nome dell'agenzia assicurativa (es. ACQUI TERME)", type: 'text' },
+  { id: '4dc720d8-8237-5084-b288-fd32bd1d19c6',              label: 'Decorrenza',                          sheet: 'RCT_O', description: 'Data di decorrenza della polizza (es. 31/12/2021)', type: 'date' },
+  { id: '22408456-185d-5803-b489-02af1a084911',                label: 'Scadenza',                            sheet: 'RCT_O', description: 'Data di scadenza della polizza (es. 31/12/2022)', type: 'date' },
+  { id: 'a5d4976c-6838-5083-b0cd-3aaf7f04f0e5',                label: 'Attività assicurata',                 sheet: 'RCT_O', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text' },
+  { id: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59',  label: 'Massimale per sinistro',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'number' },
+  { id: '71c0eafb-77ef-5751-92e9-9b4cb872b10a',   label: 'Massimale per persona',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'number' },
+  { id: '908191d5-de50-5902-a09a-0291efe0cec0',     label: 'Massimale danni materiali',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'number' },
+  { id: 'e326309b-15b4-5e64-97fd-5294914106de',label: 'Massimale per prestatore',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'number' },
+  { id: '28672974-6247-5654-a053-be29b408ffc1',           label: 'Parametro regolazione',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
+  { id: '9517aacb-987f-55c8-8737-2df19980c55f',  label: 'Importo preventivo parametro', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'number' },
+  { id: '510b46d9-95dd-50f0-86b7-0636865f56ba',               label: 'Tasso regolazione ‰',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'percent' },
+  { id: 'b9c59183-72a3-5aa1-b34c-1df8e80f28f3',   label: 'Premio imponibile',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'number' },
+  { id: '37ab743b-316e-58a4-8fe4-3112bc6d2139',             label: 'Imposta',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'number' },
+  { id: '545374de-c000-5905-8c62-d36f9fdf7f43',       label: 'Premio totale',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'number' }
 ]
 
 // ─── Campi per il foglio RCP ──────────────────────────────────────────────────
 
 export const RCP_FIELDS = [
-  { id: 'rcp_prodotti',             label: 'Prodotti assicurati',                 sheet: 'RCP', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text' },
-  { id: 'rcp_qualifica',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
-  { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'number' },
-  { id: 'rcp_massimale_annuo',      label: 'Massimale annuo',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'number' },
-  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'number' },
-  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'number' },
-  { id: 'rcp_scoperto_min_mondo',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'number' },
-  { id: 'rcp_scoperto_max_mondo',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'number' },
-  { id: 'rcp_scoperto_min_usa',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'number' },
-  { id: 'rcp_scoperto_max_usa',     label: 'Scoperto massimo - USA/Canada/Messico', sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'number' },
-  { id: 'rcp_parametro',            label: 'Parametro regolazione',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
-  { id: 'rcp_importo_preventivo',   label: 'Importo preventivo parametro', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'number' },
-  { id: 'rcp_tasso',                label: 'Tasso regolazione ‰',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'percent' },
-  { id: 'rcp_premio_imponibile',    label: 'Premio imponibile',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'number' },
-  { id: 'rcp_imposta',              label: 'Imposta',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'number' },
-  { id: 'rcp_premio_totale',        label: 'Premio totale',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'number' }
+  { id: '705af6c0-721c-5374-9a65-46102baf95d5',             label: 'Prodotti assicurati',                 sheet: 'RCP', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text' },
+  { id: '2ff6a68b-ea2b-5937-a995-a94e8803001f',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
+  { id: '3b777244-559d-5a71-94a4-006ee2a48907',   label: 'Massimale per sinistro',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'number' },
+  { id: 'ac724518-d10e-55c5-95b7-10c700365820',      label: 'Massimale annuo',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'number' },
+  { id: 'b8dc1951-82bb-5325-9550-8b0a1dbd40fd',        label: 'Massimale danni materiali',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'number' },
+  { id: '5d3907ba-6a51-58d9-b8b7-789d18c72877',     label: 'Massimale interruzione attività', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'number' },
+  { id: 'b7b45f99-50c2-5de4-b977-c8850014464f',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'number' },
+  { id: 'aadee5e8-1df4-51eb-97be-9a122ea6a6bd',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'number' },
+  { id: '1536ea6d-08f7-5756-9888-1e823e37ebff',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'number' },
+  { id: '7557bb00-8501-5e3a-bf9a-c46930d78d3a',     label: 'Scoperto massimo - USA/Canada/Messico', sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'number' },
+  { id: '4efb7f66-c811-50ef-a345-81d07f9328c0',            label: 'Parametro regolazione',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
+  { id: 'e61884dd-4f2d-54cf-ae3b-83e35316e88f',   label: 'Importo preventivo parametro', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'number' },
+  { id: '9cf66993-245c-52ff-b0d0-1832fce74eae',                label: 'Tasso regolazione ‰',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'percent' },
+  { id: '510c0f10-6135-5957-a42c-8ccf1b0226de',    label: 'Premio imponibile',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'number' },
+  { id: '4d22a044-eec5-599f-974d-f27efbeac4d9',              label: 'Imposta',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'number' },
+  { id: '99c9ad06-8441-54c4-bfe2-ddf440faf11c',        label: 'Premio totale',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'number' }
 ]
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
@@ -910,11 +910,6 @@ function flattenRollingState(state) {
 
 // normalizeDateValue: importata da polizzaDates.js.
 
-// Id dei campi del set predefinito: le regole di sanitizzazione per-id si
-// applicano SOLO a questi. I campi personalizzati dell'utente passano intatti
-// (a parte la normalizzazione date se l'utente ha scelto type 'date').
-const KNOWN_DEFAULT_IDS = new Set(ALL_POLIZZA_FIELDS.map(f => f.id))
-
 /**
  * Valida/ripulisce un valore proposto dal LLM per un campo.
  * Restituisce il valore normalizzato, oppure null se il valore è palesemente
@@ -975,25 +970,30 @@ function sanitizeFieldValue(field, rawValue) {
   // Campi data (per type configurato): accetta solo date riconoscibili
   if (field?.type === 'date') return normalizeDateValue(v)
 
-  if (!field || !KNOWN_DEFAULT_IDS.has(field.id)) return v
-  const id = field.id
+  // Guardie VALORE per-natura (type-blind: MAI sull'id, che ora è un UUID senza
+  // significato; decide il vocabolo di label+description). Le stesse regole
+  // storicamente agganciate agli id parlanti (codice_fiscale_iva, *_parametro,
+  // *_tasso, massimale/premio/importo) ora valgono per QUALSIASI campo la cui
+  // label/description esprime quella natura.
+  const blob = `${field.label || ''} ${field.description || ''}`
+  const low = ' ' + String(blob).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
 
   // P.IVA (11 cifre) o Codice Fiscale (16 char): validazione con CHECKSUM
   // ufficiale (+ riparazione OCR per la P.IVA). Una sequenza plausibile ma con
   // cifra di controllo sbagliata è rumore OCR o allucinazione → null.
-  if (id === 'codice_fiscale_iva') {
+  if (/p\s*\.?\s*iva|cod\.?\s*fiscale|codice fiscale|partita iva/.test(low)) {
     return validateCodiceFiscaleIva(v)
   }
 
   // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
   // "Salari e stipendi + Quota TFR"), mai un numero o un tasso
-  if (/_parametro$/.test(id) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
+  if (/parametro/.test(low) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
 
   // Il tasso è un numero per mille: togli l'eventuale simbolo
-  if (/_tasso$/.test(id)) return v.replace(/\s*[‰%]\s*$/, '')
+  if (/\btass/.test(low)) return v.replace(/\s*[‰%]\s*$/, '')
 
   // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
-  if (/massimale|premio|imposta|importo|scoperto/.test(id) && /[%‰]\s*$/.test(v)) return null
+  if (/massimale|premio|imposta|importo|scoperto|franchig/.test(low) && /[%‰]\s*$/.test(v)) return null
 
   return v
 }
@@ -1154,7 +1154,13 @@ const ROLLING_SYSTEM_PROMPT =
   '10. Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una\n' +
   '   FRASE (SÌ/NO, "annuale", "retribuzioni", una descrizione), MAI un numero o un\n' +
   '   importo: se trovi solo cifre ("4", "13.068,00", "75,00") per un campo TESTO, è\n' +
-  '   il dato sbagliato: ometti il campo.\n\n' +
+  '   il dato sbagliato: ometti il campo.\n' +
+  '11. Se la descrizione chiede un valore testuale previsto (Sì/No, Non indicato,\n' +
+  '   Annuale/Semestrale/…), rispondi con QUEL TESTO esatto, MAI con un numero puro.\n' +
+  '12. Se la descrizione chiede un valore UNICO (es. la professione/attività assicurata),\n' +
+  '   restituisci UN solo valore, NON un elenco.\n' +
+  '13. Per i massimali per persona/danni/prestatore NON usare mai il valore del\n' +
+  '   massimale per sinistro: usa l\'importo specifico della grandezza richiesta.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}'
 
@@ -1829,6 +1835,17 @@ const KNOWN_TRAPS_SYSTEM_TEXT =
   '- L\'attività "rinvio" (la polizza copre SOLO l\'attività di rinvio) NON è l\'attività assicurata: usa quella effettiva, mai "rinvio".\n' +
   '- Decorrenza e scadenza: usa quelle del periodo di copertura PIÙ RECENTE, non di una quietanza vecchia che riporta un\'altra decorrenza/scadenza.\n'
 
+// Regole "natura type-blind" (decisione del task): l'id del campo è un UUID senza
+// significato — l'UNICA fonte di cosa estrarre è la DESCRIPTION. Regole GENERALI,
+// nessun valore di profilo hardcodato (le description stanno nel file profili).
+const NATURA_BLIND_RULES =
+  'COSTRUZIONE DEI CAMPI (leggile sempre):\n' +
+  '- Segui SOLO la DESCRIZIONE del campo per capire cosa estrarre: l\'id (una chiave casuale) NON indica il significato e NON va usato per dedurre il dato.\n' +
+  '- Se la descrizione chiede un valore testuale previsto (Sì/No, Non indicato, Annuale/Semestrale/…), rispondi con QUEL TESTO esatto, MAI con un numero puro o un importo.\n' +
+  '- Se la descrizione chiede un valore UNICO (es. la professione/attività assicurata), restituisci UN solo valore, NON un elenco.\n' +
+  '- Per i massimali per persona/danni/prestatore NON usare mai il valore del massimale per sinistro: usa l\'importo specifico della grandezza che la descrizione chiede.\n' +
+  ''
+
 const WHOLE_DOSSIER_SYSTEM =
   'Sei un estrattore esperto di dati da fascicoli assicurativi italiani (RC).\n' +
   'Ricevi il TESTO (OCR) di TUTTI i documenti di UNA pratica, etichettati per nome file\n' +
@@ -1850,6 +1867,7 @@ const WHOLE_DOSSIER_SYSTEM =
   '   letteralmente dal documento, in cui compare il valore. Se NON riesci a citare\n' +
   '   il valore copiandolo dal documento, lo stai inventando: NON restituire quel\n' +
   '   campo. NON usare MAI valori presi dalla guida campi o da esempi.\n' +
+  `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON\n' +
   '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
@@ -2205,6 +2223,7 @@ const PERFIELD_SYSTEM =
   '   devono provenire dalle finestre dei documenti.\n' +
   '4. "source" = {doc, page, line} della finestra da cui trascrivi il valore.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
+  `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"valore": "..."} oppure {} se il valore non è\n' +
   'presente. Zero testo extra, zero markdown.'
@@ -2220,6 +2239,7 @@ const RECENCY_SYSTEM_EXPLICIT =
   '   (la prima in alto è la più recente).\n' +
   '2. source = {"doc":N,"page":M} della finestra da cui trascrivi (dai tag [F… doc… pag…]).\n' +
   '3. Se nessuna finestra contiene il valore → rispondi esattamente {}. Mai dedurre.\n' +
+  `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"valore":"...","source":{"doc":N,"page":M}} oppure {}.'
 
@@ -2770,6 +2790,7 @@ function stagedSystemPrompt(kind) {
     '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+    `${NATURA_BLIND_RULES}` +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
     `${KNOWN_TRAPS_SYSTEM_TEXT}` +
     'FORMATO: un solo oggetto JSON\n' +
@@ -2782,8 +2803,8 @@ function stagedSystemPrompt(kind) {
 // quasi ogni pagina di una polizza — usarle come segnale renderebbe il punteggio
 // puro rumore da boilerplate (header, footer, diciture standard).
 const STAGED_STOPWORDS = new Set([
-  'polizza', 'polizze', 'assicurato', 'assicurata', 'assicurati', 'assicurativa', 'assicurazione',
-  'assicurazioni', 'contraente', 'compagnia', 'documento', 'documenti', 'descrizione', 'indicato',
+  'polizza', 'polizze', '61b6ea68-2b4d-54f2-9d9e-76615db22b94', 'assicurata', 'assicurati', 'assicurativa', 'assicurazione',
+  'assicurazioni', '45c1347c-0b2e-52e8-96c7-7787644858d3', '36b66bf8-bb9f-5c0e-a947-3d3858349b54', 'documento', 'documenti', 'descrizione', 'indicato',
   'indicata', 'valore', 'campo', 'campi', 'della', 'delle', 'dello', 'degli', 'dalla', 'dalle',
   'nella', 'nelle', 'come', 'ogni', 'sono', 'viene', 'vengono', 'quanto', 'quale', 'quali',
   'presente', 'presenti', 'relativo', 'relativa', 'esempio', 'oppure', 'anche', 'condizioni',
@@ -2805,6 +2826,7 @@ const STAGED_RECOVERY_SYSTEM =
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
@@ -2825,6 +2847,7 @@ const STAGED_CASCADE_SYSTEM =
   '6. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '7. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   '8. Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una FRASE, MAI un numero/importo.\n' +
+  `${NATURA_BLIND_RULES}` +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -3071,7 +3094,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     ? analyzed.filter((d) => d.type === 'polizza')
     : analyzed.filter((d) => !isPeriodicDocName(d.name))).sort(byStagedRecency)
   const seedNotes = []
-  if ('polizza_numero' in fieldsById) {
+  if ('1ec23911-3e7d-5549-b2e2-be3db9d06ee8' in fieldsById) {
     const numCount = new Map()
     for (const d of basePool) {
       const rx = extractFieldsWithRegex(d.text)
@@ -3095,7 +3118,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // solo distinto lo si propone come seed (sovrascrivibile dal gruppo anagrafica
   // via merge per recency — MAI blindato); se ce ne sono ≥2 il campo resta al
   // modello, che ha l'istruzione "P.IVA del CONTRAENTE, mai della compagnia".
-  if ('codice_fiscale_iva' in fieldsById) {
+  if ('6f260040-ae1d-56d8-a185-1eb178e384fb' in fieldsById) {
     const vatSeen = new Map() // valore valido → doc del primo avvistamento
     for (const d of basePool) {
       // Finestra label→valore anche A CAVALLO di riga: sul campo la P.IVA del
@@ -3194,7 +3217,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       decorrenza: decDates.sort((a, b) => (dateStrToTs(a) ?? Infinity) - (dateStrToTs(b) ?? Infinity))[0] || null,
       scadenza: scaDates.sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
     }
-    for (const id of ['decorrenza', 'scadenza']) {
+    for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
       if (!(id in fieldsById) || !hits[id]) continue
       const norm = normalizeDateValue(hits[id])
       if (!norm) continue
@@ -3202,7 +3225,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       best[id] = pickMoreRecentCandidate(best[id], cand, kindOf[id] || 'anagrafica')
     }
   }
-  for (const id of ['decorrenza', 'scadenza']) {
+  for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
     if (best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
   }
   // Seed ATTIVITÀ: nei testi di polizza la descrizione concreta segue quasi sempre
@@ -3818,7 +3841,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
         // Contesto deterministico senza embeddings: pagine rank-ate per i token
         // DISCRIMINANTI di label (peso doppio) e descrizione, con stopword del
-        // dominio (parole come "polizza"/"assicurato" compaiono in OGNI pagina e
+        // dominio (parole come "polizza"/"61b6ea68-2b4d-54f2-9d9e-76615db22b94" compaiono in OGNI pagina e
         // renderebbero il punteggio puro rumore) e punteggio a frequenza saturata.
         const tokenize = (str) => String(str || '')
           .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -4014,7 +4037,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // (decorrenza/effetto/inizio copertura) di tutti i documenti; la scadenza è
   // la data di FINE più recente (scadenza/periodo). MONOTONO: interviene SOLO
   // se c'è un'etichetta esplicita che riallinea a prima della rata corrente.
-  if ('decorrenza' in fieldsById || 'scadenza' in fieldsById) {
+  if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById || '22408456-185d-5803-b489-02af1a084911' in fieldsById) {
     let minDec = null
     let maxSca = null
     for (const d of analyzed) {
@@ -4025,7 +4048,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const perFine = parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)
       if (perFine && (dateStrToTs(perFine) ?? -Infinity) > (dateStrToTs(maxSca) ?? -Infinity)) maxSca = perFine
     }
-    if ('decorrenza' in fieldsById && minDec) {
+    if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById && minDec) {
       const norm = normalizeDateValue(minDec)
       const cur = best.decorrenza?.valore
       const curTs = cur ? dateStrToTs(cur) : null
@@ -4037,7 +4060,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         diag.push(`Regola 8 (decorrenza): ${cur} → ${norm} (decorrenza originaria più antica, non la rata corrente)`)
       }
     }
-    if ('scadenza' in fieldsById && maxSca) {
+    if ('22408456-185d-5803-b489-02af1a084911' in fieldsById && maxSca) {
       const norm = normalizeDateValue(maxSca)
       const cur = best.scadenza?.valore
       if (norm && norm !== cur) {

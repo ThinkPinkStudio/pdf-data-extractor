@@ -57,7 +57,7 @@ const DATE_RE = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b|\b\d{4}-[01]\d-[0-3]\d\
 export function fieldCategories(field) {
   const s = typeof field === 'string'
     ? field
-    : `${field?.label || ''} ${String(field?.id || '').replace(/[_-]+/g, ' ')}`
+    : `${field?.label || ''}`
   const low = ` ${s.toLowerCase()}`
   const cats = []
   for (const { cat, re } of LABEL_CATEGORIES) if (re.test(low)) cats.push(cat)

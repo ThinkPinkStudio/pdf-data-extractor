@@ -9,7 +9,7 @@
  */
 
 import { normalizeDateValue, dateStrToTs, shouldReplaceValue } from './polizzaDates.js'
-import { fieldKind, autoKind } from './polizzaFieldKind.js'
+import { fieldKind, autoKind, fieldNatura } from './polizzaFieldKind.js'
 
 // ─── Importi "puri" ──────────────────────────────────────────────────────────
 
@@ -327,17 +327,18 @@ export function validateCodiceFiscaleIva(raw) {
 // ─── Classificazione campi e documenti ───────────────────────────────────────
 
 /** Campo "strutturale" (massimali/franchigie/scoperti/attivita'/garanzie…): vive
- *  in polizza/appendici/condizioni, MAI in quietanze/regolazioni. */
+ *  in polizza/appendici/condizioni, MAI in quietanze/regolazioni.
+ *  Type-blind: SOLO label+description (l'id è un UUID senza significato). */
 export function isStructuralField(field) {
-  const s = `${field?.id || ''} ${field?.label || ''} ${field?.description || ''}`
+  const s = `${field?.label || ''} ${field?.description || ''}`
   return /massimal|franchig|scopert|attivit|prodott|qualific|garanz/i.test(s)
 }
 
 /** Campo economico-periodico (premi/tassi/imposte/importi): cambia ogni anno,
- *  vive nel documento periodico piu' recente. */
+ *  vive nel documento periodico piu' recente. Type-blind: SOLO label+description. */
 export function isPeriodicEconomicField(field) {
   if (isStructuralField(field)) return false
-  const s = `${field?.id || ''} ${field?.label || ''}`
+  const s = `${field?.label || ''} ${field?.description || ''}`
   return /premio|tasso|imposta|importo|parametro|preventiv/i.test(s)
 }
 
@@ -1015,76 +1016,82 @@ export function validateCrossFields(best, fields, opts = {}) {
     }
   }
 
-  // ── Massimali per prefisso (rct_ / rcp_ / custom) ─────────────────────────
-  const massGroups = new Map()
+  // ── Massimali per NATURA (type-blind: label+description, MAI l'id, che ora
+  //    è un UUID senza sezione) ───────────────────────────────────────────────
+  // Gli id esprimevano la sezione (rct_/rcp_) e il ruolo (_sinistro/_annuo/…).
+  // Con gli UUID la sezione non è più ricavabile: i campi vengono raggruppati
+  // per RUOLO (natura) e accoppiati PER POSIZIONE (il tipico profilo ha una
+  // sola sezione di massimali → accoppiamento 1:1 per indice).
+  const massRole = new Map() // role → array di campi (in ordine di lista)
   for (const f of list) {
-    const m = String(f.id || '').match(/^(.*)_massimale_(sinistro|annuo|persona|danni|prestatore|mat|interr)$/)
-    if (!m) continue
-    const g = massGroups.get(m[1]) || {}
-    g[m[2]] = f
-    massGroups.set(m[1], g)
-  }
-  for (const [prefix, g] of massGroups) {
-    const amt = (role) => {
-      const f = g[role]
-      return f ? looseAmount(entryValore(best, f.id)) : null
+    const n = fieldNatura(f)
+    if (n && n.startsWith('massimale_')) {
+      const role = n.replace('massimale_', '') // sinistro|annuo|persona|danni|prestatore|mat|interr
+      const arr = massRole.get(role) || []
+      arr.push(f)
+      massRole.set(role, arr)
     }
-    const annuo = amt('annuo')
-    const sinistro = amt('sinistro')
-    if (g.annuo && g.sinistro && annuo != null && sinistro != null && annuo < sinistro) {
-      dropField(best, g.annuo.id, notes,
-        `Coerenza massimali ${prefix}: annuo ${entryValore(best, g.annuo.id)} < sinistro ${entryValore(best, g.sinistro.id)} → annuo svuotato (impossibile)`)
+  }
+  const massArray = (role) => massRole.get(role) || []
+  const annuoList = massArray('annuo')
+  const sinistroList = massArray('sinistro')
+  const personaList = massArray('persona')
+  const danniList = massArray('danni')
+  const maxPairs = Math.max(annuoList.length, sinistroList.length, personaList.length, danniList.length)
+  for (let i = 0; i < maxPairs; i++) {
+    const annuo = annuoList[i]
+    const sinistro = sinistroList[i]
+    const amt = (f) => (f ? looseAmount(entryValore(best, f.id)) : null)
+    const aVal = amt(annuo)
+    const sVal = amt(sinistro)
+    if (annuo && sinistro && aVal != null && sVal != null && aVal < sVal) {
+      dropField(best, annuo.id, notes,
+        `Coerenza massimali: annuo ${entryValore(best, annuo.id)} < sinistro ${entryValore(best, sinistro.id)} → annuo svuotato (impossibile)`)
     }
     // Sotto-limiti di "persona"/"danni" > "sinistro": NON è una violazione di
     // per sé (sul campo B/PROF.LE la situazione legittima è "sinistro
     // 1.000.000 < persona 6.000.000": l'annuo aggregato copre più sinistri, un
     // rapporto 5-6× è legittimo). Si svuota SOLO la violazione PALESE di
     // sottolimite: "annuo" valorizzato e sotto-limite > annuo (impossibile per
-    // definizione). Gli spill IDENTICI (persona == sinistro == altri massimali/
-    // scoperti) li pulisce la guardia post-merge (Fix A) quando lo stesso
-    // valore compare su >= 3 campi di natura diversa: qui NON si inventa una
-    // soglia numerica.
+    // definizione). Gli spill IDENTICI li pulisce la guardia post-merge (Fix A).
     for (const role of ['persona', 'danni']) {
-      const sub = amt(role)
-      if (!g[role] || sub == null) continue
-      if (annuo != null && sub > annuo) {
-        dropField(best, g[role].id, notes,
-          `Coerenza massimali ${prefix}: ${role} ${entryValore(best, g[role].id)} > annuo ${entryValore(best, g.annuo.id)} → ${role} svuotato (sottolimite impossibile)`)
+      const sub = role === 'persona' ? personaList[i] : danniList[i]
+      const subVal = amt(sub)
+      if (!sub || subVal == null) continue
+      if (aVal != null && subVal > aVal) {
+        dropField(best, sub.id, notes,
+          `Coerenza massimali: ${role} ${entryValore(best, sub.id)} > annuo ${entryValore(best, annuo.id)} → ${role} svuotato (sottolimite impossibile)`)
         continue
       }
     }
   }
 
-  // ── Premio totale ≈ imponibile + imposta (stesso prefisso RCT/RCP) ────────
+  // ── Premio totale ≈ imponibile + imposta (type-blind, per natura) ─────────
   // Il totale DICHIARATO nella quietanza è il dato REALE: imponibile e imposta
   // sono numeri dinamici e la somma può non quadrare per estratti sbagliati
   // (regressione: il premio RATA preso per l'imposta → lordo inventato).
   // Quindi MAI svuotare o riscrivere il totale: solo una nota diagnostica.
-  const triples = new Map()
+  // Con gli UUID la sezione non è distinguibile: si considera l'UNICA tripla
+  // (totale/imponibile/imposta) attiva per natura — la nota è non-distruttiva.
+  let tTotale = null, tImponibile = null, tImposta = null
   for (const f of list) {
-    const id = String(f.id || '')
-    let role = null
-    let prefix = null
-    if (/premio_imponibile$/.test(id)) { role = 'imponibile'; prefix = id.replace(/_?premio_imponibile$/, '') }
-    else if (/premio_totale$/.test(id)) { role = 'totale'; prefix = id.replace(/_?premio_totale$/, '') }
-    else if (/_imposta$/.test(id) || id === 'imposta') { role = 'imposta'; prefix = id.replace(/_?imposta$/, '') }
-    if (!role) continue
-    prefix = prefix || '_'
-    const slot = triples.get(prefix) || {}
-    slot[role] = f
-    triples.set(prefix, slot)
+    const n = fieldNatura(f)
+    if (n === 'premio_totale' && !tTotale) tTotale = f
+    else if (n === 'premio_imponibile' && !tImponibile) tImponibile = f
+    else if (n === 'imposta' && !tImposta) tImposta = f
   }
-  for (const [prefix, t] of triples) {
-    if (!t.totale || !t.imponibile || !t.imposta) continue
-    if (!(t.totale.id in best) || !(t.imponibile.id in best) || !(t.imposta.id in best)) continue
-    const tot = parsePureAmount(entryValore(best, t.totale.id)) ?? looseAmount(entryValore(best, t.totale.id))
-    const imp = parsePureAmount(entryValore(best, t.imponibile.id)) ?? looseAmount(entryValore(best, t.imponibile.id))
-    const tax = parsePureAmount(entryValore(best, t.imposta.id)) ?? looseAmount(entryValore(best, t.imposta.id))
-    if (tot == null || imp == null || tax == null) continue
-    const sum = imp + tax
-    const tol = Math.max(1, Math.abs(tot) * 0.02)
-    if (Math.abs(tot - sum) > tol) {
-      notes.push(`Coerenza premio ${prefix}: totale dichiarato ${entryValore(best, t.totale.id)} ≠ imponibile+imposta ${imp}+${tax} — si MANTIENE il totale dichiarato (mai calcolato/svuotato)`)
+  if (tTotale && tImponibile && tImposta) {
+    if ((tTotale.id in best) && (tImponibile.id in best) && (tImposta.id in best)) {
+      const tot = parsePureAmount(entryValore(best, tTotale.id)) ?? looseAmount(entryValore(best, tTotale.id))
+      const imp = parsePureAmount(entryValore(best, tImponibile.id)) ?? looseAmount(entryValore(best, tImponibile.id))
+      const tax = parsePureAmount(entryValore(best, tImposta.id)) ?? looseAmount(entryValore(best, tImposta.id))
+      if (tot != null && imp != null && tax != null) {
+        const sum = imp + tax
+        const tol = Math.max(1, Math.abs(tot) * 0.02)
+        if (Math.abs(tot - sum) > tol) {
+          notes.push(`Coerenza premio: totale dichiarato ${entryValore(best, tTotale.id)} ≠ imponibile+imposta ${imp}+${tax} — si MANTIENE il totale dichiarato (mai calcolato/svuotato)`)
+        }
+      }
     }
   }
 

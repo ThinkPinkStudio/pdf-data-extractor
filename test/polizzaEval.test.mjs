@@ -43,7 +43,7 @@ test('compareField: exact / text / date / amount / vat / contains', () => {
 test('compareField: missing e forbidden (parametro = Premi)', () => {
   assert.equal(compareField({ value: 'x', mode: 'exact' }, '').status, 'missing')
   assert.equal(compareField({ value: 'x', mode: 'exact' }, null).status, 'missing')
-  const spec = EULIP_EXPECTED.fields.rct_parametro
+  const spec = EULIP_EXPECTED.fields['28672974-6247-5654-a053-be29b408ffc1'] // rct_parametro
   assert.equal(compareField(spec, 'Premi').status, 'forbidden')
   assert.equal(compareField(spec, 'Premio').status, 'forbidden')
   assert.equal(compareField(spec, 'Premi RCT').status, 'forbidden')
@@ -52,16 +52,16 @@ test('compareField: missing e forbidden (parametro = Premi)', () => {
 
 test('scoreExtraction: golden perfetto → match 10/10, zero allucinazioni', () => {
   const data = {
-    polizza_numero: '283618616',
-    codice_fiscale_iva: '00151510344',
-    decorrenza: '31/12/2024',
-    scadenza: '31/12/2025',
-    rct_massimale_sinistro: '4.000.000,00',
-    rct_imposta: '1.001,25',
-    rct_premio_totale: '5.501,25',
-    agenzia: 'ACQUI TERME',
-    rct_parametro: 'retribuzioni',
-    rct_importo_preventivo: '1.800.000',
+    '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': '283618616',                     // polizza_numero
+    '6f260040-ae1d-56d8-a185-1eb178e384fb': '00151510344',                   // codice_fiscale_iva
+    '4dc720d8-8237-5084-b288-fd32bd1d19c6': '31/12/2024',                    // decorrenza
+    '22408456-185d-5803-b489-02af1a084911': '31/12/2025',                    // scadenza
+    '94cbee3c-f83b-5b95-87b8-8b68d02d6d59': '4.000.000,00',                  // rct_massimale_sinistro
+    '37ab743b-316e-58a4-8fe4-3112bc6d2139': '1.001,25',                      // rct_imposta
+    '545374de-c000-5905-8c62-d36f9fdf7f43': '5.501,25',                      // rct_premio_totale
+    '4ffc5b95-9f28-551a-b587-12f4ea740b12': 'ACQUI TERME',                   // agenzia
+    '28672974-6247-5654-a053-be29b408ffc1': 'retribuzioni',                  // rct_parametro
+    '9517aacb-987f-55c8-8737-2df19980c55f': '1.800.000',                     // rct_importo_preventivo
   }
   const s = scoreExtraction(data)
   assert.equal(s.matched, 10)
@@ -75,26 +75,26 @@ test('scoreExtraction: golden perfetto → match 10/10, zero allucinazioni', () 
 test('scoreExtraction: accetta wrapping {data} e candidati {valore}', () => {
   const s = scoreExtraction({
     data: {
-      polizza_numero: { valore: '283618616', evidenza: 'n. 283618616' },
-      agenzia: { valore: 'Acqui Terme' },
+      '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': { valore: '283618616', evidenza: 'n. 283618616' },
+      '4ffc5b95-9f28-551a-b587-12f4ea740b12': { valore: 'Acqui Terme' },
     },
   })
-  assert.equal(s.perField.polizza_numero.status, 'exact')
-  assert.equal(s.perField.agenzia.status, 'normalized')
-  assert.equal(s.perField.decorrenza.status, 'missing')
+  assert.equal(s.perField['1ec23911-3e7d-5549-b2e2-be3db9d06ee8'].status, 'exact')
+  assert.equal(s.perField['4ffc5b95-9f28-551a-b587-12f4ea740b12'].status, 'normalized')
+  assert.equal(s.perField['4dc720d8-8237-5084-b288-fd32bd1d19c6'].status, 'missing')
 })
 
 test('scoreExtraction: mismatch e forbidden alzano hallucinationRate', () => {
   const s = scoreExtraction({
-    polizza_numero: '000000000',
-    rct_parametro: 'Premi',
-    rct_massimale_sinistro: '10.000,00',
-    agenzia: 'ACQUI TERME',
+    '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': '000000000',
+    '28672974-6247-5654-a053-be29b408ffc1': 'Premi',
+    '94cbee3c-f83b-5b95-87b8-8b68d02d6d59': '10.000,00',
+    '4ffc5b95-9f28-551a-b587-12f4ea740b12': 'ACQUI TERME',
   })
-  assert.equal(s.perField.polizza_numero.status, 'mismatch')
-  assert.equal(s.perField.rct_parametro.status, 'forbidden')
-  assert.equal(s.perField.rct_massimale_sinistro.status, 'mismatch')
-  assert.equal(s.perField.agenzia.status, 'exact')
+  assert.equal(s.perField['1ec23911-3e7d-5549-b2e2-be3db9d06ee8'].status, 'mismatch')
+  assert.equal(s.perField['28672974-6247-5654-a053-be29b408ffc1'].status, 'forbidden')
+  assert.equal(s.perField['94cbee3c-f83b-5b95-87b8-8b68d02d6d59'].status, 'mismatch')
+  assert.equal(s.perField['4ffc5b95-9f28-551a-b587-12f4ea740b12'].status, 'exact')
   assert.ok(s.hallucinationRate > 0)
   assert.ok(s.fieldMatchRate < 0.5)
   assert.equal(s.counts.forbidden, 1)
@@ -102,18 +102,18 @@ test('scoreExtraction: mismatch e forbidden alzano hallucinationRate', () => {
 
 test('scoreExtraction: campi extra (non nel golden) non sporcano il match rate', () => {
   const s = scoreExtraction({
-    polizza_numero: '283618616',
-    rcp_prodotti: 'olii e grassi',
+    '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': '283618616',
+    '705af6c0-721c-5374-9a65-46102baf95d5': 'olii e grassi',
   })
-  assert.ok(s.extra.includes('rcp_prodotti'))
-  assert.equal(s.perField.polizza_numero.status, 'exact')
+  assert.ok(s.extra.includes('705af6c0-721c-5374-9a65-46102baf95d5'))
+  assert.equal(s.perField['1ec23911-3e7d-5549-b2e2-be3db9d06ee8'].status, 'exact')
   // 1 match su 10 attesi, l'extra non conta come allucinazione del golden
   assert.equal(s.matched, 1)
 })
 
 test('formatScoreReport: contiene id dossier e almeno una riga campo', () => {
-  const text = formatScoreReport(scoreExtraction({ polizza_numero: '283618616' }))
+  const text = formatScoreReport(scoreExtraction({ '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': '283618616' }))
   assert.match(text, /eulip/i)
-  assert.match(text, /polizza_numero/)
+  assert.match(text, /1ec23911/)
   assert.match(text, /283618616/)
 })

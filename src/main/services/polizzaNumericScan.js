@@ -817,7 +817,7 @@ export function buildNumericHints(docs) {
  */
 export function completePremiumTotals(best, activeFields, byKind, diag = []) {
   if (!best || !activeFields) return 0
-  const targets = activeFields.filter((f) => f && /premio_totale$/.test(String(f.id || '')))
+  const targets = activeFields.filter((f) => f && /premio\s+(?:totale|lordo|annuo)/i.test(`${f.label || ''} ${f.description || ''}`))
   if (!targets.length) return 0
   const bestImp = pickOverrideHint(byKind, NUMERIC_SCAN_KINDS.PREMIO_IMPONIBILE)
   const bestTax = pickOverrideHint(byKind, NUMERIC_SCAN_KINDS.IMPOSTA)
@@ -998,7 +998,7 @@ const ECONOMIC_NATURE_WORDS =
 export function isEconomicField(field) {
   if (!field) return false
   if (isStructuralContainerField(field)) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
+  const blob = `${String(field.label || '')} ${String(field.description || '')}`
   return ECONOMIC_NATURE_WORDS.test(blob)
 }
 
@@ -1008,14 +1008,14 @@ export function isEconomicField(field) {
  */
 function isStructuralContainerField(field) {
   if (!field) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
+  const blob = `${String(field.label || '')} ${String(field.description || '')}`
   const low = ' ' + blob.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
   return /massimal|scopert|franchig|sottolimit/.test(low)
 }
 
 // Natura ECONOMICA di un importo dichiarato su un campo economico (per la diag).
 function economicNatureOf(field) {
-  const blob = `${String(field.id || '')} ${String(field.label || '')}`
+  const blob = `${String(field.label || '')} ${String(field.description || '')}`
   const low = blob.toLowerCase()
   if (/imponib/.test(low)) return 'imponibile'
   if (/impost|tass/.test(low)) return 'imposta'
@@ -1102,12 +1102,12 @@ const SCOPERTO_LABEL = /scopert/i
 
 function hasFranchigiaNature(field) {
   if (!field) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
+  const blob = `${String(field.label || '')} ${String(field.description || '')}`
   return FRANCHIGIA_LABEL.test(blob)
 }
 function hasScopertoNature(field) {
   if (!field) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
+  const blob = `${String(field.label || '')} ${String(field.description || '')}`
   return SCOPERTO_LABEL.test(blob)
 }
 

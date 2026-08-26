@@ -304,3 +304,67 @@ export function fieldKind(field) {
   if (fromDesc) return fromDesc
   return 'text'
 }
+
+/**
+ * NATURA SEMANTICA di un campo polizza, ricavata SOLO da label+description
+ * (type-blind: MAI dall'id, che ora è un UUID casuale senza significato).
+ *
+ * Ritorna una stringa descrittiva della "grandezza" del campo, usata dai
+ * guard-rail e dalle coerenze cross-field per decidere il ruolo di un campo
+ * senza leggere il nome dell'id. Valori tipici: 'massimale_sinistro',
+ * 'massimale_annuo', 'massimale_persona', 'massimale_danni',
+ * 'massimale_prestatore', 'massimale_mat', 'massimale_interr',
+ * 'franchigia', 'scoperto', 'premio_totale', 'premio_imponibile',
+ * 'imposta', 'tasso', 'parametro', 'importo_preventivo', 'fatturato',
+ * 'attivita', 'anagrafica', … oppure null se la natura non è riconoscibile.
+ *
+ * Le chiavi di ruolo derivano dal VOCABOLO della label/description (massimale/
+ * premio/imposta/scoperto/franchigia/… + specificazione), NON dalla forma
+ * dell'id. Un campo la cui label/description non esprime una grandezza
+ * riconoscibile ritorna null (natura non decidibile → i guard-rail restano
+ * inerti).
+ */
+export function fieldNatura(field) {
+  if (field == null) return null
+  const descCut = String(field.description || '')
+    .split(/\b(?:non\s+confonder\w*|non\s+riutilizz\w*|non\s+deve\w*|non\s+pu[oò]\w*|non\s+[èe]\b|mai\b|evitare\b|es\.|esempi\w*)\b/i)[0]
+  const blob = `${String(field.label || '')} ${descCut}`
+  const low = ' ' + String(blob).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+
+  // Massimali: la grandezza specifica vince sul generico "massimale".
+  if (low.includes('massimale')) {
+    const spec = [
+      ['interruzione', 'massimale_interr'],
+      ['annuo', 'massimale_annuo'],
+      ['per persona', 'massimale_persona'],
+      ['persona', 'massimale_persona'],
+      ['per prestatore', 'massimale_prestatore'],
+      ['prestatore', 'massimale_prestatore'],
+      ['danni materiali', 'massimale_danni'],
+      ['danni', 'massimale_danni'],
+      ['per sinistro', 'massimale_sinistro'],
+      ['singolo sinistro', 'massimale_sinistro'],
+      ['ogni sinistro', 'massimale_sinistro'],
+    ]
+    for (const [pat, kind] of spec) {
+      if (low.includes(pat)) return kind
+    }
+    if (/per\s+ogni\s+sinistro/.test(low) || /unico\s+per\s+sinistro/.test(low)) return 'massimale_sinistro'
+    return 'massimale'
+  }
+
+  if (/franchig/i.test(low)) return 'franchigia'
+  if (/scopert/i.test(low)) return 'scoperto'
+
+  if (/premio\s+(?:lordo|totale|annuo)/i.test(low)) return 'premio_totale'
+  if (/premio\s+imponib/i.test(low)) return 'premio_imponibile'
+
+  if (/\bimpost/i.test(low)) return 'imposta'
+  if (/\btass/i.test(low)) return 'tasso'
+  if (/parametro\s+regolaz/i.test(low) || /\bparametro\b/i.test(low)) return 'parametro'
+  if (/importo\s+preventiv/i.test(low) || /preventiv/i.test(low)) return 'importo_preventivo'
+  if (/fatturat/i.test(low)) return 'fatturato'
+  if (/attivit|professione/i.test(low)) return 'attivita'
+
+  return null
+}
