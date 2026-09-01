@@ -5,7 +5,16 @@ import { publicUrl } from '@/lib/publicUrl'
 const COOKIE_NAME = 'pdf_extractor_session'
 const SESSION_PASSWORD = process.env.SESSION_SECRET || 'change-me-32-chars-minimum-secret!!'
 
-const PUBLIC_PATHS = ['/auth/login', '/auth/verify', '/api/auth/send-link', '/api/auth/verify', '/api/auth/sso-start', '/api/auth/sso-callback', '/api/health']
+const PUBLIC_PATHS = [
+  // Pagine pubbliche
+  '/auth/login',
+  '/auth/onboarding',
+  '/auth/forgot',
+  '/auth/reset',
+  // API pubbliche (auth) + health
+  '/api/auth',
+  '/api/health',
+]
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl

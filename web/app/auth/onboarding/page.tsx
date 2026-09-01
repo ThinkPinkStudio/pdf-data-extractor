@@ -5,65 +5,54 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 
-function LoginForm() {
+function OnboardingForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const errorParam = searchParams.get('error')
   const t = useT()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'done'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [errorDetail, setErrorDetail] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setStatus('loading')
     setErrorMsg('')
-    setErrorDetail('')
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       })
       if (res.ok) {
+        setStatus('done')
         const next = searchParams.get('next')
         router.replace(next && next.startsWith('/') && !next.startsWith('//') ? next : '/hub')
         router.refresh()
       } else {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error || t('auth.errCredentials'))
-        setErrorDetail(data.detail || '')
+        setErrorMsg(data.error || t('auth.errGeneric'))
         setStatus('error')
       }
     } catch (err) {
       setErrorMsg(t('auth.errGeneric'))
-      setErrorDetail((err as Error).message)
       setStatus('error')
     }
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-      {(errorParam || status === 'error') && (
+      {status === 'error' && (
         <div className="alert alert-error" style={{ marginBottom: 20 }}>
-          <div style={{ fontWeight: 600 }}>
-            {errorParam
-              ? errorParam === 'expired'
-                ? t('auth.errExpired')
-                : t('auth.errGeneric')
-              : errorMsg}
-          </div>
-          {errorDetail && <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9, wordBreak: 'break-word' }}>{errorDetail}</div>}
+          <div style={{ fontWeight: 600 }}>{errorMsg}</div>
         </div>
       )}
 
       <div className="form-group">
-        <label className="label" htmlFor="email">{t('auth.email')}</label>
+        <label className="label" htmlFor="ob-email">{t('auth.email')}</label>
         <input
-          id="email"
+          id="ob-email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -76,15 +65,16 @@ function LoginForm() {
       </div>
 
       <div className="form-group">
-        <label className="label" htmlFor="password">{t('auth.password')}</label>
+        <label className="label" htmlFor="ob-password">{t('auth.password')}</label>
         <input
-          id="password"
+          id="ob-password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={t('auth.passwordPlaceholder')}
           required
-          autoComplete="current-password"
+          minLength={8}
+          autoComplete="new-password"
           style={{ fontSize: 15, padding: '11px 14px' }}
         />
       </div>
@@ -95,38 +85,41 @@ function LoginForm() {
         style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, marginTop: 4 }}
         disabled={status === 'loading'}
       >
-        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.login')}
+        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.onboardingSubmit')}
       </button>
 
       <div style={{ marginTop: 14, textAlign: 'center' }}>
-        <Link href="/auth/forgot" style={{ fontSize: 13, color: 'var(--c-accent)' }}>
-          {t('auth.forgot')}
+        <Link href="/auth/login" style={{ fontSize: 13, color: 'var(--c-accent)' }}>
+          {t('auth.backToLogin')}
         </Link>
       </div>
-
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        margin: '18px 0', fontSize: 11, textTransform: 'uppercase',
-        letterSpacing: '0.06em', color: 'var(--c-text-muted)',
-      }}>
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-        {t('auth.or')}
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-      </div>
-
-      <Link
-        href="/auth/onboarding"
-        className="btn btn-secondary"
-        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, textAlign: 'center', display: 'block' }}
-      >
-        {t('auth.onboardingLink')}
-      </Link>
     </form>
   )
 }
 
-function LoginShell() {
+function OnboardingShell() {
   const t = useT()
+  return (
+    <AuthDecor>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
+        {t('auth.onboardingTitle')}
+      </h2>
+      <p style={{ color: 'var(--c-text-muted)', fontSize: 13, marginBottom: 20, textAlign: 'center', lineHeight: 1.5 }}>
+        {t('auth.onboardingSubtitle')}
+      </p>
+    </AuthDecor>
+  )
+}
+
+function AuthDecor({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ width: '100%' }}>
+      {children}
+    </div>
+  )
+}
+
+export default function OnboardingPage() {
   return (
     <div style={{
       minHeight: '100vh',
@@ -149,9 +142,6 @@ function LoginShell() {
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.3px', marginBottom: 6 }}>
           PDF Data Extractor
         </h1>
-        <p style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>
-          {t('auth.subtitle')}
-        </p>
       </div>
 
       <div style={{
@@ -163,20 +153,11 @@ function LoginShell() {
         padding: '28px 28px 24px',
         boxShadow: 'var(--shadow-lg)',
       }}>
-        <LoginForm />
+        <Suspense>
+          <OnboardingShell />
+          <OnboardingForm />
+        </Suspense>
       </div>
-
-      <p style={{ marginTop: 20, color: 'var(--c-text-muted)', fontSize: 12 }}>
-        {t('auth.authorizedOnly')}
-      </p>
     </div>
-  )
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense>
-      <LoginShell />
-    </Suspense>
   )
 }

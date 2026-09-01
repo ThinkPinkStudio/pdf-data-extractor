@@ -106,7 +106,7 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (diverse da `matchKeywords`, che agisce sul nome cartella).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
-- **Eval estrazione (golden EULIP)**: `src/main/services/polizzaEval.js` +
+- **Eval estrazione (golden EULIP)**: `src/services/polizzaEval.js` +
   `test/fixtures/eulip-expected.json`. Punteggio di un JSON già estratto:
   `node scripts/eval-polizza.mjs --actual extracted.json`. Ogni cambio a
   modello/GBNF/strategia si misura qui PRIMA di dichiararlo un miglioramento.

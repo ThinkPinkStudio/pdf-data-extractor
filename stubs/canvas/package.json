@@ -1,7 +1,0 @@
-{
-  "name": "canvas",
-  "version": "99.99.99",
-  "description": "Stub: canvas is an optional dep of pdfjs-dist for Node.js server-side rendering. This Electron app uses the browser Canvas API instead — no native compilation needed.",
-  "main": "index.js",
-  "license": "MIT"
-}

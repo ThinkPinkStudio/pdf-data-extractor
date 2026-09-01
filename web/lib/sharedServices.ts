@@ -2,18 +2,18 @@ import { join, isAbsolute } from 'path'
 import { pathToFileURL } from 'url'
 import { existsSync } from 'fs'
 
-// ─── Caricatore dei servizi condivisi (src/main/services) ────────────────────
+// ─── Caricatore dei servizi condivisi (src/services) ─────────────────────────
 //
-// I servizi Electron condivisi vivono FUORI da web/ (in ../src/main/services) e
-// usano sintassi ESM + bare-import (electron, pdf-parse, exceljs, tesseract.js…).
-// Per caricarli in modo affidabile sia in dev sia nel container standalone:
+// I servizi condivisi vivono FUORI da web/ (in ../src/services) e usano sintassi
+// ESM + bare-import (pdf-parse, exceljs, tesseract.js…). Per caricarli in modo
+// affidabile sia in dev sia nel container standalone:
 //
 //   1. risolviamo una cartella ASSOLUTA dei servizi (niente path relativo al
 //      chunk webpack, che in standalone punterebbe alla cartella sbagliata);
 //   2. importiamo via URL file:// con `webpackIgnore`, così è Node a risolvere a
 //      runtime il file reale e i suoi bare-import dalla node_modules raggiungibile
-//      (in container: symlink /app/node_modules → /app/web/node_modules; lo shim
-//      `electron` sta lì). Vedi web/Dockerfile e web/shims/electron.
+//      (in container: symlink /app/node_modules → /app/web/node_modules). Vedi
+//      web/Dockerfile.
 //
 // Override esplicito possibile con SHARED_SERVICES_DIR.
 
@@ -22,9 +22,9 @@ function servicesDir(): string {
   if (env && existsSync(env)) return env
 
   const candidates = [
-    join(process.cwd(), '..', 'src', 'main', 'services'), // dev: web/→repo; container: /app/web→/app
-    join(process.cwd(), 'src', 'main', 'services'),
-    '/app/src/main/services',
+    join(process.cwd(), '..', 'src', 'services'), // dev: web/→repo; container: /app/web→/app
+    join(process.cwd(), 'src', 'services'),
+    '/app/src/services',
   ]
   for (const dir of candidates) {
     if (existsSync(dir)) return dir

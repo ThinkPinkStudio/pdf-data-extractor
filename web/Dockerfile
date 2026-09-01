@@ -1,17 +1,17 @@
 # Build context: the repository ROOT (matches docker-compose.yml `context: .`).
 #
-# The Next.js web app lives in web/, but it imports shared Electron services
-# from src/main/services (see web/lib/llmAdapter.ts, web/lib/polizzaService.ts,
-# which resolve them as ../../src/main/services). Those services are OUTSIDE the
-# web/ directory, so the build context must be the repo root — a Dockerfile can
-# never COPY from a parent path outside its build context.
+# The Next.js web app lives in web/, but it imports shared services from
+# src/services (see web/lib/llmAdapter.ts, web/lib/polizzaService.ts, which
+# resolve them as ../../src/services). Those services are OUTSIDE the web/
+# directory, so the build context must be the repo root — a Dockerfile can never
+# COPY from a parent path outside its build context.
 #
 # Coolify: set "Base Directory" to the repo root ("/") and "Dockerfile Location"
-# to web/Dockerfile. Do NOT set the base directory to /web, or src/main/services
-# will be unreachable and the build will fail with `"/src/main/services": not found`.
+# to web/Dockerfile. Do NOT set the base directory to /web, or src/services
+# will be unreachable and the build will fail with `"/src/services": not found`.
 #
 # The image mirrors the repo layout: the web app lives at /app/web and the shared
-# services at /app/src, so /app/web/lib/* -> ../../src/main/services resolves the
+# services at /app/src, so /app/web/lib/* -> ../../src/services resolves the
 # same way it does in the source tree.
 #
 # Base: Debian slim (glibc), NON Alpine. Il rendering PDF di CSA Adesioni usa
@@ -41,8 +41,8 @@ COPY --from=deps /app/web/node_modules ./node_modules
 # Web app sources
 COPY web ./
 
-# Shared Electron services used directly by the web API routes
-COPY src/main/services /app/src/main/services
+# Shared services used directly by the web API routes
+COPY src/services /app/src/services
 
 # package.json della ROOT: è la fonte della VERSIONE dell'app (bumpata dalla CI).
 # next.config.mjs la legge al build per NEXT_PUBLIC_APP_VERSION (sidebar +
@@ -117,7 +117,7 @@ COPY --from=builder /app/web/public ./public
 # letti a runtime via process.cwd()/assets/adesioni. Lo standalone non li include.
 COPY --from=builder /app/web/assets ./assets
 
-# Shared Electron services (kept at /app/src so cwd/../src/main/services resolves)
+# Shared services (kept at /app/src so cwd/../src/services resolves)
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/ita.traineddata /app/ita.traineddata
 

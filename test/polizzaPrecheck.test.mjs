@@ -10,7 +10,7 @@ import {
   normalizeForPrecheck, parseContentKeywords, keywordVerdict, cosineSim,
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   KEYWORD_MIN_RATIO, SEMANTIC_MIN, LLM_MIN,
-} from '../src/main/services/polizzaPrecheck.js'
+} from '../src/services/polizzaPrecheck.js'
 
 test('normalizeForPrecheck: minuscole, senza accenti, spazi singoli', () => {
   assert.equal(normalizeForPrecheck('Responsabilità   CIVILE — R.C.T./R.C.O.'), 'responsabilita civile r c t r c o')

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url'
 
 import {
   EULIP_EXPECTED, compareField, scoreExtraction, formatScoreReport,
-} from '../src/main/services/polizzaEval.js'
+} from '../src/services/polizzaEval.js'
 
 const fixture = JSON.parse(readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'eulip-expected.json'),

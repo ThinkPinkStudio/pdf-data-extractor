@@ -3,17 +3,17 @@ import assert from 'node:assert/strict'
 
 import {
   autoKind, kindFromType,
-} from '../src/main/services/polizzaFieldKind.js'
+} from '../src/services/polizzaFieldKind.js'
 import {
   isTextualField, isLabelLikeValue, isTextualZeroPlaceholder,
-} from '../src/main/services/polizzaValidation.js'
+} from '../src/services/polizzaValidation.js'
 import {
   guardAntiSpill, vetoFranchigiaAsMassimale, buildFactsRegistry,
-} from '../src/main/services/polizzaFactsRegistry.js'
+} from '../src/services/polizzaFactsRegistry.js'
 import {
   scanDocument, buildNumericHints, completePremiumTotals, pickOverrideHint,
   applyDeterministicOverrides, isBareGlobalFranchigia, NUMERIC_SCAN_KINDS,
-} from '../src/main/services/polizzaNumericScan.js'
+} from '../src/services/polizzaNumericScan.js'
 
 // ── Regola 2: auto-kind da label (anti-0 universale senza type esplicito) ────
 test('R2 autoKind: label testuali senza type esplicito → kind text', () => {

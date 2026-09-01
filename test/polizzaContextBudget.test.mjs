@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { computeSafeContextBudget, estimateOllamaTokens, buildGroupBatches } from '../src/main/services/polizzaService.js'
+import { computeSafeContextBudget, estimateOllamaTokens, buildGroupBatches } from '../src/services/polizzaService.js'
 
 // Overhead di sistema/guida campi in TOKEN, come la funzione lo computa.
 const overheadTokens = (systemChars, userChars) => estimateOllamaTokens(systemChars + userChars)

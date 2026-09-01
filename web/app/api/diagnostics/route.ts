@@ -90,7 +90,7 @@ export async function GET() {
   } else if (process.env.SMTP_HOST) {
     services.email = { status: 'ok', detail: `SMTP configurato: ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || '587'}${process.env.SMTP_FROM ? ` · mittente ${process.env.SMTP_FROM}` : ' · manca SMTP_FROM'}.` }
   } else {
-    services.email = { status: 'fail', detail: 'Né RESEND_API_KEY né SMTP_HOST configurati: login via magic-link ed email di fine batch NON possono partire.' }
+    services.email = { status: 'fail', detail: 'Né RESEND_API_KEY né SMTP_HOST configurati: il recupero password e le email di notifica NON possono partire.' }
   }
 
   return NextResponse.json({ system, endpoint: ep, layers, ocr, services })

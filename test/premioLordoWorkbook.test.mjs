@@ -19,7 +19,7 @@ import {
   HEADER_TOTALE,
   numToCol,
   colToNum
-} from '../src/main/services/premioLordoWorkbook.js'
+} from '../src/services/premioLordoWorkbook.js'
 
 // ─── Costruzione di un .xlsx minimo ma valido ────────────────────────────────
 

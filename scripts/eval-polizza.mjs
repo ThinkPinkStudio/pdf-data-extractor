@@ -13,7 +13,7 @@
 import { readFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import { scoreExtraction, formatScoreReport, EULIP_EXPECTED } from '../src/main/services/polizzaEval.js'
+import { scoreExtraction, formatScoreReport, EULIP_EXPECTED } from '../src/services/polizzaEval.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')

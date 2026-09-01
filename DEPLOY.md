@@ -18,7 +18,7 @@ In Coolify: **+ Add Resource → Application → Docker → Dockerfile**.
 | Campo Coolify | Valore | Note |
 |---|---|---|
 | Build Pack | `Dockerfile` | non "Docker Compose", non "Nixpacks" |
-| Base Directory | `/` | radice del repo. **Non** `/web`, altrimenti `src/main/services` non è raggiungibile e il build fallisce (`"/src/main/services": not found`) |
+| Base Directory | `/` | radice del repo. **Non** `/web`, altrimenti `src/services` non è raggiungibile e il build fallisce (`"/src/services": not found`) |
 | Dockerfile Location | `web/Dockerfile` | il Dockerfile è in `web/`, ma il build context è la radice |
 | Ports Exposes | `3000` | porta interna del server Next.js |
 
@@ -43,11 +43,11 @@ attivare SSL, e cambiare `COOKIE_SECURE=true` + `MAGIC_LINK_BASE_URL=https://<do
 | Variabile | Esempio | Note |
 |---|---|---|
 | `NODE_ENV` | `production` | |
-| `COOKIE_SECURE` | `false` | **`false` su HTTP/IP** (senza TLS), altrimenti loop di login. `true` dietro reverse proxy HTTPS. |
-| `MAGIC_LINK_BASE_URL` | `http://<IP>:3000` | Deve combaciare **esattamente** con come l'utente raggiunge l'app dal browser. `http` (non `https`) e IP:porta reali. Finisce nel link del magic link. |
-| `SESSION_SECRET` | *(random ≥32 caratteri)* | Segreto per cifrare il cookie di sessione. Cambialo. |
-| `ALLOWED_DOMAINS` | `azienda.it,partner.it` | Domini email autorizzati, separati da virgola. **Obbligatorio**: se mancante o vuoto **nessun login è ammesso** (fail-closed, come l'app desktop). `*` = tutti, ma solo se impostato **esplicitamente**. Se il dominio del cliente non è incluso, il login viene **negato in silenzio** (per evitare email enumeration l'API risponde comunque `ok`). |
-| `DATABASE_URL` | `postgresql://user:pass@host:5432/pdfextractor` | PostgreSQL **esterno**, gestito manualmente. Obbligatorio: `initDb()` gira al boot e crea le tabelle. |
+| `COOKIE_SECURE` | `false` | **`false` su HTTP/IP** (senza TLS), altrimenti il browser scarta il cookie e si entra in un loop di login. `true` dietro reverse proxy HTTPS. |
+| `MAGIC_LINK_BASE_URL` | `http://<IP>:3000` | Deve combaciare **esattamente** con come l'utente raggiunge l'app dal browser (serve nel link di recupero password). `http` (non `https`) e IP:porta reali. |
+| `SESSION_SECRET` | *(random ≥32 caratteri)* | Segreto per cifrare il cookie di sessione. Cambialo. **Non cambiarlo dopo il primo deploy**: i cookie di sessione esistenti verrebbero invalidati (tutti gli utenti si ritroverebbero scollegati). |
+| `ALLOWED_DOMAINS` | `azienda.it,partner.it` | Domini email autorizzati all'onboarding e al recupero password, separati da virgola. **Obbligatorio**: se mancante o vuoto **nessun onboarding/login è ammesso** (fail-closed). `*` = tutti, ma solo se impostato **esplicitamente**. |
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/pdfextractor` | PostgreSQL **esterno**, gestito manualmente. Obbligatorio: `initDb()` gira al boot e crea le tabelle (incl. `users`, `password_resets`). |
 | `QDRANT_URL` | `http://host:6333` | Qdrant **esterno**, gestito manualmente. |
 
 ### Email — scegli UNA opzione
@@ -78,11 +78,9 @@ porte SMTP (465/587) siano aperte in uscita dal server — spesso **non** lo son
 | Variabile | Default | Note |
 |---|---|---|
 | `PORT` | `3000` | Porta interna. Se la cambi, aggiorna anche Ports Exposes/Mappings. |
-| `MAGIC_LINK_EXPIRY_MINUTES` | `15` | Validità del magic link. |
-| `SESSION_MAX_AGE_SECONDS` | `604800` | Durata sessione (default 7 giorni). |
+| `PASSWORD_RESET_EXPIRY_MINUTES` | `60` | Validità del link di recupero password. |
 | `ADMIN_EMAILS` | *(nessuno)* | Email con accesso ai log. |
 | `LOG_LEVEL` | `info` | |
-| `RELEASE_DISTRIBUTOR_URL` | `https://downloads.thinkpinkstudio.it` | Identity provider dell'SSO. **Da dentro la VPN non è raggiungibile** → il login SSO non funziona; usa il magic link. |
 | `LLM_PROVIDER` | `ollama` | Provider di default (`ollama` / `openai` / `anthropic`). |
 | `LLM_MODEL` | `llama3` | Modello di default per il provider scelto. |
 | `OLLAMA_URL` | `http://<IP>:11434` | URL del server Ollama. Vedi §2b per il valore corretto su Coolify. |
@@ -150,12 +148,10 @@ Senza il modello scaricato, l'estrazione risponde `404 model not found`.
 ## 3. Riepilogo delle trappole (deploy solo‑IP / HTTP)
 
 1. **Cookie `Secure`** → `COOKIE_SECURE=false`. È la causa n.1 di "login che non entra".
-2. **`MAGIC_LINK_BASE_URL`** deve essere `http://<IP>:porta`, non `https`, non un dominio d'esempio.
-3. **Login solo via magic link**: l'SSO punta a un host pubblico non raggiungibile dalla VPN.
-   Serve quindi un canale email funzionante (Resend consigliato).
-4. **`ALLOWED_DOMAINS`** deve includere il dominio del cliente (o `*`), altrimenti nessuno entra.
-5. **`DATABASE_URL` e `QDRANT_URL`** puntano a servizi esterni gestiti manualmente: senza un
-   PostgreSQL raggiungibile il container va in crash al boot.
+2. **`MAGIC_LINK_BASE_URL`** deve essere `http://<IP>:porta`, non `https`, non un dominio d'esempio (finisce nel link di recupero password).
+3. **Accesso con account email+password**: il **primo** utente deve passare da `/auth/onboarding` con un'email di un dominio presente in `ALLOWED_DOMAINS`; gli altri lo stesso. Serve quindi un canale email funzionante (Resend consigliato) solo per il **recupero password**, non per creare l'account (basta il dominio giusto).
+4. **`ALLOWED_DOMAINS`** deve includere il dominio del cliente (o `*`), altrimenti nessuno può creare l'account né recuperare la password.
+5. **`DATABASE_URL` e `QDRANT_URL`** puntano a servizi esterni gestiti manualmente: senza un PostgreSQL raggiungibile il container va in crash al boot.
 6. **Nessun `docker-compose`**: il deploy è Dockerfile-only. Il `docker-compose.yml` del repo
    è solo per sviluppo locale.
 

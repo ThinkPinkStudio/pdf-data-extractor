@@ -1,6 +1,7 @@
 import { getIronSession, sealData, unsealData, type SessionOptions } from 'iron-session'
 import { cookies } from 'next/headers'
 import type { ResponseCookie } from 'next/dist/compiled/@edge-runtime/cookies'
+import { scryptSync, randomBytes, timingSafeEqual } from 'crypto'
 
 export interface SessionData {
   email: string
@@ -10,15 +11,13 @@ export interface SessionData {
 /**
  * Se il cookie di sessione deve avere il flag `Secure` (inviato solo su HTTPS).
  *
- * Default: attivo in produzione. MA in un deploy raggiungibile solo via IP/VPN
- * in HTTP puro (senza TLS) il browser scarterebbe un cookie `Secure`, causando
- * un loop infinito di login. In quel caso imposta `COOKIE_SECURE=false`.
- * Con `COOKIE_SECURE=true` lo forzi anche fuori produzione.
+ * L'app gira su HTTP in rete interna: di default NON si imposta `Secure`,
+ * altrimenti il browser scarterebbe il cookie su http:// e si entrerebbe in un
+ * loop infinito di login. `COOKIE_SECURE=true` è un opt-in per deploy esposti
+ * su HTTPS.
  */
 export function cookieSecure(): boolean {
-  const v = process.env.COOKIE_SECURE
-  if (v !== undefined) return v === 'true'
-  return process.env.NODE_ENV === 'production'
+  return process.env.COOKIE_SECURE === 'true'
 }
 
 export const SESSION_OPTIONS: SessionOptions = {
@@ -26,7 +25,6 @@ export const SESSION_OPTIONS: SessionOptions = {
   password: process.env.SESSION_SECRET || 'change-me-32-chars-minimum-secret!!',
   cookieOptions: {
     secure: cookieSecure(),
-    maxAge: parseInt(process.env.SESSION_MAX_AGE_SECONDS || '604800', 10),
     httpOnly: true,
     sameSite: 'lax',
   },
@@ -58,12 +56,12 @@ export async function getSession(): Promise<SessionData & { save: () => Promise<
       { email: session.email, loginAt: session.loginAt },
       { password: SESSION_OPTIONS.password as string }
     )
-    const maxAge = (SESSION_OPTIONS.cookieOptions?.maxAge as number) ?? 604800
+    // Nessun maxAge: sessione persistente, l'utente accede una volta per tutte.
+    // Il cookie scade solo su logout esplicito o al cambio di SESSION_SECRET.
     cookieStore.set(COOKIE_NAME, sealed, {
       httpOnly: true,
       secure: cookieSecure(),
       sameSite: 'lax',
-      maxAge,
       path: '/',
     } as Partial<ResponseCookie>)
   }
@@ -78,14 +76,13 @@ export async function getSession(): Promise<SessionData & { save: () => Promise<
 /**
  * Verifica che il dominio dell'email sia tra quelli autorizzati.
  *
- * Parità con l'app desktop (authService.domainAllowed): il controllo è
- * **fail-closed**. Se né `ALLOWED_DOMAINS` né `ACCEPTED_DOMAINS` (nome usato
- * dall'app desktop) sono impostati — o sono vuoti — NESSUN dominio è ammesso e
- * ogni login viene rifiutato. Configurare sempre l'env in produzione, es.
- * `ALLOWED_DOMAINS=dominio1.it,dominio2.it`.
+ * Il controllo è **fail-closed**. Se né `ALLOWED_DOMAINS` né `ACCEPTED_DOMAINS`
+ * (nome usato dall'app desktop) sono impostati — o sono vuoti — NESSUN dominio
+ * è ammesso e ogni onboarding/login viene rifiutato. Configurare sempre l'env
+ * in produzione, es. `ALLOWED_DOMAINS=dominio1.it,dominio2.it`.
  *
  * `ALLOWED_DOMAINS=*` resta un'apertura ESPLICITA (ammette tutti i domini): è
- * una scelta deliberata, non più il comportamento di default a env mancante.
+ * una scelta deliberata.
  */
 export function isAllowedDomain(email: string): boolean {
   const raw = (process.env.ALLOWED_DOMAINS ?? process.env.ACCEPTED_DOMAINS ?? '').trim()
@@ -100,3 +97,47 @@ export function isAllowedDomain(email: string): boolean {
   if (!domain) return false
   return allowed.includes(domain)
 }
+
+// ─── Hash password (scrypt, built-in Node: nessuna dipendenza nativa) ───────
+
+const SCRYPT_KEYLEN = 64
+const SCRYPT_OPTS = { N: 16384, r: 8, p: 1 }
+
+/**
+ * Genera un hash scrypt per la password. Formato: `scrypt:N:r:p:salt:hash`
+ * (salt e hash in base64), così i parametri viaggiano dentro la stringa e
+ * l'upgrade futuro dei cost factors non invalida le password esistenti.
+ */
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16)
+  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTS)
+  return [
+    'scrypt',
+    SCRYPT_OPTS.N,
+    SCRYPT_OPTS.r,
+    SCRYPT_OPTS.p,
+    salt.toString('base64'),
+    hash.toString('base64'),
+  ].join(':')
+}
+
+export function verifyPassword(password: string, stored: string | null): boolean {
+  if (!stored) return false
+  const parts = stored.split(':')
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false
+  const [, n, r, p, saltB64, hashB64] = parts
+  try {
+    const salt = Buffer.from(saltB64, 'base64')
+    const expected = Buffer.from(hashB64, 'base64')
+    const actual = scryptSync(password, salt, expected.length, {
+      N: parseInt(n, 10),
+      r: parseInt(r, 10),
+      p: parseInt(p, 10),
+    })
+    return expected.length === actual.length && timingSafeEqual(expected, actual)
+  } catch {
+    return false
+  }
+}
+
+export const MIN_PASSWORD_LENGTH = 8

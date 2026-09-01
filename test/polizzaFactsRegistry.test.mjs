@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import {
   buildFactsRegistry, isFactPlausible, vetoMergeCandidate,
   LARGE_AMOUNT_THRESHOLD,
-} from '../src/main/services/polizzaFactsRegistry.js'
+} from '../src/services/polizzaFactsRegistry.js'
 
 const MASSIMALE = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
 const PREMIO = { id: 'rct_premio_totale', label: 'Premio totale' }
@@ -122,10 +122,10 @@ test('type-blind: il registro non distingue tipi documento', () => {
 import {
   detectOptionLikeText, vetoOptionSourceOnly, vetoStructuralDuplicate,
   demandsDistinctValue, factDocCount,
-} from '../src/main/services/polizzaFactsRegistry.js'
+} from '../src/services/polizzaFactsRegistry.js'
 import {
   vetoForeignNatureMassimale,
-} from '../src/main/services/polizzaFactsRegistry.js'
+} from '../src/services/polizzaFactsRegistry.js'
 
 test('detectOptionLikeText: riconosce un questionario dal contenuto, senza considerare il nome file', () => {
   assert.equal(detectOptionLikeText('Domanda 1: che massimale vuole? ☐ 1.000.000 ☐ 5.000.000'), true)

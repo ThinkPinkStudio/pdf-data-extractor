@@ -21,7 +21,7 @@ import {
   dateStrToTs,
   shouldReplaceValue,
   pickDocDateFromExtracted
-} from '../src/main/services/polizzaDates.js'
+} from '../src/services/polizzaDates.js'
 
 // ─── Fixture realistiche ─────────────────────────────────────────────────────
 

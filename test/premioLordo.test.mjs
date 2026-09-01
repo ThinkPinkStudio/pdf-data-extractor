@@ -24,7 +24,7 @@ import {
   computePremioLordo,
   verifyResult,
   ALIQUOTA_ALTRE
-} from '../src/main/services/premioLordo.js'
+} from '../src/services/premioLordo.js'
 
 // ─── Aliquote ────────────────────────────────────────────────────────────────
 
