@@ -41,7 +41,7 @@ export interface JobRow {
   progress: JobProgress | Record<string, never>
   rolling_state: Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   sources: Record<string, { file: string; page: number }>
-  field_defs: { id: string; label: string; description?: string; sheet?: string }[]
+  field_defs: { id: string; label: string; description?: string; type?: string; sheet?: string }[]
   prompt_extra: string | null
   duplicate_of: string | null
   // Run di TEST: id del job SORGENTE di cui riusa i PDF (mai duplicati) e
@@ -481,6 +481,7 @@ export function jobSnapshot(job: JobRow) {
     fieldDefs: job.field_defs || [],
     values: flattenRollingState(job.rolling_state),
     sources: job.sources || {},
+    basReliability: (job.rolling_state as any)?._reliability || null,
     progress: job.progress && Object.keys(job.progress).length ? job.progress : null,
     duplicateOf: job.duplicate_of || null,
     sourceJobId: job.source_job_id || null,

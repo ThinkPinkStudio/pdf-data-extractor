@@ -9,6 +9,7 @@
  */
 
 import { normalizeDateValue, dateStrToTs, shouldReplaceValue } from './polizzaDates.js'
+import { fieldKind, autoKind, fieldNatura } from './polizzaFieldKind.js'
 
 // ─── Importi "puri" ──────────────────────────────────────────────────────────
 
@@ -44,17 +45,203 @@ const PLACEHOLDER_SET = new Set([
   'x', 'xxx', '?', '??', '???', '...',
 ])
 
-/** true se il valore e' un placeholder di assenza-dato e va scartato. */
+/** true se il valore e' un placeholder di assenza e va scartato. */
 export function isPlaceholderValue(raw) {
   if (raw == null) return true
   let v = String(raw).trim()
-  // Virgolette/parentesi di contorno + spazi interni multipli
   v = v.replace(/^["'«»()[\]{}\s]+|["'«»()[\]{}\s]+$/g, '').replace(/\s+/g, ' ').toLowerCase()
   if (!v) return true
   if (PLACEHOLDER_SET.has(v)) return true
   if (/^[-–—_.·\s]+$/.test(v)) return true       // trattini/underscore/puntini
-  if (/^vedi\s/i.test(v)) return true            // rinvio ("vedi condizioni"), non un dato
+  if (/^vedi\s/i.test(v)) return true            // rinvio ("vedi condizioni"), non un caso
   return false
+}
+
+/**
+ * true se il valore è un IDENTIFICATIVO alfanumerico SPORCO (garbage OCR).
+ * Un numero di polizza/proposta/preventivo è una stringa alfanumerica pulita
+ * (lettere+cifre, al più `-`/`.`). Un candidato che contiene:
+ *   - più di 1 carattere NON-alfanumerico ADIACENTE IDENTICO di fila (`]]`,
+ *     `((`, `--`, `||`…), tipici artefatti OCR/font "corsivo" — o
+ *   - meno del 70% di caratteri alfanumerici,
+ * è spazzatura (visto sul campo: "3ROL]]D" per un vero RCM20100036608) e va
+ * scartato: meglio il vuoto che un numero inventato/illeggibile.
+ * "Le regole scelgono, non inventano": non si modifica il garbage rischiando di
+ * inventare, si scarta e si lascia decidere il candidato valido se ce n'è uno.
+ * @param {*} raw
+ * @returns {boolean} true = identifier garbage da rifiutare
+ */
+export function isGarbageIdentifier(raw) {
+  if (raw == null) return false
+  const s = String(raw).trim()
+  if (!s) return false
+  // più di 1 carattere non-alfanumerico ADIACENTE identico ("]]", "((", "--")
+  if (/([^A-Za-z0-9])\1{1,}/.test(s)) return true
+  const total = s.length
+  const alnum = (s.match(/[A-Za-z0-9]/g) || []).length
+  if (total === 0) return false
+  if (alnum / total <= 0.7) return true
+  return false
+}
+
+// ─── Anti-LABEL (generalizzazione) ──────────────────────────────────────────
+// Il modello copia le INTESTAZIONI di sezione come valore del campo (visto nel
+// fascicolo A/B): "IL CONTRAENTE" (pagina "il contraente" invece della ragione
+// sociale), "Contratto di Assicurazione per la Responsabilità Civile". Sono
+// pattern TESTUALI documentali — le parole della sezione, non il dato. Il match
+// è SEMPRE full-string normalizzati (mai substring: un valore legittimo che
+// contiene "la contraente" deve sopravvivere).
+const ANTI_LABEL_PATTERNS = [
+  /\bil\s+contraente\b/,
+  /\bl[’']?assicurato\b/,
+  /\bignorant\b.*\bcontraente\b/,
+  /\bcontratto\s+di\s+assicurazione\b/,
+  /\bpolizza\s+di\s+assicurazione\b/,
+  /\bramo\s+di\s+competenza\b/,
+  /\bcentri\s+diagnostici\b/,        // etichetta di sezione, non attività specifica
+  /^(?:sezione|garanzia|estensione)s?\b/,
+  /\bscoperto\s+generale\b/,
+  /\btacito\s+rinnovo\b/,
+  /\bfrazionamento\b/,
+  /\besclusioni\b/,
+  /\bcondizioni\s+particolari\b/,
+  /\bfranchigia\s+(?:base|frontale)\b/,
+  /\bmassimale\s+annuo\b/,
+  /\bmassimale\s+per\s+sinistro\b/,
+  // intestazioni TUTTO MAIUSCOLE: dentro un valore, una frase maiuscola con 3+
+  // parole e ≥1 parola ≥6 char è un heading, non un dato
+]
+/**
+ * true se il valore sembra UN'INTESTAZIONE/LABEL di sezione piuttosto che un
+ * dato estratto: il modello l'ha copiato perché stava in una sezione dedicata.
+ * Match FULL-STRING sul testo normalizzato (case/diacritici insensibili, ma
+ * parole separate da spazio preservate → i \s+ dei pattern funzionano).
+ */
+export function isLabelLikeValue(raw) {
+  if (raw == null) return false
+  const v = String(raw).trim()
+  if (!v || v.length < 4) return false
+  // normalizzazione che PRESERVA le parole (spazi collassati, diacritici via)
+  const norm = v.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!norm) return false
+  // heading tutto maiuscolo: ≥3 parole e ≥1 parola lunga ≥6 tra quelle
+  // maiuscole nell'originale (un'intestazione di sezione, non un dato)
+  const words = v.split(/\s+/).filter(Boolean)
+  if (words.length >= 3) {
+    const upperLong = words.filter((w) => /^[A-ZÀ-Ý]+$/.test(w) && w.length >= 6)
+    if (upperLong.length && upperLong.length >= words.length * 0.5) return true
+  }
+  for (const p of ANTI_LABEL_PATTERNS) {
+    if (p.test(norm)) return true
+  }
+  return false
+}
+
+/**
+ * true SOLO per campi la cui natura è testuale: `type` esplicito 'text' o
+ * description con prefisso "TESTO" (es. "TESTO.", "TESTO (SÌ/NO)",
+ * "TESTO (elenco)"). Viceversa i kind FORTI non-testuali (number → NUMERO/IMPORTO,
+ * percent, date, fiscal) lo escludono; 'boolean' ed 'enum' restano testuali
+ * (i valori sono parole: SÌ/NO, elenchi).
+ *
+ * Serve al filtro anti-0: su questi campi lo "0" è un placeholder numerico
+ * inespressivo ("niente da dire"), non un dato. Su NUMERO/IMPORTO lo 0 resta
+ * legittimo (es. premio, massimale).
+ *
+ * NB: `type: 'text'` è il DEFAULT STORICO (scritto su quasi tutti i campi già
+ * salvati, senza valore semantico): per NON rompere i profili esistenti resta
+ * "debole" — se manca un kind forte esplicito decide la DESCRIPTION, come prima
+ * del task. I kind forti (number/percent/date/fiscal/boolean/enum) sono la
+ * scelta esplicita dell'utente e vincono sulla description.
+ */
+export function isTextualField(field) {
+  if (field == null) return false
+  const hasType = field.type != null && String(field.type).trim() !== ''
+  const kind = fieldKind(field)
+  if (hasType && kind !== 'text') {
+    return kind === 'boolean' || kind === 'enum'
+  }
+  if (/TESTO/.test(String(field?.description || ''))) return true
+  // AUTO-KIND dalla LABEL (generalizzazione): un profilo importato senza type
+  // esplicito né prefisso "TESTO…" (es. "Tacito Rinnovo", "Frazionamento",
+  // "Esclusioni particolari", "Condizioni particolari") resta comunque un campo
+  // testuale: lo "0" e i numeri puri lì sono placeholder, non dati. I kind forti
+  // (number/date/…) dichiarati sopra hanno già vinto.
+  return autoKind(field) === 'text'
+}
+
+/**
+ * true se il valore è un puro placeholder numerico inespressivo per un campo
+ * di TIPO TESTO: "0" (e varianti "0,00"/"0.00"/"€ 0"-style) che il modello
+ * scrive al posto di omettere il campo. MAI bloccante su campi NUMERO/IMPORTO
+ * (premio/massimale azzerato resta un dato legittimo).
+ */
+export function isTextualZeroPlaceholder(field, raw) {
+  if (!isTextualField(field)) return false
+  if (raw == null) return false
+  const s = String(raw).trim().replace(/[€\s]/g, '')
+  return /^0+(?:[.,]0+)?$/.test(s)
+}
+
+/**
+ * true se il valore è un PURO NUMERO/IMPORTO/CODICE per un campo di tipo TESTO
+ * — es. "13.068,00", "4", "1,2", "75,00", "00751214/001". È il segno che il
+ * modello ha risposto col dato sbagliato (un importo/premio/tasso al posto
+ * del testo SÌ/NO, "annuale", "retribuzioni", una descrizione): per un campo
+ * TESTO un numero puro non è MAI un dato → va scartato (vuoto/"non indicato").
+ *
+ * MAI bloccante su campi NUMERO/IMPORTO: lì un numero è il valore legittimo.
+ *
+ * NB: non tocca i valori testuali che CONTENGONO cifre a parole (es. "4 persone",
+ * "IVA 22%", un indirizzo con il numero civico): scarta SOLO il valore fatto di
+ * sole cifre/separatori.
+ */
+export function isTextualNumericOnly(field, raw) {
+  if (!isTextualField(field)) return false
+  if (raw == null) return false
+  const s = String(raw).trim()
+  if (!s) return false
+  if (!/^[-+]?[\d.,\s€%‰']+$/.test(s)) return false
+  return parsePureAmount(s) != null
+    || /^[-+]?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(s)
+    || /^[-+]?\d+(?:[.,]\d+)?[%‰]?$/.test(s)
+}
+
+// ─── Guardia "premio da copertura diversa" ──────────────────────────────────
+// Fascicolo RC PROF.LE: più coperture nello stesso fascicolo (una RC profes-
+// sionale vera "01. RC PROFESSIONE SANITARIA" e una "RC INFORTUNI"; a volte anche
+// "Tutela Legale" / certificati). Il merge sceglieva il premio 25,00 da RC
+// INFORTUNI (affinità 0.43) invece del 61,00 della RC professionale (0.40).
+// "Le regole scelgono, non inventano": il 25,00 resta valido SOLO se è davvero
+// il premio RC; lo si esclude quando la FONTE è un documento di UN'ALTRA
+// copertura (nome file con marcatori di altro ramo). Type-blind: guarda il nome
+// del documento, non i tipi file, e solo i campi di natura PREMIO.
+const OTHER_COVERAGE_DOC_RE = /(?:infortun|tutela[-\s_]*legale|certificat)/i
+
+/** true se il NOME documento appartiene a una copertura NON di RC professionale. */
+export function isOtherCoverageDocName(name) {
+  const s = String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return OTHER_COVERAGE_DOC_RE.test(s)
+}
+
+/** true se il campo ha natura PREMIO (premio totale/imponibile/lordo/annuo o imposta). */
+export function isPremiumField(field) {
+  if (!field) return false
+  // Sola label/description, MAI l'id: gli id premio (rcp_premio_imponibile,
+  // rcp_imposta…) vengono RIUSATI su alcuni profili (RC PROF MED V2) con
+  // significato testuale (Frazionamento / Tacito Rinnovo SÌ-NO) — lì la natura
+  // non è premio. "Le regole scelgono": decide il vocabolo economico espresso.
+  const blob = `${String(field?.label || '')} ${String(field?.description || '')}`
+  return /premio[_\s-]?(?:totale|imponibile|lordo|annuo)/i.test(blob)
+    || /\bimposta\b|\bimposte\b|\btasse\b/i.test(blob)
+}
+
+/** true se il candidato-premio deriva da un documento di copertura diversa. */
+export function isOtherCoveragePremiumSource(field, sourceName) {
+  if (!isPremiumField(field)) return false
+  return isOtherCoverageDocName(sourceName)
 }
 
 // ─── Checksum P.IVA / Codice Fiscale ─────────────────────────────────────────
@@ -140,17 +327,18 @@ export function validateCodiceFiscaleIva(raw) {
 // ─── Classificazione campi e documenti ───────────────────────────────────────
 
 /** Campo "strutturale" (massimali/franchigie/scoperti/attivita'/garanzie…): vive
- *  in polizza/appendici/condizioni, MAI in quietanze/regolazioni. */
+ *  in polizza/appendici/condizioni, MAI in quietanze/regolazioni.
+ *  Type-blind: SOLO label+description (l'id è un UUID senza significato). */
 export function isStructuralField(field) {
-  const s = `${field?.id || ''} ${field?.label || ''} ${field?.description || ''}`
+  const s = `${field?.label || ''} ${field?.description || ''}`
   return /massimal|franchig|scopert|attivit|prodott|qualific|garanz/i.test(s)
 }
 
 /** Campo economico-periodico (premi/tassi/imposte/importi): cambia ogni anno,
- *  vive nel documento periodico piu' recente. */
+ *  vive nel documento periodico piu' recente. Type-blind: SOLO label+description. */
 export function isPeriodicEconomicField(field) {
   if (isStructuralField(field)) return false
-  const s = `${field?.id || ''} ${field?.label || ''}`
+  const s = `${field?.label || ''} ${field?.description || ''}`
   return /premio|tasso|imposta|importo|parametro|preventiv/i.test(s)
 }
 
@@ -185,6 +373,163 @@ export function normForMatch(s) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '')
+}
+
+// ─── Evidenza di importo: tolleranza alla lettera OCR interposta ─────────────
+// Sul campo (fascicolo Cedam, massimale RCT/RCO della dichiarazione 2026): il
+// valore reale "7.500.000,00" veniva scartato come [senza-evidenza] e quindi non
+// arrivava MAI al merge di recency — l'atto 2018 col "5.000.000,00" restava
+// l'unico candidato e vinceva per default. Nei PROMPT il testo è la griglia
+// SPAZIALE (colonne allineate con spazi): `normForMatch` rimuove spazi e
+// punteggiatura, quindi una run di cifre "7500000" si rompe SOLO se l'OCR ha
+// scritto una cifra come la sua lettera di confusione (es. "7.500.000" letto
+// "7.500O000", con 0→O nei font scannerizzati). Le cifre però restano DAVVERO
+// nel documento: il check evidenza va reso robusto a questo rumore, ma SENZA
+// allargare i falsi positivi — un importo resta un'ancora forte: il match è
+// sull'INTERO blocco numerico, mai su una sottosequenza (un numero più grande o
+// più piccolo NON deve validare quello cercato).
+
+// Lettere che l'OCR confonde davvero con le cifre nei font scannerizzati.
+// L'elenco è STRETTO: tollerare altro (es. la vocale "e") renderebbe il check
+// permissivo sugli importi inventati. Stringa, non regex con flag /g: il
+// matching per carattere non deve tenere stato (lastIndex) tra le chiamate.
+const OCR_DIGIT_LETTERS = 'oils'
+
+/**
+ * true se il numero `digits` compare in `text` come BLOCCO numerico intero,
+ * tollerando per ogni cifra la sua lettera di confusione OCR (0→o, 1→l/i, 5→s)
+ * e l'eventuale suffisso decimale ",00" (che `normForMatch` mantiene: nel testo
+ * "4.000.000,00" la run normalizzata è "400000000", non "4000000").
+ *
+ * Regola (conservativa, niente sottosequenze): si normalizza il testo
+ * (minuscole, senza spazi/punteggiatura), si scompone in run di cifre e
+ * lettere-OCR (ogni altra lettera spezza la run), e per ogni run si confronta
+ * la run "ripulita" dalle lettere-OCR con `digits` o `digits+00`: la run deve
+ * coincidere ESATTAMENTE (o avere solo i due zeri decimali). Così:
+ *   - "4.000.000,00"  → run pulita "4000000"+"00" → valida "4.000.000" ✓
+ *   - "7500O000"      → run pulita "7500000"      → valida "7.500.000" ✓
+ *   - "40.000.000"    → run "40000000"            → NON valida "4.000.000" ✓
+ *   - "750.000"       → run "750000"              → NON valida "7.500.000" ✓
+ */
+export function hasOcrDigitRun(text, digits) {
+  const t = normForMatch(text)
+  const n = String(digits || '')
+  if (!t || n.length < 4) return false
+  const isDigitOrOcr = (ch) => (ch >= '0' && ch <= '9') || OCR_DIGIT_LETTERS.includes(ch)
+  const cleanOf = (run) => [...run].filter((c) => !OCR_DIGIT_LETTERS.includes(c)).join('')
+  // Blocchi numerici con eventuali lettere-OCR: un match è valido solo se la
+  // run intera, una volta tolte le lettere-OCR, è ESATTAMENTE `digits` (o
+  // `digits` con i due zeri decimali ",00" in coda).
+  let run = ''
+  const flush = () => {
+    const clean = cleanOf(run)
+    const hit = clean !== '' && (clean === n || clean === `${n}00`)
+    run = ''
+    return hit
+  }
+  for (const ch of t) {
+    if (isDigitOrOcr(ch)) { run += ch; continue }
+    if (flush()) return true
+  }
+  return flush()
+}
+
+// ─── Guardrail garanzia Tutela (FIX 4: niente valori inventati da altre garanzie)
+// La description del campo deve dichiarare la natura CONDIZIONATA ("Verifica se
+// presente/presente") con la garanzia Tutela: è il tratto già usato dal profilo
+// RC PROF MED V2 sui campi Tutela. La garanzia "non esiste" nel fascicolo se
+// nessun documento parla della copertura con i termini operativi veri: in quel
+// caso i campi condizionati restano VUOTI (meglio vuoto che un valore pescato
+// dalla garanzia sbagliata — l'estratto 260.000 sottolimite RC o 250 franchigia
+// fabbricati presi per "Tutela").
+export function isConditionalCoverageField(field) {
+  return /verifica\s+se\s+(?:e['’]|è|e)\s+presente|\bpresente\b/i.test(String(field?.description || ''))
+}
+
+/**
+ * true per i campi che descrivono una GARANZIA SPECIFICA operante solo se la
+ * copertura esiste nel fascicolo — i 4 campi "Tutela" del profilo RC PROF MED V2
+ * ("garanzia Tutela", "Tutela legale", "massimale/franchigia/premio della
+ * garanzia Tutela"). Su questi il guardrail FIX4 svuota il campo quando manca
+ * evidenza documentale della garanzia.
+ */
+export function isSpecificCoverageField(field) {
+  const blob = `${String(field?.id || '')} ${String(field?.label || '')} ${String(field?.description || '')}`
+  return /garanzia\s+tutela|tutela\s+legale|della\s+garanzia\s+tutela|massimale\s+tutela|franchigia\s+tutela|premio\s+(?:lordo\s+)?tutela|scoperto\s+tutela/i.test(blob)
+}
+
+const COVERAGE_PATTERNS = [
+  'tutelalegale', 'garanziatutela', 'tutelagiudiziaria', 'tutelalegalee',
+  'coperturatutela', 'tutelaoperante', 'sezionetutela', 'massimaledellagaranziatutela',
+  'massimaletutela', 'franchigiatutela', 'premiotutela', 'garanziatutelalegale',
+]
+
+/**
+ * true se il TESTO di almeno un documento NON-opzione del fascicolo parla
+ * DAVVERO della garanzia Tutela ("tutela legale", "garanzia tutela", "massimale
+ * della garanzia tutela", "sezione tutela"…) — nel testo normalizzato, pattern
+ * NON substring (il contenuto dello studio può contenere "tutela").
+ *
+ * La prova documentale esclude i documenti-questionario (le opzioni checkbox di
+ * un questionario non sono una garanzia operante): passando un `candidate` con
+ * `file` nullo (i candidati from opzioni hanno `file` assente nel merge), la
+ * funzione ritorna `false` — il guardrail FIX 4 svuota i campi Tutela.
+ */
+export function hasDocumentedTutelaEvidence(docsOrTexts, candidate = null) {
+  const cand = (typeof candidate === 'object' && candidate) ? candidate : {}
+  const docBase = Array.isArray(docsOrTexts) ? docsOrTexts
+    : (typeof docsOrTexts === 'string' ? [docsOrTexts] : [])
+  const candidates = [cand.file, cand.srcName]
+    .filter((n) => typeof n === 'string' && n && n !== 'null')
+    .map((n) => normForMatch(n).slice(0, 40))
+  for (const input of docBase) {
+    const doc = (typeof input === 'object' && input) ? input : {}
+    const sourceName = normForMatch(doc?.name || '').slice(0, 40)
+    if (candidates.length && !candidates.includes(sourceName)) continue
+    const text = String(doc?.text ?? doc?.norm ?? (typeof input === 'string' ? input : '') ?? '')
+    const norm = text ? (typeof input === 'object' && doc?.norm ? String(doc.norm) : normForMatch(text)) : ''
+    if (!norm) continue
+    for (const p of COVERAGE_PATTERNS) if (norm.includes(p)) return true
+    if (/tutelalegale/i.test(norm)) return true
+  }
+  return false
+}
+
+// ─── Natura del valore: pred puri per la disambiguazione (FIX 1 / FIX 2) ────
+// I veti veri (che leggono il registro fatti) vivono in polizzaFactsRegistry.js
+// (dove c'è già findFactsByValue): queste funzioni sono i PREDICATI puri che il
+// vet Riesce riusa e che si testano da soli senza registro.
+
+/**
+ * La description del campo vieta esplicitamente che il valore sia della natura
+ * di un'altra grandezza ("non il massimale", "non un importo premio/imponibile",
+ * "NON il massimale"). È la condizione che rende lo "spill" da un'altra grandezza
+ * un falso positivo da vetare nel merge.
+ */
+export function descriptionDeniesNature(desc) {
+  const s = String(desc || '')
+  if (/\bnon\b[^.,;]*(?:massimal|imponibile|premio|franchigia|scoperto|fatturato)/i.test(s)) return true
+  if (/\bnon\s+(?:il|la)\s+(?:massimale|premio|imponibile|fatturato)\b/i.test(s)) return true
+  // "Non riutilizzare un valore identico a un altro campo a cui deve essere
+  // diverso" (massimale annuo, franchigia, ecc.): vieta il riuso della stessa
+  // cifra di un'altra grandezza. Stem senza \b finale: "riutilizzare" ha più
+  // lettere, "diverso" pure.
+  if (/\bnon\s+riutilizz/i.test(s) && /\b(?:divers|altro|campo)/i.test(s)) return true
+  return false
+}
+
+/**
+ * Ritorna la natura a cui appartiene un importo dato il testo/le categorie della
+ * label circostante (dal registro fatti). Valori: 'premio' (premi/imponibile/
+ * imposte/fatturato/preventivo), 'massimale' (massimali di polizza/dichiarazione),
+ * 'basso' (franchigie/scoperti, che sono piccoli), altrimenti null.
+ */
+export function factNature(cat) {
+  const s = String(cat || '').toLowerCase()
+  if (/premi|imponib|impost|fatturat|preventiv|parametro|retrib|premio/.test(s)) return 'premio'
+  if (/massimal/.test(s)) return 'massimale'
+  if (/franchig|scopert/.test(s)) return 'basso'
+  return null
 }
 
 // Token alfanumerici (≥3 char, senza diacritici) di un valore, per la copertura.
@@ -442,8 +787,20 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
 // Valore di "attività assicurata" che è un RINVIO o una parafrasi della domanda
 // ("l'attività per la quale è prestata l'assicurazione") invece della
 // descrizione concreta: una vera attività non parla di assicurazione/polizza.
+//
+// MAI un rinvio:
+//   - le DATE (GG/MM/AAAA): una data breve e' letteralmente un dato, non una
+//     parafrasi del campo (fascicolo B: "Data retroattività 14/10/2014" era
+//     scartata dal guardrail perché il campo "Retroattività" matchava
+//     /attivit/ come substring);
+//   - i valori puramente numerici (un importo, un periodo): sono un dato.
+// La guardia sulla lunghezza < 12 torna attiva SOLO per i testi liberi.
 export function isRinvioAttivita(value) {
   const v = String(value || '').trim()
+  if (!v) return true
+  // Dato tipizzato: una data/importo non è un rinvio, ovunque stia.
+  if (/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/.test(v)) return false
+  if (/^[+-]?\d[\d.,\s€%‰-]*$/.test(v)) return false
   if (v.length < 12) return true
   // NB: \w non matcha le lettere accentate ("attività") → \S*
   return /assicurazion|assicurat|polizz|garanz|per la quale|di cui (?:alla|sopra)|indicat[ao] (?:in|nella)|descritt[ao] (?:in|nella)|attivit\S*\s+(?:della|del|di)\s+(?:spett|ditta|contraente|azienda)/i.test(v)
@@ -515,9 +872,17 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
   if (amount != null) {
     const intDigits = String(Math.trunc(Math.abs(amount)))
     if (intDigits.length >= 4) {
-      if (normCtx.includes(intDigits)) return true
+      // Evidenza di importo ROBUSTA alle varianti OCR: le cifre della parte
+      // intera devono comparire come run CONTIGUA nel contesto, tollerando al
+      // massimo una lettera di confusione OCR (O/o/I/l/1, tipica 0→O nei font
+      // scannerizzati) tra due cifre consecutive. Il vecchio normCtx.includes()
+      // esigeva la run esatta: una sola lettera-fantasma nel testo SPAZIALE
+      // ("7.500O000") faceva scartare il valore vero come [senza-evidenza]
+      // PRIMA del merge per recency — visto sul campo: il 7.500.000,00 della
+      // dichiarazione 2026 perdeva contro il 5.000.000,00 dell'atto 2018.
+      if (hasOcrDigitRun(normCtx, intDigits)) return true
       if (!evidenza) return false
-      if (!evidenza.replace(/\D/g, '').includes(intDigits)) return false
+      if (!hasOcrDigitRun(evidenza, intDigits)) return false
       const ne = normForMatch(evidenza)
       return ne.length >= 10 && normCtx.includes(ne)
     }
@@ -599,4 +964,136 @@ export function pickMoreRecentCandidate(cur, cand, kind) {
   const ordA = cur.appendixOrd, ordB = cand.appendixOrd
   if (ordA !== ordB) return (ordB ?? -1) > (ordA ?? -1) ? cand : cur
   return (cand.docPos ?? Infinity) < (cur.docPos ?? Infinity) ? cand : cur
+}
+
+// ─── Validazione cross-field (post-LLM) ──────────────────────────────────────
+
+function entryValore(best, id) {
+  const e = best?.[id]
+  if (e == null) return null
+  if (typeof e === 'object' && !Array.isArray(e) && 'valore' in e) return e.valore
+  return e
+}
+
+function dropField(best, id, notes, reason) {
+  if (!id || !(id in best)) return
+  notes.push(reason)
+  delete best[id]
+}
+
+function fieldBlob(f) {
+  return `${f?.id || ''} ${f?.label || ''} ${f?.description || ''}`
+}
+
+/**
+ * Coerenza tra campi già estratti. Mutates `best` (stesso oggetto del motore a
+ * stadi: { id: { valore } } oppure mappa piatta id → stringa).
+ * Regola: meglio VUOTO che un valore logicamente impossibile.
+ *
+ * @param {object} best
+ * @param {Array} fields  definizioni campo attive
+ * @param {{ hasAnnualPeriodics?: boolean }} [opts]
+ * @returns {string[]} note diagnostiche (una per drop)
+ */
+export function validateCrossFields(best, fields, opts = {}) {
+  const notes = []
+  if (!best || typeof best !== 'object') return notes
+  const list = Array.isArray(fields) ? fields : []
+
+  // ── Decorrenza / scadenza ────────────────────────────────────────────────
+  const decField = list.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(fieldBlob(f)))
+  const scaField = list.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(fieldBlob(f)))
+  const decTs = decField ? dateStrToTs(normalizeDateValue(entryValore(best, decField.id))) : null
+  const scaTs = scaField ? dateStrToTs(normalizeDateValue(entryValore(best, scaField.id))) : null
+  if (decField && scaField && decTs != null && scaTs != null) {
+    const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
+    if (decTs >= scaTs) {
+      dropField(best, decField.id, notes,
+        `Coerenza date: decorrenza ${entryValore(best, decField.id)} ≥ scadenza ${entryValore(best, scaField.id)} → decorrenza svuotata (impossibile)`)
+    } else if (opts.hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
+      dropField(best, decField.id, notes,
+        `Coerenza date: decorrenza ${entryValore(best, decField.id)} incoerente con scadenza ${entryValore(best, scaField.id)} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
+    }
+  }
+
+  // ── Massimali per NATURA (type-blind: label+description, MAI l'id, che ora
+  //    è un UUID senza sezione) ───────────────────────────────────────────────
+  // Gli id esprimevano la sezione (rct_/rcp_) e il ruolo (_sinistro/_annuo/…).
+  // Con gli UUID la sezione non è più ricavabile: i campi vengono raggruppati
+  // per RUOLO (natura) e accoppiati PER POSIZIONE (il tipico profilo ha una
+  // sola sezione di massimali → accoppiamento 1:1 per indice).
+  const massRole = new Map() // role → array di campi (in ordine di lista)
+  for (const f of list) {
+    const n = fieldNatura(f)
+    if (n && n.startsWith('massimale_')) {
+      const role = n.replace('massimale_', '') // sinistro|annuo|persona|danni|prestatore|mat|interr
+      const arr = massRole.get(role) || []
+      arr.push(f)
+      massRole.set(role, arr)
+    }
+  }
+  const massArray = (role) => massRole.get(role) || []
+  const annuoList = massArray('annuo')
+  const sinistroList = massArray('sinistro')
+  const personaList = massArray('persona')
+  const danniList = massArray('danni')
+  const maxPairs = Math.max(annuoList.length, sinistroList.length, personaList.length, danniList.length)
+  for (let i = 0; i < maxPairs; i++) {
+    const annuo = annuoList[i]
+    const sinistro = sinistroList[i]
+    const amt = (f) => (f ? looseAmount(entryValore(best, f.id)) : null)
+    const aVal = amt(annuo)
+    const sVal = amt(sinistro)
+    if (annuo && sinistro && aVal != null && sVal != null && aVal < sVal) {
+      dropField(best, annuo.id, notes,
+        `Coerenza massimali: annuo ${entryValore(best, annuo.id)} < sinistro ${entryValore(best, sinistro.id)} → annuo svuotato (impossibile)`)
+    }
+    // Sotto-limiti di "persona"/"danni" > "sinistro": NON è una violazione di
+    // per sé (sul campo B/PROF.LE la situazione legittima è "sinistro
+    // 1.000.000 < persona 6.000.000": l'annuo aggregato copre più sinistri, un
+    // rapporto 5-6× è legittimo). Si svuota SOLO la violazione PALESE di
+    // sottolimite: "annuo" valorizzato e sotto-limite > annuo (impossibile per
+    // definizione). Gli spill IDENTICI li pulisce la guardia post-merge (Fix A).
+    for (const role of ['persona', 'danni']) {
+      const sub = role === 'persona' ? personaList[i] : danniList[i]
+      const subVal = amt(sub)
+      if (!sub || subVal == null) continue
+      if (aVal != null && subVal > aVal) {
+        dropField(best, sub.id, notes,
+          `Coerenza massimali: ${role} ${entryValore(best, sub.id)} > annuo ${entryValore(best, annuo.id)} → ${role} svuotato (sottolimite impossibile)`)
+        continue
+      }
+    }
+  }
+
+  // ── Premio totale ≈ imponibile + imposta (type-blind, per natura) ─────────
+  // Il totale DICHIARATO nella quietanza è il dato REALE: imponibile e imposta
+  // sono numeri dinamici e la somma può non quadrare per estratti sbagliati
+  // (regressione: il premio RATA preso per l'imposta → lordo inventato).
+  // Quindi MAI svuotare o riscrivere il totale: solo una nota diagnostica.
+  // Con gli UUID la sezione non è distinguibile: si considera l'UNICA tripla
+  // (totale/imponibile/imposta) attiva per natura — la nota è non-distruttiva.
+  let tTotale = null, tImponibile = null, tImposta = null
+  for (const f of list) {
+    const n = fieldNatura(f)
+    if (n === 'premio_totale' && !tTotale) tTotale = f
+    else if (n === 'premio_imponibile' && !tImponibile) tImponibile = f
+    else if (n === 'imposta' && !tImposta) tImposta = f
+  }
+  if (tTotale && tImponibile && tImposta) {
+    if ((tTotale.id in best) && (tImponibile.id in best) && (tImposta.id in best)) {
+      const tot = parsePureAmount(entryValore(best, tTotale.id)) ?? looseAmount(entryValore(best, tTotale.id))
+      const imp = parsePureAmount(entryValore(best, tImponibile.id)) ?? looseAmount(entryValore(best, tImponibile.id))
+      const tax = parsePureAmount(entryValore(best, tImposta.id)) ?? looseAmount(entryValore(best, tImposta.id))
+      if (tot != null && imp != null && tax != null) {
+        const sum = imp + tax
+        const tol = Math.max(1, Math.abs(tot) * 0.02)
+        if (Math.abs(tot - sum) > tol) {
+          notes.push(`Coerenza premio: totale dichiarato ${entryValore(best, tTotale.id)} ≠ imponibile+imposta ${imp}+${tax} — si MANTIENE il totale dichiarato (mai calcolato/svuotato)`)
+        }
+      }
+    }
+  }
+
+  return notes
 }

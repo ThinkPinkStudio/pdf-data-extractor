@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildSpatialPage, collapseSpatial, usefulLength } from '../src/main/services/ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from '../src/main/services/ocrLayout.js'
 import { matchFieldKey } from '../src/main/services/polizzaValidation.js'
 
 // Costruttore di blocks tesseract.js sintetici: parole {testo, x, y} con
@@ -118,4 +118,63 @@ test('matchFieldKey: prudenza — ambiguo, corto o vuoto → null', () => {
   assert.equal(matchFieldKey('', ['scadenza']), null)
   // Id corti non partecipano al fuzzy nemmeno come candidati
   assert.equal(matchFieldKey('imposta1', ['imposta']), null)
+})
+
+// ─── detectLabelValuePairs: aligner colonnare ───────────────────────────────
+
+test('detectLabelValuePairs: same-row "Etichetta: valore" → coppia rilevata', () => {
+  const pairs = detectLabelValuePairs(['Scadenza rata: 31/12/2024'])
+  assert.equal(pairs.length, 1, JSON.stringify(pairs))
+  assert.equal(pairs[0].value, '31/12/2024')
+  assert.match(pairs[0].label, /Scadenza rata/i)
+  assert.equal(pairs[0].row, 1)
+})
+
+test('detectLabelValuePairs: griglia a colonne — valore collegato alla colonna giusta (non invertito)', () => {
+  // Riga di sole etichette sopra, riga di valori sotto, colonne allineate.
+  const page = [
+    'SCAD. RATA     RATA SUCC.',
+    '31/12/2024     31/12/2025',
+  ]
+  const pairs = detectLabelValuePairs(page)
+  assert.equal(pairs.length, 2, JSON.stringify(pairs))
+  const v2024 = pairs.find((p) => p.value === '31/12/2024')
+  const v2025 = pairs.find((p) => p.value === '31/12/2025')
+  assert.ok(v2024, JSON.stringify(pairs))
+  assert.ok(v2025, JSON.stringify(pairs))
+  // 31/12/2024 sta sotto "SCAD. RATA", NON sotto "RATA SUCC."
+  assert.match(v2024.label, /SCAD\.?/i)
+  assert.match(v2025.label, /RATA SUCC/i)
+  // le coppie vivono sulla riga delle etichette
+  assert.equal(v2024.row, 1)
+  assert.equal(v2025.row, 1)
+})
+
+test('detectLabelValuePairs: accetta anche una stringa unica (pagina) divisa in righe', () => {
+  const pairs = detectLabelValuePairs('Scadenza rata: 31/12/2024\nCosto: 1.200,00')
+  assert.equal(pairs.length, 2, JSON.stringify(pairs))
+  assert.equal(pairs.find((p) => p.label.includes('Scadenza')).value, '31/12/2024')
+  assert.equal(pairs.find((p) => p.label.includes('Costo')).value, '1.200,00')
+})
+
+test('detectLabelValuePairs: rumore (righe corte / testo libero) → [] o pochissime coppie', () => {
+  const noise = detectLabelValuePairs([
+    'Il presente documento',
+    'attesta la copertura',
+    'assunta dalla compagnia.',
+  ])
+  assert.equal(noise.length, 0, JSON.stringify(noise))
+  // righe da un solo token-breve, senza ':' né colonna valore → vuoto
+  assert.equal(detectLabelValuePairs(['Polizza', 'RC', 'Terzi']).length, 0)
+})
+
+test('detectLabelValuePairs: type-blind — nessuna assunzione di dominio', () => {
+  // Etichette e valori generici, senza i termini "polizza"/"fattura/fatura".
+  const pairs = detectLabelValuePairs(['Cifra: 88', 'Total: 1234'])
+  assert.equal(pairs.length, 2, JSON.stringify(pairs))
+  assert.equal(pairs.find((p) => p.label.includes('Cifra')).value, '88')
+  assert.equal(pairs.find((p) => p.label.includes('Total')).value, '1234')
+  // boilerplate di impaginazione (pag., n.) NON diventa etichetta
+  const bp = detectLabelValuePairs(['Pag. 12'])
+  assert.equal(bp.length, 0, JSON.stringify(bp))
 })

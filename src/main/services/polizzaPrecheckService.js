@@ -33,7 +33,14 @@ const collapse = (p) => String(p || '').split('\n').map((l) => l.replace(/\s{2,}
  *                    matched?:string[], missing?:string[], detected:{type:string|null, keywords:string[]}}>}
  */
 export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode, settings }) {
-  const kws = parseContentKeywords(profile?.contentKeywords)
+  // Fallback su matchKeywords: profili creati prima dell'introduzione di
+  // contentKeywords portano solo le keyword di riconoscimento del NOME cartella
+  // (es. RC PROF MED V2 → "MEDICO, medico, med"): senza questo fallback il
+  // pre-check di contenuto vede zero keyword e degrada a semantic. Nota:
+  // parseContentKeywords ritorna [] (truthy) anche su stringa vuota, quindi il
+  // fallback va deciso sulla LUNGHEZZA, non con ||.
+  const contentKws = parseContentKeywords(profile?.contentKeywords)
+  const kws = contentKws.length ? contentKws : parseContentKeywords(profile?.matchKeywords)
   const normText = normalizeForPrecheck((docs || []).map((d) => (d.pages || []).join('\n')).join('\n'))
 
   let keyword = null

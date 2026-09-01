@@ -23,6 +23,18 @@ interface Profile {
   contentKeywords?: string
 }
 
+const FIELD_TYPE_OPTIONS: { value: string; key: string }[] = [
+  // 'auto' (vuoto) = nessun type → il motore usa il prefisso della description
+  { value: '', key: 'set.fieldTypeAuto' },
+  { value: 'text', key: 'set.fieldTypeText' },
+  { value: 'number', key: 'set.fieldTypeNumber' },
+  { value: 'percent', key: 'set.fieldTypePercent' },
+  { value: 'date', key: 'set.fieldTypeDate' },
+  { value: 'fiscal', key: 'set.fieldTypeFiscal' },
+  { value: 'boolean', key: 'set.fieldTypeBoolean' },
+  { value: 'enum', key: 'set.fieldTypeEnum' },
+]
+
 function parseCells(str: string): Cell[] {
   return str
     .split(/[\s,]+/)
@@ -94,7 +106,7 @@ export default function PolizzaFieldsEditor() {
     setCellText((prev) => { const n = { ...prev }; delete n[id]; return n })
   }
   function addField() {
-    setFields((prev) => [...prev, { id: uid(), label: '', description: '', type: 'text', enabled: true, cells: [] }])
+    setFields((prev) => [...prev, { id: uid(), label: '', description: '', type: '', enabled: true, cells: [] }])
     setSaved(false)
   }
   function copyField(i: number) {
@@ -282,8 +294,8 @@ export default function PolizzaFieldsEditor() {
       </div>
 
       {/* Header colonne */}
-      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
-        <span /><span /><span>{t('set.colLabel')}</span><span>{t('set.colDescription')}</span><span>{t('set.colCells')}</span><span /><span />
+      <div style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 110px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '6px 0', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)', borderBottom: '1px solid var(--c-border)' }}>
+        <span /><span /><span>{t('set.colLabel')}</span><span>{t('set.colType')}</span><span>{t('set.colDescription')}</span><span>{t('set.colCells')}</span><span /><span />
       </div>
 
       {/* Righe campi */}
@@ -294,7 +306,7 @@ export default function PolizzaFieldsEditor() {
             onDragStart={() => { dragIndex.current = i }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDrop(i)}
-            style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 34px 220px 110px 1fr 190px 30px 30px', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--c-separator)' }}>
             <span style={{ cursor: 'grab', color: 'var(--c-text-muted)', textAlign: 'center' }} title="Trascina per riordinare">⋮⋮</span>
             <label style={{ display: 'inline-flex', cursor: 'pointer' }} title={f.enabled !== false ? 'Abilitato' : 'Disabilitato'}>
               <span style={{ width: 30, height: 18, borderRadius: 999, position: 'relative', background: f.enabled !== false ? 'var(--c-accent)' : 'var(--c-bg-card-alt)', border: '1px solid var(--c-border)', transition: 'background .2s' }}>
@@ -303,6 +315,11 @@ export default function PolizzaFieldsEditor() {
               <input type="checkbox" checked={f.enabled !== false} onChange={(e) => patch(i, { enabled: e.target.checked })} style={{ display: 'none' }} />
             </label>
             <input value={f.label} onChange={(e) => patch(i, { label: e.target.value })} placeholder="Etichetta" style={{ fontSize: 12, padding: '5px 7px' }} />
+            <select value={f.type ?? ''} onChange={(e) => patch(i, { type: e.target.value })} style={{ fontSize: 11, padding: '5px 7px' }} title={t('set.colTypeHint')}>
+              {FIELD_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{t(o.key)}</option>
+              ))}
+            </select>
             <input value={f.description} onChange={(e) => patch(i, { description: e.target.value })} placeholder={t('set.colDescription')} style={{ fontSize: 12, padding: '5px 7px' }} />
             <input
               value={cellText[f.id] ?? formatCells(f.cells)}

@@ -666,7 +666,10 @@ export default function Polizza({ visible }) {
     setExporting(true)
     setExportMsg(null)
     try {
-      const suggestedName = `polizza_${extracted.polizza_numero || 'rc'}_${extracted.contraente?.split(' ')[0] || 'dati'}`
+      const fidByLabel = (re) => (fields.find((f) => re.test(` ${f.label} ${f.description} `) ))?.id
+      const polNum = extracted[fidByLabel(/polizz|numero polizz/i)]
+      const cont = extracted[fidByLabel(/^contraente|contraente/i)]
+      const suggestedName = `polizza_${polNum || 'rc'}_${(cont || 'dati').split(' ')[0]}`
       const res = await window.electronAPI.polizzaExportNew(extracted, suggestedName)
       if (res.success) setExportMsg('✓ File Excel salvato: ' + res.filePath.split(/[\\/]/).pop())
       else if (!res.canceled) throw new Error(res.error)

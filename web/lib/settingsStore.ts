@@ -62,6 +62,8 @@ export interface WebSettings {
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
   polizzaPerField?: boolean
+  // JSON vincolato (schema/GBNF) su date, importi, P.IVA, tassi. false = format json libero.
+  polizzaConstrainedJson?: boolean
   polizzaWholeDossierModel?: string
   // DEMO: se true, l'estrazione viene instradata al provider Anthropic (Claude)
   // invece che a Ollama. Pensato solo per le presentazioni; spento = tutto locale.
@@ -77,12 +79,27 @@ export interface WebSettings {
   // true = CASCATA dal documento più recente ("solo i buchi", con controprova
   // sulla polizza base) — sperimentale, confrontabile via Rielabora.
   polizzaStagedCascade?: boolean
+  // Tetto di contesto (num_ctx) dei batch del motore a stadi. Default 24576 (stà
+  // negli 8GB di VRAM di qwen2.5:7b Q4). Superarlo può far spillare il KV su CPU
+  // e rallentare il modello: la UI avvisa, ma non blocca.
+  polizzaBatchContext?: number
   // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' con
   // "Procedi comunque" in UI). 'off' (default: il blocco non si attiva mai a
   // sorpresa), 'keywords' (contentKeywords del profilo nel testo OCR; senza
   // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
   // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
+  // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):
+  // non cambia il comportamento del motore. true = abilitata.
+  polizzaAutoVerify?: boolean
+  // Grounding rigoroso nel motore per-field (FEATURE G): finestre deterministiche
+  // PRIMA della chiamata, citazione obbligatoria {doc,page,line} e verifica
+  // automatica di supporto. false (default) = comportamento IDENTICO al passato.
+  polizzaGrounding?: boolean
+  // Contesto storico dall'archivio Qdrant (FEATURE E): blocco "ARCHIVIO (storico)"
+  // per la stessa polizza. Solo supporto, mai precedenza sulla recency. DEFAULT OFF.
+  polizzaArchivio?: boolean
   // Estrazione generica (pagina Estrattore)
   extractions?: GenericField[]
   profiles?: GenericProfile[]
@@ -148,7 +165,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaUseClaude', 'polizzaStagedCascade', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaUseClaude', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -207,6 +224,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
     polizzaPerField: bool('polizzaPerField', true),
+    polizzaConstrainedJson: bool('polizzaConstrainedJson', true),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
     polizzaFields: json<PolizzaField[]>('polizzaFields'),
@@ -215,6 +233,10 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
+    polizzaBatchContext: map.polizzaBatchContext ? parseInt(map.polizzaBatchContext, 10) || 24576 : 24576,
+    polizzaAutoVerify: bool('polizzaAutoVerify', false),
+    polizzaArchivio: bool('polizzaArchivio', false),
+    polizzaGrounding: bool('polizzaGrounding', false),
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),

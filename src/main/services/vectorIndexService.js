@@ -95,6 +95,51 @@ export function chunkText(text, maxChars = CHUNK_CHARS, overlap = CHUNK_OVERLAP)
   return chunks.filter(Boolean)
 }
 
+// Chunking "label-aware": NUNCA spezza in medio una coppia "label: valor" ni
+// una riga que contiene el símbolo "€". Un chunk que terminaria partiendo la
+// coppia se extiende hasta la próxima riga si esta cae dentro del overlap.
+// Previene que la retrieval pierda el par label→valor partido (causa del 0/28).
+export function chunkTextLabelAware(text, maxChars = CHUNK_CHARS, overlap = CHUNK_OVERLAP) {
+  const t = String(text || '').trim()
+  if (!t) return []
+  if (t.length <= maxChars) return [t]
+  const lines = t.split('\n')
+  const keep = new Set()
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('€') || /:\s+[^\n]*\d[^\n]*$/i.test(lines[i])) keep.add(i)
+  }
+  const chunks = []
+  let si = 0
+  while (si < lines.length) {
+    let acc = lines[si] || ''
+    let ei = si + 1
+    let guard = 0
+    while (ei < lines.length && guard++ < 1000) {
+      const cand = acc + '\n' + lines[ei]
+      const splitPair = keep.has(ei - 1) && !keep.has(ei)
+      if (cand.length > maxChars && splitPair) {
+        const next = lines[ei + 1]
+        if (next != null && (lines[ei].length + next.length + 2) <= overlap) {
+          acc = cand + '\n' + next
+          ei += 2
+          continue
+        }
+        break
+      }
+      acc = cand
+      ei++
+      if (cand.length >= maxChars) break
+    }
+    chunks.push(acc)
+    let back = 1
+    while (back < ei - si && back < 500 && keep.has(ei - 1 - back)) back++
+    const nsi = Math.max(ei - back, si + 1)
+    if (nsi <= si) break
+    si = nsi
+  }
+  return chunks.filter(Boolean)
+}
+
 // Embeddings via Ollama (/api/embed accetta input multipli in una chiamata).
 // Esportata: riusata dal motore "per-campo" di polizzaService (indice in memoria).
 export async function embedTexts(settings, texts) {

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Il job sorgente è ancora in esecuzione o in coda' }, { status: 409 })
   }
 
-  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; promptExtra?: string } = {}
+  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string } = {}
   try { body = await req.json() } catch { /* body vuoto = tutti i default */ }
 
   const settings = await getSettings()
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? (settings.polizzaProfiles || []).find((p) => p.id === body.profileId) || null
     : null
   const fieldDefs = profile
-    ? (profile.fields || []).filter((f) => f.enabled !== false).map((f) => ({ id: f.id, label: f.label, description: f.description, sheet: f.sheet }))
+    ? (profile.fields || []).filter((f) => f.enabled !== false).map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
     : (src.field_defs || [])
   if (!fieldDefs.length) return NextResponse.json({ error: 'Nessun campo: né profilo valido né campi congelati nel job' }, { status: 400 })
   const promptExtra = body.promptExtra !== undefined
@@ -42,12 +42,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Override SOLO whitelisted (la stessa lista è applicata dal worker). Il
   // modello va su ENTRAMBE le chiavi: il motore legge polizzaWholeDossierModel
   // con fallback su ollamaModel.
+  // perField: senza questo, scegliere "gruppi/cascata" nel dialog NON disattivava
+  // il motore per-campo (default on) e l'A/B girava sempre sul RAG.
   const settingsOverride: Record<string, unknown> = {}
   const model = (body.model || '').trim()
   if (model) { settingsOverride.ollamaModel = model; settingsOverride.polizzaWholeDossierModel = model }
   if (typeof body.stagedCascade === 'boolean') settingsOverride.polizzaStagedCascade = body.stagedCascade
+  if (typeof body.perField === 'boolean') settingsOverride.polizzaPerField = body.perField
 
-  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${typeof body.stagedCascade === 'boolean' ? (body.stagedCascade ? ' · cascata' : ' · gruppi') : ''}`
+  const engineBit = typeof body.perField === 'boolean'
+    ? (body.perField ? ' · per-campo' : (body.stagedCascade ? ' · cascata' : ' · gruppi'))
+    : (typeof body.stagedCascade === 'boolean' ? (body.stagedCascade ? ' · cascata' : ' · gruppi') : '')
+  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}`
   const job = await createTestJob({
     sourceJobId: src.id, email: session.email, fieldDefs, promptExtra, settingsOverride, label,
   })

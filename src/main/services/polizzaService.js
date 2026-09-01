@@ -18,7 +18,8 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
-import { embedTexts, chunkText, classifyDocType, detectDocYear } from './vectorIndexService.js'
+import { ollamaFormatFor } from './gbnfSchema.js'
+import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
 // privati rimossi da questo file) + regola "il valore più recente vince".
@@ -30,15 +31,40 @@ import {
 // Validazione pura (test/polizzaChecksums.test.mjs): placeholder, checksum
 // P.IVA/CF, partizione campi, verifica di evidenza, recenza dei candidati.
 import {
-  parsePureAmount, isPlaceholderValue, validateCodiceFiscaleIva,
+  parsePureAmount, isPlaceholderValue, isTextualZeroPlaceholder, isTextualNumericOnly,
+  validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
-  hasLabelEvidenceNear, pickSemanticCandidate,
+  isOtherCoveragePremiumSource,
+  pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
+  validateCrossFields,
 } from './polizzaValidation.js'
-import { buildSpatialPage, collapseSpatial, usefulLength } from './ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
+import {
+  buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText,
+  vetoForeignNatureMassimaleAnnuo, vetoForeignNatureFatturato, vetoForeignNatureFranchigia,
+  vetoSottolimitiOptionOnly, vetoFranchigiaAsMassimale, vetoForeignNatureMassimale, guardAntiSpill,
+} from './polizzaFactsRegistry.js'
+import { applyDeterministicOverrides, DETERMINISTIC_MIN_CONFIDENCE, guardPostMergeSpill, guardEconomicToStructuralSpill, guardFranchigiaScoperto } from './polizzaNumericScan.js'
+import {
+  buildEvidenceWindows, groundedPrompt, verifyGroundedValue, assembleGroundedResult,
+  rankWindowsByRecency, recencyPrompt,
+  anagraphicSeeds, anagraphicSeedKind, windowsFromLabelValuePairs,
+  GROUNDING_MIN_CONFIDENCE,
+} from './polizzaGrounding.js'
+import { fieldKind } from './polizzaFieldKind.js'
+import {
+  isSpecificCoverageField, hasDocumentedTutelaEvidence,
+} from './polizzaValidation.js'
+import { buildReliabilityMap, RELIABILITY_THRESHOLD } from './polizzaReliability.js'
+import {
+  selectFieldsToDoubleCheck, buildDoubleCheckPrompt, parseDoubleCheck,
+  runAutoValidation, DEFAULT_MAX_FIELDS, AUTO_VERIFY_SYSTEM,
+} from './polizzaAutoValidate.js'
+import { loadArchiveContext } from './polizzaArchiveContext.js'
 import { loadPDF } from './pdfService.js'
 import { writeTemplatePreservingStyles } from './xlsxTemplateWriter.js'
 import { readTemplateCells, readTemplateStructure } from './xlsxTemplateReader.js'
@@ -97,46 +123,46 @@ export const CSA_MAPPING = {
 // ─── Campi per il foglio RCT_O ────────────────────────────────────────────────
 
 export const RCT_FIELDS = [
-  { id: 'polizza_numero',          label: 'N° Polizza',                         sheet: 'RCT_O', description: 'Numero di polizza (es. 410000880)', type: 'text' },
-  { id: 'compagnia',               label: 'Compagnia',                           sheet: 'RCT_O', description: 'Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)', type: 'text' },
-  { id: 'contraente',              label: 'Contraente/Assicurato',               sheet: 'RCT_O', description: 'Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)', type: 'text' },
-  { id: 'codice_fiscale_iva',      label: 'P. IVA / Cod. Fiscale',              sheet: 'RCT_O', description: 'Partita IVA o codice fiscale del contraente', type: 'text' },
-  { id: 'indirizzo',               label: 'Indirizzo',                           sheet: 'RCT_O', description: 'Indirizzo completo del domicilio/sede del contraente', type: 'text' },
-  { id: 'agenzia',                 label: 'Agenzia',                             sheet: 'RCT_O', description: "Nome dell'agenzia assicurativa (es. ACQUI TERME)", type: 'text' },
-  { id: 'decorrenza',              label: 'Decorrenza',                          sheet: 'RCT_O', description: 'Data di decorrenza della polizza (es. 31/12/2021)', type: 'date' },
-  { id: 'scadenza',                label: 'Scadenza',                            sheet: 'RCT_O', description: 'Data di scadenza della polizza (es. 31/12/2022)', type: 'date' },
-  { id: 'attivita',                label: 'Attività assicurata',                 sheet: 'RCT_O', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text' },
-  { id: 'rct_massimale_sinistro',  label: 'Massimale per sinistro',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_persona',   label: 'Massimale per persona',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_danni',     label: 'Massimale danni materiali',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'text' },
-  { id: 'rct_massimale_prestatore',label: 'Massimale per prestatore',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'text' },
-  { id: 'rct_parametro',           label: 'Parametro regolazione',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
-  { id: 'rct_importo_preventivo',  label: 'Importo preventivo parametro', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'text' },
-  { id: 'rct_tasso',               label: 'Tasso regolazione ‰',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'text' },
-  { id: 'rct_premio_imponibile',   label: 'Premio imponibile',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'text' },
-  { id: 'rct_imposta',             label: 'Imposta',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'text' },
-  { id: 'rct_premio_totale',       label: 'Premio totale',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'text' }
+  { id: '1ec23911-3e7d-5549-b2e2-be3db9d06ee8',          label: 'N° Polizza',                         sheet: 'RCT_O', description: 'Numero di polizza (es. 410000880)', type: 'number' },
+  { id: '36b66bf8-bb9f-5c0e-a947-3d3858349b54',               label: 'Compagnia',                           sheet: 'RCT_O', description: 'Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)', type: 'text' },
+  { id: '45c1347c-0b2e-52e8-96c7-7787644858d3',              label: 'Contraente/Assicurato',               sheet: 'RCT_O', description: 'Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)', type: 'text' },
+  { id: '6f260040-ae1d-56d8-a185-1eb178e384fb',      label: 'P. IVA / Cod. Fiscale',              sheet: 'RCT_O', description: 'Partita IVA o codice fiscale del contraente', type: 'fiscal' },
+  { id: 'eb8525bc-e808-56a2-aa3d-cefb25da2b6f',               label: 'Indirizzo',                           sheet: 'RCT_O', description: 'Indirizzo completo del domicilio/sede del contraente', type: 'text' },
+  { id: '4ffc5b95-9f28-551a-b587-12f4ea740b12',                 label: 'Agenzia',                             sheet: 'RCT_O', description: "Nome dell'agenzia assicurativa (es. ACQUI TERME)", type: 'text' },
+  { id: '4dc720d8-8237-5084-b288-fd32bd1d19c6',              label: 'Decorrenza',                          sheet: 'RCT_O', description: 'Data di decorrenza della polizza (es. 31/12/2021)', type: 'date' },
+  { id: '22408456-185d-5803-b489-02af1a084911',                label: 'Scadenza',                            sheet: 'RCT_O', description: 'Data di scadenza della polizza (es. 31/12/2022)', type: 'date' },
+  { id: 'a5d4976c-6838-5083-b0cd-3aaf7f04f0e5',                label: 'Attività assicurata',                 sheet: 'RCT_O', description: "Descrizione dell'attività svolta dall'assicurato indicata in polizza", type: 'text' },
+  { id: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59',  label: 'Massimale per sinistro',        sheet: 'RCT_O', description: 'Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00', type: 'number' },
+  { id: '71c0eafb-77ef-5751-92e9-9b4cb872b10a',   label: 'Massimale per persona',         sheet: 'RCT_O', description: 'Massimale RCT per ogni persona che abbia subito lesioni personali (non prestatore di lavoro), es. 3.000.000,00', type: 'number' },
+  { id: '908191d5-de50-5902-a09a-0291efe0cec0',     label: 'Massimale danni materiali',     sheet: 'RCT_O', description: 'Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00', type: 'number' },
+  { id: 'e326309b-15b4-5e64-97fd-5294914106de',label: 'Massimale per prestatore',      sheet: 'RCT_O', description: 'Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00', type: 'number' },
+  { id: '28672974-6247-5654-a053-be29b408ffc1',           label: 'Parametro regolazione',         sheet: 'RCT_O', description: 'Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)', type: 'text' },
+  { id: '9517aacb-987f-55c8-8737-2df19980c55f',  label: 'Importo preventivo parametro', sheet: 'RCT_O', description: "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)", type: 'number' },
+  { id: '510b46d9-95dd-50f0-86b7-0636865f56ba',               label: 'Tasso regolazione ‰',           sheet: 'RCT_O', description: 'Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)', type: 'percent' },
+  { id: 'b9c59183-72a3-5aa1-b34c-1df8e80f28f3',   label: 'Premio imponibile',             sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)", type: 'number' },
+  { id: '37ab743b-316e-58a4-8fe4-3112bc6d2139',             label: 'Imposta',                        sheet: 'RCT_O', description: "Imposta sul premio della sezione RCT (es. 273,00)", type: 'number' },
+  { id: '545374de-c000-5905-8c62-d36f9fdf7f43',       label: 'Premio totale',                  sheet: 'RCT_O', description: "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)", type: 'number' }
 ]
 
 // ─── Campi per il foglio RCP ──────────────────────────────────────────────────
 
 export const RCP_FIELDS = [
-  { id: 'rcp_prodotti',             label: 'Prodotti assicurati',                 sheet: 'RCP', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text' },
-  { id: 'rcp_qualifica',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
-  { id: 'rcp_massimale_sinistro',   label: 'Massimale per sinistro',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_annuo',      label: 'Massimale annuo',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_mat',        label: 'Massimale danni materiali',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'text' },
-  { id: 'rcp_massimale_interr',     label: 'Massimale interruzione attività', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'text' },
-  { id: 'rcp_scoperto_min_mondo',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'text' },
-  { id: 'rcp_scoperto_max_mondo',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'text' },
-  { id: 'rcp_scoperto_min_usa',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'text' },
-  { id: 'rcp_scoperto_max_usa',     label: 'Scoperto massimo - USA/Canada/Messico', sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'text' },
-  { id: 'rcp_parametro',            label: 'Parametro regolazione',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
-  { id: 'rcp_importo_preventivo',   label: 'Importo preventivo parametro', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'text' },
-  { id: 'rcp_tasso',                label: 'Tasso regolazione ‰',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'text' },
-  { id: 'rcp_premio_imponibile',    label: 'Premio imponibile',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'text' },
-  { id: 'rcp_imposta',              label: 'Imposta',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'text' },
-  { id: 'rcp_premio_totale',        label: 'Premio totale',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'text' }
+  { id: '705af6c0-721c-5374-9a65-46102baf95d5',             label: 'Prodotti assicurati',                 sheet: 'RCP', description: 'Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)', type: 'text' },
+  { id: '2ff6a68b-ea2b-5937-a995-a94e8803001f',            label: 'Qualifica assicurato',                sheet: 'RCP', description: "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)", type: 'text' },
+  { id: '3b777244-559d-5a71-94a4-006ee2a48907',   label: 'Massimale per sinistro',        sheet: 'RCP', description: 'Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00', type: 'number' },
+  { id: 'ac724518-d10e-55c5-95b7-10c700365820',      label: 'Massimale annuo',               sheet: 'RCP', description: 'Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00', type: 'number' },
+  { id: 'b8dc1951-82bb-5325-9550-8b0a1dbd40fd',        label: 'Massimale danni materiali',     sheet: 'RCP', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00', type: 'number' },
+  { id: '5d3907ba-6a51-58d9-b8b7-789d18c72877',     label: 'Massimale interruzione attività', sheet: 'RCP', description: 'Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00', type: 'number' },
+  { id: 'b7b45f99-50c2-5de4-b977-c8850014464f',   label: 'Scoperto minimo - Resto del mondo',   sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00', type: 'number' },
+  { id: 'aadee5e8-1df4-51eb-97be-9a122ea6a6bd',   label: 'Scoperto massimo - Resto del mondo',  sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00', type: 'number' },
+  { id: '1536ea6d-08f7-5756-9888-1e823e37ebff',     label: 'Scoperto minimo - USA/Canada/Messico', sheet: 'RCP', description: 'Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00', type: 'number' },
+  { id: '7557bb00-8501-5e3a-bf9a-c46930d78d3a',     label: 'Scoperto massimo - USA/Canada/Messico', sheet: 'RCP', description: 'Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00', type: 'number' },
+  { id: '4efb7f66-c811-50ef-a345-81d07f9328c0',            label: 'Parametro regolazione',         sheet: 'RCP', description: 'Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)', type: 'text' },
+  { id: 'e61884dd-4f2d-54cf-ae3b-83e35316e88f',   label: 'Importo preventivo parametro', sheet: 'RCP', description: "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)", type: 'number' },
+  { id: '9cf66993-245c-52ff-b0d0-1832fce74eae',                label: 'Tasso regolazione ‰',           sheet: 'RCP', description: 'Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)', type: 'percent' },
+  { id: '510c0f10-6135-5957-a42c-8ccf1b0226de',    label: 'Premio imponibile',             sheet: 'RCP', description: "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)", type: 'number' },
+  { id: '4d22a044-eec5-599f-974d-f27efbeac4d9',              label: 'Imposta',                        sheet: 'RCP', description: "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)", type: 'number' },
+  { id: '99c9ad06-8441-54c4-bfe2-ddf440faf11c',        label: 'Premio totale',                  sheet: 'RCP', description: "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)", type: 'number' }
 ]
 
 export const ALL_POLIZZA_FIELDS = [...RCT_FIELDS, ...RCP_FIELDS]
@@ -557,7 +583,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt   }
     ],
-    format: 'json',          // ← grammar-constrained JSON output
+    format: ollamaFormatFor(null, 'staged', settings),
     ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
     options: {
       num_ctx:     numCtx,   // dinamico, ≤16K di default → sicuro su 8GB VRAM
@@ -884,11 +910,6 @@ function flattenRollingState(state) {
 
 // normalizeDateValue: importata da polizzaDates.js.
 
-// Id dei campi del set predefinito: le regole di sanitizzazione per-id si
-// applicano SOLO a questi. I campi personalizzati dell'utente passano intatti
-// (a parte la normalizzazione date se l'utente ha scelto type 'date').
-const KNOWN_DEFAULT_IDS = new Set(ALL_POLIZZA_FIELDS.map(f => f.id))
-
 /**
  * Valida/ripulisce un valore proposto dal LLM per un campo.
  * Restituisce il valore normalizzato, oppure null se il valore è palesemente
@@ -905,6 +926,27 @@ function sanitizeFieldValue(field, rawValue) {
   // che spazzatura in Excel.
   if (isPlaceholderValue(v)) return null
 
+  // "0" su un campo di TIPO TESTO (description con prefisso "TESTO"): è un
+  // placeholder numerico inespressivo (il modello scrive 0 quando non ha un
+  // dato da dire, es. "tacito rinnovo: 0" invece di Sì/No), NON un valore.
+  // NB: NON tocca i campi NUMERO/IMPORTO (premio lordo, massimale) dove lo 0
+  // può essere un dato reale.
+  if (isTextualZeroPlaceholder(field, v)) return null
+
+  // Un campo TESTO non riceve MAI un numero/importo/codice puro ("13.068,00",
+  // "4", "75,00"): il modello l'ha risposto mettendo il dato sbagliato (premio,
+  // tasso, importo) al posto del testo (SÌ/NO, "annuale", "retribuzioni",
+  // descrizioni). Su tacito rinnovo, frazionamento, esclusioni, condizioni,
+  // estensioni e tutela → svuota a "non indicato". Massimale/franchigia
+  // (NUMERO/IMPORTO) NON sono toccati.
+  if (isTextualNumericOnly(field, v)) return null
+
+  // Intestazioni/LABEL di sezione copiate dal modello come valore ("IL
+  // CONTRAENTE", "Contratto di Assicurazione per la RC del Medico"): NON sono
+  // dati. Guardia MONOTONA: match full-string di pattern documentali, mai
+  // substring; un valore legittimo con quelle parole dentro sopravvive.
+  if (isLabelLikeValue(v)) return null
+
   // Modello che fa ECO al campo: valore identico (normalizzato) alla label o
   // all'id del campo stesso → non è un dato estratto.
   if (field) {
@@ -917,28 +959,41 @@ function sanitizeFieldValue(field, rawValue) {
   const euroMatch = v.match(/^(?:€|EUR)\s*([\d.,]+)$/i)
   if (euroMatch) v = euroMatch[1]
 
+  // Identificativi alfanumerici (N° polizza/proposta/preventivo/appendice/
+  // contratto/adesione): un numero SPORCO OCR ("3ROL]]D") NON è un dato — è
+  // spazzatura da scartare, mai da "riparare" (meglio vuoto che un numero
+  // inventato/illeggibile). isGarbageIdentifier lo rileva (caratteri
+  // non-alfanumerici adiacenti identici o <70% alfanumerici).
+  if (field && isGarbageIdentifier(v) &&
+      /numero\s+(?:di\s+|della\s+|del\s+)?(polizz|propost|preventiv|appendic|contratt|adesion)|n[°.]?\s*(polizz|propost|preventiv|appendic)/i.test(`${field.id || ''} ${field.label || ''} ${field.description || ''}`)) return null
+
   // Campi data (per type configurato): accetta solo date riconoscibili
   if (field?.type === 'date') return normalizeDateValue(v)
 
-  if (!field || !KNOWN_DEFAULT_IDS.has(field.id)) return v
-  const id = field.id
+  // Guardie VALORE per-natura (type-blind: MAI sull'id, che ora è un UUID senza
+  // significato; decide il vocabolo di label+description). Le stesse regole
+  // storicamente agganciate agli id parlanti (codice_fiscale_iva, *_parametro,
+  // *_tasso, massimale/premio/importo) ora valgono per QUALSIASI campo la cui
+  // label/description esprime quella natura.
+  const blob = `${field.label || ''} ${field.description || ''}`
+  const low = ' ' + String(blob).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
 
   // P.IVA (11 cifre) o Codice Fiscale (16 char): validazione con CHECKSUM
   // ufficiale (+ riparazione OCR per la P.IVA). Una sequenza plausibile ma con
   // cifra di controllo sbagliata è rumore OCR o allucinazione → null.
-  if (id === 'codice_fiscale_iva') {
+  if (/p\s*\.?\s*iva|cod\.?\s*fiscale|codice fiscale|partita iva/.test(low)) {
     return validateCodiceFiscaleIva(v)
   }
 
   // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
   // "Salari e stipendi + Quota TFR"), mai un numero o un tasso
-  if (/_parametro$/.test(id) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
+  if (/parametro/.test(low) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
 
   // Il tasso è un numero per mille: togli l'eventuale simbolo
-  if (/_tasso$/.test(id)) return v.replace(/\s*[‰%]\s*$/, '')
+  if (/\btass/.test(low)) return v.replace(/\s*[‰%]\s*$/, '')
 
   // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
-  if (/massimale|premio|imposta|importo|scoperto/.test(id) && /[%‰]\s*$/.test(v)) return null
+  if (/massimale|premio|imposta|importo|scoperto|franchig/.test(low) && /[%‰]\s*$/.test(v)) return null
 
   return v
 }
@@ -1095,15 +1150,84 @@ const ROLLING_SYSTEM_PROMPT =
   '9. Per OGNI campo restituito includi "evidenza": il frammento di testo ESATTO,\n' +
   '   copiato letteralmente dal documento, in cui compare il valore. Se NON riesci a\n' +
   '   citare il valore copiandolo dal documento, allora lo stai inventando: NON\n' +
-  '   restituire quel campo.\n\n' +
+  '   restituire quel campo.\n' +
+  '10. Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una\n' +
+  '   FRASE (SÌ/NO, "annuale", "retribuzioni", una descrizione), MAI un numero o un\n' +
+  '   importo: se trovi solo cifre ("4", "13.068,00", "75,00") per un campo TESTO, è\n' +
+  '   il dato sbagliato: ometti il campo.\n' +
+  '11. Se la descrizione chiede un valore testuale previsto (Sì/No, Non indicato,\n' +
+  '   Annuale/Semestrale/…), rispondi con QUEL TESTO esatto, MAI con un numero puro.\n' +
+  '12. Se la descrizione chiede un valore UNICO (es. la professione/attività assicurata),\n' +
+  '   restituisci UN solo valore, NON un elenco.\n' +
+  '13. Per i massimali per persona/danni/prestatore NON usare mai il valore del\n' +
+  '   massimale per sinistro: usa l\'importo specifico della grandezza richiesta.\n\n' +
   'FORMATO di ogni campo restituito:\n' +
   '{"nome_campo": {"valore": "valore_estratto", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}'
 
 // Stima token per testo italiano/OCR con i tokenizer dei modelli locali.
-// Misurato sul campo: 164.472 char = 64.402 token reali → ~2,55 char/token.
-// Il vecchio /3 sottostimava e faceva credere che il prompt entrasse nel contesto.
-function estimateOllamaTokens(chars) {
-  return Math.ceil(chars / 2.5)
+// Taratura sul campo (qwen2.5:7b): 164.472 char = 64.015 token reali ⇒ la
+// misurazione empirica dà un rapporto REALE di ~2,57 char/token. Il vecchio
+// /2.5 li gonfiava oltre il reale (sovrastima) e l'arbitro in
+// callOllamaRolling (estPromptTokens vs prompt_eval) scattava su falsi
+// positivi: molti warning "TRONCATO" con prompt che in realtà entravano.
+//
+// Funzione DOPPIA SENTINELLA: usata sia per il budget (computeSafeContextBudget)
+// sia per il guardrail di troncamento. Qui il compito è INVERSO a quello di
+// sempre: il warn di troncamento deve scattare SOLO quando il prompt sta DAVVERO
+// oltre il limite, quindi la stima non deve più gonfiare i token (≥2,5 era
+// IRREALISTICO: ≠token/char ~4 per l'italiano non esiste sui BPE locali).
+// Coerente col BPE reale (Vocab/Byte-Pair-Encoding dei tokenizer community):
+// un token italiano tipico vale ~3–4 char (parola comune) ma anche ~1 char
+// (segno di punteggiatura/spazio/padding OCR). Il rapporto 3.5:1 bilancia i due
+// estremi ed è il valore più ADERENTE alla media reale osservata, mantenendosi
+// CONSERVATIVO (non sottostima mai in modo pericoloso per il budget che usa la
+// stessa funzione: più char/token ⇒ meno token stimati ⇒ l'overhead cala e il
+// budget char può salire; il margine sotto resta a tutela del troncamento).
+export function estimateOllamaTokens(chars) {
+  return Math.ceil((chars || 0) / 3.5)
+}
+
+// Budget di TESTO sicuro per un batch (in token, poi convertiti in char).
+// Difesa dal troncamento in silenzio di Ollama: il prompt inviato sta sempre
+// dentro `num_ctx - MARGIN`, mai a filo del limite. Con un singolo documento/
+// pagina che eccede il budget, `buildGroupBatches` lo spezza per pagina (spillover).
+// Conservative quando il limite è sconosciuto o piccolo: mai supporre fit.
+//
+// Parametri:
+//   numCtx        - num_ctx che verrà inviato a Ollama (0/o sconosciuto → default sicuro)
+//   systemChars   - caratteri del prompt di sistema (guida campi/regole)
+//   userChars     - caratteri della guida campi (buildPrompt('')) senza il testo dei documenti
+//   evidenceChars - caratteri extra (es. note di gruppo) inclusi nel prompt
+//   marginRatio   - frazione di numCtx riservata come margine di sicurezza (default 12%)
+//   reservedChars - quota fissa ulteriore in char oltre al margine proporzionale
+// Ritorna: token di TESTO dei documenti che possono entrare in un batch.
+export function computeSafeContextBudget(numCtx, { systemChars = 0, userChars = 0, evidenceChars = 0, marginRatio = 0.12, reservedChars = 0 } = {}) {
+  const capped = (numCtx && numCtx > 0) ? numCtx : 4096 // limite sconosciuto → default conservativo
+  const overheadTokens = estimateOllamaTokens(systemChars + userChars + evidenceChars + reservedChars)
+  const marginTokens = Math.floor(capped * marginRatio)
+  // Token che restano per il TESTO dei documenti. Il floor di 512 token (blocco
+  // minimo utile) vale SOLO se non viola l'invariante "mai oltre numCtx - margine":
+  // se l'overhead di guida+system sta consumando quasi tutto il contesto, il
+  // budget scende sotto 512 (fino a 0) invece di rompere il margine.
+  const residual = capped - overheadTokens - marginTokens
+  // Floor di garanzia per il TESTO del batch = UNA FRAZIONE (70%) della capacità
+  // effettiva `capped - margine`. Senza un floor, il vecchio cap assoluto a 512
+  // token (~1024 char) tagliava ogni documento singolo poco sotto quella soglia:
+  // la dichiarazione da ~1800 char perdeva in coda la riga col valore giusto
+  // (massimale 7.500.000,00), il check-evidenza la marcava [senza-evidenza] e il
+  // valore veniva scartato PRIMA del merge per recency. Il 70% del residuo del
+  // modello fa entrare COMPLETI i documenti tipici (fino a ~2-3K char). Resta
+  // sotto numCtx - margine, quindi non supera MAI il limite reale del modello
+  // (neppure leggendo i token con il rapporto reale ~2,4-3,5 char/token, e quindi
+  // senza spillare oltre gli 8 GB di VRAM).
+  const floorTokens = Math.max(0, Math.floor((capped - marginTokens) * 0.70))
+  const budgetTokens = Math.max(0, Math.min(floorTokens, residual))
+  // Ritorno in char con rapporto CONSERVATIVO (~2,0 char/token), DISTINTO dal
+  // rapporto di stima estimateOllamaTokens (3,5) che serve da sentinella
+  // anti-falso-positivo: i char realmente inviati al modello costano MENO token
+  // di quanto questo ritorno assuma, quindi il batch resta comodamente sotto il
+  // limite reale.
+  return Math.floor(budgetTokens * 2.0) // char utili di testo per batch
 }
 
 // Limite di contesto REALE del modello (n_ctx_train), da /api/show. Se num_ctx lo
@@ -1172,12 +1296,25 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
     }
   }, 5000)
   try {
-    const res = await resilientFetch(`${url}/api/chat`, {
+    const send = async (body) => resilientFetch(`${url}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, stream: true }),
+      body: JSON.stringify(body),
       signal: ac.signal
     })
+    let using = { ...payload, stream: true }
+    let res = await send(using)
+    // Schema/GBNF rifiutato (Ollama vecchio o grammar non compilabile):
+    // una sola retry con format:'json' — meglio JSON libero che 0 campi.
+    if (!res.ok && payload.format && payload.format !== 'json' && (res.status === 400 || res.status === 422)) {
+      const errBody = await res.text().catch(() => '')
+      if (/format|schema|grammar|gbnf/i.test(errBody) || res.status === 400) {
+        using = { ...payload, format: 'json', stream: true }
+        res = await send(using)
+      } else {
+        throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
+      }
+    }
     if (!res.ok) {
       const errBody = await res.text().catch(() => '')
       throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
@@ -1237,7 +1374,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt   }
     ],
-    format: 'json',
+    format: opts.format ?? ollamaFormatFor(opts.fields, opts.shape || 'staged', settings),
     ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
     options: {
       num_ctx:     numCtx,
@@ -1250,9 +1387,11 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
       (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
       (evalCount != null ? ` · token generati: ${evalCount}` : ''))
-    // Stima dei token del prompt inviato (~2,5 char/token per italiano/OCR):
+    // Stima dei token del prompt inviato (~3,5 char/token per italiano/OCR):
     // se il server ne ha letti molti meno, il prompt è stato troncato in silenzio
     // (la guida dei campi o parte del testo NON sono mai arrivate al modello).
+    // L'euristica è CALIBRATA sul reale (~2,6 char/token misurato) così il warn
+    // resta una SENTINELLA di vero troncamento, non un rumore di falsi positivi.
     const estPromptTokens = estimateOllamaTokens(systemPrompt.length + userPrompt.length)
     if (promptEval != null && estPromptTokens > 2048 && promptEval < estPromptTokens * 0.7) {
       diag.push(`ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama ` +
@@ -1325,7 +1464,7 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
     } else if (provider === 'anthropic') {
       raw = await callAnthropic(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
     } else {
-      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
+      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, { fields, shape: 'staged' })
     }
   } catch (err) {
     throw classifyLlmError(err, settings)
@@ -1683,6 +1822,30 @@ export async function ocrPageText(imageBase64, settings = {}) {
   return ocrImageToText(imageBase64)
 }
 
+// Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un
+// blocco di "negative few-shot" iniettato in TUTTI i motori di estrazione PRIMA
+// del blocco FORMATO. Tipo-blind (spie generiche, mai per categoria di documento)
+// e a costo zero LLM: solo più token nel prompt.
+const KNOWN_TRAPS_SYSTEM_TEXT =
+  'TRAPPOLE CONOSCIUTE (non cascarci):\n' +
+  '- Un sotto-limite o sub-massimale di una garanzia speciale (es. 10.000,00) NON è il massimale della polizza: ometti se il campo è il massimale.\n' +
+  '- Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una FRASE (SÌ/NO, "annuale", "retribuzioni", una descrizione), MAI un numero o un importo: se per quel campo trovi solo cifre ("4", "13.068,00", "75,00") è il dato sbagliato, OMETTILO.\n' +
+  '- Un nome societario (es. "...S.p.A.", "...Srl", compagnia di assicurazione o sede legale) NON è una agenzia/piazza: ometti se compare una dicitura societaria.\n' +
+  '- Una P.IVA/Codice Fiscale presente SOLO nell\'intestazione/footer della compagnia assicuratrice (Sede legale…, partita IVA contraente) NON è quella del contraente: ometti.\n' +
+  '- L\'attività "rinvio" (la polizza copre SOLO l\'attività di rinvio) NON è l\'attività assicurata: usa quella effettiva, mai "rinvio".\n' +
+  '- Decorrenza e scadenza: usa quelle del periodo di copertura PIÙ RECENTE, non di una quietanza vecchia che riporta un\'altra decorrenza/scadenza.\n'
+
+// Regole "natura type-blind" (decisione del task): l'id del campo è un UUID senza
+// significato — l'UNICA fonte di cosa estrarre è la DESCRIPTION. Regole GENERALI,
+// nessun valore di profilo hardcodato (le description stanno nel file profili).
+const NATURA_BLIND_RULES =
+  'COSTRUZIONE DEI CAMPI (leggile sempre):\n' +
+  '- Segui SOLO la DESCRIZIONE del campo per capire cosa estrarre: l\'id (una chiave casuale) NON indica il significato e NON va usato per dedurre il dato.\n' +
+  '- Se la descrizione chiede un valore testuale previsto (Sì/No, Non indicato, Annuale/Semestrale/…), rispondi con QUEL TESTO esatto, MAI con un numero puro o un importo.\n' +
+  '- Se la descrizione chiede un valore UNICO (es. la professione/attività assicurata), restituisci UN solo valore, NON un elenco.\n' +
+  '- Per i massimali per persona/danni/prestatore NON usare mai il valore del massimale per sinistro: usa l\'importo specifico della grandezza che la descrizione chiede.\n' +
+  ''
+
 const WHOLE_DOSSIER_SYSTEM =
   'Sei un estrattore esperto di dati da fascicoli assicurativi italiani (RC).\n' +
   'Ricevi il TESTO (OCR) di TUTTI i documenti di UNA pratica, etichettati per nome file\n' +
@@ -1704,6 +1867,8 @@ const WHOLE_DOSSIER_SYSTEM =
   '   letteralmente dal documento, in cui compare il valore. Se NON riesci a citare\n' +
   '   il valore copiandolo dal documento, lo stai inventando: NON restituire quel\n' +
   '   campo. NON usare MAI valori presi dalla guida campi o da esempi.\n' +
+  `${NATURA_BLIND_RULES}` +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON\n' +
   '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
   'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
@@ -1851,7 +2016,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     let parsed
     try {
       const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(batchText),
-        { numCtx: batchCtx, timeoutMs: 600000, diag })
+        { numCtx: batchCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
       parsed = parseJsonResponse(raw)
       consecutiveErrors = 0
     } catch (err) {
@@ -1963,7 +2128,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       diag.push(`Consolidamento finale: ${consDocs.length} documenti (~${estimateOllamaTokens(corpus.length)} token, num_ctx ${consCtx}): ${consDocs.slice(0, 6).join(', ')}${consDocs.length > 6 ? ', …' : ''}`)
 
       const raw = await callOllamaRolling(settings, WHOLE_DOSSIER_SYSTEM, buildUserPrompt(consHeader + corpus),
-        { numCtx: consCtx, timeoutMs: 600000, diag })
+        { numCtx: consCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
       const parsed = parseJsonResponse(raw)
 
       let corrected = 0, confirmed = 0, rejected = 0
@@ -2047,19 +2212,52 @@ function cosineTopK(queryVec, chunks, { docTypes = null, k = 6, recencyBoost = f
 
 const PERFIELD_SYSTEM =
   'Sei un estrattore di UN SINGOLO dato da documenti assicurativi italiani.\n' +
-  'Ricevi il NOME e la DESCRIZIONE di un campo e alcuni ESTRATTI di documenti.\n' +
+  'Ricevi il NOME e la DESCRIZIONE di un campo e alcune FINESTRE CANDIDATE\n' +
+  '(già ordinate dal documento più recente al più vecchio).\n' +
   'REGOLE TASSATIVE:\n' +
-  '1. Restituisci il valore del campo SOLO se è ESPLICITAMENTE presente negli estratti.\n' +
-  '2. Se gli estratti non contengono il valore, rispondi esattamente {} — è il caso\n' +
+  '1. Restituisci il valore del campo SOLO se è ESPLICITAMENTE presente nelle\n' +
+  '   finestre. Rispondi con il valore della finestra PIÙ RECENTE che lo contiene.\n' +
+  '2. Se NESSUNA finestra contiene il valore, rispondi esattamente {} — è il caso\n' +
   '   NORMALE e corretto. Non forzare, non dedurre, NON inventare.\n' +
   '3. NON usare MAI numeri o testi presi dalla descrizione del campo o da esempi:\n' +
-  '   devono provenire dagli estratti dei documenti.\n' +
-  '4. "evidenza" = il frammento di testo ESATTO, copiato letteralmente dagli\n' +
-  '   estratti, in cui compare il valore. Se non riesci a citarlo, stai inventando:\n' +
-  '   rispondi {}.\n' +
+  '   devono provenire dalle finestre dei documenti.\n' +
+  '4. "source" = {doc, page, line} della finestra da cui trascrivi il valore.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
-  'FORMATO: un solo oggetto JSON {"valore": "...", "evidenza": "testo esatto copiato"}\n' +
-  'oppure {} se il valore non è presente. Zero testo extra, zero markdown.'
+  `${NATURA_BLIND_RULES}` +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
+  'FORMATO: un solo oggetto JSON {"valore": "..."} oppure {} se il valore non è\n' +
+  'presente. Zero testo extra, zero markdown.'
+
+// Sistema per le chiamate con l'evidenza (legacy): mantiene PERFIELD_SYSTEM
+// come sorgente unica per il formato; usa il campo per la verifica di evidenza.
+const RECENCY_SYSTEM_EXPLICIT =
+  'Sei un estrattore di UN SOLO dato da documenti assicurativi italiani.\n' +
+  'Ricevi il NOME e la DESCRIZIONE di un campo e alcune FINESTRE CANDIDATE\n' +
+  'ordinate dal documento PIÚ RECENTE al PIÚ VECCHIO.\n' +
+  'REGOLE:\n' +
+  '1. Trascrivi il valore dalla finestra PIÚ RECENTE che lo contiene, letteralmente\n' +
+  '   (la prima in alto è la più recente).\n' +
+  '2. source = {"doc":N,"page":M} della finestra da cui trascrivi (dai tag [F… doc… pag…]).\n' +
+  '3. Se nessuna finestra contiene il valore → rispondi esattamente {}. Mai dedurre.\n' +
+  `${NATURA_BLIND_RULES}` +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
+  'FORMATO: un solo oggetto JSON {"valore":"...","source":{"doc":N,"page":M}} oppure {}.'
+
+/**
+ * Aggiunge (MAI al posto di) il blocco strutturato `ETICHETTA ⟶ VALORE` a un
+ * testo di pagina che entra nel prompt. Se l'aligner colonnare produce coppie,
+ * queste vengono anteposte come "ESTRATTI STRUTTURATI", seguite sempre dal
+ * testo grezzo (spaziale o piatto) sotto.
+ */
+function withPairs(pageText) {
+  const t = String(pageText || '')
+  const pairs = detectLabelValuePairs(t)
+  if (!pairs.length) return t
+  const structured = pairs
+    .map((p) => `RIGA ${p.row} — "${p.label}" → ${p.value}`)
+    .join('\n')
+  return `ESTRATTI STRUTTURATI:\n${structured}\n\nTESTO:\n${t}`
+}
 
 /**
  * Estrazione "per campo": indice in memoria (embeddings locali via Ollama) +
@@ -2072,18 +2270,25 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   const diag = []
   diag.push(`Motore per-campo: ${activeFields.length} campi, ${docs.length} documenti`)
+  diag.push(`Vincoli JSON: ${settings.polizzaConstrainedJson === false ? 'off (format=json)' : (settings.polizzaConstrainedFormat || 'schema')}`)
 
   // 1. Indice in memoria: chunk di ogni pagina con metadati (file, pagina, tipo, anno).
   // Pagine COLLASSATE (collapseSpatial): i chunk sono frammenti a cap fisso
   // (1200 char) — il padding della griglia spaziale li diluirebbe.
+  // Il PROMPT però riceve la pagina SPAZIALE intera (stesso sdoppiamento dello
+  // staged): le tabelle a colonne restano incolonnate.
   const chunks = []
+  const docIndexById = new Map()
   for (const d of docs || []) {
     const name = d?.name || 'documento.pdf'
     const docType = classifyDocType(name)
     const docYear = detectDocYear(name, (d?.pages || []).join('\n'))
+    docIndexById.set(name, docIndexById.size)
     ;(d?.pages || []).forEach((pageText, pIdx) => {
-      for (const t of chunkText(collapseSpatial(pageText))) {
-        chunks.push({ text: t, file: name, page: pIdx + 1, doc_type: docType, doc_year: docYear })
+      const spatial = String(pageText || '')
+      const flat = collapseSpatial(spatial)
+      for (const t of chunkText(flat)) {
+        chunks.push({ text: t, spatialPage: spatial, file: name, page: pIdx + 1, doc: docIndexById.size - 1, doc_type: docType, doc_year: docYear })
       }
     })
   }
@@ -2120,14 +2325,98 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
     return { ...fb, diag: [...diag, ...(fb.diag || [])] }
   }
 
+  // 2bis. Datazione dei documenti per la recency (passata 2): data di copertura
+  // più alta = più recente (periodo, non emissione — come dal motore a stadi).
+  const docMeta = (docs || []).map((d, i) => {
+    const pages = (d?.pages || []).map((p) => collapseSpatial(String(p || '')))
+    const dateStr = latestDateExcludingEmission(pages.join('\n')) || null
+    return {
+      name: d?.name || `doc_${i}`,
+      index: i,
+      date: dateStr || null,
+      ts: dateStrToTs(dateStr) ?? null,
+    }
+  })
+  // docs con name/ts: i seed deterministici usano ts per ordinare per recency.
+  const docsWithMeta = (docs || []).map((d, i) => ({
+    ...d, name: d?.name || `doc_${i}`, ts: docMeta[i]?.ts ?? null,
+  }))
+
   // 3-6. Una domanda per campo.
   const STRUCT_DOCTYPES = ['polizza', 'appendice', 'condizioni', 'altro']
-  const CONTEXT_CHARS = 2500
+  const CONTEXT_CHARS = 8000
   const data = {}, sources = {}
   let valued = 0, evidenceDropped = 0, absent = 0
   let consecutiveErrors = 0
   const verList = String(settings.polizzaVerificaCampi || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
   const isFlagged = (f) => verList.some(v => v === String(f.id).toLowerCase() || v === String(f.label || '').toLowerCase() || (v.length >= 3 && String(f.label || '').toLowerCase().includes(v)))
+
+  // Candidati {doc, page, line?, snippet} per un campo: unisce le finestre
+  // DETERMINISTICHE (riga precisa dalla scan / affinità per etichetta) e le
+  // finestre SEMANTICHE (pagine intere dai chunk top-k). Le finestre
+  // deterministiche portano la riga precisa (label di riga); quelle semantiche
+  // la PAGINA completa. IMPORTANTE: una finestra deterministica NON "consuma" la
+  // stessa pagina: la riga di etichetta spesso NON contiene il valore (es. la
+  // riga-header "N° Polizza" senza il numero, che sta nella riga sotto), quindi
+  // la pagina completa va comunque tenuta, altrimenti il valore semantico si perde.
+  function buildFieldCandidates(f, hits, windows) {
+    const out = []
+    for (const w of windows) {
+      if (!w || w.docIndex == null) continue
+      out.push({
+        doc: w.docIndex,
+        page: w.page,
+        line: Number.isInteger(w.line) ? w.line : null,
+        snippet: String(w.snippet || '').trim(),
+        src: 'det',
+        conf: typeof w.affinity === 'number' ? w.affinity : (w.labelMatched ? 0.8 : 0.5),
+        detValue: w.value ?? null,
+      })
+    }
+    // finestre SEMANTICHE a pagina intera: tenute come supporto/completamento,
+    // MAI prima delle finestre deterministiche compatte (label→valore). Un campo
+    // a etichetta forte ha la riga label→valore precisa nella scan: è il segnale
+    // PIÙ pulito per il modello piccolo. Le pagine intere coprono i campi a
+    // descrizione lunga senza etichetta (attivita, sottolimiti, estensioni)
+    // e vengono poste in coda: quando il modello deve cercare la sezione
+    // rilevante (es. "RISCHI ESCLUSI") le vede dopo, ma se la label→valore non
+    // c'è sono l'unica fonte e bastano da sole.
+    const semBest = new Map()
+    for (const h of hits) {
+      if (!h || h.doc == null) continue
+      const key = `${h.doc}:${h.page}`
+      const score = h.score ?? 0
+      const prev = semBest.get(key)
+      if (!prev || score > (prev.score ?? 0)) semBest.set(key, { ...h, score })
+    }
+    const semList = []
+    for (const h of semBest.values()) {
+      const pageText = (h.spatialPage && h.spatialPage.trim()) ? withPairs(h.spatialPage) : h.text
+      semList.push({ doc: h.doc, page: h.page, line: null, snippet: pageText, src: 'sem', score: h.score ?? 0 })
+    }
+    return { ordered: out, semantic: semList }
+  }
+
+  // Ritaglia le finestre ordinate a un budget di caratteri UTILI, mantenendo
+  // l'ordine di recency e NON troncando la prima (la più recente decisiva).
+  function budgetWindows(ordered, budget = CONTEXT_CHARS) {
+    const sel = []
+    let cost = 0
+    let first = true
+    for (const w of ordered) {
+      const len = usefulLength(w.snippet || '')
+      if (!first && cost + len > budget) {
+        const avail = budget - cost
+        sel.push({ ...w, snippet: String(w.snippet || '').slice(0, Math.max(0, avail)) })
+        break
+      }
+      sel.push(w)
+      cost += len
+      first = false
+      if (cost >= budget) break
+    }
+    return sel.length ? sel : (ordered[0] ? [ordered[0]] : [])
+  }
 
   for (let i = 0; i < activeFields.length; i++) {
     const f = activeFields[i]
@@ -2141,32 +2430,94 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
     // quietanze/regolazioni (è proprio ciò che vogliamo evitare) → campo assente.
     if (!hits.length) { absent++; continue }
 
-    let ctx = '', used = []
-    for (const h of hits) {
-      const block = `[${h.file} · pag. ${h.page}]\n${h.text}`
-      if (ctx.length + block.length > CONTEXT_CHARS && ctx) break
-      ctx += (ctx ? '\n---\n' : '') + block
-      used.push(h)
+    // ── PASSATA 1: occorrenze candidate (deterministiche + semantiche) ───────
+    const grounding = settings.polizzaGrounding === true
+    let windows = grounding ? buildEvidenceWindows(f, docs) : []
+
+    // FINESTRE DA COPPIE label→valore quando il grounding deterministico è
+    // vuoto: le schede a coppie (polizza/quietanza) non passavano la scan su
+    // tutti i fascicoli. SOLO sulla pagina-polizza e con coppie affini.
+    if (!windows.length && grounding) {
+      windows = windowsFromLabelValuePairs(f, docs, null)
     }
-    const desc = stripFieldExamples(f.description || f.label || f.id)
-    const userPrompt =
+
+    // SEED DETERMINISTICI anagrafici/strutturali (N° polizza, P.IVA, date):
+    // entrano nel ranking come finestre con affinity=confidence; se superano la
+    // soglia di override diventano candidato DIRETTO (nessuna chiamata LLM).
+    const seeds = anagraphicSeeds(f, docsWithMeta || [])
+    const seedWindows = seeds.map((s, si) => ({
+      docIndex: s.docIndex, page: s.page, line: s.line,
+      snippet: s.snippet || '', labelMatched: true,
+      affinity: s.confidence, value: s.value,
+    }))
+    const effectiveWindows = [...windows, ...seedWindows]
+
+    const candidates = buildFieldCandidates(f, hits, effectiveWindows)
+
+    // Hint deterministico ad ALTA confidenza → valore diretto SENZA LLM
+    // (massimali/franchigie/premi a etichetta di natura: la scansione è la
+    // fonte; i seed anagrafici con riga precisa: verifica di supporto).
+    let directDraft = null
+    if (grounding) {
+      const econCand = windows.find((w) => typeof w.affinity === 'number'
+        && w.affinity >= GROUNDING_MIN_CONFIDENCE
+        && w.value != null
+        && /massimal|franchig|scopert|premio|imponib|impost|totale|fatturat/.test(String(w.snippet || '').toLowerCase()))
+      const seedCand = seedWindows.find((w) => w.value != null
+        && typeof w.affinity === 'number' && w.affinity >= GROUNDING_MIN_CONFIDENCE
+        && Number.isInteger(w.line))
+      const cand = (econCand && (seedCand == null || econCand.affinity >= seedCand.affinity))
+        ? econCand : seedCand
+      if (cand) {
+        const draftD = { valore: cand.value, source: { doc: cand.docIndex, page: cand.page, line: cand.line }, confidence: cand.affinity }
+        const assembled = assembleGroundedResult(f, draftD, docs)
+        if (assembled.value != null && verifyGroundedValue(f, { ...draftD, valore: assembled.value }, docs).ok) {
+          directDraft = { ...draftD, valore: assembled.value }
+          diag.push(`[grounding] ${f.id}: hint deterministico ${assembled.value} (p${cand.page} r${cand.line}, conf ${cand.affinity.toFixed(2)})`)
+        }
+      }
+    }
+
+    // ── PASSATA 2: prompt con le finestre candidate ORDINATE per recency ─────
+    // Le finestre DETERMINISTICHE (label→valore compatte) hanno la priorità:
+    // per un campo a etichetta forte, la pagina intera rumorosa in più affoga il
+    // segnale su un modello piccolo (→ {}). Le finestre SEMANTICHE a pagina
+    // intera entrano SOLO quando non ci sono finestre deterministiche (campi a
+    // descrizione lunga senza etichetta ancorabile: attivita, sottolimiti, ecc.).
+    const { ordered: detOrdered, semantic } = candidates
+    const detByRecency = rankWindowsByRecency(detOrdered, docMeta)
+    const semByRecency = rankWindowsByRecency(semantic, docMeta)
+    const allOrdered = detByRecency.length ? detByRecency : semByRecency
+    const picked = budgetWindows(allOrdered)
+    const kind = fieldKind(f)
+
+    const userPrompt = (grounding && picked.length)
+      ? recencyPrompt(f, picked, docMeta, kind)
+      :
 `CAMPO: ${f.label}
-DESCRIZIONE: ${desc}
+DESCRIZIONE: ${stripFieldExamples(f.description || f.label || f.id)}
 
-ESTRATTI DEI DOCUMENTI:
-${ctx}
+ESTRATTI CANDIDATI (ordinati dal più recente al più vecchio):
+${(picked.length ? picked : allOrdered).map((c) =>
+  `[doc ${c.doc} pag. ${c.page}${c.line ? ` r. ${c.line}` : ''}${docMeta[c.doc]?.date ? ` data ${docMeta[c.doc].date}` : ''}]\n${String(c.snippet || '').slice(0, 600)}`
+).join('\n---\n')}
 
-Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} oppure {} se gli estratti non contengono il valore.`
+Restituisci SOLO il JSON {"valore":"...","source":{"doc":N,"page":M,"line":L}} oppure {} se gli estratti non contengono il valore.`
 
-    const askOnce = async () => parseJsonResponse(
-      await callOllamaRolling(settings, PERFIELD_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000 })
-    )
+    const askOnce = async () => {
+      const raw = await callOllamaRolling(settings, RECENCY_SYSTEM_EXPLICIT, userPrompt, { numCtx: 8192, timeoutMs: 120000, fields: [f], shape: 'perField' })
+      return parseJsonResponse(raw)
+    }
 
     let entry
+    const used = picked
     try {
-      entry = await askOnce()
-      // Consenso opzionale per i campi flaggati (stesso contesto, voto di maggioranza).
-      if (isFlagged(f)) {
+      if (directDraft) {
+        entry = directDraft
+      } else {
+        entry = await askOnce()
+      }
+      if (isFlagged(f) && !directDraft) {
         const passes = Math.max(2, Math.min(5, parseInt(settings.polizzaConsensusPasses, 10) || 3))
         const deltas = [{ [f.id]: entry }]
         for (let p = 1; p < passes; p++) deltas.push({ [f.id]: await askOnce() })
@@ -2186,17 +2537,69 @@ Restituisci SOLO il JSON {"valore":"...","evidenza":"frammento esatto copiato"} 
     const val = (entry && typeof entry === 'object') ? entry.valore : entry
     const cleaned = sanitizeFieldValue(f, val)
     if (cleaned == null || cleaned === '') { absent++; continue }
-    if (!passesEvidenceCheck(cleaned, entry, true)) { evidenceDropped++; continue }
 
-    data[f.id] = cleaned
-    // Fonte dai METADATI del chunk che contiene l'evidenza (non dal modello).
-    const evid = (entry && typeof entry.evidenza === 'string') ? entry.evidenza.replace(/\s+/g, ' ').trim() : ''
-    const src = (evid && used.find(h => h.text.replace(/\s+/g, ' ').includes(evid.slice(0, 40)))) || used[0]
-    if (src) sources[f.id] = { file: src.file, page: src.page }
+    // ── GROUNDING: verifica di supporto sulla finestra scelta ────────────────
+    // Verifica rigorosa (riga citata + etichetta) SOLO quando il modello ha
+    // citato una riga precisa (source.line); altrimenti (finestra a pagina
+    // intera) si verifica che il valore compaia nel TESTO della finestra scelta.
+    let finalValue = cleaned
+    let finalSource = null, finalSnippet = null
+    const verifiedLine = (entry && entry.source && Number.isInteger(entry.source.line)) ? entry.source.line : null
+    if (grounding && !directDraft && verifiedLine != null) {
+      const ver = verifyGroundedValue(f, entry, docs)
+      if (!ver.ok) {
+        absent++
+        diag.push(`[grounding] ${f.id}: scartato — ${ver.reason}`)
+        continue
+      }
+    } else if (!grounding || verifiedLine == null) {
+      // Verifica "a finestra": il valore deve comparire nel testo della finestra
+      // che il modello ha scelto (source) — per gli importi lunghi le cifre
+      // devono stare nella finestra, sostituendo l'esigenza di `evidenza`.
+      const chosenForVerify = picked.find((c) => c.doc === Number(entry?.source?.doc ?? -1))
+        || picked.find((c) => Number(entry?.source?.page ?? -1) === -1 ? false : c.page === Number(entry.source.page))
+        || picked[0]
+      const windowText = String(chosenForVerify?.snippet || '')
+      const amount = (cleaned != null) ? parsePureAmount(cleaned) : null
+      if (amount != null && windowText) {
+        const digits = String(Math.trunc(Math.abs(amount)))
+        const winDigits = windowText.replace(/\D/g, '')
+        if (digits.length >= 4 && !winDigits.includes(digits)) { evidenceDropped++; continue }
+      }
+    }
+
+    if (grounding) {
+      const assembled = assembleGroundedResult(f, entry, docs)
+      if (assembled.value != null) finalValue = assembled.value
+      if (assembled.source && assembled.source.file) {
+        finalSource = { file: assembled.source.file, page: assembled.source.page ?? null, line: assembled.source.line ?? null }
+        finalSnippet = assembled.snippet ?? null
+      }
+    }
+
+    data[f.id] = finalValue
+    if (finalSource && finalSource.file) {
+      sources[f.id] = finalSource
+    } else {
+      const chosen = picked.find((c) => c.doc != null) || allOrdered[0] || used[0]
+      if (chosen) {
+        const fname = docMeta[chosen.doc]?.name || (chosen.src === 'sem' ? chosen.file : null)
+        sources[f.id] = { file: fname || null, page: chosen.page }
+      } else if (used[0]?.file) {
+        sources[f.id] = { file: used[0].file, page: used[0].page }
+      }
+    }
+    if (finalValue != null) {
+      diag.push(`[per-field] ${f.id}: ${finalValue}${finalSource?.line ? ` (riga ${finalSource.line}${finalSnippet ? ` — "${finalSnippet.slice(0, 40)}"` : ''})` : ''}`)
+    }
     valued++
   }
 
   diag.push(`Per-campo: ${valued} valorizzati, ${evidenceDropped} scartati senza evidenza, ${absent} assenti su ${activeFields.length}`)
+  const xfNotes = validateCrossFields(data, activeFields, {
+    hasAnnualPeriodics: (docs || []).some((d) => isPeriodicDocName(d?.name)),
+  })
+  for (const n of xfNotes) diag.push(n)
   return { data, sources, diag }
 }
 
@@ -2315,7 +2718,7 @@ function selectGroupDocs(kind, analyzed) {
  * (Il vecchio schema quota-e-taglia lasciava fuori proprio le pagine coi dati:
  * attività a pag. 23, P.IVA del contraente a pag. 10 — mai più.)
  */
-function buildGroupBatches(docList, budgetChars) {
+export function buildGroupBatches(docList, budgetChars) {
   const batches = []
   let parts = []
   let used = 0
@@ -2333,9 +2736,14 @@ function buildGroupBatches(docList, budgetChars) {
     for (let p = 0; p < promptPages.length; p++) {
       const t = promptPages[p]?.trim()
       if (!t) continue
-      let block = `[${d.name} · pag. ${p + 1}]\n${t}`
+      let block = `[${d.name} · pag. ${p + 1}]\n${withPairs(t)}`
       let cost = usefulLength(block)
-      if (cost > budgetChars) { block = block.slice(0, budgetChars * 2); cost = usefulLength(block) } // pagina singola oltre il budget: caso limite
+      // Pagina singola oltre il budget (caso limite di documenti con pagine
+      // enormi): si taglia A budgetChars, mai più — oltre sarebbe TONCATO in
+      // silenzio dal server (num_ctx < prompt). Il documento viene già spezzato
+      // per pagina tra i batch (spillover) e qui gli si dà il massimo che il
+      // contesto può contenere senza margine negativo.
+      if (cost > budgetChars) { block = block.slice(0, budgetChars); cost = usefulLength(block) }
       if (used + cost + 2 > budgetChars) flush()
       parts.push(block)
       names.add(d.name)
@@ -2382,7 +2790,9 @@ function stagedSystemPrompt(kind) {
     '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+    `${NATURA_BLIND_RULES}` +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
+    `${KNOWN_TRAPS_SYSTEM_TEXT}` +
     'FORMATO: un solo oggetto JSON\n' +
     '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
     'Zero testo extra, zero markdown.'
@@ -2393,8 +2803,8 @@ function stagedSystemPrompt(kind) {
 // quasi ogni pagina di una polizza — usarle come segnale renderebbe il punteggio
 // puro rumore da boilerplate (header, footer, diciture standard).
 const STAGED_STOPWORDS = new Set([
-  'polizza', 'polizze', 'assicurato', 'assicurata', 'assicurati', 'assicurativa', 'assicurazione',
-  'assicurazioni', 'contraente', 'compagnia', 'documento', 'documenti', 'descrizione', 'indicato',
+  'polizza', 'polizze', '61b6ea68-2b4d-54f2-9d9e-76615db22b94', 'assicurata', 'assicurati', 'assicurativa', 'assicurazione',
+  'assicurazioni', '45c1347c-0b2e-52e8-96c7-7787644858d3', '36b66bf8-bb9f-5c0e-a947-3d3858349b54', 'documento', 'documenti', 'descrizione', 'indicato',
   'indicata', 'valore', 'campo', 'campi', 'della', 'delle', 'dello', 'degli', 'dalla', 'dalle',
   'nella', 'nelle', 'come', 'ogni', 'sono', 'viene', 'vengono', 'quanto', 'quale', 'quali',
   'presente', 'presenti', 'relativo', 'relativa', 'esempio', 'oppure', 'anche', 'condizioni',
@@ -2416,6 +2826,8 @@ const STAGED_RECOVERY_SYSTEM =
   '   Se non riesci a citarlo, stai inventando: usa {"valore": null}.\n' +
   '5. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  `${NATURA_BLIND_RULES}` +
+  `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2434,6 +2846,8 @@ const STAGED_CASCADE_SYSTEM =
   '5. "evidenza" = frammento ESATTO copiato dal documento. Se non riesci a citarlo, usa {"valore": null}.\n' +
   '6. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
   '7. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+  '8. Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una FRASE, MAI un numero/importo.\n' +
+  `${NATURA_BLIND_RULES}` +
   'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
@@ -2490,7 +2904,7 @@ function matchRealDoc(analyzed, docName) {
  * @param {Function|null} affinityFor  async (field, cleaned, evidenza, srcDoc) → number|null
  * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
-async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null) {
+async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
@@ -2522,13 +2936,59 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // (vale per ogni compagnia), i rinvii non sono descrizioni, una S.p.A. non è
     // una piazza di agenzia.
     const fieldText = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
-    if (/attivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
+    // Guardia di VALORE con confine di PAROLA: /attivit/ come substring colpirebbe
+    // anche "Retroattività" (il campo "Data retroattività" fu scartato così: la
+    // data 14/10/2014 proposta dalla scheda passava [guardrail:rinvio-attivita]).
+    // Il confine condiziona SOLO i campi che parlano di "attività" come parola.
+    if (/\battivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
     if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
+    // Guardia "premio da copertura diversa" (PROF.LE): il premio 25,00 da un
+    // documento "RC INFORTUNI"/"Tutela Legale"/"certificato" NON può popolare i
+    // campi premio della RC professionale (*_premio_totale/imponibile/imposta).
+    // "Le regole scelgono, non inventano": si decide SOLO dove un valore può
+    // stare, niente invenzione. Il valore resta valido se è davvero il premio RC.
+    if (isOtherCoveragePremiumSource(field, source?.file || srcDoc?.name)) { counters.guardrail++; note(k, 'guardrail:premio-copertura-diversa', cleaned); continue }
     if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
+
+    // VETO FATTI (registro numerico deterministico, integrato solo qui nel merge):
+    // 1. FONTE-OPZIONI: per un campo strutturale, un importo LARGO che nel
+    //    fascicolo esiste SOLO dentro un documento-questionario (checkbox ⃞) è una
+    //    "scelta tra più possibilità", non il valore effettivo della polizza
+    //    (visto sul campo: massimale per sinistro 1.000.000,00 da un'opzione
+    //    invece del 7.500.000,00 reale). Ogni candidato che ne deriva è vetato.
+    // 2) DUPLICATO DISTINTO: per i campi la cui description esige un valore
+    //    DIVERSO ("non essere il massimale", "non 7500"), un candidato che
+    //    ripropone lo stesso importo di un ALTRO campo già valorizzato è uno
+    //    spill/nastro, non un dato → vetato.
+    if (factsRegistry && vetoOptionSourceOnly(factsRegistry, optionDocs, { valore: cleaned, file: srcDoc?.name || null }, optionPages)) { counters.guardrail++; note(k, 'veto:opzione-questionario', cleaned); continue }
+    if (factsRegistry && vetoStructuralDuplicate(field, { valore: cleaned }, best, k)) { counters.guardrail++; note(k, 'veto:duplicato-strutturale', cleaned); continue }
+
+    // VETI DI NATURA (FIX 1/2/3 — disambiguazione grandezze, deterministici):
+    //  - massimale annuo: un importo che nel testo è SEMANTICAMENTE un
+    //    premio/imponibile/fatturato NON è il massimale annuo (il 13.068,00 di
+    //    quietanza non è un massimale; il 7.500.000 della dichiarazione sì);
+    //  - fatturato: il 7.500.000 che nel testo compare SOLO come "Massimali
+    //    Assicurati" NON è il fatturato dichiarato;
+    //  - franchigia: un importo MILIONARIO (che è il massimale o un'opzione)
+    //    NON è la franchigia, che per description deve essere più piccola;
+    //  - sottolimiti (TESTO elenco): una stringa fatta di SOLI importi da
+    //    opzioni-questionario non è il contenuto contrattuale.
+    if (factsRegistry && vetoForeignNatureMassimaleAnnuo(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale-annuo', cleaned); continue }
+    if (factsRegistry && vetoForeignNatureFatturato(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-fatturato', cleaned); continue }
+    if (factsRegistry && vetoForeignNatureFranchigia(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-franchigia', cleaned); continue }
+    if (factsRegistry && vetoSottolimitiOptionOnly(factsRegistry, optionDocs, field, cleaned)) { counters.guardrail++; note(k, 'veto:sottolimiti-da-opzioni', cleaned); continue }
+    // Regola 9 (massimale ≠ franchigia): un importo < 1M che nel registro è
+    // SOLO una franchigia/scoperto base non può diventare il massimale.
+    if (factsRegistry && vetoFranchigiaAsMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:franchigia-come-massimale', cleaned); continue }
+    // NATURA ESTRANEA MASSIMALE: un importo che nel registro è SOLO un massimale
+    // NON può finire su un campo che non è un massimale (Estensioni, Esclusioni,
+    // coperture rcp_*...). Il 7.500.000 della dichiarazione era copiato su
+    // quei campi: meglio vuoto che un importo di natura sbagliata.
+    if (factsRegistry && vetoForeignNatureMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale', cleaned); continue }
 
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
@@ -2581,6 +3041,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const s2 = { ...settings, ollamaModel }
   const modelLimit = await getOllamaContextLimit(s2, ollamaModel)
   diag.push(`Motore a stadi (Ollama): ${activeFields.length} campi, ${docs?.length || 0} documenti, modello ${ollamaModel} (limite contesto ${modelLimit || 'sconosciuto'})`)
+  diag.push(`Vincoli JSON: ${settings.polizzaConstrainedJson === false ? 'off (format=json)' : (settings.polizzaConstrainedFormat || 'schema')} — date/importi/P.IVA/tassi`)
 
   // ── Stage A: analisi deterministica ────────────────────────────────────────
   const analyzed = analyzeStagedDocs(docs)
@@ -2588,6 +3049,33 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     diag.push('Nessun testo utilizzabile nei documenti.')
     return { data: {}, sources: {}, diag }
   }
+
+  // ── Registro dei fatti numerici (guardia anti-fantasma, deterministica) ─────
+  // DOPO Stadio A, costo una volta per fascicolo. Serve alla verifica di evidenza
+  // e alla whitelist di importi plausibili (merge). Integrazione CONSERVATIVA:
+  // qui SOLO diagnostica — il registro NON detta il merge né tocca l'arbitro
+  // semantico (rischio regressione su casi buoni tarati sul campo).
+  const factsRegistry = buildFactsRegistry(analyzed.map((d) => ({ pages: d.pages, text: d.text, name: d.name })))
+  // Documenti riconosciuti come QUESTIONARIO/opzioni dal CONTENUTO (checkbox ⃞,
+  // "scelta tra", "spuntare"… — mai dal nome file). Il veto del merge sfrutta
+  // questi nomi per scartare i candidati che valgono SOLO lì. Granularità
+  // PER-PAGINA quando il file contiene sia la scheda reale sia il questionario
+  // (fascicoli AmTrust: i massimali veri a pag. 2 NON devono essere vetati solo
+  // perché le pagine 10-12 del modulo sono opzioni).
+  const optionDocs = new Set()
+  const optionPages = new Set() // "nomeDoc|N_pagina" (1-based, pagine PIATTE)
+  for (const d of analyzed) {
+    const opt = (d.pages || []).some((p) => detectOptionLikeText(p))
+    if (detectOptionLikeText(d.text)) optionDocs.add(d.name)
+    if (opt) {
+      for (let pi = 0; pi < (d.pages || []).length; pi++) {
+        if (detectOptionLikeText(d.pages[pi])) optionPages.add(`${d.name}|${pi + 1}`)
+      }
+    }
+  }
+  if (optionDocs.size) diag.push(`Documenti-questionario/opzioni (per contenuto): ${[...optionDocs].join(', ')} — i loro importi NON valgono come dati strutturali dei campi`)
+  if (optionPages.size) diag.push(`Pagine-opzione: ${[...optionPages].slice(0, 12).map((k) => k.replace(/\|.*/, `·p${k.split('|')[1]}`)).join(', ')}${optionPages.size > 12 ? ' …' : ''} — un importo presente anche in una pagina NON-opzione non è vetato`)
+  diag.push(`Registro fatti: ${factsRegistry.facts.length} voci numeriche su ${analyzed.length} documenti (guardia anti-fantasma, deterministica)`)
   const typeCounts = {}
   let undated = 0
   for (const d of analyzed) {
@@ -2606,7 +3094,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     ? analyzed.filter((d) => d.type === 'polizza')
     : analyzed.filter((d) => !isPeriodicDocName(d.name))).sort(byStagedRecency)
   const seedNotes = []
-  if ('polizza_numero' in fieldsById) {
+  if ('1ec23911-3e7d-5549-b2e2-be3db9d06ee8' in fieldsById) {
     const numCount = new Map()
     for (const d of basePool) {
       const rx = extractFieldsWithRegex(d.text)
@@ -2630,7 +3118,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // solo distinto lo si propone come seed (sovrascrivibile dal gruppo anagrafica
   // via merge per recency — MAI blindato); se ce ne sono ≥2 il campo resta al
   // modello, che ha l'istruzione "P.IVA del CONTRAENTE, mai della compagnia".
-  if ('codice_fiscale_iva' in fieldsById) {
+  if ('6f260040-ae1d-56d8-a185-1eb178e384fb' in fieldsById) {
     const vatSeen = new Map() // valore valido → doc del primo avvistamento
     for (const d of basePool) {
       // Finestra label→valore anche A CAVALLO di riga: sul campo la P.IVA del
@@ -2672,6 +3160,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     return bestDate
   }
+  // REGOLA 8: MINIMA data etichettata (decorrenza originaria del contratto).
+  const minLabeledDate = (text, labelRe) => {
+    let bestDate = null
+    for (const m of text.matchAll(labelRe)) {
+      const d = parseDateFromContextLine(m[0], /[\s\S]+/)
+      if (d && (dateStrToTs(d) ?? Infinity) < (dateStrToTs(bestDate) ?? Infinity)) bestDate = d
+    }
+    return bestDate
+  }
   // Data MASSIMA dentro la finestra etichetta→valori: nelle quietanze l'header
   // tabellare "SCAD. RATA  RATA SUCC." sta su una riga e le date sulla riga sotto
   // ("31/12/2024 31/12/2025") — le colonne OCR non si allineano, ma la scadenza
@@ -2700,23 +3197,27 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     return bestDate
   }
   for (const d of analyzed) {
+    // REGOLA 8 (generalizzazione): la DECORRENZA del contratto è la data di
+    // inizio ORIGINARIA, cioè la più ANTICA tra quelle etichettate
+    // "decorrenza/effetto/inizio copertura". Le quietanze ristampano l'inizio
+    // del PERIODO DI RATA corrente (31/12/2025) che NON è la decorrenza della
+    // polizza (01/07/2010): prendere la massima spostava la decorrenza sulla
+    // rata. Per la SCADENZA vale l'opposto: la copertura corrente finisce alla
+    // data più recente.
+    const decDates = [
+      minLabeledDate(d.text, /(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA|DATA\s+INIZIO)\b[^\n]{0,100}/gi),
+      minDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
+    ].filter(Boolean)
+    const scaDates = [
+      maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
+      maxDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
+      parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i),
+    ].filter(Boolean)
     const hits = {
-      // Decorrenza: etichetta esplicita OPPURE l'inizio del periodo di rata
-      // (min della finestra SCAD. RATA) — sulla quietanza più recente è la
-      // decorrenza del periodo di copertura corrente, coerente con la scadenza.
-      decorrenza: [maxLabeledDate(d.text, /DECORRENZA\b[^\n]{0,100}/gi),
-        minDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi)]
-        .filter(Boolean)
-        .sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
-      // Per la scadenza valgono anche l'header abbreviato "SCAD. RATA/RATA SUCC."
-      // (valori a riga sotto) e la fine del periodo di rata/regolazione
-      scadenza: [maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
-        maxDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
-        parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)]
-        .filter(Boolean)
-        .sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
+      decorrenza: decDates.sort((a, b) => (dateStrToTs(a) ?? Infinity) - (dateStrToTs(b) ?? Infinity))[0] || null,
+      scadenza: scaDates.sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
     }
-    for (const id of ['decorrenza', 'scadenza']) {
+    for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
       if (!(id in fieldsById) || !hits[id]) continue
       const norm = normalizeDateValue(hits[id])
       if (!norm) continue
@@ -2724,7 +3225,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       best[id] = pickMoreRecentCandidate(best[id], cand, kindOf[id] || 'anagrafica')
     }
   }
-  for (const id of ['decorrenza', 'scadenza']) {
+  for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
     if (best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
   }
   // Seed ATTIVITÀ: nei testi di polizza la descrizione concreta segue quasi sempre
@@ -2734,19 +3235,58 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // polizza E appendici (una ridefinizione in appendice vince per recency).
   const attField = activeFields.find((f) => /attivit/i.test(`${f.id} ${f.label} ${f.description || ''}`))
   if (attField) {
+    // La descrizione concreta dell'attività ASSICURATA dell'azienda. Priorità
+    // della sorgente (più affidabile prima):
+    //   3 = riga esplicita "Attività Assicurata: …" (dichiarazione)
+    //   2 = sezione dedicata "DESCRIZIONE DEL RISCHIO"/"OGGETTO DELL'ASS·"
+    //   1 = descrizione generica "di seguito descritta"
+    //   0 = catch-all "attività: …" (può includere estensioni personali: scartate)
+    // A parità regnano recency + pickMoreRecentCandidate (deterministico).
+    const attRegexes = [
+      { score: 3, re: /ATTIVIT\S{0,2}\s+ASSICURATA\s*[:]\s*\n?\s*([^\n]{15,300})/i },
+      { score: 2, re: /(?:descrizione\s+del\s+rischio|oggetto\s+dell'assicurazione|oggetto\s+delle?\s+assicurazione)\s*[:.]?\s*\n?\s*([^\n]{15,300})/i },
+      { score: 2, re: /(?:di\s+seguito\s+)?descritt[ao]\s*[:;]\s*\n?\s*([^\n]{15,300})/i },
+      { score: 1, re: /ATTIVIT\S{0,2}(?:\s+ASSICURATA)?\s*[:]\s*\n?\s*([^\n]{15,300})/i },
+    ]
+    // Score per sorgente, mantenuto in un registro separato (mai dentro i dati).
+    const attScore = new Map()
     for (const d of analyzed.filter((x) => !isPeriodicDocName(x.name))) {
-      const m = d.text.match(/(?:di\s+seguito\s+)?descritt[ao]\s*[:;]\s*\n?\s*([^\n]{15,300})/i)
-        || d.text.match(/ATTIVIT\S{0,2}(?:\s+ASSICURATA)?\s*[:]\s*\n?\s*([^\n]{15,300})/i)
-      if (!m) continue
-      const candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
+      let mc = null, mscore = 0
+      for (const { score, re } of attRegexes) {
+        const m = d.text.match(re)
+        if (m) { mc = m; mscore = score; break }
+      }
+      if (!mc) continue
+      let candidate = mc[1].trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
+      // La sezione "DESCRIZIONE DEL RISCHIO" spesso inizia con la riga
+      // istituzionale "Oggetto dell'Assicurazione: Responsabilità Civile
+      // derivante …". Quella è l'Oggetto della garanzia, NON l'attività
+      // dell'azienda: pulire il prefisso istituzionale se compare.
+      candidate = candidate.replace(/^oggetto\s+dell'assicurazione\s*[:.]?\s*/i, '')
+        .replace(/^responsabil(?:ità|ita)\s+civile\b[^\n]*?[:,]\s*/i, '').trim()
+        .replace(/^\s*civile\s+derivante\b/i, '').trim()
       if (candidate.length < 15 || isRinvioAttivita(candidate)) continue
+      // Attività di una PERSONA in un'estensione di garanzia ("dr. DI RENZO
+      // ELMO, attività: tecnico di laboratorio") esclude da sola: è il ruolo del
+      // singolo professionista coperto, NON l'attività dell'azienda.
+      if (/^(?:dr|dott|sig|dott\.ssa|sigg\.)[.,]?\s+\b[A-ZÀ-Ý]+\b,\s*attivit/i.test(String(mc[1]).trim())) continue
       if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue // heading tutto maiuscolo, non una descrizione
-      const pIdx = (d.pages || []).findIndex((pg) => pg && pg.includes(m[1].trim().slice(0, 40)))
+      const pIdx = (d.pages || []).findIndex((pg) => pg && pg.includes(mc[1].trim().slice(0, 40)))
       const cand = {
         valore: candidate, effDate: d.dateStr, docType: d.type,
         appendixOrd: d.appendixOrd, docPos: d.pos, file: d.name, page: pIdx >= 0 ? pIdx + 1 : '',
       }
-      best[attField.id] = pickMoreRecentCandidate(best[attField.id], cand, kindOf[attField.id] || 'strutturali')
+      const prev = best[attField.id]
+      const prevScore = attScore.get(attField.id) || 0
+      if (!prev) {
+        best[attField.id] = cand
+        attScore.set(attField.id, mscore)
+      } else if (mscore > prevScore) {
+        best[attField.id] = cand
+        attScore.set(attField.id, mscore)
+      } else if (mscore === prevScore) {
+        best[attField.id] = pickMoreRecentCandidate(prev, cand, kindOf[attField.id] || 'strutturali')
+      }
     }
     if (best[attField.id]) seedNotes.push(`${attField.id}="${String(best[attField.id].valore).slice(0, 60)}…" (da "${best[attField.id].file}")`)
   }
@@ -2755,12 +3295,38 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
   // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
   // nel merge per recency come ogni altro candidato (mai valori blindati).
-  const promptExtra = (settings.polizzaPromptExtra || '').trim()
+  let promptExtra = (settings.polizzaPromptExtra || '').trim()
+  // Archivio Qdrant (FEATURE E, OPT-IN): contesto storico della STESSA polizza,
+  // SOLO come supporto (mai precedenza sulla recency del documento attuale).
+  // DEFAULT OFF: senza settings.polizzaArchivio === true nessuna chiamata a
+  // Qdrant. Un guasto di Qdrant → skip silenzioso (mai throw).
+  if (settings.polizzaArchivio === true) {
+    const polizzaNumero = String(best.polizza_numero?.valore || '').trim()
+    if (polizzaNumero) {
+      const archBlock = await loadArchiveContext({
+        polizzaNumero,
+        settings,
+        diag,
+        search: (pn) => searchVector({ query: pn, polizzaNumero: pn, limit: 8 }, settings),
+      })
+      if (archBlock) promptExtra = [promptExtra, archBlock].filter(Boolean).join('\n')
+    } else {
+      diag.push('Archivio Qdrant: polizza_numero non estratto → contesto storico saltato.')
+    }
+  }
   // 24K di contesto per i gruppi: sul campo (diagnostica) i 16K col rapporto
   // prudente lasciavano 1/3 del contesto inutilizzato E fuori restavano proprio
   // le pagine coi dati (attività a pag. 23, P.IVA contraente a pag. 10). qwen2.5
-  // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB.
-  const batchCtx = Math.min(modelLimit || 131072, 24576)
+  // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB. Il DEFAULT resta 24576;
+  // polizzaBatchContext lo rende sovrascrivibile (ma vedi il warning sotto per
+  // il vincolo VRAM quando si supera il valore prudente).
+  const batchLimit = settings.polizzaBatchContext && settings.polizzaBatchContext > 0
+    ? settings.polizzaBatchContext
+    : 24576
+  if (batchLimit > 24576) {
+    diag.push(`AVVISO: batchContext ${batchLimit} supera il tetto sicuro 24576 (${settings.ollamaModel} su VRAM 8GB) — il KV può spillare su CPU e rallentare il modello`)
+  }
+  const batchCtx = Math.min(modelLimit || 131072, batchLimit)
 
   // ── AFFINITÀ SEMANTICA descrizione↔testo (agnostica: niente classi keyword) ─
   // La DESCRIZIONE del campo è l'unica verità semantica disponibile: guida DOVE
@@ -3019,7 +3585,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag })
+        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -3028,7 +3594,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`${label}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -3048,7 +3614,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
       // controprova sulla polizza base non ha più codice speciale — i suoi
       // candidati competono con l'affinità descrizione↔contesto come gli altri.
-      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity)
+      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages)
       const filled = report.filter((r) => r.outcome === 'ok').length
       diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
@@ -3097,10 +3663,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .join('\n')
     plan.system = stagedSystemPrompt(kind)
     plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
-    // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
-    // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
-    const reserve = estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length) + 3000 + 512
-    const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
+    // Budget di TESTO per batch: contesto del modello (num_ctx) meno guida campi
+    // + system ESPRESSO IN TOKEN, con un MARGINE di sicurezza (12% + quota fissa)
+    // perché un budget a filo del limite fa troncare il prompt in silenzio dal
+    // server (testa = guida campi persa → spazzatura). Se `num_ctx` è adeguato il
+    // margine ~% lascia il comportamento invariato; se il limite è sconosciuto o
+    // piccolo riduce il batch invece di sperare nel fit.
+    const reserveChars = plan.system.length + plan.buildPrompt('').length
+    const budgetChars = computeSafeContextBudget(batchCtx, {
+      systemChars: reserveChars,
+      evidenceChars: 0,
+      marginRatio: 0.12,
+      reservedChars: 0,
+    })
+    plan.budgetChars = budgetChars
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
     // Batch FOCALIZZATI in testa al gruppo: un documento per batch, mai mescolato
     // agli altri. Due criteri, entrambi TYPE-BLIND (documenti tutti uguali —
@@ -3131,6 +3707,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     const totChars = plan.batches.reduce((n, b) => n + b.text.length, 0)
     diag.push(`Gruppo "${kind}": ${groupFields.length} campi, ${groupDocs.length} documenti (~${totChars} char) → ${plan.batches.length} batch (${focusCount ? `${focusCount} focalizzat${focusCount > 1 ? 'i' : 'o'} (recenti + più affini alle descrizioni) + ` : ''}copertura totale, num_ctx ${batchCtx})`)
+    diag.push(`Gruppo "${kind}": budget testo ~${plan.budgetChars} char/batch (riserva ${estimateOllamaTokens(plan.system.length + plan.buildPrompt('').length)} token guida + 12% margine su ${batchCtx} num_ctx)`)
     if (mostAffine.length) diag.push(`Gruppo "${kind}": documenti più affini alle descrizioni → ${mostAffine.map((d) => `${d.name}~${groupAff(d).toFixed(2)}`).join(' · ')}`)
   }
   progressTotal = groupPlans.reduce((n, p2) => n + p2.batches.length, 0)
@@ -3165,7 +3742,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx, batchFieldLines), { numCtx, timeoutMs: 600000, diag })
+        const raw = await callOllamaRolling(s2, plan.system, plan.buildPrompt(ctx, batchFieldLines), { numCtx, timeoutMs: 600000, diag, fields: batchFields, shape: 'staged' })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -3174,7 +3751,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`Gruppo "${kind}" batch ${bi + 1}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx, batchFieldLines), { numCtx, numPredict: 4096, timeoutMs: 600000, diag })
+          const raw2 = await callOllamaRolling(s2, plan.system, plan.buildPrompt(usedCtx, batchFieldLines), { numCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: batchFields, shape: 'staged' })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -3192,7 +3769,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
       const report = []
-      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity)
+      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
         `${batchFields.length}/${groupFields.length} campi eleggibili, ${got} proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
@@ -3264,7 +3841,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
         // Contesto deterministico senza embeddings: pagine rank-ate per i token
         // DISCRIMINANTI di label (peso doppio) e descrizione, con stopword del
-        // dominio (parole come "polizza"/"assicurato" compaiono in OGNI pagina e
+        // dominio (parole come "polizza"/"61b6ea68-2b4d-54f2-9d9e-76615db22b94" compaiono in OGNI pagina e
         // renderebbero il punteggio puro rumore) e punteggio a frequenza saturata.
         const tokenize = (str) => String(str || '')
           .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -3353,11 +3930,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
         const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
         try {
-          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag })
+          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
-          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity)
+          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry, optionDocs, optionPages)
           if (recReport.length) {
             diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
           }
@@ -3388,28 +3965,229 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── Coerenza decorrenza/scadenza ──────────────────────────────────────────
-  // La coppia deve descrivere lo stesso periodo di copertura: un inizio uguale o
-  // successivo alla fine è impossibile (visto sul campo: decorrenza 31/12/2011
-  // con scadenza 31/12/2025 — vinceva un seed vecchio). Se la decorrenza è più
-  // vecchia della scadenza di oltre ~13 mesi su una polizza con documenti
-  // periodici ANNUALI, non è la decorrenza del periodo corrente: meglio vuota.
-  {
-    const decField = activeFields.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(`${f.id} ${f.label} ${f.description || ''}`))
-    const scaField = activeFields.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(`${f.id} ${f.label} ${f.description || ''}`))
-    const decTs = decField && best[decField.id] ? dateStrToTs(normalizeDateValue(best[decField.id].valore)) : null
-    const scaTs = scaField && best[scaField.id] ? dateStrToTs(normalizeDateValue(best[scaField.id].valore)) : null
-    if (decTs != null && scaTs != null) {
-      const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
-      const hasAnnualPeriodics = analyzed.some((d) => isPeriodicDocName(d.name))
-      if (decTs >= scaTs) {
-        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} ≥ scadenza ${best[scaField.id].valore} → decorrenza svuotata (impossibile)`)
-        delete best[decField.id]
-      } else if (hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
-        diag.push(`Coerenza date: decorrenza ${best[decField.id].valore} incoerente con scadenza ${best[scaField.id].valore} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
-        delete best[decField.id]
+  // ── Affidabilità per campo (credenza, deterministica e A-POSTERIORI) ──────
+  // Nessuna nuova chiamata LLM per il PUNTEGGIO: pesa i dati GIÀ nei candidati
+  // `best[k]`/`sources` (evidenza di pagina, checksum, recency, comparsa in più
+  // documenti, affinità). Calcolata QUI (prima della cross-field) perché alimenta
+  // la selezione dei campi dubbi dell'auto-verifica zero-shot (FEATURE B).
+  // Documenti TUTTI UGUALI: MAI una priorità per tipo documento.
+  const docNorms = analyzed.map((d) => ({ name: d.name, norm: normForMatch(d.text) }))
+  const seenCountsById = {}
+  for (const [id, cand] of Object.entries(best)) {
+    const vn = normForMatch(cand.valore)
+    if (!vn) { seenCountsById[id] = 1; continue }
+    let n = 0
+    for (const dn of docNorms) if (dn.norm.includes(vn)) n++
+    seenCountsById[id] = n
+  }
+  const checksumsById = {}
+  for (const [id, cand] of Object.entries(best)) {
+    const f = fieldsById[id]
+    if (!f) continue
+    const blob = `${f.id || ''} ${f.label || ''} ${f.description || ''}`
+    if (/iva|c\s*\.?\s*f\s*\.?|fiscale|p\s*\.?\s*i\s*\.?\s*v\s*\.?/i.test(blob) && validateCodiceFiscaleIva(cand.valore)) {
+      checksumsById[id] = true
+    }
+  }
+  const reliability = buildReliabilityMap(best, fieldsById, { checksumsById, seenCountsById })
+
+  // ── Auto-verifica zero-shot (FEATURE B, OPT-IN) ───────────────────────────
+  // Una SECONDA chiamata LLM breve sui testi SENZA checksum e con poca
+  // affidabilità: conferma o SCARTA il valore PRIMA della cross-field. DEFAULT
+  // OFF: senza settings.polizzaAutoVerify === true questo ramo non viene eseguito
+  // (→ comportamento identico a oggi). Regola ferrea: errore o parse fallito →
+  // CONSERVA (mai bloccare per un fallimento del guard rail).
+  if (settings.polizzaAutoVerify === true) {
+    const evidenceFor = (id, cand) => {
+      const srcDoc = cand?.file ? analyzed.find((d) => d.name === cand.file) : null
+      if (!srcDoc?.text) return ''
+      try {
+        const win = findValueWindow(buildNormIndex(srcDoc.text), String(cand.valore ?? ''), '')
+        return (win || '').slice(0, 160)
+      } catch { return '' }
+    }
+    const verifyCall = async (userPrompt) => callOllamaRolling(s2, AUTO_VERIFY_SYSTEM, userPrompt, {
+      numCtx: 8192, numPredict: 40, timeoutMs: 60000, diag, format: 'json',
+    })
+    try {
+      const beforeCount = Object.keys(best).length
+      const summary = await runAutoValidation({
+        best, fieldsById, checksumsById, reliabilityById: reliability, settings,
+        callModel: verifyCall, getEvidence: evidenceFor, opts: { max: DEFAULT_MAX_FIELDS },
+      })
+      if (summary.calls > 0) {
+        diag.push(`Auto-verifica zero-shot: ${summary.calls} campi ricontrollati, ${summary.scartati} scartati (${beforeCount} → ${Object.keys(best).length} campi)`)
+      }
+    } catch (err) {
+      diag.push(`Auto-verifica zero-shot non eseguita (${err.message}) — i valori non sono stati modificati.`)
+    }
+  }
+
+  const lowIds = Object.entries(reliability).filter(([, r]) => r.reliable < RELIABILITY_THRESHOLD).map(([id]) => id)
+  if (lowIds.length) {
+    diag.push(`Affidabilità: ${lowIds.length} campi sotto soglia ${RELIABILITY_THRESHOLD} (${lowIds.join(', ')})`)
+  } else {
+    diag.push(`Affidabilità: tutti i ${Object.keys(reliability).length} campi sopra soglia ${RELIABILITY_THRESHOLD}`)
+  }
+
+  // ── REGOLA 8: allineamento decorrenza/scadenza ai DOCUMENTI (post-merge) ──
+  // I merge precedenti (recency) possono aver spostato la decorrenza sulla rata
+  // corrente della quietanza. Qui si riparte dai DOCUMENTI: la decorrenza del
+  // contratto è la data di INIZIO più ANTICA tra le etichette esplicite
+  // (decorrenza/effetto/inizio copertura) di tutti i documenti; la scadenza è
+  // la data di FINE più recente (scadenza/periodo). MONOTONO: interviene SOLO
+  // se c'è un'etichetta esplicita che riallinea a prima della rata corrente.
+  if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById || '22408456-185d-5803-b489-02af1a084911' in fieldsById) {
+    let minDec = null
+    let maxSca = null
+    for (const d of analyzed) {
+      const decEtic = minLabeledDate(d.text, /(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA)\b[^\n]{0,100}/gi)
+      if (decEtic && (dateStrToTs(decEtic) ?? Infinity) < (dateStrToTs(minDec) ?? Infinity)) minDec = decEtic
+      const scaEtic = maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi)
+      if (scaEtic && (dateStrToTs(scaEtic) ?? -Infinity) > (dateStrToTs(maxSca) ?? -Infinity)) maxSca = scaEtic
+      const perFine = parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)
+      if (perFine && (dateStrToTs(perFine) ?? -Infinity) > (dateStrToTs(maxSca) ?? -Infinity)) maxSca = perFine
+    }
+    if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById && minDec) {
+      const norm = normalizeDateValue(minDec)
+      const cur = best.decorrenza?.valore
+      const curTs = cur ? dateStrToTs(cur) : null
+      if (norm && norm !== cur && (curTs == null || (dateStrToTs(norm) ?? 0) < curTs)) {
+        best.decorrenza = {
+          valore: norm, effDate: norm, docType: null, appendixOrd: null, docPos: null,
+          file: 'documenti', page: '', affinity: 1, lex: 1, deterministic: true,
+        }
+        diag.push(`Regola 8 (decorrenza): ${cur} → ${norm} (decorrenza originaria più antica, non la rata corrente)`)
       }
     }
+    if ('22408456-185d-5803-b489-02af1a084911' in fieldsById && maxSca) {
+      const norm = normalizeDateValue(maxSca)
+      const cur = best.scadenza?.valore
+      if (norm && norm !== cur) {
+        best.scadenza = {
+          valore: norm, effDate: norm, docType: null, appendixOrd: null, docPos: null,
+          file: 'documenti', page: '', affinity: 1, lex: 1, deterministic: true,
+        }
+        diag.push(`Regola 8 (scadenza): ${cur || '(vuoto)'} → ${norm} (scadenza più recente dai documenti)`)
+      }
+    }
+  }
+
+  // ── Guardrail garanzia Tutela (FIX 4, deterministico, post-merge) ─────────
+  // I 4 campi Tutela (rcp_scoperto_min_mondo + Tutela massimale/franchigia/
+  // premio) hanno description CONDIZIONATA ("Verifica se presente la garanzia
+  // Tutela…", "Massimale della garanzia Tutela/Tutela legale"). Se nel fascicolo
+  // NON c'è evidenza testuale SICURA della garanzia (pattern "tutela legale",
+  // "garanzia tutela", "massimale della garanzia tutela"… su documenti NON
+  // opzione), i campi restano VUOTI: i valori "260.000 limite RC", "250
+  // franchigia fabbricati", "7.260 premio annuo" estratti da altre garanzie non
+  // sono Tutela. Meglio vuoto che sbagliato (regola del repo); e MAI bloccare
+  // per un fallimento della guardia: se non riesco a decidere, conservo.
+  {
+    const tutelaDocs = analyzed.filter((d) => !optionDocs.has(d.name))
+    const tutelaEvidence = hasDocumentedTutelaEvidence(tutelaDocs)
+    for (const f of activeFields) {
+      if (!(f.id in best)) continue
+      if (!isSpecificCoverageField(f)) continue
+      const cand = best[f.id]
+      // candidato da un documento-questionario (opzione): non è garanzia operante
+      const fromOption = !!cand?.file && optionDocs.has(cand.file)
+      if (!tutelaEvidence || fromOption) {
+        diag.push(`Guardrail Tutela: ${!tutelaEvidence ? 'nessuna evidenza della garanzia nel fascicolo' : `candidato da opzione (${cand.file})`} → "${f.id}" (${f.label}) svuotato (meglio vuoto che sbagliato)`)
+        delete best[f.id]
+      }
+    }
+  }
+
+  // ── PASSATA DETERMINISTICA sui numeri strutturali ────────────────────────────
+  // Dopo il guardrail Tutela (che resta sovrano sui campi condizionali) e prima
+  // delle coerenze cross-field: la scan pura su testo OCR (polizzaNumericScan)
+  // cerca i PATTERN FISSI (dichiarazione "unico per sinistro", franchigia
+  // frontale, sottolimiti per garanzia, quietanza imponibile/imposta/totale,
+  // fatturato dichiarato) e sovrascrive SOLO i campi strutturali la cui natura
+  // corrisponde e solo quando l'hint è AD ALTA confidenza. Type-blind: non
+  // dipende dagli id (vale per RC PROF MED V2 e altri profili).
+  {
+    const scanDocs = analyzed.map((d) => ({
+      name: d.name,
+      pages: d.pages, // testi PIATTI (collapseSpatial) come da convenzione
+      dateStr: d.dateStr,
+      docType: d.type,
+      appendixOrd: d.appendixOrd,
+      pos: d.pos,
+    }))
+    const res = applyDeterministicOverrides(best, activeFields, scanDocs, diag, {
+      minConfidence: DETERMINISTIC_MIN_CONFIDENCE,
+    })
+    if (res.hintTotal) {
+      diag.push(`Passata deterministica: ${res.applied} campi sovrascritti su ${res.hintTotal} hint trovati nella cache OCR`)
+    }
+    // NIENTE completamento premio lordo: il totale dichiarato si estrae dai
+    // documenti; il calcolo imponibile+imposta era pericoloso (la scan poteva
+    // prendere il premio RATA per l'imposta e sovrascrivere il lordo reale).
+    // Se imponibile/imposta/totale mancano, il campo resta vuoto: meglio vuoto
+    // che un valore ricostruito.
+  }
+
+  // ── Guardrail ANTI-SPILL (Regola 1) ───────────────────────────────────────
+  // Prima delle coerenze cross-field: un unico importo copiato dal LLM su
+  // troppi campi massimali/scoperti della stessa famiglia, quando la famiglia
+  // non è variata (le cifre vere sarebbero diverse), è SPILL → svuotato.
+  {
+    const spillNotes = []
+    const cleared = guardAntiSpill(best, activeFields, spillNotes)
+    for (const n of spillNotes) diag.push(n)
+    if (cleared) diag.push(`Anti-spill: ${cleared} campi massimali/scoperti svuotati (valore identico ripetuto, meglio vuoto che sbagliato)`)
+  }
+
+  // ── Guardia ANTI-SPILL POST-MERGE (valori del LLM inclusi) ───────────────
+  // Dopo la deterministic pass: la guardia sopra legge solo gli hint della scan,
+  // ma su CEDAM lo spill 7.500.000 lo scrive il LLM al batch (e su ODON i "0,00"
+  //), quindi il `best` FINALE va ripulito a prescindere dalla fonte. Una stessa
+  // cifra su campi strutturali di natura DIVERSA è spill ("le regole scelgono,
+  // non inventano"): si conserva solo la natura coerente (per-sinistro/annuo).
+  // Un valore <= 50 (0,00 incluso) su un campo numerico strutturale è un
+  // placeholder di assenza → svuotato. Pura, la logica sta in
+  // polizzaNumericScan.guardPostMergeSpill.
+  {
+    const pmNotes = []
+    const cleared = guardPostMergeSpill(best, activeFields, pmNotes)
+    for (const n of pmNotes) diag.push(n)
+    if (cleared) diag.push(`Anti-spill post-merge: ${cleared} campi strutturali svuotati (spill o placeholder, meglio vuoto che sbagliato)`)
+  }
+
+  // ── GUARDIA ECONOMICO→STRUTTURALE (post-merge, FIX ODON/PROF.LE) ───────────
+  // Dopo la guardia sopra: un importo che è GIÀ il valore di un campo ECONOMICO
+  // (premio/imponibile/imposta/fatturato/accessorio) NON può essere anche il
+  // valore di un campo STRUTTURALE (massimale/scoperto/franchigia). Su ODON il
+  // premio RC 927,00 finiva su `rct_massimale_sinistro`, su PROF.LE il premio
+  // infortuni 25,00 su `rcp_premio_totale`. Pura in polizzaNumericScan.
+  {
+    const econNotes = []
+    const clearedEcon = guardEconomicToStructuralSpill(best, activeFields, econNotes)
+    for (const n of econNotes) diag.push(n)
+    if (clearedEcon) diag.push(`Anti-spill econ→strutt: ${clearedEcon} campi strutturali svuotati (importo già dichiarato su un campo economico)`)
+  }
+
+  // ── GUARDIA FRANCHIGIA↔SCOPERTO (post-merge, FIX caso B) ──────────────────
+  // Lo stesso valore non può stare su un campo "franchigia" e su uno "scoperto":
+  // prevale la natura del campo su cui l'importo è etichettato (franchigia →
+  // campo franchigia; scoperto → campo scoperto), l'altro si svuota. Su B la
+  // franchigia 10.000 finiva su `rct_massimale_prestatore` (scoperto) invece
+  // che su `rct_massimale_danni` (franchigia). Pura in polizzaNumericScan.
+  {
+    const fsNotes = []
+    const clearedFs = guardFranchigiaScoperto(best, activeFields, fsNotes, analyzed)
+    for (const n of fsNotes) diag.push(n)
+    if (clearedFs) diag.push(`Franchigia-scoperto: ${clearedFs} campi svuotati (valore di natura franchigia o scoperto finito sul campo di natura opposta)`)
+  }
+
+  // ── Coerenza cross-field ──────────────────────────────────────────────────
+  {
+    const xfNotes = validateCrossFields(best, activeFields, {
+      hasAnnualPeriodics: analyzed.some((d) => isPeriodicDocName(d.name)),
+    })
+    for (const n of xfNotes) diag.push(n)
   }
 
   // ── Uscita ────────────────────────────────────────────────────────────────
@@ -3422,8 +4200,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     else unsourced++
   }
   diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
+
   diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length}`)
-  return { data, sources, diag }
+  return { data, sources, diag, reliability }
 }
 
 /**
@@ -3530,7 +4309,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
       diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
       // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
       // 4-6 minuti; il margine evita di buttare il lavoro per un timeout.
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag })
+      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
     }
   } catch (err) {
     const classified = classifyLlmError(err, settings)

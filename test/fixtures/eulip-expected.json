@@ -1,0 +1,21 @@
+{
+  "id": "eulip",
+  "label": "Fascicolo EULIP (45 PDF)",
+  "note": "Golden di taratura da CLAUDE.md. Non è un prompt: serve solo all'eval. Chiavi uuid (id campo non più parlante).",
+  "fields": {
+    "1ec23911-3e7d-5549-b2e2-be3db9d06ee8": { "value": "283618616", "mode": "exact" },
+    "6f260040-ae1d-56d8-a185-1eb178e384fb": { "value": "00151510344", "mode": "vat" },
+    "4dc720d8-8237-5084-b288-fd32bd1d19c6": { "value": "31/12/2024", "mode": "date" },
+    "22408456-185d-5803-b489-02af1a084911": { "value": "31/12/2025", "mode": "date" },
+    "94cbee3c-f83b-5b95-87b8-8b68d02d6d59": { "value": "4.000.000,00", "mode": "amount" },
+    "37ab743b-316e-58a4-8fe4-3112bc6d2139": { "value": "1.001,25", "mode": "amount" },
+    "545374de-c000-5905-8c62-d36f9fdf7f43": { "value": "5.501,25", "mode": "amount" },
+    "4ffc5b95-9f28-551a-b587-12f4ea740b12": { "value": "ACQUI TERME", "mode": "text" },
+    "28672974-6247-5654-a053-be29b408ffc1": {
+      "value": "retribuzioni",
+      "mode": "contains",
+      "forbidden": ["Premi", "Premio", "Consuntivo", "Preventivo"]
+    },
+    "9517aacb-987f-55c8-8737-2df19980c55f": { "value": "1.800.000", "mode": "amount" }
+  }
+}
