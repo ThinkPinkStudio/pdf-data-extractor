@@ -1,6 +1,6 @@
 /**
  * Test del punteggio di affidabilità per campo/scelta (FEATURE F): modulo PURO
- * src/main/services/polizzaReliability.js.
+ * src/services/polizzaReliability.js.
  *
  * Esegui:  node --test test/polizzaReliability.test.mjs
  *
@@ -14,7 +14,7 @@ import {
   computeFieldReliability,
   buildReliabilityMap,
   RELIABILITY_THRESHOLD,
-} from '../src/main/services/polizzaReliability.js'
+} from '../src/services/polizzaReliability.js'
 
 // ─── Checkbox base ─────────────────────────────────────────────────────────
 

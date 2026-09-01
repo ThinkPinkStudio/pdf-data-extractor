@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 
 import {
   FIELD_KINDS, kindFromType, inferKindFromDescription, fieldKind, fieldNatura,
-} from '../src/main/services/polizzaFieldKind.js'
+} from '../src/services/polizzaFieldKind.js'
 
 // ─── kindFromType ─────────────────────────────────────────────────────────────
 

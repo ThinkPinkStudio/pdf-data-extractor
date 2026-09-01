@@ -7,11 +7,11 @@ on:
 permissions:
   contents: write
 
-# Pipeline unica: bump -> build -> release nello stesso run.
-# Motivo: un push fatto con GITHUB_TOKEN (es. il commit di bump) NON innesca
-# altri workflow, quindi non si puo' delegare la release a un trigger separato
-# sul commit "chore: bump version". Facendo tutto in un solo run il problema
-# sparisce.
+# Pipeline minima: solo il bump di versione a ogni push su main.
+# Il deploy della web app lo fa Coolify (build automatica del Dockerfile web/);
+# con l'app desktop eliminata non c'e' piu' nessun artefatto Electron da
+# compilare/pubblicare. Il bump serve a NEXT_PUBLIC_APP_VERSION (web) e a
+# tracciare cosa e' arrivato in produzione.
 jobs:
   bump:
     # Salta i commit di bump (non dovrebbero comunque triggerare nulla, dato
@@ -20,8 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
-      short_sha: ${{ steps.bump.outputs.short_sha }}
-      full_sha: ${{ steps.bump.outputs.full_sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -54,123 +52,3 @@ jobs:
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "full_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  build:
-    needs: bump
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: win
-          # - os: macos-latest
-          #   artifact: mac
-          # - os: ubuntu-latest
-          #   artifact: linux
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Builda esattamente il commit di bump appena pushato, cosi' la
-          # versione nei pacchetti combacia con quella della release.
-          ref: ${{ needs.bump.outputs.full_sha }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build app (electron-vite)
-        run: npm run build
-        env:
-          UPDATE_DOWNLOAD_URL: ${{ vars.UPDATE_DOWNLOAD_URL }}
-          # Config iniettata nel bundle a build time (vedi electron.vite.config.mjs).
-          # Senza questo mapping i secret/vars del repo NON arrivano a process.env
-          # durante 'npm run build', e __RESEND_API_KEY__ verrebbe compilato vuoto.
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MAGIC_LINK_FROM: ${{ vars.MAGIC_LINK_FROM }}
-          ALLOWED_DOMAINS: ${{ vars.ALLOWED_DOMAINS }}
-
-      - name: Build (Windows)
-        if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # - name: Build (macOS)
-      #   if: matrix.os == 'macos-latest'
-      #   run: npx electron-builder --mac --publish never
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # - name: Build (Linux)
-      #   if: matrix.os == 'ubuntu-latest'
-      #   run: npx electron-builder --linux --publish never
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.artifact }}
-          path: |
-            dist/*.exe
-            dist/*.blockmap
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.zip
-            dist/*.yml
-          if-no-files-found: warn
-
-  release:
-    needs: [bump, build]
-    runs-on: ubuntu-latest
-    # Il secret RELEASES_TOKEN abilita la pubblicazione del feed di auto-update sul
-    # repo pubblico. Finché non esiste, lo step relativo viene SALTATO (build verde).
-    env:
-      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist-all
-          merge-multiple: true
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.bump.outputs.version }}-${{ needs.bump.outputs.short_sha }}
-          name: PDF Data Extractor v${{ needs.bump.outputs.version }}
-          target_commitish: ${{ needs.bump.outputs.full_sha }}
-          body: |
-            Build automatica dal commit `${{ needs.bump.outputs.short_sha }}`.
-
-            | Piattaforma | File |
-            |-------------|------|
-            | Windows     | `.exe` (installer NSIS) |
-            | macOS       | `.dmg` |
-            | Linux       | `.AppImage`, `.deb` |
-          files: dist-all/*
-          fail_on_unmatched_files: false
-
-      # Pubblica il FEED di auto-update su un repo PUBBLICO separato: i binari sono
-      # pubblici (scaricabili senza token), il CODICE resta privato. electron-updater
-      # (provider github) legge latest.yml + .exe da qui. Richiede il secret
-      # RELEASES_TOKEN = un PAT con "contents: write" SOLO sul repo releases pubblico.
-      - name: Publish auto-update feed (public releases repo)
-        if: ${{ env.RELEASES_TOKEN != '' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          repository: ThinkPinkStudio/pdf-data-extractor-releases
-          token: ${{ secrets.RELEASES_TOKEN }}
-          tag_name: v${{ needs.bump.outputs.version }}
-          name: PDF Data Extractor v${{ needs.bump.outputs.version }}
-          files: dist-all/*
-          fail_on_unmatched_files: false

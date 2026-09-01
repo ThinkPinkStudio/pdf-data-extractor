@@ -41,8 +41,8 @@ import {
   findValueWindow,
   hasOcrDigitRun,
   validateCrossFields,
-} from '../src/main/services/polizzaValidation.js'
-import { fieldNatura } from '../src/main/services/polizzaFieldKind.js'
+} from '../src/services/polizzaValidation.js'
+import { fieldNatura } from '../src/services/polizzaFieldKind.js'
 
 // ─── Placeholder ─────────────────────────────────────────────────────────────
 
@@ -352,7 +352,7 @@ test('recency: tra appendici senza data vince l\'ordinale più alto', () => {
 // quietanza che RISTAMPA in testa la scadenza contrattuale originale (2008) ma
 // copre la rata 2025 deve risultare datata 2025, non 2008 (il bug che
 // neutralizzava la regola "il più recente vince" su tutto il fascicolo).
-import { latestDateExcludingEmission } from '../src/main/services/polizzaDates.js'
+import { latestDateExcludingEmission } from '../src/services/polizzaDates.js'
 
 test('datazione: la quietanza con header contrattuale vecchio è datata dalla rata', () => {
   const QUIETANZA_2025 =

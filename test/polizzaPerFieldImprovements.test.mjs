@@ -11,10 +11,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { chunkTextLabelAware } from '../src/main/services/vectorIndexService.js'
+import { chunkTextLabelAware } from '../src/services/vectorIndexService.js'
 import {
   anagraphicSeedKind, anagraphicSeeds, windowsFromLabelValuePairs,
-} from '../src/main/services/polizzaGrounding.js'
+} from '../src/services/polizzaGrounding.js'
 
 const MASSIMALE = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', description: 'Massimale RCT per ogni sinistro', type: 'number' }
 const CF = { id: 'codice_fiscale_iva', label: 'P. IVA / Cod. Fiscale', description: 'Partita IVA del contraente', type: 'fiscal' }

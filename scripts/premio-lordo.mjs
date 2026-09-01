@@ -15,7 +15,7 @@
  *                        chiedere (senza questo flag il comando si FERMA)
  *   --dry-run            calcola e stampa il report, non scrive nulla
  *
- * Il lavoro vero lo fa src/main/services/premioLordoWorkbook.js, lo stesso
+ * Il lavoro vero lo fa src/services/premioLordoWorkbook.js, lo stesso
  * servizio usato dalla pagina web: qui ci sono solo argomenti, file e stampa.
  */
 
@@ -27,8 +27,8 @@ import {
   processPremioLordo,
   outputFileName,
   PremioLordoError
-} from '../src/main/services/premioLordoWorkbook.js'
-import { formatItalian } from '../src/main/services/premioLordo.js'
+} from '../src/services/premioLordoWorkbook.js'
+import { formatItalian } from '../src/services/premioLordo.js'
 
 function parseArgs(argv) {
   const opts = {

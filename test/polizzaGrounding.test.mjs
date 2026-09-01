@@ -12,7 +12,7 @@ import {
   rankWindowsByRecency, recencyPrompt,
   anagraphicSeedKind, anagraphicSeeds, windowsFromLabelValuePairs,
   GROUNDING_MIN_CONFIDENCE, MIN_TRUSTED_CONFIDENCE,
-} from '../src/main/services/polizzaGrounding.js'
+} from '../src/services/polizzaGrounding.js'
 
 // ─── Fixture ────────────────────────────────────────────────────────────────
 

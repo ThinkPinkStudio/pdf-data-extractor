@@ -1,6 +1,6 @@
 /**
  * Test di auto-validazione "zero-shot" (FEATURE B): modulo PURO
- * src/main/services/polizzaAutoValidate.js.
+ * src/services/polizzaAutoValidate.js.
  *
  * Esegui:  node --test test/polizzaAutoValidate.test.mjs
  *
@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import {
   selectFieldsToDoubleCheck, buildDoubleCheckPrompt, parseDoubleCheck,
   runAutoValidation, DEFAULT_MAX_FIELDS, AUTO_VERIFY_SYSTEM,
-} from '../src/main/services/polizzaAutoValidate.js'
+} from '../src/services/polizzaAutoValidate.js'
 
 const mkField = (id, label, desc, type = 'text') => ({ id, label, description: desc, type })
 

@@ -1,19 +1,13 @@
 'use client'
 
 import { useState, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 
-function LoginForm() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const errorParam = searchParams.get('error')
+function ForgotForm() {
   const t = useT()
-
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
 
@@ -23,47 +17,60 @@ function LoginForm() {
     setErrorMsg('')
     setErrorDetail('')
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/forgot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email }),
       })
       if (res.ok) {
-        const next = searchParams.get('next')
-        router.replace(next && next.startsWith('/') && !next.startsWith('//') ? next : '/hub')
-        router.refresh()
+        setStatus('sent')
       } else {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error || t('auth.errCredentials'))
+        setErrorMsg(data.error || t('auth.errSend'))
         setErrorDetail(data.detail || '')
         setStatus('error')
       }
     } catch (err) {
-      setErrorMsg(t('auth.errGeneric'))
+      setErrorMsg(t('auth.errSend'))
       setErrorDetail((err as Error).message)
       setStatus('error')
     }
   }
 
+  if (status === 'sent') {
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: 'rgba(233,30,140,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 26, margin: '0 auto 20px',
+        }}>📧</div>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t('auth.resetSent')}</h2>
+        <Link
+          href="/auth/login"
+          className="btn btn-secondary"
+          style={{ display: 'inline-block', marginTop: 24, padding: '10px 20px', fontSize: 14 }}
+        >
+          {t('auth.backToLogin')}
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-      {(errorParam || status === 'error') && (
+      {status === 'error' && (
         <div className="alert alert-error" style={{ marginBottom: 20 }}>
-          <div style={{ fontWeight: 600 }}>
-            {errorParam
-              ? errorParam === 'expired'
-                ? t('auth.errExpired')
-                : t('auth.errGeneric')
-              : errorMsg}
-          </div>
+          <div style={{ fontWeight: 600 }}>{errorMsg}</div>
           {errorDetail && <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9, wordBreak: 'break-word' }}>{errorDetail}</div>}
         </div>
       )}
 
       <div className="form-group">
-        <label className="label" htmlFor="email">{t('auth.email')}</label>
+        <label className="label" htmlFor="forgot-email">{t('auth.email')}</label>
         <input
-          id="email"
+          id="forgot-email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -75,58 +82,25 @@ function LoginForm() {
         />
       </div>
 
-      <div className="form-group">
-        <label className="label" htmlFor="password">{t('auth.password')}</label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={t('auth.passwordPlaceholder')}
-          required
-          autoComplete="current-password"
-          style={{ fontSize: 15, padding: '11px 14px' }}
-        />
-      </div>
-
       <button
         type="submit"
         className="btn btn-primary"
         style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, marginTop: 4 }}
         disabled={status === 'loading'}
       >
-        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.login')}
+        {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.forgotSubmit')}
       </button>
 
       <div style={{ marginTop: 14, textAlign: 'center' }}>
-        <Link href="/auth/forgot" style={{ fontSize: 13, color: 'var(--c-accent)' }}>
-          {t('auth.forgot')}
+        <Link href="/auth/login" style={{ fontSize: 13, color: 'var(--c-accent)' }}>
+          {t('auth.backToLogin')}
         </Link>
       </div>
-
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        margin: '18px 0', fontSize: 11, textTransform: 'uppercase',
-        letterSpacing: '0.06em', color: 'var(--c-text-muted)',
-      }}>
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-        {t('auth.or')}
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-      </div>
-
-      <Link
-        href="/auth/onboarding"
-        className="btn btn-secondary"
-        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, textAlign: 'center', display: 'block' }}
-      >
-        {t('auth.onboardingLink')}
-      </Link>
     </form>
   )
 }
 
-function LoginShell() {
-  const t = useT()
+export default function ForgotPage() {
   return (
     <div style={{
       minHeight: '100vh',
@@ -149,9 +123,6 @@ function LoginShell() {
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.3px', marginBottom: 6 }}>
           PDF Data Extractor
         </h1>
-        <p style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>
-          {t('auth.subtitle')}
-        </p>
       </div>
 
       <div style={{
@@ -163,20 +134,25 @@ function LoginShell() {
         padding: '28px 28px 24px',
         boxShadow: 'var(--shadow-lg)',
       }}>
-        <LoginForm />
+        <ForgotShell />
+        <Suspense>
+          <ForgotForm />
+        </Suspense>
       </div>
-
-      <p style={{ marginTop: 20, color: 'var(--c-text-muted)', fontSize: 12 }}>
-        {t('auth.authorizedOnly')}
-      </p>
     </div>
   )
 }
 
-export default function LoginPage() {
+function ForgotShell() {
+  const t = useT()
   return (
-    <Suspense>
-      <LoginShell />
-    </Suspense>
+    <>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
+        {t('auth.forgotTitle')}
+      </h2>
+      <p style={{ color: 'var(--c-text-muted)', fontSize: 13, marginBottom: 20, textAlign: 'center', lineHeight: 1.5 }}>
+        {t('auth.forgotSubtitle')}
+      </p>
+    </>
   )
 }

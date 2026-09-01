@@ -1,6 +1,6 @@
 /**
  * Test del contesto storico dall'archivio Qdrant (FEATURE E): modulo PURO
- * src/main/services/polizzaArchiveContext.js.
+ * src/services/polizzaArchiveContext.js.
  *
  * Esegui:  node --test test/polizzaArchivio.test.mjs
  *
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict'
 import {
   interpretHistorical, buildArchiveContext, loadArchiveContext,
   ARCHIVE_MIN_SCORE, ARCHIVE_SNIPPET_LEN,
-} from '../src/main/services/polizzaArchiveContext.js'
+} from '../src/services/polizzaArchiveContext.js'
 
 // ─── interpretHistorical ─────────────────────────────────────────────────────
 

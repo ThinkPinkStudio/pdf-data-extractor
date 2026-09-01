@@ -21,7 +21,7 @@ import {
   canApplyScanHint, isPlausibleScanValue,
   guardPostMergeSpill,
   guardEconomicToStructuralSpill, guardFranchigiaScoperto, isEconomicField,
-} from '../src/main/services/polizzaNumericScan.js'
+} from '../src/services/polizzaNumericScan.js'
 
 const K = NUMERIC_SCAN_KINDS
 

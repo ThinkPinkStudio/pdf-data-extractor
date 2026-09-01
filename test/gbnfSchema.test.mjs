@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   fieldValueKind, VALUE_PATTERNS, buildJsonSchema, buildGbnfGrammar, ollamaFormatFor,
-} from '../src/main/services/gbnfSchema.js'
+} from '../src/services/gbnfSchema.js'
 
 const fields = [
   { id: 'polizza_numero', label: 'N° Polizza', type: 'text' },

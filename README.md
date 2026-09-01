@@ -1,6 +1,6 @@
 # PDF Data Extractor
 
-Applicazione desktop cross-platform (Windows / macOS / Linux) sviluppata da **ThinkPink Studio** per estrarre dati strutturati da documenti PDF tramite intelligenza artificiale.
+Applicazione web (Next.js) sviluppata da **ThinkPink Studio** per estrarre dati strutturati da documenti PDF tramite intelligenza artificiale. Gira su rete interna in HTTP; l'accesso avviene con account email+password (onboarding one-time per i domini autorizzati).
 
 ---
 
@@ -19,10 +19,10 @@ Carica uno o più PDF e lascia che l'AI estragga i campi configurati (nome, data
 Sezione dedicata all'estrazione dati da polizze assicurative RC Terzi / RC Prodotti.
 
 - **Estrazione rolling** — elabora una pagina alla volta accumulando lo stato in modo date-aware (vince sempre il dato più recente); più precisa su documenti lunghi
-- **Supporto PDF scansionati** — usa un modello vision (Ollama, OpenAI o Anthropic) per leggere pagine immagine
+- **Supporto PDF scansionati** — OCR Tesseract offline (in cache per hash contenuto)
 - **Tipi di polizza configurabili** — ogni tipo diventa un tab separato (es. RCT_O, RCP)
 - **Mappatura celle Excel** — ogni campo estratto può essere mappato a una o più celle del gestionale
-- **Export non distruttivo su template** — scrive i valori **solo** nelle celle target, modificando l'XML dentro lo ZIP `.xlsx` e lasciando intatto tutto il resto del file (formattazione, colori, formati numero, validazioni, formattazione condizionale, grafici). Niente più messaggio di ripristino su Windows e nessuna alterazione dell'aspetto originale. Un diff mostra i valori vecchi/nuovi prima di salvare.
+- **Export non distruttivo su template** — scrive i valori **solo** nelle celle target, modificando l'XML dentro lo ZIP `.xlsx` e lasciando intatto tutto il resto del file. Un diff mostra i valori vecchi/nuovi prima di salvare.
 - **Istruzioni AI extra** — testo aggiuntivo incluso nel prompt per affinare l'estrazione
 
 ### Batch
@@ -39,17 +39,12 @@ Ogni sessione di estrazione viene salvata automaticamente.
 - Eliminazione selettiva o pulizia totale
 - **Retention configurabile** — elimina automaticamente le sessioni più vecchie di N giorni (default 90, impostazione GDPR)
 
-### Contatti
-Rubrica integrata per gestire i contatti associati alle estrazioni.
-
 ### Impostazioni
 - **Provider LLM** — Ollama (locale, privacy-first), OpenAI o Anthropic
 - **Ollama** — rilevamento automatico dei modelli installati, URL configurabile, modello vision separato
 - **OpenAI / Anthropic** — chiave API e test di connessione dall'interfaccia
 - **Tema** — dark / light con colore accent personalizzabile
 - **Lingua** — Italiano / English (i18n)
-- **Notifiche** — abilita/disabilita le notifiche di sistema
-- **Webhook HTTP** — espone un'API locale per integrare l'estrazione in flussi esterni
 
 ---
 
@@ -57,43 +52,61 @@ Rubrica integrata per gestire i contatti associati alle estrazioni.
 
 | Layer | Tecnologia |
 |---|---|
-| Desktop shell | Electron 28 |
-| Frontend | React 18, i18next |
-| Build | Electron Vite 2, Vite 5 |
-| Packaging | Electron Builder 24 |
+| Frontend | Next.js 14 (App Router), React 18 |
+| Backend | API route Next.js (Node) |
+| Database | PostgreSQL (pg) |
+| Auth | Email+password, sessione persistente (iron-session, cookie firmato) |
 | PDF parsing | pdfjs-dist, pdf-parse |
-| Excel | ExcelJS (file nuovi), JSZip (patch chirurgica dei template) |
+| OCR | Tesseract.js offline (ita.traineddata in cache per hash) |
+| Excel | ExcelJS, JSZip, SheetJS |
 | LLM | Ollama, OpenAI API, Anthropic API |
+| Deployment | Dockerfile su Coolify |
 
 ---
 
 ## Setup sviluppo
 
-**Requisiti:** Node.js 20+, npm
+**Requisiti:** Node.js 20+, npm, un PostgreSQL raggiungibile
 
 ```bash
 git clone https://github.com/ThinkPinkStudio/pdf-data-extractor.git
 cd pdf-data-extractor
 npm install
-npm run dev            # avvio in sviluppo (hot reload)
+cp web/.env.example web/.env.local   # poi configura DATABASE_URL, SESSION_SECRET, ALLOWED_DOMAINS
+npm run web:dev
 ```
 
-### Build locale
+La web app parte su `http://localhost:3000`.
+
+### Build della web app
 
 ```bash
-npm run build                  # compila con electron-vite
-npx electron-builder --win     # pacchettizza per Windows
-npx electron-builder --mac     # pacchettizza per macOS
-npx electron-builder --linux   # pacchettizza per Linux
+cd web
+npm ci
+npm run build       # next build (output standalone)
 ```
 
-Gli artefatti finiscono in `dist/`.
+---
 
-### Deploy della web app
+## Autenticazione
 
-La parte web si deploya su **Coolify con build pack Dockerfile** (unico metodo
-supportato). Istruzioni complete, variabili d'ambiente e note per il deploy
-solo‑IP/VPN: vedi [`DEPLOY.md`](./DEPLOY.md).
+### Onboarding (una tantum)
+Chi non ha ancora un account accede alla pagina **/auth/login** → "Primo accesso? Crea il tuo account". Inserendo un'email di un **dominio autorizzato** (`ALLOWED_DOMAINS` nelle env) e scegliendo una password (min 8 caratteri), l'account viene creato e si entra subito.
+
+### Login
+Email + password. La sessione è **persistente**: il cookie non scade, si accede una volta per tutte finché non si fa "Esci" o non cambia `SESSION_SECRET` (in quel caso tutti i cookie firmati con il vecchio segreto diventano invalidi).
+
+### Recupero password
+Dalla pagina di login → "Hai dimenticato la password?": l'utente inserisce la propria email e riceve un link di reset (valido 60 minuti di default) via **Resend** (se `RESEND_API_KEY` è impostata) altrimenti via **SMTP**.
+
+### HTTP su rete interna
+L'app gira in HTTP puro: il cookie di sessione è `httpOnly`, `sameSite: lax` e **senza** flag `Secure` (default). Per un'esposizione HTTPS vera impostare `COOKIE_SECURE=true`.
+
+---
+
+## Deploy della web app
+
+La web si deploya su **Coolify con build pack Dockerfile** (unico metodo supportato). Istruzioni complete, variabili d'ambiente e note per il deploy solo‑IP/VPN: vedi [`DEPLOY.md`](./DEPLOY.md).
 
 ---
 
@@ -102,121 +115,47 @@ solo‑IP/VPN: vedi [`DEPLOY.md`](./DEPLOY.md).
 ```
 pdf-data-extractor/
 ├── .github/workflows/
-│   ├── version-bump.yml      # Auto-incrementa la patch version ad ogni push su main
-│   └── release.yml           # Build multi-platform + GitHub Release
-├── assets/
-│   └── icon.png
+│   └── release.yml           # Auto-incrementa la patch version ad ogni push su main
 ├── src/
-│   ├── main/                 # Processo principale Electron
-│   │   ├── index.js          # Entry point: finestra, IPC, webhook, startup
-│   │   ├── ipc/
-│   │   │   └── handlers.js   # Tutti gli handler IPC (incl. controllo aggiornamenti)
-│   │   └── services/
-│   │       ├── llmService.js            # Astrazione provider LLM (Ollama/OpenAI/Anthropic)
-│   │       ├── pdfService.js            # Parsing PDF, chunking, ricerca
-│   │       ├── polizzaService.js        # Estrazione polizze RC, orchestrazione export Excel
-│   │       ├── xlsxTemplateWriter.js    # Scrittura chirurgica sui template .xlsx (preserva tutto)
-│   │       ├── xlsxTemplateReader.js    # Lettura valori dai template senza ExcelJS (robusta)
-│   │       ├── settingsService.js       # Persistenza impostazioni
-│   │       ├── historyService.js        # Sessioni storiche, purge GDPR
-│   │       ├── vectorStore.js           # Store in-memory per chunk/documenti
-│   │       └── webhookService.js        # Server HTTP locale per integrazioni esterne
-│   ├── preload/
-│   │   └── index.js          # Bridge sicuro renderer↔main (contextBridge)
-│   └── renderer/
-│       └── src/
-│           ├── App.jsx               # Root: title bar, routing pagine, tema, lingua
-│           ├── components/
-│           │   ├── TitleBar.jsx      # Barra del titolo personalizzata (drag + controlli finestra)
-│           │   └── Sidebar.jsx       # Navigazione + badge aggiornamenti
-│           ├── pages/                # Extractor, Polizza, Batch, History, Contacts, Settings
-│           └── i18n/locales/         # it.json, en.json
-├── electron.vite.config.mjs  # Config Vite: define globali (__APP_VERSION__, __UPDATE_URL__)
+│   └── services/             # Business logic condivisa (Node puro, importata dalla web)
+│       ├── llmService.js            # Astrazione provider LLM (Ollama/OpenAI/Anthropic)
+│       ├── pdfService.js            # Parsing PDF, chunking, ricerca
+│       ├── polizzaService.js        # Estrazione polizze RC, orchestrazione export Excel
+│       ├── ocrLayout.js             # Griglia spaziale OCR (colonne preservate)
+│       ├── xlsxTemplateWriter.js    # Scrittura chirurgica sui template .xlsx (preserva tutto)
+│       ├── xlsxTemplateReader.js    # Lettura valori dai template senza ExcelJS (robusta)
+│       ├── premioLordo*.js          # Report premio/importo
+│       ├── vectorIndexService.js    # Indice vettoriale Qdrant + embeddings
+│       ├── vectorStore.js           # Store in-memory per chunk/documenti
+│       └── ...
+├── web/                      # Applicazione Next.js
+│   ├── app/
+│   │   ├── (protected)/      # Pagine autenticate (Extractor, Polizza, Batch, ...)
+│   │   ├── auth/             # Login, onboarding, forgot, reset
+│   │   └── api/              # Route API (incl. /api/auth/*)
+│   ├── lib/
+│   │   ├── auth.ts           # Sessione iron-session + hash/verify password (scrypt)
+│   │   ├── sharedServices.ts # Loader runtime della business logic in src/services
+│   │   └── db.ts             # Pool Postgres + inizializzazione tabelle
+│   ├── middleware.ts         # Protezione rotte (cookies sessione)
+│   └── Dockerfile            # Build standalone per Coolify
+├── test/                     # Test Node (node --test test/*.test.mjs)
+├── scripts/                  # Utility (eval-polizza, premio-lordo)
+├── DEPLOY.md
 └── package.json
 ```
 
 ---
 
-## CI/CD e Release
+## CI/CD
 
-Due workflow GitHub Actions automatizzano il processo.
-
-### `version-bump.yml`
-Si attiva ad ogni push su `main` (esclusi i commit `chore: bump version`). Incrementa la patch version in `package.json` e committa.
-
-### `release.yml`
-Si attiva quando il commit inizia con `chore: bump version`.
-- Build parallela su Windows, macOS e Linux
-- Carica gli artefatti (`.exe`, `.dmg`, `.AppImage`, `.deb`)
-- Crea una GitHub Release con tag `v{version}-{shortSHA}`
-
----
-
-## Rilevamento aggiornamenti
-
-All'avvio l'app interroga l'API GitHub Releases per verificare se esiste una versione più recente. In tal caso compare un piccolo badge nella sidebar (accanto alla versione) che apre il portale di download. Il controllo è silenzioso: senza connessione o in caso di errore non mostra nulla.
-
-L'URL del portale è `https://downloads.thinkpinkstudio.it/p/pdf-data-extractor` e può essere sovrascritto in fase di build tramite la variabile repo `UPDATE_DOWNLOAD_URL` (iniettata da Vite come costante globale `__UPDATE_URL__`):
-
-1. **GitHub → repo → Settings → Secrets and variables → Actions**
-2. Tab **Variables** → **New repository variable**
-3. Nome: `UPDATE_DOWNLOAD_URL`, Valore: l'URL desiderato
-
-Se la variabile non è impostata, viene usato l'URL di default sopra (o, in fallback, la pagina della GitHub Release).
+`release.yml` (GitHub Actions) si attiva ad ogni push su `main` (esclusi i commit `chore: bump version`) e incrementa la patch version in `package.json`. Il deploy della web app è gestito da **Coolify** sulla scia del push: ad ogni merge appare una build automatica con la nuova versione.
 
 ---
 
 ## Sicurezza PDF
 
-Tutte le aperture di PDF (sia lato Node sia nel renderer) usano `isEvalSupported: false`, che disattiva il percorso di esecuzione di codice via font e mitiga CVE-2024-4367 (esecuzione di JavaScript arbitrario aprendo un PDF malevolo).
-
----
-
-## Webhook HTTP (API locale)
-
-L'app può esporre un server HTTP locale (`127.0.0.1` — non accessibile dall'esterno) per integrare l'estrazione in automazioni (es. n8n, script Python, PowerShell). Abilitalo da **Impostazioni → Webhook** e scegli la porta (default `3847`).
-
-### Autenticazione
-
-Ogni richiesta deve includere il token generato dall'app:
-
-```
-Authorization: Bearer <token>
-# oppure
-X-Webhook-Token: <token>
-```
-
-### Endpoint
-
-#### `GET /health`
-Verifica che il servizio sia attivo (non richiede autenticazione).
-
-```json
-{ "status": "ok", "service": "pdf-extractor" }
-```
-
-#### `POST /extract`
-Estrae i dati da un PDF locale.
-
-**Body:**
-```json
-{
-  "filePath": "/percorso/assoluto/al/documento.pdf",
-  "profileId": "id-profilo-opzionale"
-}
-```
-
-**Risposta:**
-```json
-{
-  "success": true,
-  "fileName": "documento.pdf",
-  "numPages": 12,
-  "data": { "campo1": "valore estratto", "campo2": "altro valore" }
-}
-```
-
-Se `profileId` è omesso vengono usati i campi attivi nelle impostazioni; se fornito, i campi del profilo corrispondente.
+Tutte le aperture di PDF (sia lato server Node) usano `isEvalSupported: false`, che disattiva il percorso di esecuzione di codice via font e mitiga CVE-2024-4367 (esecuzione di JavaScript arbitrario aprendo un PDF malevolo).
 
 ---
 

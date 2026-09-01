@@ -18,19 +18,19 @@ import {
   vetoForeignNatureFranchigia,
   vetoSottolimitiOptionOnly,
   vetoForeignNatureMassimale,
-} from '../src/main/services/polizzaFactsRegistry.js'
+} from '../src/services/polizzaFactsRegistry.js'
 import {
   pickSemanticCandidate,
-} from '../src/main/services/polizzaValidation.js'
-import { scanKindForField } from '../src/main/services/polizzaNumericScan.js'
+} from '../src/services/polizzaValidation.js'
+import { scanKindForField } from '../src/services/polizzaNumericScan.js'
 import {
   descriptionDeniesNature,
   factNature,
   isConditionalCoverageField,
   isSpecificCoverageField,
   hasDocumentedTutelaEvidence,
-} from '../src/main/services/polizzaValidation.js'
-import { validateCrossFields } from '../src/main/services/polizzaValidation.js'
+} from '../src/services/polizzaValidation.js'
+import { validateCrossFields } from '../src/services/polizzaValidation.js'
 
 // ─── Funzioni helper ─────────────────────────────────────────────────────────
 

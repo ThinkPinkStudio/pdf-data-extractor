@@ -7,8 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from '../src/main/services/ocrLayout.js'
-import { matchFieldKey } from '../src/main/services/polizzaValidation.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from '../src/services/ocrLayout.js'
+import { matchFieldKey } from '../src/services/polizzaValidation.js'
 
 // Costruttore di blocks tesseract.js sintetici: parole {testo, x, y} con
 // larghezza-carattere nominale 10px e altezza riga 20px.
