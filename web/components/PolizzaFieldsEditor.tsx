@@ -175,6 +175,18 @@ export default function PolizzaFieldsEditor() {
     setSaved(true); setTimeout(() => setSaved(false), 2500)
     await persistFields(applied, prompt)
   }
+  async function dupProfile(profile: Profile) {
+    // Copia il profilo (campi + prompt + keywords) con un nome «X (copia)» e un id nuovo.
+    const copy: Profile = {
+      ...profile,
+      id: String(Date.now()),
+      name: `${profile.name} (copia)`,
+      fields: (profile.fields || []).map((f) => ({ ...f, cells: [...(f.cells || [])] })),
+    }
+    const next = [...profiles, copy]
+    setProfiles(next)
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
+  }
   async function delProfile(profile: Profile) {
     // Conferma esplicita: il pulsante era etichettato «Annulla» e cancellava
     // senza chiedere — un click sbagliato buttava via il profilo.
@@ -352,6 +364,7 @@ export default function PolizzaFieldsEditor() {
                 <input value={p.contentKeywords || ''} onChange={(e) => setProfileContentKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} title={t('set.duplicateProfile')} onClick={() => dupProfile(p)}>⧉ {t('set.duplicateProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--c-error)' }} title={t('set.deleteProfile')} onClick={() => delProfile(p)}>🗑 {t('set.deleteProfile')}</button>
               </div>
             ))}

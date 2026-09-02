@@ -438,6 +438,11 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@keyframes bulk-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
 /* ─── Tables ─────────────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
