@@ -24,11 +24,26 @@ export type OnProgress = (p: TraverseProgress) => void
 
 const BATCH = 100 // letture per giro del directoryReader (il browser le raggruppa)
 const PAUSE_MS = 0 // pausa minima tra i batch, per far respirare il main thread
+const PROGRESS_INTERVAL_MS = 100 // throttling dell'onProgress: non un setState per file
 
 function pause() {
   // Await di un timeout (anche 0ms) rilascia il main thread al task queue, così lo
   // spinner/barra di avanzamento possono ridisegnarsi durante l'enumerazione.
   return new Promise<void>((r) => setTimeout(r, PAUSE_MS))
+}
+
+// Throttler dell'onProgress: aggiorna il chiamante al più ogni ~100ms, così con
+// migliaia di file non si generano migliaia di setState (che bloccherebbero la UI).
+function makeProgressReporter(onProgress?: OnProgress) {
+  let last = 0
+  return function report(n: number) {
+    if (!onProgress) return
+    const now = performance.now()
+    if (now - last >= PROGRESS_INTERVAL_MS) {
+      last = now
+      onProgress({ scanned: n })
+    }
+  }
 }
 
 /**
@@ -41,6 +56,7 @@ export async function walkDirectoryHandle(
 ): Promise<BulkEntry[]> {
   const entries: BulkEntry[] = []
   const scanned = { n: 0 }
+  const report = makeProgressReporter(onProgress)
 
   async function walk(dir: FileSystemDirectoryHandle, prefix: string): Promise<void> {
     const rootName = dir.name
@@ -57,7 +73,7 @@ export async function walkDirectoryHandle(
           getFile: () => (handle as FileSystemFileHandle).getFile(),
         })
         scanned.n += 1
-        onProgress?.({ scanned: scanned.n })
+        report(scanned.n)
         await pause()
       }
     }
@@ -92,6 +108,7 @@ async function walkEntry(
 ): Promise<BulkEntry[]> {
   const entries: BulkEntry[] = []
   const scanned = { n: 0 }
+  const report = makeProgressReporter(onProgress)
 
   async function walk(e: FileSystemEntry, parent: string): Promise<void> {
     const relPath = parent ? `${parent}/${e.name}` : e.name
@@ -101,7 +118,7 @@ async function walkEntry(
       const fe = e as FileSystemFileEntry
       entries.push({ relPath, getFile: () => new Promise<File>((res, rej) => fe.file(res, rej)) })
       scanned.n += 1
-      onProgress?.({ scanned: scanned.n })
+      report(scanned.n)
       await pause()
     } else if (e.isDirectory) {
       const reader = (e as FileSystemDirectoryEntry).createReader()

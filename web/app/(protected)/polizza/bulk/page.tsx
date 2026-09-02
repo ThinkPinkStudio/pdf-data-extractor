@@ -56,6 +56,12 @@ export default function PolizzaBulkPage() {
   // showDirectoryPicker esiste solo in Chromium: su Firefox si passa al drag-and-drop.
   const hasPicker = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
   const [dragging, setDragging] = useState(false)
+  // Windowing della lista dossier: si renderizzano solo le righe visibili nel viewport,
+  // altrimenti con ~1000 dossier il DOM esplode e la pagina si blocca.
+  const [scrollTop, setScrollTop] = useState(0)
+  const LIST_VIEW_H = 320
+  const LIST_ROW_H = 40
+  const LIST_OVERSCAN = 12
 
   const [extraExclusions, setExtraExclusions] = useState<Set<string>>(new Set())
   const [includeText, setIncludeText] = useState('')
@@ -414,6 +420,11 @@ export default function PolizzaBulkPage() {
     return () => window.removeEventListener('pagehide', onLeave)
   }, [])
 
+  // Finestra visibile della lista dossier (windowing): indici di riga da renderizzare.
+  const viewStart = Math.max(0, Math.floor(scrollTop / LIST_ROW_H) - LIST_OVERSCAN)
+  const viewEnd = Math.min(baseDossiers.length, Math.ceil((scrollTop + LIST_VIEW_H) / LIST_ROW_H) + LIST_OVERSCAN)
+  const visibleDossiers = baseDossiers.slice(viewStart, viewEnd)
+
   return (
     <div style={{ maxWidth: 760 }}>
       <h1 className="page-title">{t('bulk.title')}</h1>
@@ -574,7 +585,7 @@ export default function PolizzaBulkPage() {
                 )}
               </div>
 
-              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <div style={{ maxHeight: LIST_VIEW_H, overflowY: 'auto' }} onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}>
                 <table style={{ width: '100%' }}>
                   <thead>
                     <tr style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--c-text-muted)' }}>
@@ -587,7 +598,14 @@ export default function PolizzaBulkPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {baseDossiers.map((d) => {
+                    {/* Spacer superiore: simula lo spazio delle righe fuori dalla finestra. */}
+                    {viewStart > 0 && (
+                      <tr style={{ height: viewStart * LIST_ROW_H }}>
+                        <td colSpan={profiles.length > 0 ? 5 : 4} style={{ padding: 0, border: 'none' }} />
+                      </tr>
+                    )}
+                    {visibleDossiers.map((d, vIdx) => {
+                      const i = viewStart + vIdx // indice globale in baseDossiers
                       const gid = gidOf(d.dossierName)
                       const groupSize = baseDossiers.filter((x) => gidOf(x.dossierName) === gid).length
                       const merged = groupSize > 1
@@ -652,6 +670,12 @@ export default function PolizzaBulkPage() {
                         </Fragment>
                       )
                     })}
+                    {/* Spacer inferiore: completa l'altezza totale della lista. */}
+                    {viewEnd < baseDossiers.length && (
+                      <tr style={{ height: (baseDossiers.length - viewEnd) * LIST_ROW_H }}>
+                        <td colSpan={profiles.length > 0 ? 5 : 4} style={{ padding: 0, border: 'none' }} />
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
