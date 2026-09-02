@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { groupPathsByDossier, displayDossierName, type GroupedDossier, type SkippedPath } from '@/lib/bulkGrouping'
 import { parseExclusionList, parseKeywords, makeFilters, type SkipReason } from '@/lib/bulkExclusions'
+import { walkDirectoryHandle, walkDataTransferItem, type BulkEntry } from '@/lib/bulkTraverse'
 import type { PolizzaProfile } from '@/lib/settingsStore'
 
 // Parole di abbinamento di un profilo per il pre-filtro e l'auto-riconoscimento del
@@ -26,8 +27,8 @@ type DossierStatus = 'pending' | 'uploading' | 'done' | 'error'
 // ereditano il profilo scelto sulla riga della cartella madre).
 interface FinalDossier { gid: string; label: string; fileIndexes: number[]; memberCount: number; profileId?: string }
 
-function fileRelPath(f: File): string {
-  return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+function fileRelPath(f: BulkEntry): string {
+  return f.relPath
 }
 
 // Etichetta di un gruppo unito: prefisso-cartella comune dei membri (es. "Cli/PolX"
@@ -52,16 +53,22 @@ export default function PolizzaBulkPage() {
   const t = useT()
   const inputRef = useRef<HTMLInputElement>(null)
   const supported = typeof window !== 'undefined' && 'webkitdirectory' in document.createElement('input')
+  // showDirectoryPicker esiste solo in Chromium: su Firefox si passa al drag-and-drop.
+  const hasPicker = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
+  const [dragging, setDragging] = useState(false)
 
   const [extraExclusions, setExtraExclusions] = useState<Set<string>>(new Set())
   const [includeText, setIncludeText] = useState('')
   const [excludeText, setExcludeText] = useState('')
-  const [files, setFiles] = useState<File[]>([]) // flat, indice allineato ai path
+  const [files, setFiles] = useState<BulkEntry[]>([]) // flat, indice allineato ai path
   const [root, setRoot] = useState('')
   const [baseDossiers, setBaseDossiers] = useState<GroupedDossier[]>([])
   const [skipped, setSkipped] = useState<SkippedPath[]>([])
   const [showSkipped, setShowSkipped] = useState(false)
   const [scanning, setScanning] = useState(false)
+  // Avanzamento dell'enumerazione della cartella: aggiornato a ogni batch dalla
+  // traversal asincrona. total può essere undefined (cartella da picker/drag).
+  const [scanProgress, setScanProgress] = useState<{ scanned: number; total?: number } | null>(null)
   const [pickError, setPickError] = useState<string | null>(null)
 
   // Revisione manuale dell'elenco: esclusione per riga, selezione multipla e unione.
@@ -127,8 +134,55 @@ export default function PolizzaBulkPage() {
     setScanning(true); setPickError(null); setPhase('select'); setBatchId(null)
     setDossierStatus({}); setDossierError({})
     const all = Array.from(fileList)
-    setFiles(all)
+    const entries: BulkEntry[] = all.map((f) => ({
+      relPath: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      getFile: () => Promise.resolve(f),
+    }))
+    setFiles(entries)
     setScanning(false)
+    const relPaths = entries.map(fileRelPath)
+    const result = groupPathsByDossier(relPaths, filters)
+    if (result.dossiers.length === 0) setPickError(t('bulk.noPdfFound'))
+  }
+
+  // Nuova via asincrona (Chromium): un click, handle lazy, progress reale.
+  async function handlePickFolder() {
+    try {
+      if (typeof window.showDirectoryPicker !== 'function') return
+      setScanning(true); setPickError(null); setPhase('select'); setBatchId(null)
+      setDossierStatus({}); setDossierError({})
+      setScanProgress({ scanned: 0 })
+      const dir = await window.showDirectoryPicker()
+      const entries = await walkDirectoryHandle(dir, (p) => setScanProgress(p))
+      setScanProgress(null); setScanning(false)
+      setFiles(entries)
+      const relPaths = entries.map(fileRelPath)
+      const result = groupPathsByDossier(relPaths, filters)
+      if (result.dossiers.length === 0) setPickError(t('bulk.noPdfFound'))
+    } catch (err: any) {
+      // AbortError = l'utente ha chiuso il dialog: non è un errore.
+      if (err?.name === 'AbortError') return
+      setScanProgress(null); setScanning(false)
+    }
+  }
+
+  // Via asincrona per tutti i browser (Firefox incluso): drag-and-drop di una cartella.
+  async function handleFolderDrop(items: DataTransferItemList | null) {
+    if (!items) return
+    setScanning(true); setPickError(null); setPhase('select'); setBatchId(null)
+    setDossierStatus({}); setDossierError({})
+    setScanProgress({ scanned: 0 })
+    const all: BulkEntry[] = []
+    for (const item of Array.from(items)) {
+      const entry = item.webkitGetAsEntry?.()
+      if (entry?.isDirectory) {
+        const walk = await walkDataTransferItem(item, (p) => setScanProgress(p))
+        all.push(...walk)
+      }
+    }
+    setScanProgress(null); setScanning(false)
+    if (!all.length) { setPickError(t('bulk.noPdfFound')); return }
+    setFiles(all)
     const relPaths = all.map(fileRelPath)
     const result = groupPathsByDossier(relPaths, filters)
     if (result.dossiers.length === 0) setPickError(t('bulk.noPdfFound'))
@@ -275,7 +329,10 @@ export default function PolizzaBulkPage() {
       const pid = d.profileId !== undefined ? d.profileId : profileOf[d.gid]
       if (pid) form.append('profileId', pid) // profilo/tipo scelto per questo dossier
       for (const idx of d.fileIndexes) {
-        form.append('pdf', files[idx])
+        // Lettura LAZY del contenuto: il File viene materializzato solo qui, all'upload.
+        // Alla selezione teniamo solo gli handle (leggeri), quindi niente OOM col FileList.
+        const pdf = await files[idx].getFile()
+        form.append('pdf', pdf)
         form.append('path', fileRelPath(files[idx]))
       }
       const res = await fetch(`/api/polizza/batch/${id}/dossier`, { method: 'POST', body: form })
@@ -366,10 +423,35 @@ export default function PolizzaBulkPage() {
 
       {phase === 'select' && (
         <>
-          <div className="card" style={{ padding: 24, textAlign: 'center', marginBottom: 16 }}>
-            <button className="btn btn-primary" onClick={() => inputRef.current?.click()} disabled={scanning || !supported}>
-              {baseDossiers.length ? t('bulk.changeFolder') : t('bulk.selectFolder')}
-            </button>
+          <div
+            className="card"
+            style={{
+              padding: 24, textAlign: 'center', marginBottom: 16, cursor: 'pointer',
+              border: dragging ? '2px dashed var(--c-accent)' : undefined,
+            }}
+            onClick={() => { if (hasPicker) handlePickFolder(); else inputRef.current?.click() }}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); handleFolderDrop(e.dataTransfer.items) }}
+          >
+            {!dragging && (
+              <>
+                <button type="button" className="btn btn-primary" onClick={(ev) => { ev.stopPropagation(); hasPicker ? handlePickFolder() : inputRef.current?.click() }} disabled={scanning || !supported}>
+                  {baseDossiers.length ? t('bulk.changeFolder') : t('bulk.selectFolder')}
+                </button>
+                {!hasPicker && (
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: 12, marginLeft: 8 }} onClick={(ev) => { ev.stopPropagation(); inputRef.current?.click() }} disabled={scanning || !supported}>
+                    {t('bulk.browseFolder')}
+                  </button>
+                )}
+              </>
+            )}
+            {dragging && (
+              <p style={{ fontSize: 13, color: 'var(--c-accent)', margin: 0 }}>{t('bulk.dropFolder')}</p>
+            )}
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 8, marginBottom: 0 }}>
+              {hasPicker ? t('bulk.pickerHint') : t('bulk.dropHint')}
+            </p>
             <input
               ref={inputRef}
               type="file"
@@ -378,8 +460,30 @@ export default function PolizzaBulkPage() {
               style={{ display: 'none' }}
               onChange={(e) => { handlePick(e.target.files); e.target.value = '' }}
             />
-            {scanning && <p style={{ fontSize: 12, marginTop: 10 }}><span className="spinner" /> {t('bulk.scanning')}</p>}
           </div>
+
+          {scanning && (
+            <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+              <p style={{ fontSize: 12, marginBottom: 8 }}>
+                <span className="spinner" /> {t('bulk.scanning')}
+                {scanProgress && (
+                  <span style={{ color: 'var(--c-text-muted)', marginLeft: 6 }}>
+                    {scanProgress.scanned}
+                    {scanProgress.total ? ` / ${scanProgress.total}` : ''}
+                  </span>
+                )}
+              </p>
+              {scanProgress?.total ? (
+                <div style={{ height: 8, borderRadius: 999, background: 'var(--c-bg-card-alt)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, (scanProgress.scanned / scanProgress.total) * 100)}%`, background: 'var(--c-accent)', transition: 'width .2s' }} />
+                </div>
+              ) : scanProgress ? (
+                <div style={{ height: 8, borderRadius: 999, background: 'var(--c-bg-card-alt)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: '40%', background: 'var(--c-accent)', borderRadius: 999, animation: 'bulk-progress 1.2s ease-in-out infinite' }} />
+                </div>
+              ) : null}
+            </div>
+          )}
 
           <div className="card" style={{ padding: 16, marginBottom: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{t('bulk.filtersTitle')}</p>
