@@ -157,12 +157,13 @@ export default function SettingsTechnicalPage() {
                 type="number"
                 min={1}
                 step={1024}
-                value={s.polizzaBatchContext || 24576}
-                onChange={(e) => up('polizzaBatchContext', e.target.value ? parseInt(e.target.value, 10) || 24576 : undefined)}
+                value={s.polizzaBatchContext ?? ''}
+                placeholder="24576"
+                onChange={(e) => up('polizzaBatchContext', e.target.value === '' ? undefined : (parseInt(e.target.value, 10) || undefined))}
               />
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>
                 {t('set.batchContextHelp')}{' '}
-                {(s.polizzaBatchContext || 24576) > 24576
+                {(s.polizzaBatchContext ?? 24576) > 24576
                   ? <span style={{ color: 'var(--c-warning, #f0ad4e)' }}>{t('set.batchContextWarn')}</span>
                   : null}
               </p>
