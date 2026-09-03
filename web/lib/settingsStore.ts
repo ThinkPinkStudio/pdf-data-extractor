@@ -71,6 +71,9 @@ export interface WebSettings {
   polizzaPromptExtra?: string
   polizzaFields?: PolizzaField[]
   polizzaProfiles?: PolizzaProfile[]
+  // Profilo attualmente applicato nell'editor campi polizza: "Salva campi polizza"
+  // lo SOVRASCRIVE (i campi correnti diventano i campi del profilo).
+  polizzaActiveProfileId?: string | null
   // Verifica/qualità polizza (usati dal servizio condiviso, polizzaService.js)
   polizzaVerificaCampi?: string
   polizzaVerificaModel?: string
@@ -229,6 +232,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
     polizzaFields: json<PolizzaField[]>('polizzaFields'),
     polizzaProfiles: json<PolizzaProfile[]>('polizzaProfiles'),
+    polizzaActiveProfileId: map.polizzaActiveProfileId || null,
     polizzaVerificaCampi: map.polizzaVerificaCampi ?? '',
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
