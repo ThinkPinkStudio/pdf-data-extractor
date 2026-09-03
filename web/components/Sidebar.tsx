@@ -125,6 +125,7 @@ const NAV_EXTRACTOR: NavItem[] = [
   { href: '/maintenance', key: 'nav.data', icon: <IconBatch /> },
   { href: '/history', key: 'nav.history', icon: <IconHistory /> },
   { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },
+  { href: '/settings/technical', key: 'nav.settingsTech', icon: <IconActivity /> },
   { href: '/diagnostics', key: 'nav.security', icon: <IconActivity /> },
   { href: '/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
