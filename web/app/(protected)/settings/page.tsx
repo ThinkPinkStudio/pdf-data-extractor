@@ -75,6 +75,7 @@ export default function SettingsPage() {
   // vanno escluse dal salvataggio della pagina per non sovrascriverle con valori stale.
   const EDITOR_KEYS = new Set([
     'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles', 'polizzaWholeDossierModel',
+    'polizzaActiveProfileId',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses', 'extractions', 'profiles',
     // Switch strategia (card campi polizza, persiste da solo al cambio): senza
     // questa esclusione il "Salva impostazioni" della pagina lo sovrascriveva
