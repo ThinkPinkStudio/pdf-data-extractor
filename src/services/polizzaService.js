@@ -17,7 +17,7 @@ import { join } from 'path'
 // a trovare ita.traineddata per l'OCR offline e ha fallback su TESSERACT_DATA_DIR.
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
-import { resilientFetch, ollamaThinkOpts } from './netFetch.js'
+import { resilientFetch, ollamaThinkOpts, isThinkingModel } from './netFetch.js'
 import { ollamaFormatFor } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
@@ -2639,7 +2639,7 @@ const STAGED_RECOVERY_SYSTEM =
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
-  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
+  'FORMATO: un solo oggetto JSON, con chiavi = label o id dei campi richiesti: {"<chiave>": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
 // Stadio B a CASCATA: un documento alla volta, dal più recente al più vecchio,
@@ -2715,8 +2715,11 @@ function matchRealDoc(analyzed, docName) {
  * @param {Function|null} affinityFor  async (field, cleaned, evidenza, srcDoc) → number|null
  * @returns {number} candidati che hanno superato la validazione (arrivati al merge)
  */
-async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null) {
+async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
+  // Il prompt (recupero mirato) può rispondere con la LABEL del campo invece
+  // dell'id: riconvertiamo label→id. La label è il nome leggibile dal profilo.
+  const byLabel = Object.fromEntries(groupFields.map((f) => [String(f.label || '').trim().toLowerCase(), f.id]))
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
   // scartato e con quale valore.
@@ -2729,7 +2732,11 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // campo "311ac415-…"): i modelli piccoli ricopiano male gli id lunghi.
     // Fuzzy SOLO se univoco e se l'id vero non è già presente ESATTO nella
     // risposta (altrimenti sarebbe un duplicato, non un refuso).
-    const k = byId[k0] ? k0 : (matchFieldKey(k0, Object.keys(byId).filter((id) => !(id in (parsed || {})))) || k0)
+    const k = byId[k0]
+      ? k0
+      : (byLabel[String(k0).trim().toLowerCase()]
+        ? byLabel[String(k0).trim().toLowerCase()]
+        : (matchFieldKey(k0, Object.keys(byId).filter((id) => !(id in (parsed || {})))) || k0))
     const field = byId[k]
     if (!field) { counters.unknown++; continue }
     if (k !== k0) note(k, 'chiave-corretta', k0)
@@ -2738,7 +2745,7 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     if (isPlaceholderValue(val)) { counters.placeholders++; note(k, 'placeholder', val); continue }
     const cleaned = sanitizeFieldValue(field, val)
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
-    if (!passesStagedEvidence(field, cleaned, e, normCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned); continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned); continue }
     const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
 
     // Guardie di VALORE (non tassonomia dei campi): riconoscono un concetto nel
@@ -2956,7 +2963,31 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       best.codice_fiscale_iva = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
       seedNotes.push(`codice_fiscale_iva="${valid}" (unico candidato checksum-valido)`)
     } else if (vatSeen.size >= 2) {
-      seedNotes.push(`P.IVA/CF: ${vatSeen.size} candidati distinti checksum-validi (${[...vatSeen.keys()].join(', ')}) → nessun seed, decide il modello (contraente ≠ compagnia)`)
+      // Più candidate checksum-valide: non lasciamo decidere al modello (spesso
+      // dà null o prende quella della compagnia). Il contraente è il soggetto
+      // richiesto: preferiamo la P.IVA che nel testo compare VICINO al nome del
+      // contraente/alla parola "contraente" (il frontespizio li ha adiacenti:
+      // "GUFFANTI … S.R.L. 06457990965"). Se non è riconoscibile, niente seed.
+      let chosen = null, chosenDoc = null
+      for (const [valid, d] of [...vatSeen.entries()]) {
+        const idx = d.text.indexOf(valid)
+        if (idx === -1) continue
+        const win = d.text.slice(Math.max(0, idx - 120), idx + valid.length + 40).toLowerCase()
+        // vicino a "contraente" o a una ragione sociale leggibile (≥14 char tra A-Z)
+        const nearContraente = /contraente/.test(win) || /ragione\s+sociale/.test(win) || /[a-z]{2,}\s{1,3}[a-z]{2,}/.test(win)
+        // se il window contiene la parola "contraente" o una ragione sociale,
+        // e NON è il footer societario della compagnia, è la P.IVA del contraente
+        if (nearContraente && !/sede\s+legale|capitale\s+sociale|ivass|direzione\s+e\s+coordinamento/i.test(win)) {
+          chosen = valid; chosenDoc = d; break
+        }
+      }
+      if (chosen) {
+        const src = findStagedSource(analyzed, null, chosen, new Set([chosenDoc.name]))
+        best.codice_fiscale_iva = { valore: chosen, effDate: chosenDoc.dateStr, docType: chosenDoc.type, appendixOrd: chosenDoc.appendixOrd, docPos: chosenDoc.pos, file: src?.file || chosenDoc.name, page: src?.page ?? '' }
+        seedNotes.push(`codice_fiscale_iva="${chosen}" (preferita: vicino al contraente su ${vatSeen.size} candidate)`)
+      } else {
+        seedNotes.push(`P.IVA/CF: ${vatSeen.size} candidati distinti checksum-validi (${[...vatSeen.keys()].join(', ')}) → nessun seed, decide il modello (contraente ≠ compagnia)`)
+      }
     }
   }
   // Date: da TUTTI i documenti, prendendo per ogni etichetta la data MASSIMA del
@@ -3425,7 +3456,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
       // controprova sulla polizza base non ha più codice speciale — i suoi
       // candidati competono con l'affinità descrizione↔contesto come gli altri.
-      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages)
+      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx)
       const filled = report.filter((r) => r.outcome === 'ok').length
       diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
@@ -3580,7 +3611,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
       const report = []
-      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages)
+      llmFieldsCount += await absorbStagedEntries(parsed, batchFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
         `${batchFields.length}/${groupFields.length} campi eleggibili, ${got} proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
@@ -3735,17 +3766,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         diag.push(`Recupero [${b.kind}] campi ${b.fields.map((f) => f.id).join(', ')} — pagine inviate: ${sentPages.join(', ')}${usedNames.size > sentPages.length ? ', …' : ''}`)
 
         const fieldLines = b.fields
-          .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+          .map((f) => `- ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
           .join('\n')
         // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
-        const userPrompt = `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova negli estratti il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${b.fields.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è negli estratti.`
+        // Recupero a UN campo per chiamata: si chiede ATTIVAMENTE il valore (il
+        // comando "metti null se non c'è" troppo forte faceva rispondere null anche
+        // quando l'evidenza era sotto gli occhi — visto su massimale e premi).
+        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE:\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci {"label_campo": {"valore":"...","evidenza":"testo esatto copiato"}}. Se NON è presente, restituisci {"label_campo": {"valore": null}}.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
-          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry, optionDocs, optionPages)
+          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry, optionDocs, optionPages, ctx)
           if (recReport.length) {
             diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
           }
@@ -4081,8 +4115,11 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME 
     // hardware consumer; SOLO oltre si spezza in batch (chiamate brevi da ≤16K,
     // guardrail, uscita anticipata) — il prompt-eval di 60K+ token richiederebbe
     // 10-15+ minuti.
-    const SINGLE_CALL_MAX_CTX = 32768
-    const PRACTICAL_BATCH_CTX = 16384
+    // Modelli THINKING (qwen3): a 32K di contesto la KV cache supera gli 8 GB di
+    // VRAM della 3060 Ti e il modello spillerebbe su CPU. Per loro si cappa la
+    // chiamata singola a 16K (dentro gli 8 GB con think:false).
+    const SINGLE_CALL_MAX_CTX = isThinkingModel(ollamaModel) ? 16384 : 32768
+    const PRACTICAL_BATCH_CTX = isThinkingModel(ollamaModel) ? 8192 : 16384
     const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
     const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
     if (estTokens > singleCtxCap) {

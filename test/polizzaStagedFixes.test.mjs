@@ -22,7 +22,7 @@ import {
 import {
   pickSemanticCandidate,
 } from '../src/services/polizzaValidation.js'
-import { scanKindForField } from '../src/services/polizzaNumericScan.js'
+import { scanKindForField, NUMERIC_SCAN_KINDS } from '../src/services/polizzaNumericScan.js'
 import {
   descriptionDeniesNature,
   factNature,
@@ -439,6 +439,16 @@ test('TUTELA_LEGALE_3: il testo GUFFANTI dà evidenza della garanzia (descrizion
   assert.equal(hasDocumentedTutelaEvidence(docs, TL), true)
   // il condizionale RC PROF MED V2 trova l'evidenza nello stesso testo
   assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), true)
+})
+
+// ─── scanKindForField: rispetta il type del campo ────────────────────────────
+
+test('scanKindForField: un campo type text (Parametro regolazione) NON riceve hint numerici', () => {
+  const textField = { id: 'rcp_parametro', label: 'Parametro regolazione', type: 'text', description: "Parametro utilizzato per la regolazione del premio (TESTO, es. 'Fatturato', 'Retribuzioni', 'n. addetti'). MAI un importo." }
+  assert.equal(scanKindForField(textField), null, 'text + descrizione con "fatturato" → nessun hint numerico')
+  // il campo numerico dello stesso dato invece ce l'ha
+  const numField = { id: 'rcp_fatturato', label: 'Fatturato dichiarato', type: 'number', description: 'Fatturato dichiarato (es. 13.158,70)' }
+  assert.equal(scanKindForField(numField), NUMERIC_SCAN_KINDS.FATTURATO, 'number + fatturato → hint fatturato')
 })
 
 // ─── FIX 5 — NATURA ESTRANEA MASSIMALE (CEDAM) ─────────────────────────────

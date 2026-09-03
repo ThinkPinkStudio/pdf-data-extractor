@@ -140,6 +140,14 @@ function tsOf(dateStr) {
 // natura per-sinistro e NON riceve l'hint del sinistro.
 export function scanKindForField(field) {
   if (!field) return null
+  // RISPETTO DEL TIPO DICHIARATO: gli hint deterministici sono NUMERICI
+  // (importi/tassi/massimali/franchigie). Vanno applicati SOLO a campi che
+  // dichiarano un type numerico. Un campo type 'text' (es. "Parametro
+  // regolazione", che chiede il NOME del parametro) o 'date' NON deve mai
+  // ricevere un importo dalla scan: è il tipo, dichiarato dall'utente nel
+  // profilo, a decidere — non la parola "fatturato" nella descrizione.
+  const t = String(field.type || '').toLowerCase()
+  if (t && !/number|percent|currency|importo|tasso|massimale|franchigia/i.test(t)) return null
   // La description può RIPORTARE il vocabolo di un'altra grandezza per
   // contrapposizione ("Non confondere con franchigia/scoperto", "non
   // riutilizzare ... es. massimale annuo", "Non deve essere il massimale").

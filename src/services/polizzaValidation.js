@@ -430,23 +430,45 @@ const OCR_DIGIT_LETTERS = 'oils'
  *   - "750.000"       → run "750000"              → NON valida "7.500.000" ✓
  */
 export function hasOcrDigitRun(text, digits) {
-  const t = normForMatch(text)
   const n = String(digits || '')
-  if (!t || n.length < 4) return false
-  const isDigitOrOcr = (ch) => (ch >= '0' && ch <= '9') || OCR_DIGIT_LETTERS.includes(ch)
-  const cleanOf = (run) => [...run].filter((c) => !OCR_DIGIT_LETTERS.includes(c)).join('')
-  // Blocchi numerici con eventuali lettere-OCR: un match è valido solo se la
-  // run intera, una volta tolte le lettere-OCR, è ESATTAMENTE `digits` (o
-  // `digits` con i due zeri decimali ",00" in coda).
+  if (!n || n.length < 4) return false
+  const isDigitOrOcr = (ch) => (ch >= '0' && ch <= '9') || OCR_DIGIT_LETTERS.includes(ch.toLowerCase())
+  // pulizia: restano SOLO cifre "vere" (le lettere-OCR vengono RIMOSSE)
+  const cleanOf = (run) => [...run].filter((c) => c >= '0' && c <= '9').join('')
+  // Lavora sul testo ORIGINALE (non normalizzato): la virgola decimale è il
+  // marcatore che distingue "1.270,10" (intero 1270 + decimali 10) da
+  // "12.701" (intero 12701, che NON deve validare 1270).
+  // Algoritmo: scandisce i blocchi numerici (cifre + eventuali lettere-OCR,
+  // separatori . , spazio) e per ognuno:
+  //   - toglie le lettere-OCR → run pulita;
+  //   - valida se la run INIZIA con `n` E ciò che segue è SOLO la parte
+  //     decimale: 1-2 cifre precedute da virgola, oppure nulla.
   let run = ''
+  let runHasCommaDec = false
   const flush = () => {
     const clean = cleanOf(run)
-    const hit = clean !== '' && (clean === n || clean === `${n}00`)
+    const hit = (() => {
+      if (!clean.startsWith(n)) return false
+      const rest = clean.slice(n.length)
+      if (rest === '') return true
+      // decimali: SOLO se c'era una virgola nel blocco e il residuo è 1-2 cifre,
+      // OPPURE residuo "00" esatto (i due zeri di ",00" persi nella
+      // normalizzazione del contesto — fallback normCtx).
+      if (runHasCommaDec && /^\d{1,2}$/.test(rest)) return true
+      if (rest === '00') return true
+      return false
+    })()
     run = ''
+    runHasCommaDec = false
     return hit
   }
-  for (const ch of t) {
-    if (isDigitOrOcr(ch)) { run += ch; continue }
+  const inRun = (ch) => isDigitOrOcr(ch) || ch === '.' || ch === ','
+  for (const ch of String(text || '')) {
+    if (inRun(ch)) {
+      if (ch === ',') runHasCommaDec = true
+      run += ch
+      continue
+    }
     if (flush()) return true
   }
   return flush()
@@ -938,7 +960,7 @@ export function isInsurerFooterPIva(docText, value) {
  * @param {string} normCtx  normForMatch() del contesto ESATTO inviato al modello
  * @returns {boolean} true = il valore e' supportato dal testo
  */
-export function passesStagedEvidence(field, cleaned, entry, normCtx) {
+export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = null) {
   const evidenza = (entry && typeof entry === 'object' && typeof entry.evidenza === 'string' && entry.evidenza.trim())
     ? entry.evidenza.trim() : null
 
@@ -951,6 +973,21 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
     if (evidenza) {
       const ne = normForMatch(evidenza)
       if (ne && normCtx.includes(ne) && ne.includes(asDate.slice(-4))) return true
+    }
+    return false
+  }
+
+  // Identificativi alfanumerici (P.IVA / Codice Fiscale): PRIMA degli importi,
+  // perché una stringa di 11 cifre come "06457990965" verrebbe letta da
+  // parsePureAmount come un numero (perdendo lo zero iniziale) e giudicata
+  // come importo. Sono STRINGHE identità: passano se compaiono nel contesto
+  // (o nell'evidenza contenuta nel contesto).
+  if (/^\d{6,16}$/.test(cleaned) && field && /iva|fiscale|\bcf\b|codice\s+fiscale/i.test(`${field.id || ''} ${field.label || ''} ${field.description || ''}`)) {
+    const nv = normForMatch(cleaned)
+    if (normCtx.includes(nv)) return true
+    if (evidenza) {
+      const ne = normForMatch(evidenza)
+      return ne.length >= 6 && normCtx.includes(ne)
     }
     return false
   }
@@ -975,7 +1012,9 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx) {
       // ("7.500O000") faceva scartare il valore vero come [senza-evidenza]
       // PRIMA del merge per recency — visto sul campo: il 7.500.000,00 della
       // dichiarazione 2026 perdeva contro il 5.000.000,00 dell'atto 2018.
-      if (hasOcrDigitRun(normCtx, intDigits)) return true
+      // rawCtx (con virgole/spazi) preferito: distingue i decimali (",10") dai
+      // multipli (12.701 non valida 1.270). Fallback: normCtx normalizzato.
+      if (hasOcrDigitRun(rawCtx ?? normCtx, intDigits)) return true
       if (!evidenza) return false
       if (!hasOcrDigitRun(evidenza, intDigits)) return false
       const ne = normForMatch(evidenza)
