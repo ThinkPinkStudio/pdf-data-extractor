@@ -534,24 +534,46 @@ export async function createTestJob(params: {
 // all'upload). Vale per i FALLITI/ANNULLATI (riprova) ma anche per i COMPLETATI
 // (rielaborazione: i PDF sono già in polizza_job_files, un motore migliorato può
 // dare risultati migliori sugli stessi file — è il senso di avere il database).
+// Con `opts` (rielaborazione CON PROFILO) si sostituiscono anche field_defs,
+// prompt, profile e settings_override: i field_defs congelati all'upload vengono
+// rimpiazzati da quelli del profilo scelto e il pre-check riparte da zero.
 // Ritorna la riga aggiornata (serve il batch_id per riavviare l'orchestratore
 // giusto), null se il job non esiste o è in corso.
-export async function resetJobForRetry(id: string, byEmail?: string): Promise<JobRow | null> {
+export async function resetJobForRetry(
+  id: string,
+  byEmail?: string,
+  opts: {
+    fieldDefs?: JobRow['field_defs']
+    promptExtra?: string | null
+    profileId?: string | null
+    profileName?: string | null
+    settingsOverride?: Record<string, unknown> | null
+  } = {}
+): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || job.status === 'running' || job.status === 'queued') return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   const verb = job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
-  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''} —`)
+  const withProfile = opts.fieldDefs !== undefined && opts.profileId !== undefined
+  logs.push(
+    `[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''}`
+    + (withProfile ? ` con profilo "${opts.profileName || opts.profileId}"` : '') + ' —'
+  )
   await updateJob(id, {
     status: 'queued',
     error: null,
     cursor: {},
     progress: {},
-    rolling_state: initRollingState(job.field_defs || []),
+    rolling_state: initRollingState(opts.fieldDefs !== undefined ? opts.fieldDefs : (job.field_defs || [])),
     sources: {},
     // Rielaborare = ricontrollare da zero: l'esito (e l'eventuale override) del
     // pre-check precedente non deve sopravvivere al rilancio.
     precheck: null,
+    ...(opts.fieldDefs !== undefined ? { field_defs: opts.fieldDefs } : {}),
+    ...(opts.promptExtra !== undefined ? { prompt_extra: opts.promptExtra } : {}),
+    ...(opts.profileId !== undefined ? { profile_id: opts.profileId } : {}),
+    ...(opts.profileName !== undefined ? { profile_name: opts.profileName } : {}),
+    ...(opts.settingsOverride !== undefined ? { settings_override: opts.settingsOverride } : {}),
     logs,
   })
   return { ...job, status: 'queued' as JobStatus }
