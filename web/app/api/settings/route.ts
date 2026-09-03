@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   // Solo Ollama: niente chiavi OpenAI/Anthropic né switch cloud.
   const allowed: (keyof WebSettings)[] = [
     'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
-    'polizzaOcrEnabled', 'polizzaWholeDossier',
+    'polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaBatchContext',
     'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaActiveProfileId',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
