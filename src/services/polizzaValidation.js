@@ -342,9 +342,27 @@ export function isPeriodicEconomicField(field) {
   return /premio|tasso|imposta|importo|parametro|preventiv/i.test(s)
 }
 
-/** true se il NOME file e' di un documento periodico (quietanza/regolazione). */
+/**
+ * true se il NOME file e' di un documento periodico (quietanza/regolazione).
+ *
+ * NB: la parola "quietanzata" (aggettivo: "polizza quietanzata e firmata") NON
+ * è una quietanza — è la POLIZZA stessa firmata/timbrata. Regola: un documento
+ * si considera periodico SOLO se il nome inizia con un token di quietanza/
+ * regolazione ("Quietanza…", "Regolazione…") o lo contiene come parola intera
+ * delimitata, e NON è una polizza. I nomi che contengono "Polizza…" non sono
+ * mai periodici, anche se includono "quietanzata" nel nome.
+ */
 export function isPeriodicDocName(name) {
-  return /quietanz|regolazion/i.test(String(name || ''))
+  const n = String(name || '').trim()
+  if (!n) return false
+  // Una polizza non è mai un documento periodico, qualunque parola contenga
+  // ("Polizza …quietanzata e firmata…" È la polizza, non una quietanza).
+  if (/\bpolizz/i.test(n)) return false
+  // "quietanza/regolazione" come PAROLA INTERA (delimitata), non come prefisso:
+  // "quietanzatissima" NON è "quietanza". Il lookahead unicode esclude i
+  // derivati che continuano con lettere/cifre ("quietanza" con "t" dopo non
+  // matcha). L'underscore NON è escluso (è un delimitatore valido).
+  return /(?:^|[\s_\-.,;:()])(?:quietanza|quiestina|regolazion(?:e|i)?)(?![\p{L}\p{N}])/iu.test(n)
 }
 
 /**
@@ -447,50 +465,127 @@ export function isConditionalCoverageField(field) {
 }
 
 /**
- * true per i campi che descrivono una GARANZIA SPECIFICA operante solo se la
- * copertura esiste nel fascicolo — i 4 campi "Tutela" del profilo RC PROF MED V2
- * ("garanzia Tutela", "Tutela legale", "massimale/franchigia/premio della
- * garanzia Tutela"). Su questi il guardrail FIX4 svuota il campo quando manca
- * evidenza documentale della garanzia.
+ * true per i campi che descrivono una GARANZIA SPECIFICA CONDIZIONATA: la
+ * descrizione chiede DI VERIFICARE SE la garanzia è presente ("Verifica se è
+ * presente la garanzia X", "Se presente la copertura X", "Massimale della
+ * garanzia X"…). Su questi il guardrail conserva il valore SOLO se il fascicolo
+ * parla della garanzia; altrimenti resta vuoto (meglio vuoto che inventato).
+ *
+ * La garanzia è DINAMICA (viene dalla descrizione): qui si riconosce la
+ * STRUTTURA condizionale, non una parola chiave fissa. Un campo che chiede un
+ * dato diretto ("Massimale per sinistro tutela legale", senza "verifica se
+ * presente") NON è condizionale → il guardrail NON lo tocca mai.
  */
 export function isSpecificCoverageField(field) {
-  const blob = `${String(field?.id || '')} ${String(field?.label || '')} ${String(field?.description || '')}`
-  return /garanzia\s+tutela|tutela\s+legale|della\s+garanzia\s+tutela|massimale\s+tutela|franchigia\s+tutela|premio\s+(?:lordo\s+)?tutela|scoperto\s+tutela/i.test(blob)
+  const desc = String(field?.description || '')
+  const label = String(field?.label || '')
+  const blob = `${label} ${desc}`
+  // Struttura condizionale esplicita nella descrizione: "verifica se presente",
+  // "se presente la garanzia/copertura", "è presente".
+  if (/\bverifica\s+se\s+(?:e['’]|è|e)?\s*(?:presente|operante)\b/i.test(desc)) return true
+  if (/\bse\s+(?:è|e|e['’])?\s*presente\b/i.test(desc)) return true
+  if (/\b(?:garanzia|copertura)\b[^.]*\bpresente\b/i.test(desc)) return true
+  // "massimale/franchigia/premio/scoperto (lordo) della garanzia X" (la X è
+  // dinamica): basta che nomini una garanzia come oggetto del dato richiesto.
+  if (/\b(?:massimale|franchigia|premio(?:\s+lordo)?|importo|scoperto|sottolimite)\s+dell[ae]?\s+garanzia\b/i.test(blob)) return true
+  return false
 }
 
-const COVERAGE_PATTERNS = [
-  'tutelalegale', 'garanziatutela', 'tutelagiudiziaria', 'tutelalegalee',
-  'coperturatutela', 'tutelaoperante', 'sezionetutela', 'massimaledellagaranziatutela',
-  'massimaletutela', 'franchigiatutela', 'premiotutela', 'garanziatutelalegale',
-]
+/**
+ * Estrae dalla label+descrizione di un campo i TERMINI DELLA GARANZIA di cui
+ * parla ("tutela legale", "garanzia tutela", "garanzia tutela e/o tutela legale"…).
+ *
+ * Strategia: n-grammi (sequenze di 2-3 token consecutivi) della label+descrizione
+ * normalizzata CON gli spazi conservati (minuscole, senza diacritici). I n-grammi
+ * che iniziano/finiscono con stop-word generiche sono scartati. I termini di
+ * UNA sola parola corta (<8 char) non vengono emessi: "tutela" da sola non è una
+ * garanzia, "tutela legale" sì.
+ */
+const COVERAGE_STOP = new Set(['verifica', 'se', 'è', 'e', 'o', 'la', 'le', 'il', 'lo', 'di', 'del', 'della', 'delle', 'degli', 'dei', 'per', 'con', 'in', 'da', 'che', 'non', 'più', 'piu', 'sono', 'sia', 'anche', 'una', 'un', 'della', 'delle'])
+
+function normSpaced(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+export function extractCoverageTerms(field) {
+  const label = normSpaced(field?.label || '')
+  const desc = normSpaced(field?.description || '')
+  const tokens = `${label} ${desc}`.split(' ').filter(Boolean)
+  const out = new Set()
+
+  const ngram = (start, len) => {
+    if (start + len > tokens.length) return
+    const first = tokens[start]
+    const last = tokens[start + len - 1]
+    // un n-gramma che inizia/finisce con una stop generica non identifica la garanzia
+    if (COVERAGE_STOP.has(first) || COVERAGE_STOP.has(last)) return
+    const term = tokens.slice(start, start + len).join(' ')
+    if (term.length >= 8) out.add(term)
+  }
+
+  for (let len = 2; len <= 3; len++) {
+    for (let i = 0; i <= tokens.length - len; i++) ngram(i, len)
+  }
+
+  // Il fascicolo può parlare della garanzia con il nome NUDO della copertura
+  // ("massimale della garanzia Tutela"). Lo estraiamo dalla struttura.
+  const afterGar = normSpaced(field?.description || '').match(/\bgaranzia\b\s+(.+)/i)
+  if (afterGar) {
+    const s = afterGar[1].split(/[.,;]/)[0].trim()
+    if (s.length >= 4) out.add(s)
+  }
+
+  // "tutela" (nome comune delle coperture legali) come termine MONO-PAROLA:
+  // l'evidenza la valida SOLO con contesto di garanzia (vedi sotto).
+  if (tokens.includes('tutela')) out.add('tutela')
+
+  return [...out].filter(Boolean)
+}
 
 /**
- * true se il TESTO di almeno un documento NON-opzione del fascicolo parla
- * DAVVERO della garanzia Tutela ("tutela legale", "garanzia tutela", "massimale
- * della garanzia tutela", "sezione tutela"…) — nel testo normalizzato, pattern
- * NON substring (il contenuto dello studio può contenere "tutela").
+ * true se il TESTO di almeno un documento NON-opzione del fascicolo parla della
+ * garanzia descritta da `fieldOrTerms`.
  *
- * La prova documentale esclude i documenti-questionario (le opzioni checkbox di
- * un questionario non sono una garanzia operante): passando un `candidate` con
- * `file` nullo (i candidati from opzioni hanno `file` assente nel merge), la
- * funzione ritorna `false` — il guardrail FIX 4 svuota i campi Tutela.
+ * - `docsOrTexts`: documenti (come nel call-site) o stringhe.
+ * - `fieldOrTerms`: un campo (estrazione termini dalla descrizione), un array di
+ *   campi (unione dei termini), o un array di stringhe già normalizzate. Se
+ *   manca o non produce termini → ritorna TRUE (conserva: senza una specifica
+ *   non possiamo dire "la garanzia non c'è").
+ *
+ * La ricerca è NORMALIZZATA (con spazi) e per termini: niente pattern hardcoded.
  */
-export function hasDocumentedTutelaEvidence(docsOrTexts, candidate = null) {
-  const cand = (typeof candidate === 'object' && candidate) ? candidate : {}
+export function hasDocumentedTutelaEvidence(docsOrTexts, fieldOrTerms = null) {
   const docBase = Array.isArray(docsOrTexts) ? docsOrTexts
     : (typeof docsOrTexts === 'string' ? [docsOrTexts] : [])
-  const candidates = [cand.file, cand.srcName]
-    .filter((n) => typeof n === 'string' && n && n !== 'null')
-    .map((n) => normForMatch(n).slice(0, 40))
+
+  let terms = []
+  if (Array.isArray(fieldOrTerms)) {
+    for (const f of fieldOrTerms) {
+      terms = terms.concat(typeof f === 'string' ? [normSpaced(f)] : extractCoverageTerms(f))
+    }
+  } else if (fieldOrTerms && typeof fieldOrTerms === 'object') {
+    terms = extractCoverageTerms(fieldOrTerms)
+  }
+  terms = terms.filter((t) => t && t.length >= 4)
+  // Senza una specifica di garanzia non si può asserire "non c'è": conserva.
+  if (!terms.length) return true
+
   for (const input of docBase) {
     const doc = (typeof input === 'object' && input) ? input : {}
-    const sourceName = normForMatch(doc?.name || '').slice(0, 40)
-    if (candidates.length && !candidates.includes(sourceName)) continue
     const text = String(doc?.text ?? doc?.norm ?? (typeof input === 'string' ? input : '') ?? '')
-    const norm = text ? (typeof input === 'object' && doc?.norm ? String(doc.norm) : normForMatch(text)) : ''
+    const norm = normSpaced(text)
     if (!norm) continue
-    for (const p of COVERAGE_PATTERNS) if (norm.includes(p)) return true
-    if (/tutelalegale/i.test(norm)) return true
+    for (const t of terms) {
+      if (t === 'tutela') continue // mono-parola: gestita sotto col contesto
+      if (norm.includes(t)) return true
+    }
+    // Termine mono-parola "tutela": la semplice parola in una frase generica
+    // ("tutela dei dati personali") NON è una garanzia. Vale solo se vicina a
+    // parole di garanzia operative (massimale/garanzia/copertura/sezione…).
+    if (terms.includes('tutela') && /\btutela\b/i.test(norm)) {
+      const context = /(?:massimale|garanzia|copertura|sezione|premio|franchigia|scoperto)\b[^\n]{0,80}\btutela\b|\btutela\b[^\n]{0,80}\b(?:massimale|garanzia|copertura|sezione|premio|franchigia|scoperto)\b/i
+      if (context.test(norm)) return true
+    }
   }
   return false
 }

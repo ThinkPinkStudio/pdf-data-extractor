@@ -48,9 +48,7 @@ const timeoutReject = (delay, code) =>
 // Restituisce host/porta/url del provider configurato. Ollama è locale: la
 // diagnostica di rete non è significativa, il chiamante salta.
 export function endpointForProvider(settings) {
-  const provider = settings.llmProvider || 'ollama'
-  if (provider === 'openai') return { host: 'api.openai.com', port: 443, label: 'OpenAI', url: 'https://api.openai.com/v1/models' }
-  if (provider === 'anthropic') return { host: 'api.anthropic.com', port: 443, label: 'Anthropic', url: 'https://api.anthropic.com/v1/messages' }
+  // Solo Ollama: il provider cloud è stato rimosso dal prodotto.
   return { host: null, port: null, label: 'Ollama', url: settings.ollamaUrl || 'http://127.0.0.1:11434' }
 }
 
@@ -228,7 +226,7 @@ export async function probeProxy(session, url) {
 const CONTROLS = [
   { id: 'generate_204', label: 'Connettività neutra (HTTP 204)', url: 'https://www.gstatic.com/generate_204', expect: 204 },
   { id: 'cloudflare', label: 'Endpoint cloud alternativo (Cloudflare)', url: 'https://cloudflare.com/cdn-cgi/trace', expect: 200 },
-  { id: 'second_cloud', label: 'Secondo cloud API (OpenAI)', url: 'https://api.openai.com/v1/models', expect: [200, 401, 403] }
+  { id: 'second_cloud', label: 'Secondo endpoint cloud (Cloudflare R2)', url: 'https://2.pub.r2.dev', expect: [200, 301, 403] }
 ]
 export async function probeControls() {
   return Promise.all(CONTROLS.map(async c => {
@@ -275,18 +273,10 @@ export async function runDeepDiagnostics({ settings, session }) {
     ? await probeTls(ep.host, ep.port)
     : { status: 'skip', reason: 'TCP fallito' }
 
-  // Costruiamo la richiesta REALE del provider (col modello configurato) così
-  // lo strato HTTP riproduce la chiamata vera: 200 = anche auth OK, 401/403 =
-  // chiave rifiutata. Un modello finto darebbe 404 fuorviante.
-  const httpReq = ep.label === 'Anthropic'
-    ? {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey || '', 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: settings.anthropicModel || 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
-      }
-    : { method: 'GET', headers: { Authorization: `Bearer ${settings.openaiApiKey || ''}` } }
+  // Solo Ollama: il provider cloud è stato rimosso dal prodotto, lo strato
+  // HTTP non viene eseguito (endpoint locale). Restano solo i controlli neutri.
   const tlsOk = result.layers.tls.status === 'ok' || result.layers.tls.status === 'warn'
-  result.layers.http = tlsOk ? await probeHttp(ep.url, httpReq) : { status: 'skip', reason: 'TLS fallito' }
+  result.layers.http = tlsOk ? await probeHttp(ep.url, { method: 'GET' }) : { status: 'skip', reason: 'TLS fallito' }
 
   result.proxy = await probeProxy(session, ep.url)
   result.controls = await probeControls()

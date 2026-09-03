@@ -29,7 +29,10 @@ import {
   isConditionalCoverageField,
   isSpecificCoverageField,
   hasDocumentedTutelaEvidence,
+  extractCoverageTerms,
+  isPeriodicDocName,
 } from '../src/services/polizzaValidation.js'
+import { classifyDocType } from '../src/services/vectorIndexService.js'
 import { validateCrossFields } from '../src/services/polizzaValidation.js'
 
 // ─── Funzioni helper ─────────────────────────────────────────────────────────
@@ -255,7 +258,7 @@ test('FIX3: campo che non è "sottolimiti" → mai veto', () => {
   assert.equal(vetoSottolimitiOptionOnly(reg, optionDocs, altro, 'RCO: 2.000.000,00 / RCT: 1.000.000,00'), false)
 })
 
-// ─── FIX 4 — guardrail Tutela ────────────────────────────────────────────────
+// ─── FIX 4 — guardrail garanzia specifica (descrizione al comando) ────────
 
 test('FIX4: la description "Verifica se è presente la garanzia Tutela" è condizionata', () => {
   assert.equal(isConditionalCoverageField(TUTELA), true)
@@ -271,18 +274,35 @@ test('FIX4: la description "Verifica se è presente la garanzia Tutela" è condi
   assert.equal(isSpecificCoverageField(FRANCHIGIA), false)
 })
 
-test('FIX4: evidenza della garanzia Tutela presente nel fascicolo (non-opzione) → sì', () => {
-  const docs = [
-    textDoc('polizza.pdf', 'GARANZIA TUTELA LEGALE: massimale 100.000,00 per sinistro'),
+test('FIX4: i campi DIRETTI di "Tutela Legale 3" NON sono condizionali (guardrail non li tocca)', () => {
+  const tl3 = [
+    { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro tutela legale', description: 'Massimale per ogni sinistro es 20.000' },
+    { id: 'rct_massimale_persona', label: 'Massimale per anno tutela legale', description: 'Massimale per anno 40.000,00' },
+    { id: 'rcp_premio_imponibile', label: 'Premio imponibile tutela legale', description: 'Premio imponibile anticipato tutela legale (es. 58.799,99)' },
+    { id: 'campo_ypcasda', label: 'Garanzie scelte/operanti', description: 'Garanzie scelte/operanti, informazioni aggiuntive (es. Tutela Legale pacchetto base)' },
+    { id: 'campo_j3byrdl', label: 'Bisogni assicurativi', description: 'Indicare i bisogni assicurativi spuntati con una "X"' },
   ]
-  assert.equal(hasDocumentedTutelaEvidence(docs), true)
+  for (const f of tl3) assert.equal(isSpecificCoverageField(f), false, `${f.id}: diretto, non condizionale`)
+  // Falliscono i vecchi pattern ("tutela legale" nel testo) → NON più svuotati
+})
+
+test('FIX4: evidenza della garanzia presente nel fascicolo (termini della descrizione) → sì', () => {
+  const docs = [textDoc('polizza.pdf', 'GARANZIA TUTELA LEGALE: massimale 100.000,00 per sinistro')]
+  assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), true)
+})
+
+test('FIX4: termini della descrizione matchano anche le tabelle OCR della polizza DAS', () => {
+  // La polizza GUFFANTI (DAS): "Tutela Legale Pacchetto Base" nel corpo.
+  const docs = [textDoc('polizza.pdf', 'GARANZIE SCELTE: Tutela Legale Pacchetto Base, premio netto 1.270,10')]
+  assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), true)
+  assert.equal(hasDocumentedTutelaEvidence(docs, { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro tutela legale', description: 'Massimale per ogni sinistro' }), true)
 })
 
 test('FIX4: la parola "tutela" nel contenuto NON è evidenza della garanzia', () => {
   const docs = [
     textDoc('condizioni.pdf', 'l\'attività di tutela dei dati personali non è coperta da RC professionale'),
   ]
-  assert.equal(hasDocumentedTutelaEvidence(docs), false)
+  assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), false)
 })
 
 test('FIX4: evidenza SOLO in un documento-opzione NON conta come garanzia operante', () => {
@@ -292,24 +312,30 @@ test('FIX4: evidenza SOLO in un documento-opzione NON conta come garanzia operan
   const docsNonOpzione = [
     textDoc('polizza.pdf', 'Massimali Assicurati: RCT/RCO Euro 7.500.000,00 Unico per sinistro'),
   ]
-  assert.equal(hasDocumentedTutelaEvidence(docsNonOpzione), false)
+  assert.equal(hasDocumentedTutelaEvidence(docsNonOpzione, TUTELA), false)
   // ma la stessa stringa in un documento NON-opzione vale come evidenza
   const docsPolizza = [textDoc('polizza.pdf', 'Tutela legale: presente, massimale 100.000,00')]
-  assert.equal(hasDocumentedTutelaEvidence(docsPolizza), true)
+  assert.equal(hasDocumentedTutelaEvidence(docsPolizza, TUTELA), true)
 })
 
-test('FIX4: nessuna evidenza → i campi Tutela restano vuoti (guardrail deterministico)', () => {
-  // Il merge NON deve avere alcun candidato: simuliamo la decisione del
-  // guardrail con `hasDocumentedTutelaEvidence` su un fascicolo senza garanzia.
+test('FIX4: nessuna evidenza → i campi condizionali restano vuoti (guardrail deterministico)', () => {
   const docs = [
     textDoc('polizza.pdf', 'Massimali Assicurati: RCT/RCO Euro 7.500.000,00 Unico per sinistro'),
     textDoc('quietanza.pdf', 'Premio totale 7.260,00'),
     textDoc('appendice.pdf', 'franchigia fabbricati 250,00'),
   ]
-  assert.equal(hasDocumentedTutelaEvidence(docs), false)
+  assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), false)
 })
 
-test('FIX4: pattern tipici di garanzia operante vengono riconosciuti', () => {
+test('FIX4: senza campo (nessuna specifica) la guardia CONSERVA, non svuota', () => {
+  // vecchio comportamento: hasDocumentedTutelaEvidence(docs) senza campo
+  // cercava pattern fissi e poteva dare false → svuotava. Ora: senza una
+  // descrizione da cui estrarre i termini non si può dire "non c'è" → true.
+  const docs = [textDoc('polizza.pdf', 'Massimali Assicurati: RCT/RCO Euro 7.500.000,00')]
+  assert.equal(hasDocumentedTutelaEvidence(docs), true)
+})
+
+test('FIX4: pattern tipici di garanzia operante vengono riconosciuti coi termini del campo', () => {
   const cases = [
     'Massimale della garanzia Tutela: 100.000,00',
     'GARANZIA TUTELA LEGALE attivata con decorrenza 1/1/2025',
@@ -317,11 +343,102 @@ test('FIX4: pattern tipici di garanzia operante vengono riconosciuti', () => {
     'Tutela legale: presente (massimale per sinistro 100.000,00)',
   ]
   for (const t of cases) {
-    assert.equal(hasDocumentedTutelaEvidence([textDoc('polizza.pdf', t)]), true, t)
+    assert.equal(hasDocumentedTutelaEvidence([textDoc('polizza.pdf', t)], TUTELA), true, t)
   }
   // La semplice parola "tutela" (es. tutela dei dati) NON basta
-  assert.equal(hasDocumentedTutelaEvidence([textDoc('c.pdf', 'tutela dei dati personali')]), false)
-  assert.equal(hasDocumentedTutelaEvidence([textDoc('c.pdf', 'tutela')]), false)
+  assert.equal(hasDocumentedTutelaEvidence([textDoc('c.pdf', 'tutela dei dati personali')], TUTELA), false)
+  assert.equal(hasDocumentedTutelaEvidence([textDoc('c.pdf', 'tutela')], TUTELA), false)
+})
+
+// ─── isPeriodicDocName: il nome NON deve dichiarare periodico una polizza ───
+
+test('isPeriodicDocName: "quietanza"/"regolazione" come PAROLA → periodico', () => {
+  assert.equal(isPeriodicDocName('Quietanza n. 5 del 31/12/2024.pdf'), true)
+  assert.equal(isPeriodicDocName('Regolazione premio 2025.pdf'), true)
+  assert.equal(isPeriodicDocName('quiestina.pdf'), true)
+})
+
+test('isPeriodicDocName: "Polizza …quietanzata…" NON è periodica', () => {
+  assert.equal(isPeriodicDocName('Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata e firmata.pdf'), false)
+  assert.equal(isPeriodicDocName('Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata.pdf'), false)
+  assert.equal(isPeriodicDocName('Polizza GUFFANTI GROUP & PARTNERS S.R.L..pdf'), false)
+})
+
+test('isPeriodicDocName: nomi con "quietanz" NON in posizione di parola → NON periodici', () => {
+  assert.equal(isPeriodicDocName('quietanzatissima.pdf'), false)
+  assert.equal(isPeriodicDocName('Documento quietanzato.pdf'), false)
+  // la parola "quietanza" dentro una frase ma non come token iniziale/delimitato
+  assert.equal(isPeriodicDocName('fascicolo_quietanza_2024.pdf'), true)
+  assert.equal(isPeriodicDocName('regolazione_premio.pdf'), true)
+})
+
+// ─── extractCoverageTerms ───────────────────────────────────────────────────
+
+test('extractCoverageTerms: dai la descrizione, ricevi i termini della garanzia', () => {
+  assert.ok(extractCoverageTerms(TUTELA).some((t) => t.includes('tutela')))
+  assert.ok(extractCoverageTerms(TUTELA).some((t) => t.includes('legale')))
+  assert.ok(extractCoverageTerms(TUTELA).some((t) => t.length >= 6))
+})
+
+// ─── classifyDocType: la polizza vince su "quietanzata" nel nome ────────────
+
+test('classifyDocType: "Polizza …quietanzata…" è una polizza, NON una quietanza', () => {
+  assert.equal(classifyDocType('Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata e firmata.pdf'), 'polizza')
+  assert.equal(classifyDocType('Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata.pdf'), 'polizza')
+  assert.equal(classifyDocType('Polizza GUFFANTI GROUP & PARTNERS S.R.L..pdf'), 'polizza')
+})
+
+test('classifyDocType: i periodici veri restano classificati', () => {
+  assert.equal(classifyDocType('Quietanza n. 5 del 31/12/2024.pdf'), 'quietanza')
+  assert.equal(classifyDocType('Regolazione premio 2025.pdf'), 'regolazione')
+  assert.equal(classifyDocType('Appendice n.1.pdf'), 'appendice')
+  assert.equal(classifyDocType('Condizioni generali.pdf'), 'condizioni')
+})
+
+// ─── REGRESSIONE "TUTELA LEGALE 3" / GUFFANTI (niente LLM) ───────────────────
+// Replica il flusso deterministico del bug: il profilo "Tutela Legale 3" chiede
+// 23 campi, i file reali si chiamano "Polizza …quietanzata…". Con il fix:
+//  - i 4 PDF non sono periodici e sono tutti 'polizza' (tranne Set Informativo);
+//  - i campi diretti (massimali/premi tutela legale) NON sono condizionali →
+//    il guardrail garanzia NON li svuota;
+//  - il fascicolo GUFFANTI (che parla di "Tutela Legale") dà evidenza al campo
+//    condizionale TUTELA del profilo RC PROF MED V2.
+
+test('GUFFANTI: i file "Polizza …quietanzata…" sono polizze e non periodici', () => {
+  const names = [
+    'Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata e firmata.pdf',
+    'Polizza GUFFANTI GROUP  PARTNERS S R L   quietanzata.pdf',
+    'Polizza GUFFANTI GROUP & PARTNERS S.R.L..pdf',
+    'Set Informativo.pdf',
+  ]
+  for (const n of names) {
+    assert.equal(isPeriodicDocName(n), false, n)
+    assert.equal(classifyDocType(n) === 'quietanza' || classifyDocType(n) === 'regolazione', false, n)
+  }
+})
+
+test('TUTELA_LEGALE_3: i campi diretti NON sono condizionali (il guardrail non li tocca)', () => {
+  const tl3 = [
+    { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro tutela legale', description: 'Massimale per ogni sinistro es 20.000', type: 'number' },
+    { id: 'rct_massimale_persona', label: 'Massimale per anno tutela legale', description: 'Massimale per anno 40.000,00', type: 'number' },
+    { id: 'rcp_premio_imponibile', label: 'Premio imponibile tutela legale', description: 'Premio imponibile anticipato tutela legale (es. 58.799,99)', type: 'number' },
+    { id: 'rcp_premio_totale', label: 'Premio lordo totale tutela legale', description: 'Premio/anticipo di sezione annuo totale lordo tutela legale (es. 5.184,00)', type: 'number' },
+    { id: 'campo_ypcasda', label: 'Garanzie scelte/operanti', description: 'Garanzie scelte/operanti, informazioni aggiuntive (es. Tutela Legale pacchetto base)', type: 'text' },
+    { id: 'campo_j3byrdl', label: 'Bisogni assicurativi', description: 'Indicare i bisogni assicurativi spuntati con una "X" o altro segno di spunta', type: '' },
+    { id: 'campo_9s9xh6e', label: 'Interessi di frazionamento', description: 'Interessi di frazionamento premio tutela legale (es. 10.,00)', type: 'number' },
+    { id: 'campo_vwmu800', label: 'Diritti', description: 'Diritti premio tutela legale', type: 'number' },
+    { id: 'rcp_imposta', label: 'Imposte', description: 'Imposte (es. 13.082,99)', type: 'number' },
+  ]
+  for (const f of tl3) assert.equal(isSpecificCoverageField(f), false, `${f.id}: deve restare non-condizionale`)
+})
+
+test('TUTELA_LEGALE_3: il testo GUFFANTI dà evidenza della garanzia (descrizione al comando)', () => {
+  // Testo reale della polizza DAS: "DESCRIZIONE GARANZIE … Tutela Legale Pacchetto Base"
+  const docs = [textDoc('Polizza GUFFANTI …quietanzata e firmata.pdf', 'GARANZIE SCELTE DESCRIZIONE GARANZIE Premio Tutela Legale Pacchetto Base 216,93')]
+  const TL = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro tutela legale', description: 'Massimale per ogni sinistro es 20.000' }
+  assert.equal(hasDocumentedTutelaEvidence(docs, TL), true)
+  // il condizionale RC PROF MED V2 trova l'evidenza nello stesso testo
+  assert.equal(hasDocumentedTutelaEvidence(docs, TUTELA), true)
 })
 
 // ─── FIX 5 — NATURA ESTRANEA MASSIMALE (CEDAM) ─────────────────────────────

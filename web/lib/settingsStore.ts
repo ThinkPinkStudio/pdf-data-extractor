@@ -57,7 +57,6 @@ export interface WebSettings {
   anthropicModel?: string
   ollamaModel?: string
   ollamaVisionModel?: string
-  anthropicVisionModel?: string
   // Configurazione Polizze
   polizzaOcrEnabled?: boolean
   polizzaWholeDossier?: boolean
@@ -65,9 +64,6 @@ export interface WebSettings {
   // JSON vincolato (schema/GBNF) su date, importi, P.IVA, tassi. false = format json libero.
   polizzaConstrainedJson?: boolean
   polizzaWholeDossierModel?: string
-  // DEMO: se true, l'estrazione viene instradata al provider Anthropic (Claude)
-  // invece che a Ollama. Pensato solo per le presentazioni; spento = tutto locale.
-  polizzaUseClaude?: boolean
   polizzaPromptExtra?: string
   polizzaFields?: PolizzaField[]
   polizzaProfiles?: PolizzaProfile[]
@@ -168,7 +164,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaUseClaude', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -197,18 +193,11 @@ export async function getSettings(): Promise<WebSettings> {
   // DEPLOY.md e .env.example) venivano ignorati e si usava sempre localhost:11434.
   const llmModel = map.llmModel ?? (process.env.LLM_MODEL || DEFAULTS.llmModel)
 
-  // DEMO — "Usa modello Claude": interruttore che instrada l'estrazione al provider
-  // Anthropic invece di Ollama. È l'UNICO caso in cui il provider non è forzato a
-  // 'ollama'. Pensato per le presentazioni; di default spento (tutto locale).
-  const useClaude = bool('polizzaUseClaude', false)
-
   return {
-    // Solo Ollama, TRANNE quando lo switch demo "Usa modello Claude" è attivo: in
-    // quel caso il provider passa ad 'anthropic' e i rami cloud vengono eseguiti.
-    // Con lo switch spento resta forzato 'ollama' (nessun ramo cloud), a
-    // prescindere da valori legacy salvati o env.
-    llmProvider: useClaude ? 'anthropic' : 'ollama',
-    polizzaUseClaude: useClaude,
+    // Solo Ollama: il provider cloud è stato rimosso dal prodotto. Il valore
+    // viene forzato a 'ollama' anche se in DB restano chiavi legacy
+    // (polizzaUseClaude) di versioni precedenti: il ramo cloud non esiste più.
+    llmProvider: 'ollama',
     llmModel,
     ollamaUrl: map.ollamaUrl ?? (process.env.OLLAMA_URL || DEFAULTS.ollamaUrl),
     openaiApiKey: map.openaiApiKey ?? (process.env.OPENAI_API_KEY || DEFAULTS.openaiApiKey),
@@ -217,13 +206,9 @@ export async function getSettings(): Promise<WebSettings> {
     // llmModel è condiviso tra i provider nella UI, quindi può contenere un nome
     // Claude/GPT che, passato a Ollama, produce 404 "model not found" (e viceversa).
     openaiModel: map.openaiModel || (isGptModel(llmModel) ? llmModel : '') || '',
-    // Demo Claude: se attivo e nessun modello impostato, usa un default Claude
-    // sensato (env ANTHROPIC_MODEL o Haiku) così l'estrazione parte senza altra config.
-    anthropicModel: map.anthropicModel || (isClaudeModel(llmModel) ? llmModel : '')
-      || (useClaude ? (process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001') : '') || '',
+    anthropicModel: map.anthropicModel || (isClaudeModel(llmModel) ? llmModel : '') || '',
     ollamaModel: map.ollamaModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
     ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
-    anthropicVisionModel: map.anthropicVisionModel || map.anthropicModel || (isClaudeModel(llmModel) ? llmModel : '') || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
     polizzaPerField: bool('polizzaPerField', true),

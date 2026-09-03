@@ -16,9 +16,6 @@ interface Settings {
   polizzaPerField?: boolean
   polizzaConstrainedJson?: boolean
   polizzaBatchContext?: number
-  polizzaUseClaude?: boolean
-  anthropicApiKey?: string
-  anthropicModel?: string
   polizzaPromptExtra?: string
   bulkExcludedFolderNames?: string
   bulkIncludeKeywords?: string
@@ -175,24 +172,6 @@ export default function SettingsPage() {
                   ? <span style={{ color: 'var(--c-warning, #f0ad4e)' }}>{t('set.batchContextWarn')}</span>
                   : null}
               </p>
-            </div>
-
-            {/* DEMO — Usa modello Claude (Anthropic) al posto di Ollama */}
-            <div style={{ borderTop: '1px solid var(--c-border)', marginTop: 6, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <Toggle checked={!!s.polizzaUseClaude} onChange={(v) => up('polizzaUseClaude', v)} label={t('set.useClaude')} />
-              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0 }}>{t('set.useClaudeHelp')}</p>
-              {s.polizzaUseClaude && (
-                <>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="label">{t('set.claudeApiKey')}</label>
-                    <input type="password" autoComplete="off" value={s.anthropicApiKey || ''} onChange={(e) => up('anthropicApiKey', e.target.value)} placeholder="sk-ant-…" />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="label">{t('set.claudeModel')}</label>
-                    <input value={s.anthropicModel || ''} onChange={(e) => up('anthropicModel', e.target.value)} placeholder="claude-haiku-4-5-20251001" />
-                  </div>
-                </>
-              )}
             </div>
           </div>
         </div>
