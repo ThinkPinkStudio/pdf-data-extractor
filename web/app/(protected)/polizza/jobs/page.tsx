@@ -20,6 +20,7 @@ interface BatchSummary {
 
 interface JobSnapshot {
   jobId: string
+  batchId?: string | null
   owner?: string
   dossierName: string | null
   status: string
@@ -30,6 +31,7 @@ interface JobSnapshot {
   progress?: { docIndex: number; docTotal: number; pageIndex: number; pageTotal: number; docName: string } | null
   duplicateOf?: string | null
   sourceJobId?: string | null
+  profileId?: string | null
   promptExtra?: string | null
   logs?: string[]
   updatedAt?: number
@@ -75,14 +77,20 @@ export default function PolizzaJobsPage() {
   const [showFiles, setShowFiles] = useState<Set<string>>(new Set())     // jobId → elenco PDF aperto
   const [retryExcluded, setRetryExcluded] = useState<Set<string>>(new Set()) // jobId esclusi dal rilancio
   const [busy, setBusy] = useState(false)
-  // Dialog "run di TEST": job sorgente + scelte (profilo/modello/strategia/prompt)
-  const [testJob, setTestJob] = useState<JobSnapshot | null>(null)
+  // Dialog universale di rilancio: "run di TEST" (crea una COPIA) oppure
+  // "rielabora con profilo" (singolo o batch) — lo STESSO job torna in coda coi
+  // field_defs del profilo scelto al posto di quelli congelati all'upload.
+  type ReprofileMode = 'test' | 'reprofile' | 'reprofileBatch'
+  const [dial, setDial] = useState<{ mode: ReprofileMode; jobs: JobSnapshot[] } | null>(null)
   const [testProfileId, setTestProfileId] = useState('')
   const [testModel, setTestModel] = useState('')
   const [testStrategy, setTestStrategy] = useState('')      // '' = come da impostazioni
   const [testPrompt, setTestPrompt] = useState('')
   const [testModels, setTestModels] = useState<string[]>([])
   const [testProfiles, setTestProfiles] = useState<{ id: string; name: string }[]>([])
+  // Selezione multipla per la rielaborazione COLLETTIVA con profilo (righe batch)
+  const [reprofileSelected, setReprofileSelected] = useState<Set<string>>(new Set())
+  const [reprofileError, setReprofileError] = useState('')
 
   const loadBatches = useCallback(async () => {
     try {
@@ -119,7 +127,7 @@ export default function PolizzaJobsPage() {
   async function toggleOpen(id: string) {
     if (openId === id) { setOpenId(null); setDetail(null); return }
     setOpenId(id); setDetail(null); setLoadingDetail(true)
-    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set())
+    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set()); setReprofileSelected(new Set())
     await loadDetail(id)
     setLoadingDetail(false)
   }
@@ -143,14 +151,23 @@ export default function PolizzaJobsPage() {
     } finally { setBusy(false) }
   }
 
-  // Apre il dialog di TEST per un job: carica (una volta) profili e modelli
-  // disponibili; i default sono "campi del job" e "modello/strategia correnti".
-  async function openTestDialog(j: JobSnapshot) {
-    setTestJob(j); setTestProfileId(''); setTestModel(''); setTestStrategy(''); setTestPrompt(j.promptExtra || '')
+  // Apre il dialog universale di rilancio. Carica (una volta) profili e modelli;
+  // i default sono "campi del job" e "modello/strategia correnti". Per i modi
+  // "rielabora con profilo" il profilo è OBBLIGATORIO (si sostituiscono i campi
+  // congelati): si preseleziona l'ultimo scelto, se ancora esiste.
+  async function openDialog(mode: ReprofileMode, jobs: JobSnapshot[]) {
+    setDial({ mode, jobs }); setTestProfileId(''); setTestModel(''); setTestStrategy(''); setReprofileError('')
+    setTestPrompt(mode === 'reprofileBatch' ? '' : (jobs[0]?.promptExtra || ''))
     if (!testProfiles.length) {
       try {
         const s = await (await fetch('/api/settings')).json()
         setTestProfiles((s.polizzaProfiles || []).map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })))
+        // Preselezione: per il singolo l'ultimo profilo usato da QUESTO job
+        // (resetJobForRetry NON rifà i campi se si lascia "campi del job").
+        if (mode === 'reprofile') {
+          const pid = jobs[0]?.profileId
+          if (pid && (s.polizzaProfiles || []).some((p: { id: string }) => p.id === pid)) setTestProfileId(pid)
+        }
       } catch { /* senza profili resta "campi del job" */ }
     }
     if (!testModels.length) {
@@ -158,8 +175,12 @@ export default function PolizzaJobsPage() {
     }
   }
 
-  async function startTestRun() {
-    if (!testJob) return
+  // Sottomissione del dialog: TEST (copia, profilo opzionale) oppure
+  // REPROFILE/REPROFILE_BATCH (stesso job in coda, profilo OBBLIGATORIO).
+  async function submitDialog() {
+    if (!dial) return
+    const { mode, jobs } = dial
+    if (mode !== 'test' && !testProfileId) { setReprofileError(t('jobsDash.reprofileRequired')); return }
     setBusy(true)
     try {
       const body: Record<string, unknown> = {}
@@ -168,12 +189,21 @@ export default function PolizzaJobsPage() {
       if (testStrategy === 'perfield') { body.perField = true }
       else if (testStrategy === 'groups') { body.perField = false; body.stagedCascade = false }
       else if (testStrategy === 'cascade') { body.perField = false; body.stagedCascade = true }
-      if (testPrompt !== (testJob.promptExtra || '')) body.promptExtra = testPrompt
-      const res = await fetch(`/api/polizza/job/${testJob.jobId}/test`, {
+      if (testPrompt !== (jobs[0]?.promptExtra || '')) body.promptExtra = testPrompt
+      const url = mode === 'test'
+        ? `/api/polizza/job/${jobs[0].jobId}/test`
+        : mode === 'reprofile'
+          ? `/api/polizza/job/${jobs[0].jobId}/reprofile`
+          : `/api/polizza/batch/${jobs[0].batchId}/reprofile`
+      if (mode === 'reprofileBatch') body.jobIds = jobs.map((j) => j.jobId)
+      const res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
-      if (res.ok) { setTestJob(null); await loadBatches() }
-      else alert((await res.json())?.error || 'Errore')
+      if (!res.ok) { setReprofileError(((await res.json())?.error) || 'Errore'); return }
+      setDial(null)
+      if (mode === 'reprofileBatch') setReprofileSelected(new Set())
+      if (openId) await loadDetail(openId)
+      await loadBatches()
     } finally { setBusy(false) }
   }
 
@@ -199,6 +229,16 @@ export default function PolizzaJobsPage() {
       await loadDetail(batchId)
       await loadBatches()
     } finally { setBusy(false) }
+  }
+
+  // Job selezionabili per la rielaborazione collettiva con profilo.
+  const selectableForReprofile = (j: JobSnapshot) => j.status !== 'done' && j.status !== 'canceled'
+
+  // Apre il dialog "rielabora con profilo" per tutti i job selezionati del batch.
+  function openBatchReprofile(batchId: string) {
+    const jobs = (detail || []).filter((j) => selectableForReprofile(j) && reprofileSelected.has(j.jobId))
+      .map((j) => ({ ...j, batchId }))
+    if (jobs.length) openDialog('reprofileBatch', jobs)
   }
 
   // Export Excel del singolo dossier (riusa il tracciato della pagina Polizze).
@@ -317,6 +357,9 @@ export default function PolizzaJobsPage() {
                 const isOpen = openId === b.id
                 const failedCount = detail ? detail.filter((j) => j.status === 'error').length : b.error
                 const retryCount = detail ? detail.filter((j) => j.status === 'error' && !retryExcluded.has(j.jobId)).length : 0
+                const selectableCount = detail ? detail.filter((j) => selectableForReprofile(j)).length : 0
+                const reprofileCount = detail ? detail.filter((j) => selectableForReprofile(j) && reprofileSelected.has(j.jobId)).length : 0
+                const allSelectable = selectableCount > 0
                 return (
                   <Fragment key={b.id}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => toggleOpen(b.id)}>
@@ -336,6 +379,14 @@ export default function PolizzaJobsPage() {
                                 <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => exportBatch(b.id, b.label)}>
                                   ⬇ {t('jobsDash.exportBatch')}
                                 </button>
+                                {/* Rielaborazione COLLETTIVA con profilo: checkbox sulle
+                                    righe (anche quelle in coda/corso) + un solo dialog. */}
+                                {reprofileCount > 0 && (
+                                  <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                    title={t('jobsDash.reprocessBatchWithTitle')} onClick={() => openBatchReprofile(b.id)}>
+                                    ⇄ {t('jobsDash.reprocessBatchWith', { n: reprofileCount })}
+                                  </button>
+                                )}
                                 {failedCount > 0 && (
                                   <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy || retryCount === 0} onClick={() => retryFailed(b.id)}>
                                     ↻ {t('jobsDash.retryFailed', { n: retryCount })}
@@ -345,6 +396,16 @@ export default function PolizzaJobsPage() {
                               <table>
                                 <thead>
                                   <tr>
+                                    <th style={{ fontSize: 10 }}>
+                                      <input type="checkbox" checked={allSelectable && reprofileCount === selectableCount}
+                                        onChange={(e) => {
+                                          const n = new Set(reprofileSelected)
+                                          if (e.target.checked) for (const jd of detail) if (selectableForReprofile(jd)) n.add(jd.jobId)
+                                          else for (const jd of detail) if (selectableForReprofile(jd)) n.delete(jd.jobId)
+                                          setReprofileSelected(n)
+                                        }}
+                                        title={t('jobsDash.selectForReprofile')} />
+                                    </th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierName')}</th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierStatus')}</th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierFields')}</th>
@@ -355,6 +416,7 @@ export default function PolizzaJobsPage() {
                                   {detail.map((j) => {
                                     const active = j.status === 'running' || j.status === 'queued'
                                     const failed = j.status === 'error'
+                                    const selectable = selectableForReprofile(j)
                                     // Riuso possibile: fascicolo identico noto e job non in corso/completato
                                     const reusable = !!j.duplicateOf && (j.status === 'queued' || j.status === 'error' || j.status === 'canceled')
                                     const hasValues = Object.keys(j.values || {}).length > 0
@@ -365,6 +427,11 @@ export default function PolizzaJobsPage() {
                                     return (
                                       <Fragment key={j.jobId}>
                                         <tr>
+                                          <td style={{ fontSize: 12 }}>{selectable && (
+                                            <input type="checkbox" checked={reprofileSelected.has(j.jobId)}
+                                              onChange={() => setReprofileSelected((p) => toggleIn(p, j.jobId))}
+                                              title={t('jobsDash.selectForReprofile')} />
+                                          )}</td>
                                           <td style={{ fontSize: 12 }}>
                                             {hasValues && (
                                               <button type="button" onClick={() => setShowValues((p) => toggleIn(p, j.jobId))} title={t('jobsDash.showValues')}
@@ -420,9 +487,15 @@ export default function PolizzaJobsPage() {
                                                 ↻ {t('jobsDash.reprocess')}
                                               </button>
                                             )}
+                                            {['done', 'error', 'canceled', 'mismatch'].includes(j.status) && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                                                title={t('jobsDash.reprocessWithProfileTitle')} onClick={() => openDialog('reprofile', [j])}>
+                                                ⇄ {t('jobsDash.reprocessWithProfile')}
+                                              </button>
+                                            )}
                                             {(j.status === 'done' || j.status === 'error') && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
-                                                title={t('jobsDash.testTitle')} onClick={() => openTestDialog(j)}>
+                                                title={t('jobsDash.testTitle')} onClick={() => openDialog('test', [j])}>
                                                 🧪 {t('jobsDash.test')}
                                               </button>
                                             )}
@@ -457,7 +530,7 @@ export default function PolizzaJobsPage() {
                                         </tr>
                                         {valuesOpen && hasValues && (
                                           <tr>
-                                            <td colSpan={4} style={{ padding: '4px 0 10px 18px' }}>
+                                            <td colSpan={5} style={{ padding: '4px 0 10px 18px' }}>
                                               <table style={{ fontSize: 11 }}>
                                                 <tbody>
                                                   {Object.entries(j.values || {}).map(([k, v]) => (
@@ -476,14 +549,14 @@ export default function PolizzaJobsPage() {
                                         )}
                                         {logOpen && (
                                           <tr>
-                                            <td colSpan={4} style={{ padding: '4px 0 10px 18px' }}>
+                                            <td colSpan={5} style={{ padding: '4px 0 10px 18px' }}>
                                               <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto', margin: 0, color: 'var(--c-text-secondary)' }}>
                                                 {(j.logs || []).slice(-30).join('\n')}
                                               </pre>
                                             </td>
                                           </tr>
                                         )}
-                                        {filesOpen && filesList(j, 4, 18)}
+                                        {filesOpen && filesList(j, 5, 18)}
                                       </Fragment>
                                     )
                                   })}
@@ -608,9 +681,15 @@ export default function PolizzaJobsPage() {
                             ↻ {t('jobsDash.reprocess')}
                           </button>
                         )}
+                        {['done', 'error', 'canceled', 'mismatch'].includes(j.status) && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                            title={t('jobsDash.reprocessWithProfileTitle')} onClick={() => openDialog('reprofile', [j])}>
+                            ⇄ {t('jobsDash.reprocessWithProfile')}
+                          </button>
+                        )}
                         {(j.status === 'done' || j.status === 'error') && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
-                            title={t('jobsDash.testTitle')} onClick={() => openTestDialog(j)}>
+                            title={t('jobsDash.testTitle')} onClick={() => openDialog('test', [j])}>
                             🧪 {t('jobsDash.test')}
                           </button>
                         )}
@@ -680,51 +759,70 @@ export default function PolizzaJobsPage() {
         </div>
       )}
 
-      {/* ── Dialog "run di TEST": stessi PDF, profilo/modello/strategia a scelta.
-          Crea un job COPIA — l'originale non viene mai toccato. ── */}
-      {testJob && (
-        <div onClick={() => setTestJob(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '92vw', padding: 20 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🧪 {t('jobsDash.testDialogTitle')}</h3>
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>
-              {testJob.dossierName || testJob.jobId.slice(0, 8)} — {t('jobsDash.testDialogHint')}
-            </p>
-            <div className="form-group">
-              <label className="label">{t('jobsDash.testProfile')}</label>
-              <select value={testProfileId} onChange={(e) => setTestProfileId(e.target.value)} style={{ width: '100%' }}>
-                <option value="">{t('jobsDash.testProfileFrozen')}</option>
-                {testProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="label">{t('jobsDash.testModel')}</label>
-              <input list="test-models" value={testModel} onChange={(e) => setTestModel(e.target.value)}
-                placeholder={t('jobsDash.testModelPlaceholder')} style={{ width: '100%' }} />
-              <datalist id="test-models">
-                {testModels.map((m) => <option key={m} value={m} />)}
-              </datalist>
-            </div>
-            <div className="form-group">
-              <label className="label">{t('jobsDash.testStrategy')}</label>
-              <select value={testStrategy} onChange={(e) => setTestStrategy(e.target.value)} style={{ width: '100%' }}>
-                <option value="">{t('jobsDash.testStrategyCurrent')}</option>
-                <option value="perfield">{t('jobsDash.testStrategyPerField')}</option>
-                <option value="groups">{t('jobsDash.testStrategyGroups')}</option>
-                <option value="cascade">{t('jobsDash.testStrategyCascade')}</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="label">{t('jobsDash.testPrompt')}</label>
-              <textarea value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} rows={3} style={{ width: '100%', fontSize: 12 }} />
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setTestJob(null)}>{t('jobsDash.testCancel')}</button>
-              <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={startTestRun}>▶ {t('jobsDash.testStart')}</button>
+      {/* ── Dialog universale di rilancio: run di TEST (copia, profilo opzionale)
+          oppure RIELABORA CON PROFILO (singolo o batch: lo stesso job torna in
+          coda coi field_defs del profilo scelto). ── */}
+      {dial && (() => {
+        const { mode, jobs } = dial
+        const n = jobs.length
+        const isBatch = mode === 'reprofileBatch'
+        const title = mode === 'test'
+          ? t('jobsDash.testDialogTitle')
+          : isBatch
+            ? t('jobsDash.reprofileBatchDialogTitle', { n })
+            : t('jobsDash.reprofileDialogTitle')
+        const hint = mode === 'test'
+          ? t('jobsDash.testDialogHint')
+          : isBatch
+            ? t('jobsDash.reprofileBatchDialogHint')
+            : t('jobsDash.reprofileDialogHint')
+        const startLabel = isBatch ? t('jobsDash.reprofileStartBatch', { n }) : (mode === 'test' ? t('jobsDash.testStart') : t('jobsDash.reprofileStart'))
+        const icon = mode === 'test' ? '🧪' : '⇄'
+        return (
+          <div onClick={() => setDial(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '92vw', padding: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{icon} {title}</h3>
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>
+                {isBatch ? `${n} job — ` : `${jobs[0].dossierName || jobs[0].jobId.slice(0, 8)} — `}{hint}
+              </p>
+              <div className="form-group">
+                <label className="label">{t('jobsDash.testProfile')}{isBatch || mode === 'reprofile' ? ' *' : ''}</label>
+                <select value={testProfileId} onChange={(e) => setTestProfileId(e.target.value)} style={{ width: '100%' }}>
+                  <option value="">{mode === 'test' ? t('jobsDash.testProfileFrozen') : t('jobsDash.testProfileFrozenHint')}</option>
+                  {testProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="label">{t('jobsDash.testModel')}</label>
+                <input list="test-models" value={testModel} onChange={(e) => setTestModel(e.target.value)}
+                  placeholder={t('jobsDash.testModelPlaceholder')} style={{ width: '100%' }} />
+                <datalist id="test-models">
+                  {testModels.map((m) => <option key={m} value={m} />)}
+                </datalist>
+              </div>
+              <div className="form-group">
+                <label className="label">{t('jobsDash.testStrategy')}</label>
+                <select value={testStrategy} onChange={(e) => setTestStrategy(e.target.value)} style={{ width: '100%' }}>
+                  <option value="">{t('jobsDash.testStrategyCurrent')}</option>
+                  <option value="perfield">{t('jobsDash.testStrategyPerField')}</option>
+                  <option value="groups">{t('jobsDash.testStrategyGroups')}</option>
+                  <option value="cascade">{t('jobsDash.testStrategyCascade')}</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="label">{t('jobsDash.testPrompt')}</label>
+                <textarea value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} rows={3} style={{ width: '100%', fontSize: 12 }} />
+              </div>
+              {reprofileError && <p style={{ fontSize: 11, color: 'var(--c-error)', margin: '0 0 10px' }}>{reprofileError}</p>}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+                <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setDial(null)}>{t('jobsDash.testCancel')}</button>
+                <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={submitDialog}>▶ {startLabel}</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
