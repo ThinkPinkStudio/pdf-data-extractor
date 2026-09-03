@@ -21,14 +21,12 @@ export async function POST(req: NextRequest) {
   const current = await getSettings()
 
   // Campi consentiti (whitelist). I segreti non vengono sovrascritti se arriva il placeholder ***.
+  // Solo Ollama: niente chiavi OpenAI/Anthropic né switch cloud.
   const allowed: (keyof WebSettings)[] = [
-    // Solo Ollama: chiavi OpenAI/Anthropic rimosse dalla whitelist.
-    'llmProvider', 'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
+    'llmModel', 'ollamaUrl', 'ollamaModel', 'ollamaVisionModel',
     'polizzaOcrEnabled', 'polizzaWholeDossier',
     'polizzaWholeDossierModel', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
     'polizzaActiveProfileId',
-    // DEMO "Usa modello Claude": toggle + credenziali/modello Anthropic per la presentazione.
-    'polizzaUseClaude', 'anthropicApiKey', 'anthropicModel',
     'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses',
     // Strategia motore a stadi (gruppi/cascata): senza questa chiave in whitelist
     // il salvataggio la SCARTAVA in silenzio e lo switch tornava sempre a gruppi.

@@ -240,7 +240,7 @@ export default function PolizzaFieldsEditor() {
           <div className="form-group" style={{ margin: 0 }}>
             <label className="label">{t('set.wholeDossierModel')}</label>
             <input value={wholeDossierModel} onChange={(e) => { setWholeDossierModel(e.target.value); setSaved(false) }}
-              placeholder="claude-haiku-4-5-20251001" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
+              placeholder="qwen2.5:7b-instruct" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label className="label">{t('set.consensusPasses')}</label>

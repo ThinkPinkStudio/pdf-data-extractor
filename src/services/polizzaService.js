@@ -302,10 +302,8 @@ export async function extractPolizzaFromPDFs(files, settings) {
     typeof f === 'string' ? { path: f } : f
   )
 
-  const provider = settings.llmProvider || 'ollama'
-  const TOTAL_BUDGET = provider === 'anthropic' ? 180000
-                     : provider === 'openai'    ? 100000
-                     :                             60000
+  // Solo Ollama: budget di contesto per la chiamata unica.
+  const TOTAL_BUDGET = 60000
 
   // 1. Estrai testo da tutti i PDF, leggi la data interna del documento
   const allTexts = []
@@ -445,7 +443,6 @@ function findValueSource(value, allTexts) {
 async function extractPolizzaWithProvider(settings, fields, contextText) {
   if (fields.length === 0) return {}
 
-  const provider = settings.llmProvider || 'ollama'
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
 
   const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
@@ -470,7 +467,7 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
 
   const extraSection = promptExtra ? `\nISTRUZIONI AGGIUNTIVE:\n${promptExtra}\n` : ''
 
-  const ollamaPrompt =
+  const userPrompt =
 `DOCUMENTO:
 ${contextText}
 
@@ -483,84 +480,10 @@ ${newestWinsRule}${extraSection}Rispondi SOLO con il JSON compilato:
 
 ${jsonTemplate}`
 
-  const cloudPrompt =
-`Estrai i dati dal documento e compila il JSON.
-
-DOCUMENTO:
-${contextText}
-
-GUIDA AI CAMPI:
-${fieldGuide}
-
-Regole:
-- Estrai i campi richiesti da qualunque tipo di documento, seguendo la descrizione di ciascun campo
-- Importi: formato italiano "3.000.000,00" (punto = migliaia, virgola = decimale)
-- Date: formato GG/MM/AAAA
-- ${newestWinsRule}- null se il campo non è nel documento${extraSection}
-Compila e restituisci SOLO questo JSON:
-${jsonTemplate}`
-
-  let raw
-
-  if (provider === 'openai') {
-    raw = await callOpenAI(settings, systemPrompt, cloudPrompt)
-  } else if (provider === 'anthropic') {
-    raw = await callAnthropic(settings, systemPrompt, cloudPrompt)
-  } else {
-    raw = await callOllama(settings, systemPrompt, ollamaPrompt)
-  }
+  // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
+  const raw = await callOllama(settings, systemPrompt, userPrompt)
 
   return parseJsonResponse(raw)
-}
-
-async function callOpenAI(settings, systemPrompt, userPrompt) {
-  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.openaiApiKey}`
-    },
-    body: JSON.stringify({
-      model: settings.openaiModel || 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' }  // JSON mode nativo
-    }),
-    signal: AbortSignal.timeout(90000)
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`OpenAI error: ${res.status} ${err?.error?.message || ''}`)
-  }
-  const data = await res.json()
-  return (data.choices?.[0]?.message?.content || '').trim()
-}
-
-async function callAnthropic(settings, systemPrompt, userPrompt) {
-  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': settings.anthropicApiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: settings.anthropicModel || 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }]
-    }),
-    signal: AbortSignal.timeout(90000)
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`Anthropic error: ${res.status} ${err?.error?.message || ''}`)
-  }
-  const data = await res.json()
-  return (data.content?.[0]?.text || '').trim()
 }
 
 async function callOllama(settings, systemPrompt, userPrompt) {
@@ -628,7 +551,6 @@ function parseJsonResponse(raw) {
 function classifyLlmError(err, settings) {
   if (err?.isLlmConnectionError !== undefined) return err  // già classificato
 
-  const provider = settings.llmProvider || 'ollama'
   const cause = err?.cause
   const code = cause?.code || cause?.errors?.[0]?.code || ''
   const isTimeout = err?.name === 'TimeoutError' || /aborted due to timeout/i.test(err?.message || '')
@@ -639,15 +561,11 @@ function classifyLlmError(err, settings) {
   )
 
   let message
-  if (isConnection && provider === 'ollama') {
+  if (isConnection) {
     const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
     message = `Ollama non raggiungibile su ${url}. Avvia l'app Ollama (o "ollama serve") e riprova.`
-  } else if (isConnection) {
-    message = `Connessione al provider LLM (${provider}) fallita: verifica la rete. (${err.message})`
-  } else if (isTimeout && provider === 'ollama') {
-    message = 'Timeout: Ollama non ha risposto entro il limite. Il modello potrebbe essere troppo grande o lento per questa macchina.'
   } else if (isTimeout) {
-    message = `Timeout: il provider LLM (${provider}) non ha risposto entro il limite.`
+    message = 'Timeout: Ollama non ha risposto entro il limite. Il modello potrebbe essere troppo grande o lento per questa macchina.'
   } else {
     return err
   }
@@ -713,11 +631,8 @@ Rispondi SOLO con il JSON:
 
 ${jsonTemplate}`
 
-  const provider = settings.llmProvider || 'ollama'
-  let raw
-  if (provider === 'openai') raw = await callOpenAIVision(settings, systemPrompt, userPrompt, pages)
-  else if (provider === 'anthropic') raw = await callAnthropicVision(settings, systemPrompt, userPrompt, pages)
-  else raw = await callOllamaVision(settings, systemPrompt, userPrompt, pages)
+  // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
+  const raw = await callOllamaVision(settings, systemPrompt, userPrompt, pages)
 
   return parseJsonResponse(raw)
 }
@@ -752,68 +667,6 @@ async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
   }
   const data = await res.json()
   return (data.message?.content || '').trim()
-}
-
-async function callOpenAIVision(settings, systemPrompt, userPrompt, pages) {
-  const imageContent = pages.map(p => ({
-    type: 'image_url',
-    image_url: { url: p, detail: 'high' }
-  }))
-
-  const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.openaiApiKey}`
-    },
-    body: JSON.stringify({
-      model: settings.openaiModel || 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContent] }
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      max_tokens: 4096
-    }),
-    signal: AbortSignal.timeout(120000)
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`OpenAI vision error: ${res.status} ${err?.error?.message || ''}`)
-  }
-  const data = await res.json()
-  return (data.choices?.[0]?.message?.content || '').trim()
-}
-
-async function callAnthropicVision(settings, systemPrompt, userPrompt, pages) {
-  const imageContent = pages.map(p => {
-    const mediaType = p.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
-    const base64 = p.replace(/^data:image\/[^;]+;base64,/, '')
-    return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }
-  })
-
-  const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': settings.anthropicApiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: [...imageContent, { type: 'text', text: userPrompt }] }]
-    }),
-    signal: AbortSignal.timeout(120000)
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`Anthropic vision error: ${res.status} ${err?.error?.message || ''}`)
-  }
-  const data = await res.json()
-  return (data.content?.[0]?.text || '').trim()
 }
 
 // ─── Rolling state extraction ─────────────────────────────────────────────────
@@ -1402,9 +1255,9 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
   return content.trim()
 }
 
-async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base64Image) {
+async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base64Image, modelOverride = null) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
-  const model = settings.ollamaVisionModel || settings.ollamaModel
+  const model = modelOverride || settings.ollamaVisionModel || settings.ollamaModel
   if (!model) throw new Error('Nessun modello vision Ollama configurato.')
 
   const res = await resilientFetch(`${url}/api/chat`, {
@@ -1455,17 +1308,11 @@ ${batchText}
 
 Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
-  const provider = settings.llmProvider || 'ollama'
+  // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
   let raw
 
   try {
-    if (provider === 'openai') {
-      raw = await callOpenAI(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
-    } else if (provider === 'anthropic') {
-      raw = await callAnthropic(settings, ROLLING_SYSTEM_PROMPT, userPrompt)
-    } else {
-      raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, { fields, shape: 'staged' })
-    }
+    raw = await callOllamaRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, { fields, shape: 'staged' })
   } catch (err) {
     throw classifyLlmError(err, settings)
   }
@@ -1609,53 +1456,12 @@ Pagina ${pageNum}/${totalPages}
 
 Leggi il contenuto (TESTO OCR + immagine) e rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
-  const provider = settings.llmProvider || 'ollama'
-
+  // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
   const callModelOnce = async (modelOverride) => {
     let raw
     try {
-    if (provider === 'openai') {
-      const imageContent = [{ type: 'image_url', image_url: { url: imageBase64, detail: 'high' } }]
-      const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
-        body: JSON.stringify({
-          model: settings.openaiModel || 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: ROLLING_SYSTEM_PROMPT },
-            { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContent] }
-          ],
-          temperature: 0,
-          response_format: { type: 'json_object' },
-          max_tokens: 4096
-        }),
-        signal: AbortSignal.timeout(90000)
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`OpenAI vision: ${res.status} ${e?.error?.message || ''}`) }
-      raw = ((await res.json()).choices?.[0]?.message?.content || '').trim()
-    } else if (provider === 'anthropic') {
-      const mediaType = imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
       const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
-      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: modelOverride || settings.anthropicVisionModel || settings.anthropicModel || 'claude-haiku-4-5-20251001',
-          max_tokens: 4096,
-          system: ROLLING_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-            { type: 'text', text: userPrompt }
-          ]}]
-        }),
-        signal: AbortSignal.timeout(90000)
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Anthropic vision: ${res.status} ${e?.error?.message || ''}`) }
-      raw = ((await res.json()).content?.[0]?.text || '').trim()
-    } else {
-      const base64Data = imageBase64.replace(/^data:image\/[^;]+;base64,/, '')
-      raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data)
-    }
+      raw = await callOllamaVisionRolling(settings, ROLLING_SYSTEM_PROMPT, userPrompt, base64Data, modelOverride)
     } catch (err) {
       throw classifyLlmError(err, settings)
     }
@@ -1692,7 +1498,7 @@ Leggi il contenuto (TESTO OCR + immagine) e rispondi SOLO con i campi da aggiorn
     const verModel = String(settings.polizzaVerificaModel || '').trim()
     const norm = e => { const v = (e && typeof e === 'object') ? e.valore : e; return v == null ? '' : String(v).toLowerCase().replace(/\s+/g, ' ').trim() }
     const discordant = flaggedFields.filter(f => new Set(deltas.map(d => norm(d && d[f.id]))).size > 1)
-    if (verModel && provider === 'anthropic' && discordant.length) {
+    if (verModel && discordant.length) {
       const arb = parseJsonResponse(await callModelOnce(verModel))
       for (const f of discordant) if (hasVal(arb[f.id])) updated[f.id] = arb[f.id]
     }
@@ -1749,7 +1555,7 @@ export async function extractPolizzaRolling(files, settings, onProgress = null) 
     }
   }
 
-  // Aggiorna lo stato con un batch. Se Ollama/il provider è irraggiungibile, o se
+  // Aggiorna lo stato con un batch. Se Ollama è irraggiungibile, o se
   // gli errori LLM si accumulano, interrompe TUTTA l'estrazione invece di macinare
   // inutilmente le pagine restanti a vuoto.
   const applyTextBatch = async (batchText, docDate) => {
@@ -1884,8 +1690,7 @@ const WHOLE_DOSSIER_SYSTEM =
 // Rimuove le clausole d'esempio dalle descrizioni dei campi ("es. 3.000.000,00",
 // "(es. 410000880)"). I modelli locali piccoli COPIANO gli esempi dal prompt
 // invece di leggere i documenti (visto sul campo: massimali "3.000.000,00" e
-// importi "240.000.000,00" identici agli esempi delle descrizioni). Per i
-// provider cloud gli esempi restano: lì aiutano e non vengono copiati.
+// importi "240.000.000,00" identici agli esempi delle descrizioni).
 // stripFieldExamples: importata da polizzaValidation.js (taglia SOLO l'esempio,
 // non tutto ciò che l'utente ha scritto dopo — vedi il bug del "VIETATO …").
 
@@ -1986,6 +1791,8 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   diag.push(`Batch: ${docs.length} documenti in ${batches.length} chiamate (budget ~${budgetChars} char/batch, num_ctx ${batchCtx})`)
 
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
+  // Il prompt (buildUserPrompt) risponde con le LABEL: riconversione label→id.
+  const labelsById = Object.fromEntries(activeFields.map(f => [f.label, f.id]))
   // best[id] = { valore, documento, ts } — vince la data più recente tra i batch
   const best = {}
   let consecutiveErrors = 0
@@ -2036,9 +1843,10 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     let discarded = 0
     let evidenceDiscarded = 0
     for (const [k, e] of Object.entries(parsed || {})) {
-      if (!(k in fieldsById)) continue
+      const field = fieldsById[k] || fieldsById[labelsById[k]]
+      if (!field) continue
       const val = (e && typeof e === 'object') ? e.valore : e
-      const cleaned = sanitizeFieldValue(fieldsById[k], val)
+      const cleaned = sanitizeFieldValue(field, val)
       if (cleaned == null || cleaned === '') continue
       // ANTI-ALLUCINAZIONE (severo, siamo su Ollama): importi solo con evidenza
       // citata dal documento e coerente con le cifre del valore.
@@ -2046,7 +1854,7 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
       // GUARDRAIL: un campo strutturale non può venire da una quietanza/regolazione
       // (né da un batch fatto solo di quelle, se il modello non attribuisce il doc).
-      if (isStructuralField(fieldsById[k])) {
+      if (isStructuralField(field)) {
         const fromPeriodic = documento ? isPeriodicDocName(documento) : batches[b].allPeriodic
         if (fromPeriodic) { discarded++; continue }
       }
@@ -2056,14 +1864,14 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
       // di copertura del documento attribuito ("i dati nuovi sovrascrivono i
       // vecchi" vale anche quando il modello non data il singolo valore).
       const ts = dateStrToTs(validita) ?? (documento ? (docTsByName.get(documento) ?? null) : null)
-      const existing = best[k]
+      const existing = best[field.id]
       // Il valore con data effettiva più recente vince. Tra valori entrambi SENZA
       // data resta il primo trovato: i batch sono già in ordine informativo
       // (polizza/appendici prima, poi periodici dal più recente) → spareggio
       // deterministico documentato, non un caso silenzioso.
       if (!existing || (ts != null && (existing.ts == null || ts > existing.ts))) {
         if (!existing) added++
-        best[k] = { valore: cleaned, documento, ts }
+        best[field.id] = { valore: cleaned, documento, ts }
       }
     }
     guardrailDiscards += discarded
@@ -2094,8 +1902,8 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
   // spacciato per massimale). Un'ultima chiamata con il sottoinsieme PIÙ
   // INFORMATIVO del fascicolo (polizza/appendici prima, poi i periodici più
   // recenti, fino a ~32K) e i valori candidati da verificare dà al modello il
-  // quadro (semi-)completo — la modalità in cui i provider cloud producono il
-  // risultato corretto. Mai fatale: se fallisce restano i risultati dei batch.
+  // quadro completo — la modalità che produce il risultato migliore.
+  // Mai fatale: se fallisce restano i risultati dei batch.
   if (willConsolidate && !abortedByErrors && Object.keys(best).length > 0) {
     onProgress?.({ batch: progressTotal, batchTotal: progressTotal })
     try {
@@ -2134,28 +1942,30 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
 
       let corrected = 0, confirmed = 0, rejected = 0
       for (const [k, e] of Object.entries(parsed || {})) {
-        if (!(k in fieldsById) || !(k in best)) continue // il consolidamento verifica, non aggiunge
+        // Il prompt risponde con le LABEL: riconversione label→id.
+        const field = fieldsById[k] || fieldsById[labelsById[k]]
+        if (!field || !(field.id in best)) continue // il consolidamento verifica, non aggiunge
         const val = (e && typeof e === 'object') ? e.valore : e
-        const cleaned = sanitizeFieldValue(fieldsById[k], val)
+        const cleaned = sanitizeFieldValue(field, val)
         if (cleaned == null || cleaned === '') continue // anti-regressione: mai svuotare un candidato
-        if (cleaned === best[k].valore) { // conferma: nessun check evidenza (il valore era già passato)
+        if (cleaned === best[field.id].valore) { // conferma: nessun check evidenza (il valore era già passato)
           confirmed++
           const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
-          if (documento && !(isStructuralField(fieldsById[k]) && isPeriodicDocName(documento))) best[k].documento = documento
+          if (documento && !(isStructuralField(field) && isPeriodicDocName(documento))) best[field.id].documento = documento
           continue
         }
         // Una CORREZIONE deve superare gli stessi controlli dei batch: evidenza
         // per gli importi e guardrail strutturale.
         if (!passesEvidenceCheck(cleaned, e, true)) { rejected++; continue }
         const documento = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
-        if (isStructuralField(fieldsById[k]) && documento && isPeriodicDocName(documento)) { rejected++; continue }
+        if (isStructuralField(field) && documento && isPeriodicDocName(documento)) { rejected++; continue }
         corrected++
         const validita = (e && typeof e === 'object' && typeof e.data_validita === 'string')
           ? normalizeDateValue(e.data_validita) : null
         // Data effettiva della correzione: data_validita → data di copertura del
         // documento attribuito → data del candidato precedente (mai regressioni).
-        const effTs = dateStrToTs(validita) ?? (documento ? (docTsByName.get(documento) ?? null) : null) ?? best[k].ts
-        best[k] = { valore: cleaned, documento: documento || best[k].documento, ts: effTs }
+        const effTs = dateStrToTs(validita) ?? (documento ? (docTsByName.get(documento) ?? null) : null) ?? best[field.id].ts
+        best[field.id] = { valore: cleaned, documento: documento || best[field.id].documento, ts: effTs }
       }
       diag.push(`Consolidamento: ${corrected} campi corretti, ${confirmed} confermati` +
         (rejected ? `, ${rejected} correzioni respinte (guardrail/evidenza)` : ''))
@@ -4074,27 +3884,25 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── Guardrail garanzia Tutela (FIX 4, deterministico, post-merge) ─────────
-  // I 4 campi Tutela (rcp_scoperto_min_mondo + Tutela massimale/franchigia/
-  // premio) hanno description CONDIZIONATA ("Verifica se presente la garanzia
-  // Tutela…", "Massimale della garanzia Tutela/Tutela legale"). Se nel fascicolo
-  // NON c'è evidenza testuale SICURA della garanzia (pattern "tutela legale",
-  // "garanzia tutela", "massimale della garanzia tutela"… su documenti NON
-  // opzione), i campi restano VUOTI: i valori "260.000 limite RC", "250
-  // franchigia fabbricati", "7.260 premio annuo" estratti da altre garanzie non
-  // sono Tutela. Meglio vuoto che sbagliato (regola del repo); e MAI bloccare
-  // per un fallimento della guardia: se non riesco a decidere, conservo.
+  // ── Guardrail garanzia specifica (FIX 4, deterministico, post-merge) ──────
+  // Solo i campi CONDIZIONALI ("verifica se è presente la garanzia X…"):
+  // il valore si conserva SOLO se il fascicolo parla della garanzia di QUEL
+  // campo (termini estratti dalla sua descrizione). I campi non condizionali
+  // (es. "Massimale per sinistro tutela legale" senza "verifica se presente")
+  // NON vengono mai toccati: il modello e la scan decidono, non il guardrail.
+  // Meglio vuoto che sbagliato per i soli campi condizionali; MAI bloccare
+  // per un fallimento: se non so cosa cercare, conservo.
   {
     const tutelaDocs = analyzed.filter((d) => !optionDocs.has(d.name))
-    const tutelaEvidence = hasDocumentedTutelaEvidence(tutelaDocs)
-    for (const f of activeFields) {
+    const conditional = activeFields.filter((f) => isSpecificCoverageField(f))
+    for (const f of conditional) {
       if (!(f.id in best)) continue
-      if (!isSpecificCoverageField(f)) continue
       const cand = best[f.id]
       // candidato da un documento-questionario (opzione): non è garanzia operante
       const fromOption = !!cand?.file && optionDocs.has(cand.file)
-      if (!tutelaEvidence || fromOption) {
-        diag.push(`Guardrail Tutela: ${!tutelaEvidence ? 'nessuna evidenza della garanzia nel fascicolo' : `candidato da opzione (${cand.file})`} → "${f.id}" (${f.label}) svuotato (meglio vuoto che sbagliato)`)
+      const covered = hasDocumentedTutelaEvidence(tutelaDocs, f)
+      if (!covered || fromOption) {
+        diag.push(`Guardrail garanzia: ${!covered ? 'nessuna evidenza della garanzia nel fascicolo (descrizione: ' + (f.description || f.label) + ')' : `candidato da opzione (${cand.file})`} → "${f.id}" (${f.label}) svuotato (meglio vuoto che sbagliato)`)
         delete best[f.id]
       }
     }
@@ -4203,18 +4011,21 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   diag.push(`Fonti: ${located} campi localizzati (file+pagina), ${docOnly} con solo nome documento, ${unsourced} senza fonte`)
 
   diag.push(`Motore a stadi completato: ${Object.keys(data).length} campi validi su ${activeFields.length}`)
+  const missing = activeFields.filter((f) => !(f.id in data))
+  if (missing.length) {
+    diag.push(`Campi mancanti: ${missing.length} (${missing.slice(0, 8).map((f) => f.id).join(', ')}${missing.length > 8 ? ', …' : ''}) — restano vuoti (meglio vuoto che sbagliato)`)
+  }
   return { data, sources, diag, reliability }
 }
 
 /**
- * Dispatcher del fascicolo: sceglie il motore in base al provider e alle
- * impostazioni. Ollama + docs disponibili → per-campo (RAG, se attivo) oppure
- * motore a stadi (default per hardware debole); cloud e chiamate senza docs →
- * chiamata unica/batch storica.
+ * Dispatcher del fascicolo: sceglie il motore in base alle impostazioni.
+ * Ollama è il solo provider. Con docs disponibili → per-campo (RAG, se attivo)
+ * oppure motore a stadi (default per hardware debole); senza docs → chiamata
+ * unica/batch storica.
  */
 export async function extractPolizzaFromDocs(docs, fullText, settings, onProgress = null) {
-  const provider = settings.llmProvider || 'ollama'
-  if (provider === 'ollama' && Array.isArray(docs) && docs.length) {
+  if (Array.isArray(docs) && docs.length) {
     if (settings.polizzaPerField !== false) {
       return extractPolizzaPerField(docs, fullText, settings, onProgress)
     }
@@ -4226,92 +4037,66 @@ export async function extractPolizzaFromDocs(docs, fullText, settings, onProgres
 export async function extractPolizzaFromFullText(fullText, settings, onProgress = null) {
   const configuredFields = (settings.polizzaFields?.length > 0) ? settings.polizzaFields : ALL_POLIZZA_FIELDS
   const activeFields = configuredFields.filter(f => f.enabled !== false)
-  const provider = settings.llmProvider || 'ollama'
   // Ollama (modelli piccoli): descrizioni SENZA esempi — il modello li copierebbe
-  // nel risultato invece di leggere i documenti. Cloud: descrizioni originali.
-  const descFor = provider === 'ollama'
-    ? (f) => stripFieldExamples(f.description || f.label || f.id) || f.label || f.id
-    : (f) => f.description || f.label || f.id
-  const fieldLines = activeFields.map(f => `- ${f.id} — ${f.label}: ${descFor(f)}`).join('\n')
+  // nel risultato invece di leggere i documenti.
+  const descFor = (f) => stripFieldExamples(f.description || f.label || f.id) || f.label || f.id
+  // La chiave JSON di ritorno è l'id del campo, ma nel TESTO del prompt l'id
+  // NON serve (i modelli piccoli lo ricopiano male): si usano label+descrizione.
+  const fieldLines = activeFields.map(f => `- ${f.label}: ${descFor(f)}`).join('\n')
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   // Riusato anche dal path a batch: stesso prompt, testo diverso per chiamata.
+  // jsonKeys mappa label→id: il modello risponde con la LABEL, noi riconvertiamo.
+  const jsonKeys = Object.fromEntries(activeFields.map(f => [f.label, f.id]))
   const buildUserPrompt = (text) =>
-`CAMPI DA ESTRARRE (id — nome: descrizione):
+`CAMPI DA ESTRARRE (nome — descrizione):
 ${fieldLines}
 ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}
 TESTO DEI DOCUMENTI DEL FASCICOLO:
 ${text}
 
-Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}.`
+Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME del campo, NON reinventare nomi; se un campo non lo trovi nel testo, OMETTILO — non inventare valori). Formato {"nome campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}.`
   const userPrompt = buildUserPrompt(fullText)
   // Diagnostica leggibile della chiamata (ritornata al chiamante e mostrata nel
   // log "Salva diagnostica"): con "0 campi estratti" deve essere possibile capire
   // COSA è successo — modello, contesto, durata, token letti, risposta grezza.
   const diag = []
-  diag.push(`Fascicolo intero: provider ${provider} · ${activeFields.length} campi richiesti · testo ${fullText.length} char (prompt ${userPrompt.length} char)`)
+  diag.push(`Fascicolo intero: provider ollama · ${activeFields.length} campi richiesti · testo ${fullText.length} char (prompt ${userPrompt.length} char)`)
   const startedAt = Date.now()
   let raw
   try {
-    if (provider === 'anthropic') {
-      const model = settings.polizzaWholeDossierModel || settings.anthropicModel || 'claude-haiku-4-5-20251001'
-      diag.push(`Anthropic: modello ${model}`)
-      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': settings.anthropicApiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model, max_tokens: 4096, system: WHOLE_DOSSIER_SYSTEM, messages: [{ role: 'user', content: userPrompt }] }),
-        signal: AbortSignal.timeout(180000)
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Anthropic: ${res.status} ${e?.error?.message || ''}`) }
-      raw = ((await res.json()).content?.[0]?.text || '').trim()
-    } else if (provider === 'openai') {
-      diag.push(`OpenAI: modello ${settings.openaiModel || 'gpt-4o-mini'}`)
-      const res = await resilientFetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openaiApiKey}` },
-        body: JSON.stringify({ model: settings.openaiModel || 'gpt-4o-mini', messages: [{ role: 'system', content: WHOLE_DOSSIER_SYSTEM }, { role: 'user', content: userPrompt }], temperature: 0, response_format: { type: 'json_object' }, max_tokens: 4096 }),
-        signal: AbortSignal.timeout(180000)
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`OpenAI: ${res.status} ${e?.error?.message || ''}`) }
-      raw = ((await res.json()).choices?.[0]?.message?.content || '').trim()
-    } else {
-      // BUG FIX: il modello "fascicolo intero" (polizzaWholeDossierModel, default
-      // Claude) vale SOLO per il provider Anthropic. Con Ollama va usato il modello
-      // Ollama configurato (vedi resolveOllamaModel: override ammesso solo se non
-      // è palesemente un modello cloud).
-      const ollamaModel = resolveOllamaModel(settings)
-      // BUG FIX: un fascicolo intero può superare di molto il contesto del modello
-      // (es. 45 doc ≈ 158K char ≈ 64K token vs qwen2.5 = 32K). Se num_ctx supera
-      // n_ctx_train, Ollama lo riduce e TRONCA il prompt in silenzio tenendo la
-      // coda: la guida dei campi si perde e il modello risponde spazzatura →
-      // "0 campi" senza errori. Quindi: (1) si legge il limite REALE del modello
-      // da /api/show, (2) se il fascicolo non ci sta, si spezza in batch di
-      // documenti interi che ci stanno.
-      const modelLimit = await getOllamaContextLimit({ ...settings, ollamaModel }, ollamaModel)
-      diag.push(`Ollama: limite contesto del modello ${ollamaModel}: ${modelLimit ? `${modelLimit} token` : 'sconosciuto (assumo 131072)'}`)
-      // QUALITÀ PRIMA, quando è fisicamente possibile: la chiamata UNICA col
-      // quadro completo (come coi provider cloud) è ciò che dà i risultati
-      // migliori — il fascicolo tipico (~10 documenti ≈ 15-20K token) sta nei
-      // 32K di modelli come qwen2.5. Quindi: chiamata singola fino a
-      // min(limite modello, 32768) ≈ 2-4 min su hardware consumer; SOLO oltre
-      // si spezza in batch (chiamate brevi da ≤16K, guardrail, uscita
-      // anticipata) — il prompt-eval di 60K+ token richiederebbe 10-15+ minuti.
-      const SINGLE_CALL_MAX_CTX = 32768
-      const PRACTICAL_BATCH_CTX = 16384
-      const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
-      const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
-      if (estTokens > singleCtxCap) {
-        const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_BATCH_CTX)
-        console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → batch di documenti`)
-        diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
-        return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress, singleCtxCap)
-      }
-      const numCtx = Math.min(singleCtxCap, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
-      console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
-      diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
-      // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
-      // 4-6 minuti; il margine evita di buttare il lavoro per un timeout.
-      raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
+    // BUG FIX: un fascicolo intero può superare di molto il contesto del modello
+    // (es. 45 doc ≈ 158K char ≈ 64K token vs qwen2.5 = 32K). Se num_ctx supera
+    // n_ctx_train, Ollama lo riduce e TRONCA il prompt in silenzio tenendo la
+    // coda: la guida dei campi si perde e il modello risponde spazzatura →
+    // "0 campi" senza errori. Quindi: (1) si legge il limite REALE del modello
+    // da /api/show, (2) se il fascicolo non ci sta, si spezza in batch di
+    // documenti interi che ci stanno.
+    const ollamaModel = resolveOllamaModel(settings)
+    const modelLimit = await getOllamaContextLimit({ ...settings, ollamaModel }, ollamaModel)
+    diag.push(`Ollama: limite contesto del modello ${ollamaModel}: ${modelLimit ? `${modelLimit} token` : 'sconosciuto (assumo 131072)'}`)
+    // QUALITÀ PRIMA, quando è fisicamente possibile: la chiamata UNICA col
+    // quadro completo è ciò che dà i risultati migliori — il fascicolo tipico
+    // (~10 documenti ≈ 15-20K token) sta nei 32K di modelli come qwen2.5.
+    // Quindi: chiamata singola fino a min(limite modello, 32768) ≈ 2-4 min su
+    // hardware consumer; SOLO oltre si spezza in batch (chiamate brevi da ≤16K,
+    // guardrail, uscita anticipata) — il prompt-eval di 60K+ token richiederebbe
+    // 10-15+ minuti.
+    const SINGLE_CALL_MAX_CTX = 32768
+    const PRACTICAL_BATCH_CTX = 16384
+    const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
+    const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
+    if (estTokens > singleCtxCap) {
+      const batchCtx = Math.min(modelLimit || 131072, PRACTICAL_BATCH_CTX)
+      console.log(`[polizza:fascicolo] Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → batch di documenti`)
+      diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
+      return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress, singleCtxCap)
     }
+    const numCtx = Math.min(singleCtxCap, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
+    console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
+    diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
+    // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
+    // 4-6 minuti; il margine evita di buttare il lavoro per un timeout.
+    raw = await callOllamaRolling({ ...settings, ollamaModel }, WHOLE_DOSSIER_SYSTEM, userPrompt, { numCtx, timeoutMs: 600000, diag, fields: activeFields, shape: 'staged' })
   } catch (err) {
     const classified = classifyLlmError(err, settings)
     classified.diag = diag
@@ -4330,13 +4115,17 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
     throw err
   }
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
+  const labelsById = Object.fromEntries(activeFields.map(f => [f.label, f.id]))
   const data = {}, sources = {}
   const unknownKeys = [], discardedKeys = [], guardrailKeys = [], evidenceKeys = []
-  const strictEvidence = provider === 'ollama'
+  const strictEvidence = true // solo Ollama: importi senza evidenza = inventati
   for (const [k, e] of Object.entries(parsed || {})) {
-    if (!(k in fieldsById)) { unknownKeys.push(k); continue }
+    // Il prompt chiede di rispondere con la LABEL: riconvertiamo label→id.
+    // Fallback: se la chiave è già l'id, la usiamo direttamente.
+    const field = fieldsById[k] || fieldsById[labelsById[k]]
+    if (!field) { unknownKeys.push(k); continue }
     const val = (e && typeof e === 'object') ? e.valore : e
-    const cleaned = sanitizeFieldValue(fieldsById[k], val)
+    const cleaned = sanitizeFieldValue(field, val)
     if (cleaned == null || cleaned === '') { discardedKeys.push(k); continue }
     // ANTI-ALLUCINAZIONE: un importo deve essere citato dall'evidenza; con Ollama
     // un importo senza evidenza è considerato inventato.
@@ -4344,9 +4133,9 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
     const doc = (e && typeof e === 'object' && e.documento) ? String(e.documento) : null
     // GUARDRAIL: un campo strutturale (massimali, franchigie, attività…) non può
     // venire da una quietanza/regolazione premio — è una mislettura del modello.
-    if (doc && isStructuralField(fieldsById[k]) && isPeriodicDocName(doc)) { guardrailKeys.push(k); continue }
-    data[k] = cleaned
-    if (doc) sources[k] = { file: doc, page: '' }
+    if (doc && isStructuralField(field) && isPeriodicDocName(doc)) { guardrailKeys.push(k); continue }
+    data[field.id] = cleaned
+    if (doc) sources[field.id] = { file: doc, page: '' }
   }
   const totalKeys = Object.keys(parsed || {}).length
   diag.push(`Analisi risposta: ${totalKeys} chiavi dal modello — ${Object.keys(data).length} campi validi` +
@@ -4354,6 +4143,13 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi, formato {"id": {"valore"
     (discardedKeys.length ? ` — ${discardedKeys.length} scartate da sanitizzazione (${discardedKeys.slice(0, 5).join(', ')}${discardedKeys.length > 5 ? ', …' : ''})` : '') +
     (evidenceKeys.length ? ` — ${evidenceKeys.length} importi scartati senza evidenza dal documento (${evidenceKeys.slice(0, 5).join(', ')}${evidenceKeys.length > 5 ? ', …' : ''})` : '') +
     (guardrailKeys.length ? ` — guardrail: ${guardrailKeys.length} strutturali scartate perché attribuite a quietanze/regolazioni (${guardrailKeys.slice(0, 5).join(', ')}${guardrailKeys.length > 5 ? ', …' : ''})` : ''))
+  const missing = activeFields.filter((f) => !(f.id in data))
+  // Quando il modello OMETTE campi (chiavi < richieste), il dump grezzo è
+  // l'informazione chiave per capire QUALI ha saltato e perché.
+  if (missing.length > 0) {
+    const rawSnippet = JSON.stringify(String(raw).slice(0, 300))
+    diag.push(`Mancano ${missing.length}/${activeFields.length} campi richiesti (${missing.slice(0, 5).map((f) => f.id).join(', ')}${missing.length > 5 ? ', …' : ''}). Inizio risposta grezza del modello: ${rawSnippet}`)
+  }
   if (Object.keys(data).length === 0) {
     // È l'informazione chiave quando "non esce niente": COSA ha risposto il modello.
     diag.push(`Nessun campo valido. Inizio risposta grezza del modello: ${JSON.stringify(String(raw).slice(0, 400))}`)

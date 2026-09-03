@@ -54,12 +54,15 @@ function pointId(scope, fileKey, page, chunk) {
 }
 
 // Tipo documento euristico dal nome file: metadato di filtro, non verità assoluta.
+// NB: "Polizza …quietanzata e firmata…" È una polizza, NON una quietanza: il
+// controllo "polizza" vince su "quietanzata" nel nome. Un nome che inizia con
+// "Quietanza…"/"Regolazione…" come PAROLA resta periodico.
 export function classifyDocType(fileName) {
   const n = String(fileName || '').toLowerCase()
+  if (/polizza|contratto/.test(n)) return 'polizza'
   if (/quietanz/.test(n)) return 'quietanza'
   if (/regolazion/.test(n)) return 'regolazione'
   if (/appendic/.test(n)) return 'appendice'
-  if (/polizza|contratto/.test(n)) return 'polizza'
   if (/condizioni/.test(n)) return 'condizioni'
   return 'altro'
 }

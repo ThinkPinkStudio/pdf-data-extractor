@@ -13,10 +13,8 @@ export interface ProviderTestResult {
 }
 
 export async function testProviderConnection(settings: {
-  llmProvider: string
+  llmProvider?: string
   ollamaUrl?: string
-  openaiApiKey?: string
-  anthropicApiKey?: string
 }): Promise<ProviderTestResult> {
   const { testProviderConnection: test } = await importSharedService<{
     testProviderConnection: (s: unknown) => Promise<ProviderTestResult>
