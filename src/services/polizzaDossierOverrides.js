@@ -38,6 +38,18 @@
  *     TIPO-BLIND, l'allineamento del service alla MINIMA data etichettata
  *     "decorrenza/effetto/inizio copertura" di tutti i documenti, MA solo se
  *     il valore attuale NON sta già su una riga etichettata come decorrenza.
+ *  6. SEED MASSIMALE PER SINISTRO dalla sezione "MASSIMALE PER SINISTRO":
+ *     quando il testo della polizza presenta la sezione etichettata con un
+ *     importo + "Illimitato" (il valore operante), si forza il campo
+ *     massimale_sinistro in modo deterministico — anti-oscillazione col
+ *     default di prodotto del DIP/Set Informativo.
+ *  7. NORMALIZZAZIONE FORMATTO IMPORTO ITALIANO: un importo economico che
+ *     esce come cifra nuda ("127010" invece di "1.270,10") viene riscritto
+ *     con la forma italiana SOLO se quella forma (virgola decimale) compare
+ *     letterale nel testo documento — prudente, mai inventato.
+ *  8. SEED BISOGNI ASSICURATIVI dal Profilo Cliente: la voce spuntata è quella
+ *     co-lineare con la "X" nella griglia SPAZIALE dell'OCR (sul piatto lineare
+ *     la "X" finisce isolata e il modello pesca la voce sbagliata).
  *
  * Pura e importabile in Node (niente Electron, niente LLM).
  */
@@ -284,6 +296,113 @@ function findAttivitaSeed(docs) {
   return null
 }
 
+// ─── 6. MASSIMALE PER SINISTRO dalla sezione etichettata ────────────────────
+// I modelli piccoli (qwen3:8b) tendono a pescare il DEFAULT di prodotto dal Set
+// Informativo/DIP ("massimale 25.000 estendibile a 100.000") al posto del
+// valore VERO della polizza. Quando il testo della scheda polizza contiene la
+// sezione esplicita «MASSIMALE PER SINISTRO» seguita (entro poche righe) da un
+// importo accompagnato dalla parola "Illimitato" (il valore operante della
+// polizza), si sovrascrive la grandezza in modo DETERMINISTICO sul campo
+// massimale per sinistro. TIPO-BLIND: si applica al campo la cui NATURA è
+// massimale_sinistro (label/description "per sinistro"), mai ad id fissi.
+//
+// Pattern dal fascicolo GUFFANTI (identico nelle 3 quietanze/polizze):
+//   MASSIMALE PER SINISTRO  MASSIMALE PER ANNO      ← intestazione colonne
+//   … (dati) …
+//   MILANO 14/04/2025 NO 50.000,00 Illimitato       ← valore + "Illimitato"
+// L'etichetta "MASSIMALE PER SINISTRO" e l'importo con "Illimitato" stanno
+// nello stesso blocco colonnare; il valore con "Illimitato" (l'unico) è il
+// massimale per sinistro (l'annuo ha il suo proprio importo, MAI "Illimitato").
+const MASSIMALE_SINISTRO_LABEL_RE = /\bmassimale\s+per\s+(?:ogni\s+|singolo\s+|ciascun\s+)?sinistro|per\s+ogni\s+sinistro|unico\s+per\s+sinistro/i
+const MASSIMALE_ILLIMITATO_AMOUNT_RE = /(\d[\d.]*(?:,\d+)?)\s*(?:Illimitato|illimitato|I\s*I\s*I)/
+
+// Trova l'importo del massimale per sinistro: richiede la sezione etichettata
+// e l'importo co-occorrente con "Illimitato" (il valore della polizza).
+function findMassimaleSinistroSeed(docs) {
+  for (const d of Array.isArray(docs) ? docs : []) {
+    const text = d?.text || (Array.isArray(d?.pages) ? d.pages.join('\n') : '')
+    if (!text) continue
+    if (!MASSIMALE_SINISTRO_LABEL_RE.test(text)) continue
+    const m = text.match(MASSIMALE_ILLIMITATO_AMOUNT_RE)
+    if (!m) continue
+    const n = parseAmountMaybe(m[1])
+    if (n == null) continue
+    return { value: formatAmountIT(n), file: d.name }
+  }
+  return null
+}
+export { findMassimaleSinistroSeed, normalizeBareAmountToText }
+
+// ─── 8. BISOGNI ASSICURATIVI dalla voce con la "X" (Profilo Cliente) ────────
+// Il Profilo Cliente elenca i bisogni ("Tutela della mobilità…", "Tutela della
+// vita privata", "Tutela della propria attività professionale", …) e la voce
+// SPUNTATA reca un segno "X". La relazione "X → voce" è SPAZIALE: la "X" sta
+// CO-LINEARE (stessa riga della griglia a colonne) con la voce selezionata.
+// Sul testo PIATTO lineare la "X" finisce isolata a fine elenco e il modello
+// pesca l'ultima voce → si lavora sul testo SPAZIALE (griglia conservata
+// dall'OCR), dove la riga è del tipo «X   Tutela della propria attività
+// professionale». TIPO-BLIND: si applica al campo la cui NATURA è "bisogni"
+// (label/description "bisogni assicurativi"), mai ad id fissi.
+//
+// Se lo SPAZIALE non è disponibile (fallback piatto: assenza di colonne), la
+// regola resta inerte (niente invenzione: senza allineamento la scelta non è
+// determinabile in modo affidabile → meglio lasciare il candidato del modello
+// e l'evidenza che il merge già produce).
+const BISOGNI_ITEM_RE = /(?:tutela\s+(?:della|di|del)\s+.{4,80}|protezione\s+del\s+patrimonio\b.{4,80})/i
+
+// Dalla riga SPAZIALE «X   Tutela della …» estrae la voce spuntata (quella che
+// condivide la riga con la "X"). Stessa riga = separatore di colonna (gap di
+// spazi ≥2) non presente: la "X" e la voce sono sulla stessa riga della griglia.
+function findBisogniSeed(docs) {
+  for (const d of Array.isArray(docs) ? docs : []) {
+    const spatial = d?.spatialText || ''
+    if (!spatial) continue
+    for (const line of String(spatial).split('\n')) {
+      // riga con una "X" (segno di spunta) e una voce bisogni sulla STESSA riga
+      const m = line.match(/X\s+([A-ZÀ-Ý][\s\S]{7,139})/)
+      if (!m) continue
+      const item = m[1].trim()
+      if (!BISOGNI_ITEM_RE.test(item)) continue
+      if (item.length < 8 || item.length > 140) continue
+      // normalizza: toglie spazi multipli (resti della griglia)
+      const value = item.replace(/\s{2,}/g, ' ').trim()
+      if (value.length < 8) continue
+      return { value, file: d.name }
+    }
+  }
+  return null
+}
+export { findBisogniSeed }
+
+// ─── 7. FORMATTO IMPORTO ITALIANO mancante (MIGLIAIA/decimale persi) ────────
+// Il modello a volte scrive un importo premio imponibile SENZA separatore
+// migliaia né virgola decimale: "127010" invece di "1.270,10" (le migliaia e i
+// 2 decimali persi via OCR/modello). La normalizzazione è PRUDENTE e TIPO-BLIND:
+// un importo privo di separatori (solo cifre) viene riscritto SOLO se la forma
+// col decimale italiano "1.270,10" compare letterale nel testo documento — cioè
+// l'evidenza conferma la virgola. Il discrimine col caso "127.010,00"
+// (centoventisettemila) sta proprio nel testo: se esiste "1.270,10" (con la
+// virgola decimale a 2 cifre) lo usiamo; se il testo avesse solo "127.010,00"
+// (importo davvero grande) la forma "1.270,10" NON comparirebbe e non
+// toccheremmo nulla. Mai inventare: il valore riscritto è identico nei CHAR.
+function normalizeBareAmountToText(value, docText) {
+  if (value == null) return null
+  const s = String(value).trim()
+  // Solo importi che sono TUTTE cifre (nessun separatore già presente né testi).
+  if (!/^\d{5,9}$/.test(s)) return null
+  if (!docText) return null
+  // Con 6+ cifre il decimale plausibile è "€X.XXX,XX" (ultimi 2 = centesimi):
+  // "127010" → "1.270,10". Forma per migliaia italiani.
+  const int = s.slice(0, -2)
+  const dec = s.slice(-2)
+  if (!int || int.length === 0) return null
+  // "127010" → int="1270", dec="10" → "1.270,10"
+  const withGroups = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  const formatted = `${withGroups},${dec}`
+  // Evidenza: la forma con la virgola decimale deve comparire nel testo.
+  return docText.includes(formatted) ? formatted : null
+}
+
 // ─── PASSATA PRINCIPALE ──────────────────────────────────────────────────────
 
 /**
@@ -305,9 +424,15 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
   const push = (msg) => { if (Array.isArray(diag)) diag.push(`${DOSSIER_OVERRIDE_DIAG_PREFIX} ${msg}`) }
 
   // Dove i valori devono trovare evidenza: testi PIATTI normalizzati dei doc.
+  // La colonna `spatialText` (griglia a colonne dell'OCR, se disponibile) serve
+  // alle regole che richiedono l'allineamento (es. bisogni: la "X" co-lineare
+  // con la voce spuntata). Le altre regole lavorano sul PIATTO.
   const plainDocs = (Array.isArray(docs) ? docs : []).map((d) => ({
     name: d.name,
     text: d.text || (Array.isArray(d.pages) ? d.pages.join('\n') : ''),
+    spatialText: Array.isArray(d.spatialPages) && d.spatialPages.length
+      ? d.spatialPages.join('\n')
+      : (Array.isArray(d.pages) && d.pages.length ? d.pages.join('\n') : ''),
     dateStr: d.dateStr,
     type: d.type,
     pos: d.pos,
@@ -428,6 +553,68 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
         best[attField.id] = { valore: seed.value, file: seed.file, page: '', effDate: null, affinity: 1, lex: 1, deterministic: true }
         touched++
         push(`attivita-seed: "${attField.label || attField.id}" = "${seed.value}" (riga "${seed.file}")`)
+      }
+    }
+  }
+
+  // ── 6. SEED MASSIMALE PER SINISTRO (sezione "MASSIMALE PER SINISTRO") ─────
+  // Anti-oscillazione (GUFFANTI): il modello alterna il valore della POLIZZA
+  // ("MASSIMALE PER SINISTRO 50.000,00 Illimitato") col DEFAULT del DIP/Set
+  // Informativo ("massimale 25.000 estendibile a 100.000"). Quando la sezione
+  // etichettata della polizza porta l'importo + "Illimitato", quello è il valore
+  // VERO → si forza in modo deterministico. TIPO-BLIND (natura massimale_sinistro).
+  const mxField = list.find((f) => fieldNatura(f) === 'massimale_sinistro')
+  if (mxField && plainDocs.length) {
+    const mxSeed = findMassimaleSinistroSeed(plainDocs)
+    if (mxSeed) {
+      const cur = best[mxField.id] ? String(best[mxField.id].valore ?? '') : ''
+      if (cur !== mxSeed.value) {
+        best[mxField.id] = { ...(best[mxField.id] || {}), valore: mxSeed.value, file: mxSeed.file, page: String(best[mxField.id]?.page ?? ''), effDate: best[mxField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true, isNumber: true }
+        touched++
+        push(`massimale-sinistro-seed: "${mxField.label || mxField.id}" = "${mxSeed.value}" (sezione etichettata "${mxSeed.file}")`)
+      }
+    }
+  }
+
+  // ── 7. NORMALIZZAZIONE FORMATTO IMPORTO ITALIANO (migliaia/decimale persi) ─
+  // Quando un campo di natura economica (imponibile) esce come cifra nuda
+  // ("127010" invece di "1.270,10"), la riscriviamo con la forma italiana
+  // SOLO se quella forma con la virgola compare letterale nel testo documento.
+  // TIPO-BLIND (natura premio_imponibile) e prudente (evidenza nel testo).
+  const impField = list.find((f) => fieldNatura(f) === 'premio_imponibile' && /^number|currency|importo$/i.test(String(f.type || '')))
+  if (impField && (impField.id in best)) {
+    const impCur = String(best[impField.id]?.valore ?? '').trim()
+    if (impCur && !impCur.includes(',')) {
+      // Cerco l'evidenza nel file sorgente del candidato, poi in tutti i doc.
+      const srcFile = best[impField.id]?.file ? fileFor(plainDocs, best[impField.id].file) : null
+      const candidates = srcFile ? plainDocs.filter((d) => d.name === srcFile) : plainDocs
+      let formatted = null
+      for (const c of candidates) {
+        formatted = normalizeBareAmountToText(impCur, c.text)
+        if (formatted) break
+      }
+      if (formatted && formatted !== impCur) {
+        best[impField.id] = { ...(best[impField.id] || {}), valore: formatted, file: best[impField.id]?.file ?? null, page: String(best[impField.id]?.page ?? ''), effDate: best[impField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true, isNumber: true }
+        touched++
+        push(`imponibile-format: "${impField.label || impField.id}" = "${formatted}" (da "${impCur}": evidenza di migliaia/decimale nel testo, forma italiana confermata)`)
+      }
+    }
+  }
+
+  // ── 8. SEED BISOGNI ASSICURATIVI (voce spuntata con la "X") ───────────────
+  // Il Profilo Cliente: la voce selezionata è quella co-lineare con la "X" nel
+  // testo SPAZIALE (griglia a colonne dell'OCR). Il modello sul piatto pesca la
+  // voce sbagliata ("X" isolata a fine elenco). Si cerca la coppia "X + voce"
+  // sulla stessa riga SPAZIALE. TIPO-BLIND (natura "bisogni").
+  const bisField = list.find((f) => /bisogn/i.test(`${f.label || ''} ${f.description || ''}`))
+  if (bisField && plainDocs.length) {
+    const bisSeed = findBisogniSeed(plainDocs)
+    if (bisSeed) {
+      const cur = best[bisField.id] ? String(best[bisField.id].valore ?? '') : ''
+      if (cur !== bisSeed.value) {
+        best[bisField.id] = { ...(best[bisField.id] || {}), valore: bisSeed.value, file: bisSeed.file, page: String(best[bisField.id]?.page ?? ''), effDate: best[bisField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true }
+        touched++
+        push(`bisogni-seed: "${bisField.label || bisField.id}" = "${bisSeed.value}" (voce co-lineare con la X in "${bisSeed.file}")`)
       }
     }
   }
