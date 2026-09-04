@@ -8,9 +8,6 @@ const SESSION_PASSWORD = process.env.SESSION_SECRET || 'change-me-32-chars-minim
 const PUBLIC_PATHS = [
   // Pagine pubbliche
   '/auth/login',
-  '/auth/onboarding',
-  '/auth/forgot',
-  '/auth/reset',
   // API pubbliche (auth) + health
   '/api/auth',
   '/api/health',

@@ -2,7 +2,6 @@
 
 import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 function LoginForm() {
@@ -12,7 +11,6 @@ function LoginForm() {
   const t = useT()
 
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
@@ -26,7 +24,7 @@ function LoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email }),
       })
       if (res.ok) {
         const next = searchParams.get('next')
@@ -34,7 +32,7 @@ function LoginForm() {
         router.refresh()
       } else {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error || t('auth.errCredentials'))
+        setErrorMsg(data.error || t('auth.errGeneric'))
         setErrorDetail(data.detail || '')
         setStatus('error')
       }
@@ -75,52 +73,18 @@ function LoginForm() {
         />
       </div>
 
-      <div className="form-group">
-        <label className="label" htmlFor="password">{t('auth.password')}</label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={t('auth.passwordPlaceholder')}
-          required
-          autoComplete="current-password"
-          style={{ fontSize: 15, padding: '11px 14px' }}
-        />
-      </div>
+      <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--c-text-muted)', lineHeight: 1.5 }}>
+        {t('auth.emailOnlyHint')}
+      </p>
 
       <button
         type="submit"
         className="btn btn-primary"
-        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, marginTop: 4 }}
+        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, marginTop: 18 }}
         disabled={status === 'loading'}
       >
         {status === 'loading' ? <span className="spinner" style={{ width: 18, height: 18 }} /> : t('auth.login')}
       </button>
-
-      <div style={{ marginTop: 14, textAlign: 'center' }}>
-        <Link href="/auth/forgot" style={{ fontSize: 13, color: 'var(--c-accent)' }}>
-          {t('auth.forgot')}
-        </Link>
-      </div>
-
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        margin: '18px 0', fontSize: 11, textTransform: 'uppercase',
-        letterSpacing: '0.06em', color: 'var(--c-text-muted)',
-      }}>
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-        {t('auth.or')}
-        <span style={{ flex: 1, height: 1, background: 'var(--c-border)' }} />
-      </div>
-
-      <Link
-        href="/auth/onboarding"
-        className="btn btn-secondary"
-        style={{ width: '100%', padding: '12px 20px', fontSize: 14, fontWeight: 600, textAlign: 'center', display: 'block' }}
-      >
-        {t('auth.onboardingLink')}
-      </Link>
     </form>
   )
 }

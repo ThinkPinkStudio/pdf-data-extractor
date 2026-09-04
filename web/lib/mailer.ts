@@ -128,33 +128,3 @@ export async function sendBatchCompleteEmail(
   }
   await sendEmail(mail)
 }
-
-export async function sendPasswordResetEmail(email: string, token: string) {
-  const baseUrl = process.env.MAGIC_LINK_BASE_URL || 'http://localhost:3000'
-  const link = `${baseUrl}/auth/reset?token=${token}`
-  const from = process.env.SMTP_FROM || 'PDF Extractor <noreply@localhost>'
-  const expiryMinutes = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINUTES || '60', 10)
-
-  const mail: Email = {
-    from,
-    to: email,
-    subject: 'Recupera la password · PDF Data Extractor',
-    text: `Hai richiesto di recuperare la password. Clicca il link per impostarne una nuova (valido ${expiryMinutes} minuti):\n\n${link}\n\nSe non hai richiesto questo recupero, ignora questa email.`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-        <h2 style="color: #1a1a2e; margin-bottom: 8px;">PDF Data Extractor</h2>
-        <p style="color: #444; margin-bottom: 24px;">Clicca il pulsante per impostare una nuova password. Il link è valido per <strong>${expiryMinutes} minuti</strong>.</p>
-        <a href="${link}" style="display:inline-block;background:#6c63ff;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;">
-          Imposta una nuova password
-        </a>
-        <p style="color:#999;font-size:12px;margin-top:24px;">
-          Oppure copia questo URL nel browser:<br/>
-          <a href="${link}" style="color:#6c63ff;">${link}</a>
-        </p>
-        <p style="color:#bbb;font-size:11px;margin-top:16px;">Se non hai richiesto questo recupero, ignora questa email.</p>
-      </div>
-    `,
-  }
-
-  await sendEmail(mail)
-}
