@@ -184,27 +184,15 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);
     CREATE INDEX IF NOT EXISTS idx_adesioni_status ON adesioni_records(status);
 
-    -- Utenti della web app (onboarding one-time con email di dominio approvato,
-    -- login con password). password_hash può restare NULL per futuri account
-    -- mai completati; il login richiede comunque un hash presente.
+    -- Utenti della web app (accesso "sulla fiducia" con email di dominio approvato).
+    -- password_hash è mantenuto per compatibilità con gli account legacy, ma il
+    -- login NON lo usa più: basta l'email nel dominio autorizzato.
     CREATE TABLE IF NOT EXISTS users (
       id            SERIAL PRIMARY KEY,
       email         TEXT NOT NULL UNIQUE,
       password_hash TEXT,
       created_at    BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
-
-    -- Token di reset password (il flusso "Hai dimenticato la password?").
-    CREATE TABLE IF NOT EXISTS password_resets (
-      id         SERIAL PRIMARY KEY,
-      token      TEXT NOT NULL UNIQUE,
-      email      TEXT NOT NULL,
-      expires_at BIGINT NOT NULL,
-      used       BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
   `)
 }
 
