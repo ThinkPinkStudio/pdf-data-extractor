@@ -4026,19 +4026,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (clearedFs) diag.push(`Franchigia-scoperto: ${clearedFs} campi svuotati (valore di natura franchigia o scoperto finito sul campo di natura opposta)`)
   }
 
-  // ── REGOLE DI DOSSIER (post-merge, deterministiche) ───────────────────────
-  // Eco della coppia "parametro → importo" (Fatturato/Retribuzioni + importo
-  // preventivo della regolazione), seed attività dalla riga etichettata della
-  // sezione RISCHI ASSICURATI, pulizia dei falsi positivi di testata
-  // ("DAS Professionista", "CA 2021/DAP", "01469DAS…_AA") e guardie anti
-  // valori-inventati: natura-assente (franchigia/tasso: il valore deve avere
-  // la parola della natura vicino alla cifra) ed evidenza vincolata (bisogni:
-  // solo voci spuntate del questionario). Pura in polizzaDossierOverrides.
+  // ── REGOLE DI DOSSIER (post-merge, deterministiche, TIPO-BLIND) ────────────
+  // Eco della coppia "parametro → importo" (qualsiasi NOME di parametro
+  // + importo preventivo della regolazione), seed attività dalla riga
+  // etichettata, pulizia dei frammenti di testata GENERICA (codici prodotto/
+  // sezione, intestazioni di modulo — nessun riferimento a compagnie o
+  // prodotti) e guardie anti valori-inventati: natura-assente (franchigia/
+  // tasso: il valore deve avere la parola della natura vicino al valore).
+  // Pura in polizzaDossierOverrides.
   {
     const dNotes = []
     const touched = applyDossierOverrides(best, activeFields, analyzed, dNotes)
     for (const n of dNotes) diag.push(n)
-    if (touched) diag.push(`Regole di dossier: ${touched} campi toccati (eco-coppia / attività / anti-frammento / natura-assente / evidenza vincolata)`)
+    if (touched) diag.push(`Regole di dossier: ${touched} campi toccati (eco-coppia / attività / anti-frammento / natura-assente)`)
   }
 
   // ── Coerenza cross-field ──────────────────────────────────────────────────

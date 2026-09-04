@@ -1,7 +1,8 @@
 /**
- * Regole di dossier DEDICATE (deterministiche, post-merge) — "eco della coppia"
- * e guardie anti-frammento sui campi a cui i modelli piccoli (qwen3:8b su una
- * tutela legale DAS) attribuiscono valori transfughi.
+ * Regole di dossier DEDICATE (deterministiche, post-merge) — correzioni di
+ * robustezza TIPO-BLIND su valori che i modelli piccoli (qwen3:8b) tendono a
+ * sbagliare. Nessun riferimento a compagnie, prodotti, numeri di polizza,
+ * marchi o fascicoli specifici: le regole valgono per QUALUNQUE compagnia.
  *
  * Cosa NON è: non tocca le guardie strutturali validate
  * (`guardEconomicToStructuralSpill`, `guardPostMergeSpill`, guardie del
@@ -11,48 +12,44 @@
  * preferisce il vuoto).
  *
  * Regole implementate:
- *  1. ECO DELLA COPPIA "parametro → importo": le righe "Fatturato 1.500.000,00"
- *     (o "Parametro regolazione: Fatturato" + importo adiacente) della sezione
- *     RISCHI ASSICURATI del fascicolo sono la coppia NOME-parametro/importo
- *     preventivo del premio. Quando il testo le contiene, `rcp_parametro`
- *     (TESTO) riceve il NOME e `rcp_importo_preventivo` (numero) l'importo.
- *     Il campo `rcp_parametro` è type text: un importo dallo scan numerico
- *     non deve MAI finirci (vedi scanKindForField) — qui si scrive il TESTO.
- *  2. SEED ATTIVITÀ dalla riga etichettata ("Attività / Studio associato /
- *     Societa multidisciplinare"): il modello tende a copiare il SETTORE
- *     ("Servizi vari") del modulo di proposta al posto dell'attività assicurata.
- *     Quando la riga esiste in un documento NON-opzione, si sovrascrive il
- *     valore del campo "attività".
- *  3. FALSI POSITIVI DI TESTATA: "DAS Professionista", "CA 2021/DAP" (riga
- *     "N. PROPOSTA … MODELLO CONDIZIONI") sono intestazioni di modulo, NON
- *     dati del fascicolo. Se un campo testuale risulta valorizzato solo con
- *     questi frammenti, si svuota (meglio vuoto che sbagliato).
- *  4. GUARDIA NATURA-ASSENTE (franchigia/tasso): per i campi la cui
+ *  1. ECO DELLA COPPIA "parametro → importo": una riga della sezione di
+ *     calcolo del premio fatta da un NOME di parametro (qualsiasi parola che
+ *     NON sia un importo: "Fatturato", "Retribuzioni", "n. addetti", "Ricavi",
+ *     "Volume di affari"…) + importo adiacente (stessa riga o riga dopo) è la
+ *     coppia NOME-parametro/importo preventivo. Quando il testo le contiene,
+ *     `rcp_parametro` (TESTO) riceve il NOME (MAI l'importo) e
+ *     `rcp_importo_preventivo` (numero) l'importo.
+ *  2. SEED ATTIVITÀ dalla riga etichettata "Attività assicurata": il modello
+ *     tende a copiare il SETTORE del modulo di proposta al posto dell'attività
+ *     assicurata. Quando la riga esiste, si sovrascrive il campo "attività"
+ *     (l'arbitro semantico del merge decide comunque, come per ogni seed).
+ *  3. GUARDIA NATURA-ASSENTE (franchigia/tasso): per i campi la cui
  *     descrizione/label dichiara una natura ("franchigia", "tasso …permille")
  *     e chiede di lasciar vuoto se assente, il valore viene conservato solo se
  *     la CIFRA compare nel testo entro una finestra che contiene la parola
  *     della natura — altrimenti è un valore inventato/pescato da un'altra
- *     grandeza (un "5.000" di un'opzione, uno "0,00" di premio, un "1,50" di
- *     un tasso di altra sezione) → svuotato.
- *  5. GUARDIA EVIDENZA VINCOLATA: per i campi la cui descrizione esige che il
- *     valore sia una delle voci spuntate del questionario (bisogni con "X"),
- *     il candidato è valido SOLO se la sua evidenza è la riga-spunta del
- *     questionario; frasi di altro contesto ("Dichiarazioni inesatte …",
- *     "DAS Professioniste", righe di garanzie) non sono evidenze valide.
- *  6. FILTRO FRAMMENTI: rimozione dai campi TESTO di frammenti/frasi che sono
- *     intestazioni o boilerplate (identificativi di prodotto "01469DAS00086_AA",
- *     parole-titolo di sezioni, "CA 2021/DAP", "DAS Professionista").
+ *     grandezza → svuotato.
+ *  4. FILTRO FRAMMENTI di intestazione: rimozione dai campi TESTO dei valori
+ *     che sono AL 100% un identificativo di prodotto/sezione (codice
+ *     alfanumerico lungo, suffisso di sezione "_AA", intestazioni di documento
+ *     "N. PROPOSTA … MODELLO CONDIZIONI", titoli di sezione, boilerplate
+ *     "Visita il sito…", "Art. 3.2") — non sono MAI un dato di polizza.
+ *  5. DECORRENZA ORIGINARIA (anti "data pagamento"): ri-APPLICA, in forma
+ *     TIPO-BLIND, l'allineamento del service alla MINIMA data etichettata
+ *     "decorrenza/effetto/inizio copertura" di tutti i documenti, MA solo se
+ *     il valore attuale NON sta già su una riga etichettata come decorrenza.
  *
  * Pura e importabile in Node (niente Electron, niente LLM).
  */
 import { parseAmountMaybe, formatAmountIT, isBareGlobalFranchigia } from './polizzaNumericScan.js'
 import { buildNormIndex, findValueWindow, normForMatch } from './polizzaValidation.js'
 import { normalizeDateValue, dateStrToTs } from './polizzaDates.js'
+import { fieldNatura } from './polizzaFieldKind.js'
 
 export const DOSSIER_OVERRIDE_DIAG_PREFIX = '[dossier]'
 
-// Helper di data per la REGOLA 7 (decorrenza): normalizza GG/MM/AAAA con
-// separator varied (punto/trattino/slash) e ne restituisce il timestamp.
+// Helper di data per la REGOLA 5 (decorrenza): normalizza GG/MM/AAAA con
+// separatori vari (punto/trattino/slash) e ne restituisce il timestamp.
 function normalizeDateValueStyle(s) {
   return normalizeDateValue(s)
 }
@@ -60,50 +57,61 @@ function dateTsOf(s) {
   return dateStrToTs(s) ?? -Infinity
 }
 
-// ─── 3. FALSI POSITIVI DI TESTATA / 6. FRAMMENTI ─────────────────────────────
+// ─── 4. FRAMMENTI DI INTESTAZIONE / PRODOTTO (generici) ─────────────────────
 
-// Intestazioni di modulo / identificativi di prodotto che il modello piccolo
-// copia come valore (visto sul campo: "01469DAS00086_AADAS Professionista",
-// "CA 2021/DAP"). Non sono MAI un dato del fascicolo.
-// NB: NIENTE \b davanti a "DAS" ("AADAS Professionista" non ha confine di parola
-// prima di DAS): il frammento va riconosciuto come substring.
-const HEADER_JUNK_RE = /(?:professionista\s+das|das\s+professionista|das\s+professionist[ae])/i
-const PRODUCT_ID_RE = /^[0-9]{14}[A-Z0-9_]*$/ // "01469DAS00086_AA"
-const CLAUSOLE_MOD_RE = /\bca\s+20\d{2}\/\s*\w+\b/i // "CA 2021/DAP", "CA 2021/DAP-"
+// Identificativo di prodotto/sezione: SOLO codice alfanumerico MONOBLOCCO
+// (≥14 char, ≥8 cifre) che NON è un numero di polizza valido. Un numero
+// polizza reale è più corto (12-14 char SENZA suffisso di sezione) e non
+// deve essere filtrato. Il segno di "codice-interfaccia/modulo" è la
+// lunghezza + la cadenza di cifre/lettere.
+const PRODUCT_ID_RE = /^[A-Z0-9][A-Z0-9_-]{13,}$/
+
+// Identificativo con suffisso di sezione ("…_AA", "…_AB", "…_PROD") o di
+// assemblaggio pagina: il valore INTERO è il codice + suffisso, non un dato.
+const PRODUCT_SECTION_SUFFIX_RE = /^[A-Z0-9][A-Z0-9_-]{6,}_[A-Z]{1,3}$/
+
+// Codice dentro un valore più lungo: il frammento inizia con un blocco
+// cifre ≥8 di indirizzo o codice, seguito da lettere/codice e poi del testo.
+const PRODUCT_ID_EMBEDDED_RE = /^[0-9]{8,}[A-Z0-9_-]*\s+[A-ZÀ-Ý]/
+
+// Codice prodotto largo CONCATENATO a testo descrittivo (identificativo di
+// modulo + descrizione del prodotto): mai un dato di polizza.
+const PRODUCT_ID_DESCRIPTION_RE = /[0-9]{5,}[A-Z0-9]{3,}_[A-Z]{1,3}[A-Z0-9_]*\s+[A-ZÀ-Ý][a-zà-ÿ]/
+
+// Intestazioni di documento/modulo ("N. PROPOSTA … MODELLO CONDIZIONI"): la
+// testata del modulo, non un dato del fascicolo.
+const MODULE_HEADING_RE = /\bpropost\w*\s+n[°.\s]*\d+.*\bmodello\s+condizioni\b/i
 
 // Titoli di sezione/dichiarazioni che NON sono una garanzia né un testo di
-// valore per il campo "Garanzie non operanti" / "Bisogni assicurativi".
+// valore per i campi a elenco.
 const SECTION_HEADINGS_RE =
   /\b(?:dichiarazioni\s+del\s+contraente|profilo\s+cliente|questionario\s+demands\s*&?\s*needs|informativa\s+sul\s+trattamento|condizioni\s+di\s+assicurazione|modello\s+condizioni|documento\s+informativo|raccomandazione\s+personalizzata)\b/i
 // Parole/frasi di boilerplate che un frammento testo non deve contenere.
-const BOILERPLATE_RE = /\b(?:d\.a\.s\.|das\s+professionista|visita\s+il\s+sito|per\s+registrarti|accedere\s+all['’]area\s+riservata|le\s+presenti\s+condizioni|art\.?\s+\d+\.\d+)\b/i
+const BOILERPLATE_RE = /\b(?:visita\s+il\s+sito|per\s+registrarti|accedere\s+all['’]area\s+riservata|le\s+presenti\s+condizioni|art\.?\s+\d+\.\d+)\b/i
 
 function isHeaderTextFragment(value) {
   const s = String(value || '').trim()
   if (!s) return false
   if (PRODUCT_ID_RE.test(s)) return true
-  // "AADAS Professionista" / "01469DAS00086_AADAS Professionista": il valore
-  // intero contiene il frammento "das professionista" o termina con il
-  // prodotto-id+codice. Match come substring (niente \b prima di "das").
-  if (HEADER_JUNK_RE.test(s)) return true
-  if (CLAUSOLE_MOD_RE.test(s)) return true
-  if (/[0-9]{14}[A-Z0-9_]*\s+[A-Z]/.test(s)) return true // "...DAS00086_AADAS Professionista"
+  if (PRODUCT_SECTION_SUFFIX_RE.test(s)) return true
+  if (PRODUCT_ID_EMBEDDED_RE.test(s)) return true
+  if (PRODUCT_ID_DESCRIPTION_RE.test(s)) return true
+  if (MODULE_HEADING_RE.test(s)) return true
   return false
 }
 
 function isSectionHeadingFragment(value) {
   const s = String(value || '').trim()
   if (!s) return false
-  return SECTION_HEADINGS_RE.test(s)
+  return SECTION_HEADINGS_RE.test(s) || BOILERPLATE_RE.test(s)
 }
 
-// ─── 4. NATURA-ASSENTE per franchigia/tasso ──────────────────────────────────
+// ─── 3. NATURA-ASSENTE per franchigia/tasso ─────────────────────────────────
 
 // Per i campi la cui descrizione chiede di lasciare VUOTO se la grandezza non
-// è presente ("Se la polizza non riporta un tasso di regolazione, lascia il
-// campo vuoto", "Se il documento non indica una franchigia … lascia vuoto"),
-// il valore deve avere evidenza di contesto con la PAROLA della natura,
-// altrimenti è inventato/pescato altrove. Ogni natura ha i suoi termini.
+// è presente, il valore deve avere evidenza di contesto con la PAROLA della
+// natura, altrimenti è inventato/pescato altrove. Ogni natura ha i suoi
+// termini — nessun riferimento a compagnie.
 const NATURE_TERMS = Object.freeze({
   franchigia: ['franchig', 'minimi', 'minima', 'scopert'],
   tasso: ['tasso', 'permille', 'per mille', 'tassi', 'tassa'],
@@ -138,107 +146,125 @@ function hasNatureWordNearValue(docText, valore, terms) {
   return false
 }
 
-// ─── 5. EVIDENZA VINCOLATA (bisogni, spunta X) ───────────────────────────────
+// ─── 1. ECO DELLA COPPIA parametro→importo (generica) ───────────────────────
 
-// Descrizioni di campi che chiedono un ELENCO DI VOCI SPUNTATE in un
-// questionario ("Indicare i bisogni assicurativi spuntati con una 'X' …"). Il
-// valore è valido SOLO se la sua evidenza è una riga di quel questionario.
-const CHECKED_PHRASES_RE = /\b(?:spuntat\w*\s+con|segno\s+di\s+spunta|con\s+una\s+["“]?x|barrare|marcare)\b/i
+// Riconosce un NOME di parametro di regolazione: una parola CAPITALE che NON è
+// un numero, in una riga che non sia una riga di premio/importo. Determinata
+// da parola-capitale + assenza di cifre, NON da un elenco di nomi: vale per
+// "Fatturato", "Retribuzioni", "n. addetti", "Ricavi", "Volume di affari", …
+const PARAMETER_NAME_TAIL_RE = /[^\s]+\s+[^\s]+$/
 
-function isCheckedListField(field) {
-  if (!field) return false
-  return CHECKED_PHRASES_RE.test(String(field.description || ''))
-}
+// Guardia: una riga con parole di premio/totale non è una riga parametro.
+const PREMIUM_LINE_RE = /\b(?:premio|imponibile|imposta|imposte|tasse|totale|netto|lordo|frazionamento|consuntivo|anticipato)\b/i
 
-// ─── 1. ECO DELLA COPPIA parametro→importo ───────────────────────────────────
+// Riferimenti che rendono una riga una FRASE di rinvio, non un nome-parametro
+// ("COLLEGATO ALLA POLIZZA N. …", "Codice prodotto…").
+const REFERENCING_LINE_RE = /\b(?:collegat\w*\s+all[ao]|codice\s+prodotto|numero\s+polizza|n[°]?\s*polizza|proposta|modello|prodotto\b)\b/i
 
-// Riconosce il NOME del parametro di regolazione ("Fatturato", "Retribuzioni",
-// "Numero addetti", "Addetti"-related, "Premi") se compare come ETICHETTA di
-// una riga di rischio. Carefully case-variants + accented. Il nome restituito
-// è quello DEL DOCUMENTO, normalizzato (es. "Fatturato" — il golden di
-// GUFFANTI; la descrizione del campo elenca Retribuzioni/Fatturato/n. addetti).
-const ECCO_PARAMETER_NAMES = [
-  { re: /fat[t]?urato/i, name: 'Fatturato' },
-  { re: /retribuzion/i, name: 'Retribuzioni' },
-  { re: /(?:n[°o]?\s*addetti|numero\s+addetti|addetti)/i, name: 'n. addetti' },
-  { re: /\bpremi\b/i, name: 'Premi' },
-]
+// Parole di intestazione/footer che non sono MAI un parametro di regolazione.
+// Include le abbreviazioni comuni dei dati societari ("Cap. Soc."  = capitale
+// sociale, "Reg. Imprese" = registro imprese, ecc.) — il footer aziendale non
+// è mai un parametro.
+const NOT_PARAMETER_WORDS = /\b(?:sede|direzione|capitale|cap\.?\s*soc|registro|reg\.?\s*imprese|telefono|email|fax|codice\s+fiscale|partita\s+iva|interamente\s+versato|albo\s+imprese|societ[aà]\s+(?:appartenente|soggetta)|iscritt\w*\s+all\b)\b/i
 
-function matchingParameterName(text) {
-  for (const { re, name } of ECCO_PARAMETER_NAMES) if (re.test(text)) return name
-  return null
-}
-
-// NB: il pattern importo è VOLUTAMENTE largo per gestire i layout spaziali
-// ("1.500.000,00", ma anche "1.500.000" o "1.500.00"); si aspetta una cifra
-// = importo preventivo del parametro.
+// Pattern importo VOLUTAMENTE largo: si aspetta una cifra = importo del parametro.
 const ECCO_AMOUNT_RE = /(\d[\d.]*(?:,\d+)?)/
 
-function ecoPairFromLinePair(lines, li) {
-  // Riga etichetta (li) + riga importo (li+1) ("Fatturato\n1.500.000,00")
-  const labelLine = String(lines[li] || '')
-  const amountLine = String(lines[li + 1] || '')
-  const name = matchingParameterName(labelLine)
-  if (!name) return null
-  const am = amountLine.match(ECCO_AMOUNT_RE)
-  if (!am) return null
-  const n = parseAmountMaybe(am[1])
-  if (n == null || n < 1000) return null // valori irrisori non sono un fatturato
-  return { name, amount: formatAmountIT(n), line: li + 1 }
+// Una parola CAPITALE: normalizzata (≥3 lettere con la prima maiuscola) o sigla
+// breve ("RC", "RCP", "DIP"…). Mai una cifra, mai una parola tutta minuscola.
+function isCapitalHeadWord(word) {
+  return /^[A-Z][a-zà-ÿ]{2,}/.test(word) || /^[A-Z]{2,4}\b/.test(word)
 }
 
-function ecoPairFromSameLine(lines, li) {
-  const line = String(lines[li] || '')
-  const name = matchingParameterName(line)
-  if (!name) return null
-  // Guardia: una riga che contiene un premio-garanzia ("…Premio Netto…") NON
-  // è la riga parametro: "premi" match anche "Premio". Se la riga è la riga
-  // header del PREMIO (parole premi/premio/imponibile/imposta/totale) skip.
-  if (/\b(?:premio|imponibile|imposta|imposte|tasse|totale|netto|lordo|frazionamento)\b/i.test(line)) return null
-  const am = line.match(ECCO_AMOUNT_RE)
+// Nome-parametro da una riga che contiene l'importo: la prima parola CAPITALE
+// (anche se il collasso spaziale l'ha fusa con la riga dopo). MAI numero puro,
+// riga di premio, frase di rinvio o footer.
+function parameterNameFromLine(line) {
+  const s = String(line || '').trim()
+  if (!s || PREMIUM_LINE_RE.test(s) || NOT_PARAMETER_WORDS.test(s)) return null
+  const am = s.match(ECCO_AMOUNT_RE)
   if (!am) return null
   const n = parseAmountMaybe(am[1])
-  if (n == null || n < 1000) return null
-  return { name, amount: formatAmountIT(n), line: li + 1 }
+  if (n == null || n < 1000) return null // valori irrisori non sono un parametro
+  const before = s.slice(0, am.index).trim()
+  const words = before.split(/\s+/).filter(Boolean)
+  const nameWord = words.find((w) => isCapitalHeadWord(w))
+  if (!nameWord || nameWord.toLowerCase() === 'euro') return null
+  if (REFERENCING_LINE_RE.test(before)) return null
+  const wi = before.indexOf(nameWord)
+  const name = before.slice(wi).trim().split(/\s+/).slice(0, 3).join(' ')
+  if (/\d/.test(name)) return null
+  return { name, amount: formatAmountIT(n) }
 }
 
-/**
- * ECO DELLA COPPIA: cerca nel testo PIATTO di ogni documento non-opzione le
- * coppie "NOME parametro → importo" (stessa riga o riga successiva) nella
- * sezione RISCHI ASSICURATI o con etichetta "parametro regolazione".
- * Ritorna { parametro, importo, file, page, line } oppure null.
- */
+// Riga-SOLO-etichetta ("Fatturato", "Fatturato ROW"…): nessuna cifra, solo
+// parole-etichetta; NON una frase con minuscole (o un numero).
+function parameterLabelFromLine(line) {
+  const s = String(line || '').trim()
+  if (!s || PREMIUM_LINE_RE.test(s) || REFERENCING_LINE_RE.test(s) || NOT_PARAMETER_WORDS.test(s)) return null
+  if (/\d/.test(s)) return null
+  const words = s.split(/\s+/).filter(Boolean)
+  if (!words.length || words.length > 4) return null
+  if (!isCapitalHeadWord(words[0])) return null
+  for (const w of words.slice(1)) if (!/^[A-Z]/.test(w) && !/^[A-Z]{2,4}$/.test(w)) return null
+  return s
+}
+
 export function findParameterPair(docs) {
+  // Raccolgo TUTTI i candidati e scelgo il più plausibile: il footer aziendale
+  // ("Cap. Soc. € 2.750.000,00" ecc.) può comparire prima della vera riga del
+  // parametro ("Fatturato 1.500.000,00") — prendere il primo match è fragile.
+  const candidates = []
   for (const d of Array.isArray(docs) ? docs : []) {
     const text = d?.text || (Array.isArray(d?.pages) ? d.pages.join('\n') : '')
     if (!text) continue
     const lines = text.split('\n')
     for (let li = 0; li < lines.length; li++) {
-      const pair = ecoPairFromLinePair(lines, li) || ecoPairFromSameLine(lines, li)
-      if (!pair) continue
-      return { ...pair, file: d.name, page: '' }
+      const line = String(lines[li] || '').trim()
+      if (!line || PREMIUM_LINE_RE.test(line)) continue
+      // STESSA riga: parola-capitale + importo ("Fatturato 1.500.000,00")
+      const same = parameterNameFromLine(line)
+      if (same) { candidates.push({ ...same, file: d.name, page: '', line: li }); continue }
+      const nextLine = String(lines[li + 1] || '').trim()
+      if (!nextLine || PREMIUM_LINE_RE.test(nextLine)) continue
+      // La riga sotto porta GIÀ una coppia propria ("Fatturato 1.500.000,00"):
+      // non creare la coppia spuria label-sopra ("RCP" → "Fatturato 1.5…") —
+      // al giro successivo `same` la risolve correttamente.
+      if (parameterNameFromLine(nextLine)) continue
+      // RIGA SOLO-ETICHETTA + importo sulla riga successiva
+      // ("Fatturato\n1.500.000,00" — il layout spaziale divide nome e numero)
+      const labelOnly = parameterLabelFromLine(line)
+      if (labelOnly) {
+        const am = nextLine.match(ECCO_AMOUNT_RE)
+        if (am) {
+          const n = parseAmountMaybe(am[1])
+          if (n != null && n >= 1000) {
+            candidates.push({ name: labelOnly, amount: formatAmountIT(n), file: d.name, page: '', line: li })
+          }
+        }
+      }
     }
   }
-  return null
-}
-
-/**
- * Variante con vincolo di sezione: cerca la coppia DENTRO il blocco
- * "RISCHI ASSICURATI" / "parametro regolazione" (pattern trappola per non
- * agganciare un "Fatturato" di un'altra sezione del documento). Fallback alla
- * versione semplice se la sezione non c'è.
- */
-function findParameterPairInSection(docs) {
-  const plain = findParameterPair(docs)
-  return plain
+  if (!candidates.length) return null
+  // Plausibilità: preferisco un candidato vicino alla sezione "parametro di
+  // regolazione"/"RISCHI"/"regolazione" (contesto del parametro); a parità il
+  // primo trovato. Il nome non deve contenere parole di footer (già escluse da
+  // parameterNameFromLine/LabelFromLine via NOT_PARAMETER_WORDS).
+  const CONTEXT_RE = /parametr|regolaz|rischi\s+assicurat/i
+  const withCtx = candidates.filter((c) => {
+    const doc = Array.isArray(docs) ? docs.find((x) => x.name === c.file) : null
+    const t = doc?.text || ''
+    const idx = t.indexOf(c.name)
+    const around = t.slice(Math.max(0, idx - 200), idx + c.name.length + 300).toLowerCase()
+    return CONTEXT_RE.test(around)
+  })
+  return withCtx[0] || candidates[0]
 }
 
 // ─── 2. SEED ATTIVITÀ dalla riga etichettata "Attività" ─────────────────────
 
-// La coppia "Attività <valore>" sta nella sezione RISCHI ASSICURATI, sia su
-// riga singola ("Attività Studio associato / Societa multidisciplinare") sia
-// su più righe ("Attività\nStudio associato / Societa multidisciplinare").
-// Il valore NON è mai "Fatturato" (la riga dopo la label).
+// La coppia "Attività <valore>" sta nella scheda di polizza, sia su riga
+// singola sia su più righe. Il valore NON è mai la riga "Fatturato".
 const ATTIVITA_SEED_RE =
   /(?:^|\n)\s*attivit[àa](?:\s*(?:assicurata))?\s*[:]?\s*\n?\s*([^\n]{10,200})(?:\s*\n[^\n]{10,200})?\s*\n\s*fatturato\b/i
 
@@ -249,10 +275,8 @@ function findAttivitaSeed(docs) {
     const m = text.match(ATTIVITA_SEED_RE)
     if (!m) continue
     let candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
-    // "Studio associato / Societa multidisciplinare" — ok. Mai un heading
-    // tutto maiuscolo, mai un rinvio o un frammento di riga tabellare.
     if (candidate.length < 10) continue
-    if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue
+    if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue // heading tutto maiuscolo
     if (/\b(?:servizi\s+vary?|non\s+indicato|n\.?\/?a\.?|assente|null)\b/i.test(candidate)) continue
     if (/\b(?:attività|denominazione|ragione\s+sociale|sede|legale)\b/i.test(candidate)) continue
     return { value: candidate, file: d.name }
@@ -290,24 +314,30 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
   }))
 
   // ── 1. ECO DELLA COPPIA parametro→importo ─────────────────────────────────
-  // Applicabile SOLO a campi la cui LABEL è "Parametro regolazione" (TESTO:
-  // riceve il NOME del parametro) o "Importo preventivo parametro
-  // regolazione" (numero: riceve l'importo). La descrizione può citare
-  // entrambe ("l'importo va nel campo 'Importo preventivo…'"); decide la
-  // LABEL, come nel profilo.
-  const isParamLabel = (f) => /\bparametro\b.*\bregolazione\b/i.test(String(f?.label || ''))
-  const isImportoPreventivoLabel = (f) => /\bimporto\s+preventivo\b/i.test(String(f?.label || ''))
-  const paramField = list.find(isParamLabel) || null
-  const importoField = list.find(isImportoPreventivoLabel) || null
+  // Applicabile SOLO a campi la cui LABEL esprime la natura: "Parametro
+  // regolazione" (TESTO: riceve il NOME del parametro) o "Importo preventivo
+  // parametro regolazione" (numero: riceve l'importo). La LABEL è la fonte di
+  // verità (la descrizione del campo parametro può citare "importo preventivo"
+  // per dire "l'importo va lì" e non è un importo — fieldNatura su label+desc
+  // sarebbe ambiguo per questo profilo).
+  const paramField = list.find((f) => {
+    const lbl = String(f?.label || '')
+    return /parametro\b/i.test(lbl) && !/importo\b/i.test(lbl)
+  }) || null
+  const importoField = list.find((f) => {
+    const lbl = String(f?.label || '')
+    return /importo\s+preventiv/i.test(lbl)
+  }) || null
   if ((paramField || importoField) && plainDocs.length) {
     const nonOption = plainDocs.filter((d) => !/profilo|quietanz|dichiaraz|set\s+informativo/i.test(d.name))
     const pair = findParameterPair(nonOption.length ? nonOption : plainDocs)
     if (pair) {
       const native = Number.isFinite(parseAmountMaybe(pair.name))
       if (paramField) {
-        const setVal = native ? pair.amount : pair.name
+        // Il campo TESTO riceve MAI un importo: riceve il NOME (parola) e basta.
+        const setVal = native ? '' : pair.name.trim()
         const cur = best[paramField.id] ? String(best[paramField.id].valore ?? '') : ''
-        if (cur !== setVal) {
+        if (setVal && cur !== setVal) {
           best[paramField.id] = { ...(best[paramField.id] || {}), valore: setVal, file: pair.file, page: String(pair.page ?? ''), effDate: best[paramField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true }
           touched++
           push(`eco-coppia: "${paramField.label || paramField.id}" = "${setVal}" (riga "${pair.file}")`)
@@ -324,15 +354,13 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
     }
   }
 
-  // ── 7. DECORRENZA ORIGINARIA (anti "data pagamento") ──────────────────────
+  // ── 5. DECORRENZA ORIGINARIA (anti "data pagamento") ──────────────────────
   // Il seed Regola 8 del service mette la MINIMA data etichettata
-  // "DECORRENZA/EFFETTO/INIZIO". Ma il candidato LLM (es. "05/06/2025" = DATA
-  // PAGAMENTO della quietanza) ha una data più recente e lo sopianza con
-  // `shouldReplaceValue`. GUFFANTI: decorrenza vera 04/06/2025 (riga
-  // "DECORRENZA SCADENZA … 04/06/2025 04/06/2026"), il LLM prende la data di
-  // pagamento. Qui si RI-APPLICA la Regola 8 in forma BLINDATA: il valore del
-  // campo decorrenza viene sostituito dalla minima data etichettata SOLO se il
-  // valore attuale NON sta a sua volta su una riga etichettata come
+  // "DECORRENZA/EFFETTO/INIZIO". Ma il candidato LLM (es. la data di PAGAMENTO
+  // della quietanza) ha una data più recente e lo sopianza con
+  // `shouldReplaceValue`. Qui si RI-APPLICA la Regola 8 in forma TIPO-BLIND: il
+  // valore del campo decorrenza viene sostituito dalla minima data etichettata
+  // SOLO se il valore attuale NON sta a sua volta su una riga etichettata come
   // decorrenza (cioè è un candidato di altra natura — data pagamento/emissione).
   const decField = list.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(`${f.label || ''} ${f.description || ''}`))
   if (decField && (decField.id in best)) {
@@ -372,73 +400,11 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
     }
   }
 
-  // ── 8. SEED COMPAGNIA dal footer (nome completo, mai troncato) ────────────
-  // qwen3:8b tronca la ragione sociale ("D.A.S. Difesa Automobilistic" /
-  // "DAS S.p.A."). Il footer societario del documento porta il nome completo
-  // "D.A.S. Difesa Automobilistica Sinistri S.p.A.".
-  const compField = list.find((f) => /\bcompagnia\b|\bassicuratric\b|\bassicurazione\b/i.test(`${f.label || ''} ${f.description || ''}`) && /\bcompagnia\b/.test(`${f.label || ''} ${f.description || ''}`.toLowerCase()))
-  if (compField && plainDocs.length) {
-    let compName = null, compDoc = null
-    for (const d of plainDocs) {
-      const m = d.text.match(/D\s*\.?\s*A\s*\.?\s*S\s*\.?\s*Difesa\s+Automobilistica\s+Sinistri\s+S\s*\.?\s*p\s*\.?\s*A\s*\.?/i)
-      if (m) { compName = m[0].replace(/\s+/g, ' ').trim(); compDoc = d; break }
-    }
-    if (compName && compDoc) {
-      const cur = best[compField.id] ? String(best[compField.id].valore ?? '') : ''
-      if (cur !== compName) {
-        best[compField.id] = { ...(best[compField.id] || {}), valore: compName, file: compDoc.name, page: '', effDate: best[compField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true }
-        touched++
-        push(`compagnia-seed: "${compField.label || compField.id}" = "${compName}" (footer di "${compDoc.name}")`)
-      }
-    }
-  }
-
-  // ── 9. INDIRIZZO completo (via + CAP + città + provincia) ───────────────────
-  // qwen3:8b tronca l'indirizzo alla città (salta la provincia su riga
-  // separata). La riga del frontespizio "VIALE … 20146 MILANO\nMI" riporta il
-  // valore completo: prendiamo la riga che inizia con un iniziale di via e
-  // contiene un CAP a 5 cifre, e aggiungiamo la provincia (2 lettere maiuscole)
-  // se sta sulla stessa riga o su quella successiva.
-  const addrField = list.find((f) => /\bindirizzo\b|\bdomicilio\b|\bsede\b/i.test(`${f.label || ''} ${f.description || ''}`))
-  if (addrField && plainDocs.length) {
-    let addrVal = null, addrDoc = null
-    for (const d of plainDocs) {
-      const lines = String(d.text || '').split('\n')
-      for (let li = 0; li < lines.length; li++) {
-        const l = lines[li] || ''
-        if (!/^(?:VIALE|VIA|PIAZZA|CORSO|LARGO|PIAZZALE|STRADA)\s/i.test(l)) continue
-        if (!/\b\d{5}\b/.test(l)) continue
-        // esclude il footer societario ("Sede e Direzione Generale")
-        const around = d.text.slice(Math.max(0, d.text.indexOf(l) - 120), d.text.indexOf(l) + l.length + 60)
-        if (/sede\s+e\s+direzione|direzione\s+e\s+coordinamento|codice\s+fiscale\s+e\s+reg|capitale\s+sociale/i.test(around)) continue
-        let candidate = l.trim()
-        // Se la riga NON termina già con una provincia di 2 lettere maiuscole
-        // ("…MILANO MI"), prova la riga successiva ("MILANO\nMI").
-        if (!/ [A-Z]{2}$/.test(candidate)) {
-          const next = (lines[li + 1] || '').trim()
-          if (/^[A-Z]{2}$/.test(next)) candidate += ` ${next}`
-        }
-        if (/^(?:VIALE|VIA|PIAZZA|CORSO|LARGO)\s/.test(candidate)) { addrVal = candidate; addrDoc = d; break }
-      }
-      if (addrVal) break
-    }
-    if (addrVal && addrDoc) {
-      const cur = best[addrField.id] ? String(best[addrField.id].valore ?? '') : ''
-      // sovrascrivi se il valore attuale manca della provincia (più corto)
-      const curHasProv = /\b[A-Z]{2}$/.test(cur.trim())
-      if (!curHasProv || cur !== addrVal) {
-        best[addrField.id] = { ...(best[addrField.id] || {}), valore: addrVal, file: addrDoc.name, page: '', effDate: best[addrField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true }
-        touched++
-        push(`indirizzo-seed: "${addrField.label || addrField.id}" = "${addrVal}" (riga di "${addrDoc.name}")`)
-      }
-    }
-  }
-
-  // ── 3/6. Pulizia dei falsi positivi di testata / frammenti ────────────────
-  // "01469DAS00086_AADAS Professionista", "DAS Professionista", "CA 2021/DAP"
-  // sono intestazioni di modulo, NON dati del fascicolo. Il match è FULL-STRING
-  // (o per frammenti di testata), così un valore legittimo che contiene
-  // "professionista" in un altro contesto non viene toccato.
+  // ── 4. Pulizia dei frammenti di testata / intestazione (generica) ─────────
+  // Identificativi di prodotto/sezione e intestazioni di documento NON sono
+  // dati del fascicolo. Il match è FULL-STRING (o per frammenti di testata),
+  // così un valore legittimo che contiene le stesse parole in un altro
+  // contesto non viene toccato.
   for (const f of list) {
     const id = f.id
     if (!(id in best)) continue
@@ -453,7 +419,7 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
   }
 
   // ── 2. SEED ATTIVITÀ ──────────────────────────────────────────────────────
-  const attField = list.find((f) => /\battivit\b/i.test(`${f.label || ''} ${f.description || ''}`))
+  const attField = list.find((f) => /\battivit\b/i.test(`${f.label || ''} ${f.description || ''}`) && fieldNatura(f) === 'attivita')
   if (attField && plainDocs.length) {
     const seed = findAttivitaSeed(plainDocs)
     if (seed) {
@@ -466,45 +432,7 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
     }
   }
 
-  // ── 10. SEED BISOGNI (voce spuntata nel Profilo Cliente) ──────────────────
-  // Il questionario "PROFILO CLIENTE - INDIVIDUAZIONE DEI BISOGNI
-  // ASSICURATIVI" elenca le voci dei bisogni e la spunta "X" sta su una riga
-  // a sé sotto la voce scelta. qwen3:8b NON la aggancia (pesca "01469DAS…_AA
-  // DAS Professionista" o frasi del body). La voce spuntata è la riga
-  // precedente a quella con la X (o con il segno).
-  const bisogniField = list.find((f) => isCheckedListField(f))
-  if (bisogniField && plainDocs.length) {
-    let seedBisogni = null, seedBisogniDoc = null
-    for (const d of plainDocs) {
-      const dl = String(d.text || '').split('\n')
-      for (let li = 0; li < dl.length; li++) {
-        const l = dl[li] || ''
-        if (!/INDIVIDUAZIONE DEI BISOGNI/.test(l)) continue
-        // scansiona fino al blocco successivo (PROFILO ASSICURATIVO / CONFERMA)
-        for (let j = li + 1; j < dl.length; j++) {
-          const r = dl[j] || ''
-          if (/^X$|^\s*X\s*$|\bX\b/.test(r) && r.trim().length <= 3) {
-            const voce = (dl[j - 1] || '').trim()
-            if (voce && voce.length >= 8 && !/^X$/.test(voce)) { seedBisogni = voce; seedBisogniDoc = d }
-            break
-          }
-          if (/PROFILO ASSICURATIVO|CONFERMA DEL PROFILO/.test(r)) break
-        }
-        if (seedBisogni) break
-      }
-      if (seedBisogni) break
-    }
-    if (seedBisogni && seedBisogniDoc) {
-      const cur = best[bisogniField.id] ? String(best[bisogniField.id].valore ?? '') : ''
-      if (cur !== seedBisogni) {
-        best[bisogniField.id] = { ...(best[bisogniField.id] || {}), valore: seedBisogni, file: seedBisogniDoc.name, page: '', effDate: best[bisogniField.id]?.effDate ?? null, affinity: 1, lex: 1, deterministic: true }
-        touched++
-        push(`bisogni-seed: "${bisogniField.label || bisogniField.id}" = "${seedBisogni}" (voce spuntata di "${seedBisogniDoc.name}")`)
-      }
-    }
-  }
-
-  // ── 4. GUARDIA NATURA-ASSENTE (franchigia/tasso) ──────────────────────────
+  // ── 3. GUARDIA NATURA-ASSENTE (franchigia/tasso) ──────────────────────────
   for (const f of list) {
     const id = f.id
     if (!(id in best)) continue
@@ -537,63 +465,6 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
     }
   }
 
-  // ── 5. GUARDIA EVIDENZA VINCOLATA (bisogni spuntati) ──────────────────────
-  for (const f of list) {
-    const id = f.id
-    if (!(id in best)) continue
-    if (!isCheckedListField(f)) continue
-    const cur = best[id]
-    const v = String(cur?.valore ?? '').trim()
-    if (!v) continue
-    // frammento di testata/boilerplate: NON è una voce spuntata
-    if (isHeaderTextFragment(v) || isSectionHeadingFragment(v)) {
-      delete best[id]
-      touched++
-      push(`evidenza-vincolata: "${f.label || id}" = "${v}" è un frammento di testata → svuotato (il valore deve essere una voce spuntata del questionario)`)
-      continue
-    }
-    // il sorgente è il file della polizza (Profilo Cliente/Bisogni)?
-    const fileDoc = cur?.file ? plainDocs.find((d) => d.name === fileFor(plainDocs, cur.file)) : null
-    if (!fileDoc) continue
-    const norm = normForMatch(fileDoc.text)
-    // L'unica evidenza valida: la riga-spunta del questionario (elenco di
-    // bisogni con "X") — deve comparire nel documento. Con l'OCR spaziale la
-    // spunta "X" è su riga separata sotto l'ultima voce.
-    const nv = normForMatch(v)
-    const evInText = nv.length >= 4 && norm.includes(nv)
-    if (!evInText) {
-      delete best[id]
-      touched++
-      push(`evidenza-vincolata: "${f.label || id}" = "${v}" non presente nel documento profilo cliente → svuotato (il valore deve essere una voce spuntata)`)
-      continue
-    }
-    // L'evidenza deve essere nel blocco "PROFILO CLIENTE - INDIVIDUAZIONE DEI
-    // BISOGNI ASSICURATIVI". Il testo è NORMALIZZATO (senza spazi): il pattern
-    // va scritto senza \s+. Se non c'è il blocco, è un testo di altro contesto
-    // → svuotato (il campo chiede le voci spuntate).
-    const needsBlock = /individuazionedeibisogni|individuazionedeibisogniassicurativi/i.test(norm)
-    if (!needsBlock) {
-      delete best[id]
-      touched++
-      push(`evidenza-vincolata: "${f.label || id}" = "${v}" fuori dal blocco bisogni → svuotato`)
-      continue
-    }
-  }
-
-  // ── 6. FILTRO FRAMMENTI FINALE (testi lunghi che contengono boilerplate) ──
-  for (const f of list) {
-    const id = f.id
-    if (!(id in best)) continue
-    const cur = best[id]
-    const v = String(cur?.valore ?? '').trim()
-    if (!v || v.length < 3) continue
-    if (isHeaderTextFragment(v) || isSectionHeadingFragment(v)) {
-      delete best[id]
-      touched++
-      push(`frammento: "${f.label || id}" = "${v}" svuotato`)
-    }
-  }
-
   return touched
 }
 
@@ -604,13 +475,4 @@ function fileFor(plainDocs, name) {
   const n = String(name).trim()
   const hit = plainDocs.find((d) => d.name === n) || plainDocs.find((d) => d.name.toLowerCase() === n.toLowerCase())
   return hit ? hit.name : null
-}
-
-function isTextualFieldLike(field) {
-  // Come isTextualField ma senza dipendere dal tipo dichiarato (alcuni profili
-  // omettono il type): i campi testuali sono la maggioranza; numerico esplicito
-  // esclude.
-  const t = String(field?.type || '').toLowerCase()
-  if (t && /number|currency|percent|importo|tasso/i.test(t)) return false
-  return true
 }

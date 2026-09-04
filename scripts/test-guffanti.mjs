@@ -21,7 +21,7 @@ const PDFS = [
   'Polizza GUFFANTI GROUP & PARTNERS S.R.L..pdf',
 ]
 const DIR = '/Volumes/Dock/francesco/Downloads/guffanti'
-const PROFILE_JSON = '/tmp/profili-tutela3-corretto.json'
+const PROFILE_JSON = '/Volumes/Dock/francesco/Downloads/profili-polizza (3) CORRETTO.json'
 
 // Il Set Informativo (DIP/condizioni) è documentazione di PRODOTTO: non contiene
 // valori del fascicolo GUFFANTI ed è identico per ogni cliente DAS. La sua
