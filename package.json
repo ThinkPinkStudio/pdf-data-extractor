@@ -1,6 +1,6 @@
 {
   "name": "pdf-data-extractor",
-  "version": "1.0.149",
+  "version": "1.0.150",
   "description": "PDF Data Extractor by ThinkPink Studio",
   "scripts": {
     "test": "node --test test/*.test.mjs",
