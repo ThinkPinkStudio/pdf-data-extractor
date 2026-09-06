@@ -129,11 +129,16 @@ export function decidePrecheck(p) {
     }
   }
 
-  if (mode === 'off') return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'pre-check disattivato' }
-  if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
-
+  // Modalità effettiva: se il profilo ha keyword di CONTENUTO da cercare, il
+  // pre-check valuta SEMPRE (anche con switch 'off'): le parole esplicite del
+  // profilo vincono sullo switch globale. La degradazione 'keywords'→'semantic'
+  // resta (keywords configurate ma vuote nel set passato).
   let effective = mode
-  if (mode === 'keywords' && !p.hasContentKeywords) effective = 'semantic' // degradazione documentata
+  if (p?.hasContentKeywords && mode === 'off') effective = 'keywords'
+  else if (mode === 'keywords' && !p.hasContentKeywords) effective = 'semantic'
+
+  if (effective === 'off') return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'pre-check disattivato' }
+  if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
 
   if (effective === 'keywords') {
     if (!p.keyword) return { verdict: 'skipped', mode: effective, score: null, threshold: null, reason: 'testo non disponibile' }
