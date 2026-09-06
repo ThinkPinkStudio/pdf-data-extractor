@@ -10,7 +10,7 @@
 import { embedTexts } from './vectorIndexService.js'
 import { streamChatWithProvider } from './llmService.js'
 import {
-  normalizeForPrecheck, parseContentKeywords, keywordVerdict, cosineSim,
+  normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
 } from './polizzaPrecheck.js'
 
@@ -41,14 +41,21 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
   // fallback va deciso sulla LUNGHEZZA, non con ||.
   const contentKws = parseContentKeywords(profile?.contentKeywords)
   const kws = contentKws.length ? contentKws : parseContentKeywords(profile?.matchKeywords)
+  // Parole del CONTENUTO da evitare: indipendenti dallo switch, bloccano sempre.
+  const contentExcludeKws = parseContentKeywords(profile?.contentExcludeKeywords)
   const normText = normalizeForPrecheck((docs || []).map((d) => (d.pages || []).join('\n')).join('\n'))
 
   let keyword = null
   let semantic = null
   let llm = null
+  let contentExclude = null
   let detected = { type: null, keywords: topContentTerms(normText) }
 
   const effective = (mode === 'keywords' && !kws.length) ? 'semantic' : mode
+
+  if (contentExcludeKws.length) {
+    contentExclude = normText ? contentExcludeVerdict(contentExcludeKws, normText) : null
+  }
 
   if (effective === 'keywords') {
     keyword = normText ? keywordVerdict(kws, normText) : null
@@ -107,11 +114,14 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
     mode,
     hasProfile: true, // il chiamante (worker) passa di qui solo con profile_id sul job
     hasContentKeywords: kws.length > 0,
+    hasContentExclude: contentExcludeKws.length > 0,
     keyword, semantic, llm,
+    contentExclude,
   })
   return {
     ...decision,
     ...(keyword ? { matched: keyword.matched, missing: keyword.missing } : {}),
+    ...(contentExclude ? { excludeMatched: contentExclude.matched } : {}),
     detected,
   }
 }

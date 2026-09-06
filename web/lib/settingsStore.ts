@@ -15,14 +15,21 @@ export interface PolizzaProfile {
   id: string
   name: string
   fields: PolizzaField[]
-  // Parole (virgole/;/newline) cercate come sottostringa nel percorso/nome cartella
-  // per il pre-filtro e l'auto-riconoscimento del tipo nel bulk. Vuoto = usa `name`.
+  // Parole di ABBINAMENTO da cercare (virgole/;/newline): sottostringa nel
+  // percorso/nome cartella per pre-filtro e auto-riconoscimento del tipo nel bulk.
+  // Vuoto = usa `name`. NON agiscono sul contenuto.
   matchKeywords?: string
-  // Parole chiave del CONTENUTO dei documenti (es. "responsabilità civile, RCT,
-  // RCO, prestatori di lavoro") — DIVERSE da matchKeywords, che agisce solo sul
-  // nome cartella: queste vengono cercate nel TESTO OCR dal pre-check di
-  // pertinenza (modo 'keywords' dello switch polizzaPrecheckMode).
+  // Parole di ABBINAMENTO da EVITARE: se una compare nel percorso/nome cartella,
+  // il dossier viene SCARTATO nel bulk (pre-filtro). Serve a non caricare polizze
+  // di un tipo sbagliato solo perché il nome cartella assomiglia.
+  matchExcludeKeywords?: string
+  // Parole del CONTENUTO da cercare (es. "responsabilità civile, RCT, RCO"):
+  // cercate nel TESTO OCR dal pre-check di pertinenza. Un profilo che le definisce
+  // attiva il blocco contenuto anche se lo switch pre-check globale è 'off'.
   contentKeywords?: string
+  // Parole del CONTENUTO da EVITARE: se una compare nel TESTO OCR, il job viene
+  // SCARTATO (status 'mismatch' → "Procedi comunque") senza fare la full run.
+  contentExcludeKeywords?: string
   promptExtra?: string
   ocrEnabled?: boolean
   wholeDossier?: boolean

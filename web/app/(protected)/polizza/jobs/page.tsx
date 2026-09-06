@@ -88,9 +88,12 @@ export default function PolizzaJobsPage() {
   const [testPrompt, setTestPrompt] = useState('')
   const [testModels, setTestModels] = useState<string[]>([])
   const [testProfiles, setTestProfiles] = useState<{ id: string; name: string }[]>([])
-  // Selezione multipla per la rielaborazione COLLETTIVA con profilo (righe batch)
-  const [reprofileSelected, setReprofileSelected] = useState<Set<string>>(new Set())
+  // Selezione multipla per le AZIONI IN BULK nel dettaglio batch: un solo set di
+  // jobId spuntati, condiviso da tutte le azioni (Rielabora, con profilo, Test,
+  // Riusa, Procedi comunque, Annulla, Riprova). Funziona su TUTTI gli stati.
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [reprofileError, setReprofileError] = useState('')
+  const [bulkResult, setBulkResult] = useState<string | null>(null)
 
   const loadBatches = useCallback(async () => {
     try {
@@ -127,7 +130,7 @@ export default function PolizzaJobsPage() {
   async function toggleOpen(id: string) {
     if (openId === id) { setOpenId(null); setDetail(null); return }
     setOpenId(id); setDetail(null); setLoadingDetail(true)
-    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set()); setReprofileSelected(new Set())
+    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set()); setBulkSelected(new Set())
     await loadDetail(id)
     setLoadingDetail(false)
   }
@@ -201,7 +204,7 @@ export default function PolizzaJobsPage() {
       })
       if (!res.ok) { setReprofileError(((await res.json())?.error) || 'Errore'); return }
       setDial(null)
-      if (mode === 'reprofileBatch') setReprofileSelected(new Set())
+      if (mode === 'reprofileBatch') setBulkSelected(new Set())
       if (openId) await loadDetail(openId)
       await loadBatches()
     } finally { setBusy(false) }
@@ -236,9 +239,35 @@ export default function PolizzaJobsPage() {
 
   // Apre il dialog "rielabora con profilo" per tutti i job selezionati del batch.
   function openBatchReprofile(batchId: string) {
-    const jobs = (detail || []).filter((j) => selectableForReprofile(j) && reprofileSelected.has(j.jobId))
+    const jobs = (detail || []).filter((j) => selectableForReprofile(j) && bulkSelected.has(j.jobId))
       .map((j) => ({ ...j, batchId }))
     if (jobs.length) openDialog('reprofileBatch', jobs)
+  }
+
+  // Azione in BULK su tutti i job spuntati del batch: delega alla route
+  // /api/polizza/batch/[id]/bulk con { action, jobIds, ...override }. Le azioni
+  // non applicabili a un dato stato vengono saltate lato server.
+  async function runBulkAction(batchId: string, action: string) {
+    const jobs = (detail || []).filter((j) => bulkSelected.has(j.jobId))
+    if (!jobs.length) return
+    setBusy(true); setBulkResult(null)
+    try {
+      const body: Record<string, unknown> = { action, jobIds: jobs.map((j) => j.jobId) }
+      if (action === 'reprofile') {
+        // Rielabora con profilo richiede un profilo: riusa il dialog universale.
+        // Niente setBusy qui: il dialog gestisce il proprio busy.
+        openDialog('reprofileBatch', jobs.map((j) => ({ ...j, batchId })))
+        return
+      }
+      const res = await fetch(`/api/polizza/batch/${batchId}/bulk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setBulkResult(d.error || 'Errore'); return }
+      setBulkResult(t('jobsDash.bulkResult', { ok: d.done || 0, skipped: d.skipped || 0 }))
+      if (openId) await loadDetail(openId)
+      await loadBatches()
+    } finally { setBusy(false) }
   }
 
   // Export Excel del singolo dossier (riusa il tracciato della pagina Polizze).
@@ -256,6 +285,11 @@ export default function PolizzaJobsPage() {
     if (res.ok) downloadBlob(await res.blob(), `${label.replace(/[^a-zA-Z0-9_-]/g, '_')}_risultati.xlsx`)
   }
 
+  // Un job in stato 'mismatch' può essere un "da confermare" (falso allarme
+  // del pre-check) oppure uno "Scartato" perché una parola del contenuto da
+  // evitare è stata trovata nel testo: lo distingue l'errore scritto dal worker
+  // ("Scartato — …"). Il motivo è esplicito nella colonna stato.
+  const isDiscarded = (j: JobSnapshot) => j.status === 'mismatch' && (j.error || '').startsWith('Scartato')
   const statusLabel = (s: string) => (
     s === 'running' ? t('jobsDash.statusRunning')
       : s === 'error' ? t('jobsDash.statusError')
@@ -357,9 +391,8 @@ export default function PolizzaJobsPage() {
                 const isOpen = openId === b.id
                 const failedCount = detail ? detail.filter((j) => j.status === 'error').length : b.error
                 const retryCount = detail ? detail.filter((j) => j.status === 'error' && !retryExcluded.has(j.jobId)).length : 0
-                const selectableCount = detail ? detail.filter((j) => selectableForReprofile(j)).length : 0
-                const reprofileCount = detail ? detail.filter((j) => selectableForReprofile(j) && reprofileSelected.has(j.jobId)).length : 0
-                const allSelectable = selectableCount > 0
+                const selectedCount = detail ? detail.filter((j) => bulkSelected.has(j.jobId)).length : 0
+                const allSelected = detail ? detail.length > 0 && selectedCount === detail.length : false
                 return (
                   <Fragment key={b.id}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => toggleOpen(b.id)}>
@@ -379,14 +412,38 @@ export default function PolizzaJobsPage() {
                                 <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => exportBatch(b.id, b.label)}>
                                   ⬇ {t('jobsDash.exportBatch')}
                                 </button>
-                                {/* Rielaborazione COLLETTIVA con profilo: checkbox sulle
-                                    righe (anche quelle in coda/corso) + un solo dialog. */}
-                                {reprofileCount > 0 && (
-                                  <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
-                                    title={t('jobsDash.reprocessBatchWithTitle')} onClick={() => openBatchReprofile(b.id)}>
-                                    ⇄ {t('jobsDash.reprocessBatchWith', { n: reprofileCount })}
-                                  </button>
+                                {/* Azioni IN BULK sui job spuntati (tutti gli stati):
+                                    Rielabora, Rielabora con profilo, Run di test, Riusa,
+                                    Procedi comunque, Annulla, Riprova. */}
+                                {selectedCount > 0 && (
+                                  <>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.bulkHint')} onClick={() => runBulkAction(b.id, 'retry')}>
+                                      {t('jobsDash.bulkRetry')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.reprocessWithProfileTitle')} onClick={() => runBulkAction(b.id, 'reprofile')}>
+                                      {t('jobsDash.bulkReprofile')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.testTitle')} onClick={() => runBulkAction(b.id, 'test')}>
+                                      {t('jobsDash.bulkTest')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.reuseTitle')} onClick={() => runBulkAction(b.id, 'reuse')}>
+                                      {t('jobsDash.bulkReuse')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.proceedTitle')} onClick={() => runBulkAction(b.id, 'proceed')}>
+                                      {t('jobsDash.bulkProceed')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      onClick={() => runBulkAction(b.id, 'cancel')}>
+                                      {t('jobsDash.bulkCancel')}
+                                    </button>
+                                  </>
                                 )}
+                                {bulkResult && <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{bulkResult}</span>}
                                 {failedCount > 0 && (
                                   <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy || retryCount === 0} onClick={() => retryFailed(b.id)}>
                                     ↻ {t('jobsDash.retryFailed', { n: retryCount })}
@@ -397,14 +454,14 @@ export default function PolizzaJobsPage() {
                                 <thead>
                                   <tr>
                                     <th style={{ fontSize: 10 }}>
-                                      <input type="checkbox" checked={allSelectable && reprofileCount === selectableCount}
+                                      <input type="checkbox" checked={allSelected}
                                         onChange={(e) => {
-                                          const n = new Set(reprofileSelected)
-                                          if (e.target.checked) for (const jd of detail) if (selectableForReprofile(jd)) n.add(jd.jobId)
-                                          else for (const jd of detail) if (selectableForReprofile(jd)) n.delete(jd.jobId)
-                                          setReprofileSelected(n)
+                                          const n = new Set(bulkSelected)
+                                          if (e.target.checked) for (const jd of detail) n.add(jd.jobId)
+                                          else for (const jd of detail) n.delete(jd.jobId)
+                                          setBulkSelected(n)
                                         }}
-                                        title={t('jobsDash.selectForReprofile')} />
+                                        title={t('jobsDash.selectAll')} />
                                     </th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierName')}</th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierStatus')}</th>
@@ -427,11 +484,11 @@ export default function PolizzaJobsPage() {
                                     return (
                                       <Fragment key={j.jobId}>
                                         <tr>
-                                          <td style={{ fontSize: 12 }}>{selectable && (
-                                            <input type="checkbox" checked={reprofileSelected.has(j.jobId)}
-                                              onChange={() => setReprofileSelected((p) => toggleIn(p, j.jobId))}
-                                              title={t('jobsDash.selectForReprofile')} />
-                                          )}</td>
+                                          <td style={{ fontSize: 12 }}>
+                                            <input type="checkbox" checked={bulkSelected.has(j.jobId)}
+                                              onChange={() => setBulkSelected((p) => toggleIn(p, j.jobId))}
+                                              title={t('jobsDash.selectAll')} />
+                                          </td>
                                           <td style={{ fontSize: 12 }}>
                                             {hasValues && (
                                               <button type="button" onClick={() => setShowValues((p) => toggleIn(p, j.jobId))} title={t('jobsDash.showValues')}
@@ -442,7 +499,7 @@ export default function PolizzaJobsPage() {
                                             {j.dossierName || '—'}
                                           </td>
                                           <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
-                                            {statusLabel(j.status === 'canceled' ? 'error' : j.status)}
+                                            {isDiscarded(j) ? t('jobsDash.statusDiscarded') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                                             {j.error ? ` — ${j.error}` : ''}
                                             {j.status === 'running' && j.progress?.docName && (
                                               <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
@@ -653,7 +710,7 @@ export default function PolizzaJobsPage() {
                       </td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{j.owner || ''}</td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
-                        {statusLabel(j.status === 'canceled' ? 'error' : j.status)}
+                        {isDiscarded(j) ? t('jobsDash.statusDiscarded') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                         {j.error ? ` — ${j.error.slice(0, 120)}` : ''}
                         {!!j.duplicateOf && (
                           <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>

@@ -58,6 +58,15 @@ export function keywordVerdict(keywords, normText) {
   return { matched, missing, ratio: matched.length / kws.length }
 }
 
+/**
+ * Verdetto per le parole del CONTENUTO "da evitare": quali compaiono nel testo.
+ * Riusa keywordVerdict (stesso matching a sottostringa normalizzata). Un profilo
+ * che definisce queste parole blocca il job quando UNA di esse è nel testo.
+ */
+export function contentExcludeVerdict(excludeKws, normText) {
+  return keywordVerdict(excludeKws, normText)
+}
+
 /** Similarità coseno tra due vettori (spostata qui da polizzaService: pura). */
 export function cosineSim(a, b) {
   let dot = 0, na = 0, nb = 0
@@ -101,12 +110,25 @@ export function llmComparisonScore(detected, profileTerms) {
  * - input del metodo non disponibile (embeddings giù, LLM muto) → 'skipped':
  *   MAI bloccare un job per un guasto infrastrutturale.
  *
- * @param {object} p { mode, hasProfile, hasContentKeywords,
- *                     keyword: {ratio}|null, semantic: number|null, llm: number|null }
+ * @param {object} p { mode, hasProfile, hasContentKeywords, hasContentExclude,
+ *                     keyword: {ratio}|null, semantic: number|null, llm: number|null,
+ *                     contentExclude: {matched:string[]}|null }
  * @returns {{ verdict: 'ok'|'mismatch'|'skipped', mode: string, score: number|null, threshold: number|null, reason: string }}
  */
 export function decidePrecheck(p) {
   const mode = p?.mode || 'off'
+
+  // BLOCCANTE "da evitare" (parole del CONTENUTO): se il profilo definisce
+  // contentExcludeKeywords e una di esse compare nel testo OCR, il job va in
+  // 'mismatch' SEMPRE, anche con lo switch pre-check a 'off'. È la regola
+  // "meglio scartare che estrarre a vuoto": non dipende da alcun metodo.
+  if (p?.hasContentExclude && p?.contentExclude?.matched?.length) {
+    return {
+      verdict: 'mismatch', mode, score: 0, threshold: 0,
+      reason: `parola del contenuto da evitare trovata: "${p.contentExclude.matched[0]}"`,
+    }
+  }
+
   if (mode === 'off') return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'pre-check disattivato' }
   if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
 

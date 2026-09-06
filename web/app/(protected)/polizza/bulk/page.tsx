@@ -15,6 +15,19 @@ function profileKeywords(p: PolizzaProfile): string[] {
   return kw.length ? kw : parseKeywords(p.name)
 }
 
+// Parole di abbinamento da EVITARE di tutti i profili: se una compare nel percorso
+// di un dossier, quello viene scartato nel bulk (pre-filtro). Così le parole
+// "da evitare" configurate nei profili filtrano davvero fuori i percorsi non voluti.
+function profileMatchExcludeWords(profiles: PolizzaProfile[]): string[] {
+  const out: string[] = []
+  for (const p of profiles) {
+    for (const w of parseKeywords(p.matchExcludeKeywords || '')) {
+      if (!out.includes(w)) out.push(w)
+    }
+  }
+  return out
+}
+
 const ERROR_BOX_STYLE: CSSProperties = {
   marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,.08)',
   border: '1px solid rgba(239,68,68,.25)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--c-error)',
@@ -111,11 +124,15 @@ export default function PolizzaBulkPage() {
     }).catch(() => {})
   }, [])
 
+  // Parole di abbinamento "da evitare" dei profili: filtrano fuori i percorsi
+  // non voluti nel bulk (reason dedicata, mostrata negli scartati).
+  const profileMatchExcludes = useMemo(() => profileMatchExcludeWords(profiles), [profiles])
   const filters = useMemo(() => makeFilters({
     excludedNames: extraExclusions,
     includeWords: parseKeywords(includeText),
     excludeWords: parseKeywords(excludeText),
-  }), [extraExclusions, includeText, excludeText])
+    profileExcludeWords: profileMatchExcludes,
+  }), [extraExclusions, includeText, excludeText, profileMatchExcludes])
 
   // Ricalcola il raggruppamento (client-side, gratuito) quando cambiano i file
   // selezionati o i filtri. Cambiando l'insieme dei dossier, la revisione manuale
@@ -203,6 +220,7 @@ export default function PolizzaBulkPage() {
     excludedName: t('bulk.skipExcludedName'),
     excludeWord: t('bulk.skipExcludeWord'),
     includeWord: t('bulk.skipIncludeWord'),
+    profileExcludeWord: t('bulk.skipProfileExcludeWord'),
   }
 
   const isIncluded = (name: string) => included[name] !== false
