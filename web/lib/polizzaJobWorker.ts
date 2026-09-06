@@ -267,14 +267,20 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // se l'utente ha già premuto "Procedi comunque" (precheck.override).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
   const precheckMode = settings.polizzaPrecheckMode || 'off'
-  if (precheckMode !== 'off' && job.profile_id && !(job.precheck as any)?.override) {
+  // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si degrada al
+  // semantico sui field_defs congelati — mai un errore.
+  const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === job.profile_id) || null
+  // Attiva il pre-check di pertinenza quando:
+  //  - lo switch globale è su un metodo (keywords/semantic/llm), OPPURE
+  //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
+  //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off'.
+  const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
+  const shouldPrecheck = job.profile_id && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords)
+  if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; excludeMatched?: string[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
-      // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si
-      // degrada al semantico sui field_defs congelati — mai un errore.
-      const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === job.profile_id) || null
       const pre = await pcSvc.runPrecheck({
         docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
         profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
@@ -284,9 +290,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       const kwsStr = pre.matched?.length ? ` · parole chiave trovate: ${pre.matched.join(', ')}` : ''
       await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
       if (pre.verdict === 'mismatch') {
+        const scarto = pre.excludeMatched?.length
+          ? `Scartato — ${pre.reason}`
+          : `Contenuto non pertinente al profilo "${job.profile_name || job.profile_id}"${detStr ? ` — rilevato: ${detStr}` : ''}. Verifica il profilo o premi "Procedi comunque".`
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
-          error: `Contenuto non pertinente al profilo "${job.profile_name || job.profile_id}"${detStr ? ` — rilevato: ${detStr}` : ''}. Verifica il profilo o premi "Procedi comunque".`,
+          error: scarto,
         })
         return // stesso stop pulito del probe OCR: il batch prosegue coi dossier successivi
       }

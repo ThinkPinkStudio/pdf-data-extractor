@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  normalizeForPrecheck, parseContentKeywords, keywordVerdict, cosineSim,
+  normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   KEYWORD_MIN_RATIO, SEMANTIC_MIN, LLM_MIN,
 } from '../src/services/polizzaPrecheck.js'
@@ -77,6 +77,33 @@ test('llmComparisonScore: overlap token rilevati↔termini profilo', () => {
   assert.equal(llmComparisonScore({ type: 'polizza incendio fabbricati', keywords: ['fiamme'] }, profileTerms), 0)
   // niente di rilevato → null (non 0: è un'assenza di input, non un mismatch)
   assert.equal(llmComparisonScore({ type: '', keywords: [] }, profileTerms), null)
+})
+
+test('contentExcludeVerdict: parole del contenuto "da evitare" trovate/non trovate', () => {
+  const text = normalizeForPrecheck('Polizza incendio fabbricati — esplosione scoppio danni alle cose')
+  const v = contentExcludeVerdict(['incendio', 'fabbricati'], text)
+  assert.deepEqual(v.matched, ['incendio', 'fabbricati'])
+  assert.ok(v.ratio >= KEYWORD_MIN_RATIO)
+  // parola assente → nessun match
+  const v2 = contentExcludeVerdict(['responsabilità civile'], text)
+  assert.deepEqual(v2.matched, [])
+  assert.equal(v2.ratio, 0)
+})
+
+test('decidePrecheck: blocco "da evitare" SEMPRE, anche a switch off', () => {
+  // Profilo con contentExcludeKeywords e una parola da evitare presente nel testo
+  const base = { mode: 'off', hasProfile: true, hasContentKeywords: true, hasContentExclude: true }
+  const contentExclude = contentExcludeVerdict(['incendio'], normalizeForPrecheck('incendio fabbricati'))
+  const d = decidePrecheck({ ...base, contentExclude })
+  assert.equal(d.verdict, 'mismatch')
+  assert.match(d.reason, /da evitare/)
+  // Nessuna parola da evitare nel testo → lo switch 'off' resta skipped
+  const d2 = decidePrecheck({ ...base, contentExclude: contentExcludeVerdict(['incendio'], normalizeForPrecheck('polizza rc')) })
+  assert.equal(d2.verdict, 'skipped')
+  // Modo keywords + parola da evitare presente → prevale il blocco da evitare
+  const d3 = decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, hasContentExclude: true, keyword: { ratio: 1 }, contentExclude: contentExcludeVerdict(['incendio'], normalizeForPrecheck('incendio')) })
+  assert.equal(d3.verdict, 'mismatch')
+  assert.match(d3.reason, /da evitare/)
 })
 
 test('decidePrecheck: verdetti ai bordi delle soglie', () => {

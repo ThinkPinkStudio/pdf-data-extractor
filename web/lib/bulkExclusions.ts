@@ -52,19 +52,22 @@ export interface PathFilters {
   includeWords: string[]
   /** Se una di queste parole compare nel percorso, il file viene scartato. */
   excludeWords: string[]
+  /** Parole di ABBINAMENTO del profilo "da evitare": scarto con reason dedicata. */
+  profileExcludeWords: string[]
 }
 
-export const NO_FILTERS: PathFilters = { excludedNames: new Set(), includeWords: [], excludeWords: [] }
+export const NO_FILTERS: PathFilters = { excludedNames: new Set(), includeWords: [], excludeWords: [], profileExcludeWords: [] }
 
 export function makeFilters(opts: Partial<PathFilters> = {}): PathFilters {
   return {
     excludedNames: opts.excludedNames ?? new Set(),
     includeWords: opts.includeWords ?? [],
     excludeWords: opts.excludeWords ?? [],
+    profileExcludeWords: opts.profileExcludeWords ?? [],
   }
 }
 
-export type SkipReason = 'notPdf' | 'excludedName' | 'excludeWord' | 'includeWord'
+export type SkipReason = 'notPdf' | 'excludedName' | 'excludeWord' | 'includeWord' | 'profileExcludeWord'
 
 export interface PathVerdict {
   kept: boolean
@@ -88,6 +91,9 @@ export function evaluatePath(relPath: string, filters: PathFilters = NO_FILTERS)
 
   const bad = filters.excludeWords.find((w) => path.includes(w))
   if (bad) return { kept: false, reason: 'excludeWord', matched: bad }
+
+  const badProfile = filters.profileExcludeWords.find((w) => path.includes(w))
+  if (badProfile) return { kept: false, reason: 'profileExcludeWord', matched: badProfile }
 
   if (filters.includeWords.length > 0) {
     const good = filters.includeWords.find((w) => path.includes(w))

@@ -40,14 +40,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // ritoccarle per la singola cartella), altrimenti quelle salvate in Impostazioni.
   const rawInclude = formData.get('includeWords')
   const rawExclude = formData.get('excludeWords')
+  // Parole di abbinamento "da evitare" dei profili: il server le somma al filtro
+  // di enumerazione come difesa in profondità (il client le applica già in UI).
+  const profileExcludeWords = (settings.polizzaProfiles || [])
+    .flatMap((p: any) => parseKeywords(p?.matchExcludeKeywords || ''))
   const filters = makeFilters({
     excludedNames: parseExclusionList(settings.bulkExcludedFolderNames),
     includeWords: parseKeywords(rawInclude === null ? settings.bulkIncludeKeywords : String(rawInclude)),
     excludeWords: parseKeywords(rawExclude === null ? settings.bulkExcludeKeywords : String(rawExclude)),
+    profileExcludeWords,
   })
   const kept: { file: File; relPath: string }[] = []
   for (let i = 0; i < pdfFiles.length; i++) {
-    if (evaluatePath(relPaths[i], filters).kept) kept.push({ file: pdfFiles[i], relPath: relPaths[i] })
+    const verdict = evaluatePath(relPaths[i], filters)
+    if (verdict.kept) kept.push({ file: pdfFiles[i], relPath: relPaths[i] })
+    else if (verdict.reason === 'profileExcludeWord') {
+      return NextResponse.json({ error: `Percorso scartato (parola di abbinamento da evitare "${verdict.matched}")` }, { status: 400 })
+    }
   }
   if (kept.length === 0) return NextResponse.json({ error: 'Nessun file valido dopo il filtro esclusioni' }, { status: 400 })
 

@@ -18,9 +18,12 @@ interface Profile {
   name: string
   fields: Field[]
   promptExtra?: string
+  // Parole di abbinamento (percorso/cartella nel bulk): da cercare e da evitare.
   matchKeywords?: string
-  // Parole del CONTENUTO (pre-check di pertinenza: cercate nel testo OCR)
+  matchExcludeKeywords?: string
+  // Parole del contenuto (testo OCR, pre-check di pertinenza): da cercare e da evitare.
   contentKeywords?: string
+  contentExcludeKeywords?: string
 }
 
 const FIELD_TYPE_OPTIONS: { value: string; key: string }[] = [
@@ -48,6 +51,9 @@ export default function PolizzaFieldsEditor() {
   const [profileName, setProfileName] = useState('')
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
   const [profileKeywords, setProfileKeywords] = useState('')
+  const [profileMatchExcludeKeywords, setProfileMatchExcludeKeywords] = useState('')
+  const [profileContentKeywords, setProfileContentKeywords] = useState('')
+  const [profileContentExcludeKeywords, setProfileContentExcludeKeywords] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   // Verifica/qualità (usati dal servizio condiviso): modello fascicolo intero,
@@ -130,8 +136,15 @@ export default function PolizzaFieldsEditor() {
 
   async function saveProfile() {
     if (!profileName.trim()) return
-    const next = [...profiles, { id: String(Date.now()), name: profileName.trim(), fields, promptExtra, matchKeywords: profileKeywords.trim() }]
+    const next = [...profiles, {
+      id: String(Date.now()), name: profileName.trim(), fields, promptExtra,
+      matchKeywords: profileKeywords.trim(),
+      matchExcludeKeywords: profileMatchExcludeKeywords.trim(),
+      contentKeywords: profileContentKeywords.trim(),
+      contentExcludeKeywords: profileContentExcludeKeywords.trim(),
+    }]
     setProfiles(next); setProfileName(''); setProfileKeywords('')
+    setProfileMatchExcludeKeywords(''); setProfileContentKeywords(''); setProfileContentExcludeKeywords('')
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
   }
   // Parole chiave di CONTENUTO di un profilo (pre-check di pertinenza: cercate
@@ -139,10 +152,16 @@ export default function PolizzaFieldsEditor() {
   function setProfileContentKw(id: string, value: string) {
     setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, contentKeywords: value } : p)))
   }
+  function setProfileContentExcludeKw(id: string, value: string) {
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, contentExcludeKeywords: value } : p)))
+  }
   // Modifica in linea delle parole di abbinamento di un profilo esistente (usate nel
   // bulk per pre-filtro e auto-riconoscimento). Persiste su blur.
   function setProfileKw(id: string, value: string) {
     setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, matchKeywords: value } : p)))
+  }
+  function setProfileMatchExcludeKw(id: string, value: string) {
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, matchExcludeKeywords: value } : p)))
   }
   async function persistProfiles(list: Profile[]) {
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: list }) })
@@ -361,8 +380,12 @@ export default function PolizzaFieldsEditor() {
                 <span style={{ flex: '1 1 140px', fontSize: 13 }}>{p.name} {p.id === activeProfileId ? <span style={{ color: 'var(--c-accent)', fontSize: 11 }}>●</span> : null} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
                 <input value={p.matchKeywords || ''} onChange={(e) => setProfileKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
+                <input value={p.matchExcludeKeywords || ''} onChange={(e) => setProfileMatchExcludeKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                  placeholder={t('set.profileMatchExcludeKeywords')} title={t('set.profileMatchExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <input value={p.contentKeywords || ''} onChange={(e) => setProfileContentKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
+                <input value={p.contentExcludeKeywords || ''} onChange={(e) => setProfileContentExcludeKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                  placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} title={t('set.duplicateProfile')} onClick={() => dupProfile(p)}>⧉ {t('set.duplicateProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--c-error)' }} title={t('set.deleteProfile')} onClick={() => delProfile(p)}>🗑 {t('set.deleteProfile')}</button>
@@ -373,6 +396,9 @@ export default function PolizzaFieldsEditor() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder={t('set.profileName')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <input value={profileKeywords} onChange={(e) => setProfileKeywords(e.target.value)} placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
+          <input value={profileMatchExcludeKeywords} onChange={(e) => setProfileMatchExcludeKeywords(e.target.value)} placeholder={t('set.profileMatchExcludeKeywords')} title={t('set.profileMatchExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
+          <input value={profileContentKeywords} onChange={(e) => setProfileContentKeywords(e.target.value)} placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
+          <input value={profileContentExcludeKeywords} onChange={(e) => setProfileContentExcludeKeywords(e.target.value)} placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <button type="button" className="btn btn-secondary" onClick={saveProfile} disabled={!profileName.trim()}>{t('set.saveProfile')}</button>
           <button type="button" className="btn btn-secondary" onClick={exportProfiles} disabled={!profiles.length}>{t('set.exportJson')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}>{t('set.importJson')}</button>
