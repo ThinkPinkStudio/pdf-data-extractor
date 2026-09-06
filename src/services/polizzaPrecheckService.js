@@ -51,7 +51,12 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
   let contentExclude = null
   let detected = { type: null, keywords: topContentTerms(normText) }
 
-  const effective = (mode === 'keywords' && !kws.length) ? 'semantic' : mode
+  // Modalità effettiva: keyword di contenuto presenti → SEMPRE 'keywords' (anche
+  // con switch 'off': le parole esplicite del profilo vincono). Degrada a
+  // 'semantic' SOLO quando lo switch è 'keywords' ma il profilo non ha keyword.
+  const effective = kws.length
+    ? 'keywords'
+    : (mode === 'keywords') ? 'semantic' : mode
 
   if (contentExcludeKws.length) {
     contentExclude = normText ? contentExcludeVerdict(contentExcludeKws, normText) : null

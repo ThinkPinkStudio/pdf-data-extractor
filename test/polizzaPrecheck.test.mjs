@@ -138,6 +138,30 @@ test('decidePrecheck: TUTTE le degradazioni → mai bloccare per guasti o config
   assert.equal(decidePrecheck({ mode: 'boh', hasProfile: true }).verdict, 'skipped')
 })
 
+test('decidePrecheck: con switch off ma contentKeywords presenti, valuta SEMPRE le keyword', () => {
+  // Il profilo ha parole del contenuto da cercare: lo switch globale 'off' NON
+  // deve trasformarle in skipped. Le keyword vanno valutate (ok/mismatch).
+  const textOk = normalizeForPrecheck('polizza responsabilità civile prestatori di lavoro')
+  const kwOk = keywordVerdict(['responsabilità civile', 'prestatori di lavoro', 'incendio'], textOk)
+  assert.equal(kwOk.ratio, 2 / 3) // >= KEYWORD_MIN_RATIO
+  const dOk = decidePrecheck({ mode: 'off', hasProfile: true, hasContentKeywords: true, keyword: kwOk })
+  assert.equal(dOk.verdict, 'ok')
+  assert.equal(dOk.mode, 'keywords')
+
+  // Sotto soglia → mismatch, NON skipped (le keyword erano attive)
+  const textNo = normalizeForPrecheck('incendio fabbricati esplosione scoppio')
+  const kwNo = keywordVerdict(['responsabilità civile', 'prestatori di lavoro'], textNo)
+  assert.equal(kwNo.ratio, 0)
+  const dNo = decidePrecheck({ mode: 'off', hasProfile: true, hasContentKeywords: true, keyword: kwNo })
+  assert.equal(dNo.verdict, 'mismatch')
+  assert.equal(dNo.mode, 'keywords')
+
+  // Senza keyword da cercare e a switch off → resta skipped
+  const dSkip = decidePrecheck({ mode: 'off', hasProfile: true, hasContentKeywords: false })
+  assert.equal(dSkip.verdict, 'skipped')
+  assert.match(dSkip.reason, /disattivato/)
+})
+
 test('topContentTerms: termini frequenti senza boilerplate assicurativo', () => {
   const norm = normalizeForPrecheck(
     'incendio fabbricati incendio fabbricati incendio esplosione scoppio polizza polizza assicurato compagnia euro'
