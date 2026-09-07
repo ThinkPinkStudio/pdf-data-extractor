@@ -407,8 +407,8 @@ export function vetoForeignNatureFranchigia(registry, field, candidateAmount) {
     f.kind === 'amount' && factNature(f.cats) === 'basso' && f.value >= 1000 && f.value < 100000)
   // milioni e sempre (o mai) etichettati massimale → non franchigia; se nel
   // fascicolo c'è un valore piccolo coerente, è quello la franchigia, non i milioni
-  if (massNatures.length && massNatures.every((f) => isPremiumNature(f)) && anySmallCoherent) return true
-  if (!massNatures.length && anySmallCoherent && amt >= 1000000) return true
+  if (massNatures.length && massNatures.length / matches.length >= 0.5) return true
+  if (anySmallCoherent && amt >= 1000000) return true
   return false
 }
 
