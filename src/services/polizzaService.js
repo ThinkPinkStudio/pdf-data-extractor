@@ -2937,7 +2937,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // solo distinto lo si propone come seed (sovrascrivibile dal gruppo anagrafica
   // via merge per recency — MAI blindato); se ce ne sono ≥2 il campo resta al
   // modello, che ha l'istruzione "P.IVA del CONTRAENTE, mai della compagnia".
-  if ('6f260040-ae1d-56d8-a185-1eb178e384fb' in fieldsById) {
+  // Il campo P.IVA/CF si risolve per RUOLO SEMANTICO (label/descrizione "p.iva /
+  // codice fiscale"), non per UUID: i profili moderni usano id slug
+  // ("codice_fiscale_iva"), quelli storici l'UUID. Fallback all'UUID storico.
+  const vatFieldId = activeFields.find((f) => /p\.?\s*i\.?\s*v\.?\s*a|codice\s+fiscale|partita\s+iva|c\.?\s*f\.?\s*\/?\s*p\.?\s*i\.?\s*v/i.test(`${f.label || ''} ${f.description || ''}`))?.id
+    || (('6f260040-ae1d-56d8-a185-1eb178e384fb' in fieldsById) ? '6f260040-ae1d-56d8-a185-1eb178e384fb' : null)
+  if (vatFieldId) {
     const vatSeen = new Map() // valore valido → doc del primo avvistamento
     for (const d of basePool) {
       // Finestra label→valore anche A CAVALLO di riga: sul campo la P.IVA del
@@ -2961,7 +2966,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (vatSeen.size === 1) {
       const [valid, d] = [...vatSeen.entries()][0]
       const src = findStagedSource(analyzed, null, valid, new Set([d.name]))
-      best.codice_fiscale_iva = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
+      best[vatFieldId] = { valore: valid, effDate: d.dateStr, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: src?.file || d.name, page: src?.page ?? '' }
       seedNotes.push(`codice_fiscale_iva="${valid}" (unico candidato checksum-valido)`)
     } else if (vatSeen.size >= 2) {
       // Più candidate checksum-valide: non lasciamo decidere al modello (spesso
@@ -2984,7 +2989,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       }
       if (chosen) {
         const src = findStagedSource(analyzed, null, chosen, new Set([chosenDoc.name]))
-        best.codice_fiscale_iva = { valore: chosen, effDate: chosenDoc.dateStr, docType: chosenDoc.type, appendixOrd: chosenDoc.appendixOrd, docPos: chosenDoc.pos, file: src?.file || chosenDoc.name, page: src?.page ?? '' }
+        best[vatFieldId] = { valore: chosen, effDate: chosenDoc.dateStr, docType: chosenDoc.type, appendixOrd: chosenDoc.appendixOrd, docPos: chosenDoc.pos, file: src?.file || chosenDoc.name, page: src?.page ?? '' }
         seedNotes.push(`codice_fiscale_iva="${chosen}" (preferita: vicino al contraente su ${vatSeen.size} candidate)`)
       } else {
         seedNotes.push(`P.IVA/CF: ${vatSeen.size} candidati distinti checksum-validi (${[...vatSeen.keys()].join(', ')}) → nessun seed, decide il modello (contraente ≠ compagnia)`)
@@ -3039,6 +3044,47 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     return bestDate
   }
+  // Data nella FASCIA di righe (±1 riga) attorno all'etichetta: nei layout
+  // "DAS" la riga "DECORRENZA SCADENZA FRAZIONAMENTO…" è l'intestazione di
+  // colonna SOTTO i valori ("04/06/2025 04/06/2026 Annuale…"). minLabeledDate
+  // cerca la data DOPO l'etichetta e la manca → il seed prende la data di
+  // emissione ("MILANO 14/04/2025") e la coerenza date la svuota. Qui si
+  // guarda la riga PRIMA e DOPO l'etichetta (solo date GG/MM/AAAA in
+  // colonna, mai la data di emissione sulla stessa riga di "MILANO").
+  const dateInLabelBand = (text, labelRe, { max = true } = {}) => {
+    let bestDate = null
+    const lines = String(text || '').split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      labelRe.lastIndex = 0
+      if (!labelRe.test(lines[i])) continue
+      for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j++) {
+        // Salta la riga dell'etichetta stessa (è la riga i) e le righe che
+        // contengono la data di emissione/firma ("MILANO 14/04/2025",
+        // "Emesso il…") — mai una data di firma è una decorrenza.
+        if (j === i) continue
+        if (/MILANO|EMESS|EMISSIONE|STAMPAT|RILASCIAT|FIRMA|PROFILO\s+CLIENTE/i.test(lines[j])) continue
+        for (const dm of lines[j].matchAll(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/g)) {
+          const norm = normalizeDateValue(dm[0])
+          if (!norm) continue
+          const ts = dateStrToTs(norm) ?? (max ? -Infinity : Infinity)
+          if (max ? (ts > (dateStrToTs(bestDate) ?? -Infinity)) : (ts < (dateStrToTs(bestDate) ?? Infinity))) bestDate = norm
+        }
+      }
+    }
+    return bestDate
+  }
+  // Risolvi i campi decorrenza/scadenza per RUOLO SEMANTICO (label/descrizione),
+  // non per UUID: i profili moderni usano id slug ("decorrenza"/"scadenza"),
+  // quelli storici usano UUID. Fallback agli UUID storici per compatibilità.
+  // ATTENZIONE: la regex deve stare sul LABEL (priorità) e su pattern descrittivi
+  // NON ambigui — una descrizione che cita "DECORRENZA SCADENZA" come etichetta
+  // NON deve far risolvere il campo scadenza.
+  const decFieldId = activeFields.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(String(f.label || '')))?.id
+    || activeFields.find((f) => /^decorrenz|data\s+di\s+decorrenza|data\s+(?:di\s+)?inizio\s+(?:copertura|polizza)/i.test(`${f.label || ''} ${f.description || ''}`))?.id
+    || (('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById) ? '4dc720d8-8237-5084-b288-fd32bd1d19c6' : null)
+  const scaFieldId = activeFields.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(String(f.label || '')))?.id
+    || activeFields.find((f) => /^scadenz|data\s+di\s+scadenza|scadenza\s+della\s+polizza|fine\s+(?:copertura|polizza)/i.test(`${f.label || ''} ${f.description || ''}`))?.id
+    || (('22408456-185d-5803-b489-02af1a084911' in fieldsById) ? '22408456-185d-5803-b489-02af1a084911' : null)
   for (const d of analyzed) {
     // REGOLA 8 (generalizzazione): la DECORRENZA del contratto è la data di
     // inizio ORIGINARIA, cioè la più ANTICA tra quelle etichettate
@@ -3047,29 +3093,53 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // polizza (01/07/2010): prendere la massima spostava la decorrenza sulla
     // rata. Per la SCADENZA vale l'opposto: la copertura corrente finisce alla
     // data più recente.
+    // "Dalle ore 24:00 del <data>" (frontespizio "Periodo di validità") è la
+    // decorrenza, "Alle ore 24:00 del <data>" la scadenza (formato "31 marzo
+    // 2022" in testo, non GG/MM/AAAA).
+    const MONTHS = { gennaio:1, febbraio:2, marzo:3, aprile:4, maggio:5, giugno:6, luglio:7, agosto:8, settembre:9, ottobre:10, novembre:11, dicembre:12 }
+    const parseTextDate = (s) => {
+      const m = String(s || '').match(/\b(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})\b/i)
+      if (!m) return null
+      const day = m[1].padStart(2, '0')
+      const mon = String(MONTHS[m[2].toLowerCase()] || 0).padStart(2, '0')
+      if (!mon || mon === '00') return null
+      return `${day}/${mon}/${m[3]}`
+    }
+    const dalleDate = (t) => {
+      const m = t.match(/Dalle\s+ore\s+24[:.]?\s*00\s+del\s+([^\n]{0,40})/i)
+      return m ? (parseTextDate(m[0]) || parseDateFromContextLine(m[0], /[\s\S]+/)) : null
+    }
+    const alleDate = (t) => {
+      const m = t.match(/Alle\s+ore\s+24[:.]?\s*00\s+del\s+([^\n]{0,40})/i)
+      return m ? (parseTextDate(m[0]) || parseDateFromContextLine(m[0], /[\s\S]+/)) : null
+    }
     const decDates = [
       minLabeledDate(d.text, /(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA|DATA\s+INIZIO)\b[^\n]{0,100}/gi),
       minDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
+      dateInLabelBand(d.text, /\b(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA|DATA\s+INIZIO)\b/gi, { max: false }),
+      dalleDate(d.text),
     ].filter(Boolean)
     const scaDates = [
       maxLabeledDate(d.text, /SCADENZA\b[^\n]{0,100}/gi),
       maxDateInWindow(d.text, /SCAD\.\s*RATA[^\n]{0,120}(?:\n[^\n]{0,120})?/gi),
       parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i),
+      dateInLabelBand(d.text, /\b(?:SCADENZA|RATA\s+SUCC)\b/gi, { max: true }),
+      alleDate(d.text),
     ].filter(Boolean)
     const hits = {
       decorrenza: decDates.sort((a, b) => (dateStrToTs(a) ?? Infinity) - (dateStrToTs(b) ?? Infinity))[0] || null,
       scadenza: scaDates.sort((a, b) => (dateStrToTs(b) ?? 0) - (dateStrToTs(a) ?? 0))[0] || null,
     }
-    for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
-      if (!(id in fieldsById) || !hits[id]) continue
-      const norm = normalizeDateValue(hits[id])
+    for (const [id, key] of [[decFieldId, 'decorrenza'], [scaFieldId, 'scadenza']]) {
+      if (!id || !(id in fieldsById) || !hits[key]) continue
+      const norm = normalizeDateValue(hits[key])
       if (!norm) continue
       const cand = { valore: norm, effDate: norm, docType: d.type, appendixOrd: d.appendixOrd, docPos: d.pos, file: d.name, page: '' }
       best[id] = pickMoreRecentCandidate(best[id], cand, kindOf[id] || 'anagrafica')
     }
   }
-  for (const id of ['4dc720d8-8237-5084-b288-fd32bd1d19c6', '22408456-185d-5803-b489-02af1a084911']) {
-    if (best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
+  for (const id of [decFieldId, scaFieldId]) {
+    if (id && best[id]) seedNotes.push(`${id}=${best[id].valore} (da "${best[id].file}")`)
   }
   // Seed ATTIVITÀ: nei testi di polizza la descrizione concreta segue quasi sempre
   // un marker esplicito ("…per l'esercizio dell'attività di seguito descritta:").

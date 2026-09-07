@@ -1,0 +1,5179 @@
+[
+  {
+    "id": "1788467548369",
+    "name": "RCTOP",
+    "types": [
+      {
+        "id": "RCT_O",
+        "label": "RC Terzi / Operai"
+      },
+      {
+        "id": "RCP",
+        "label": "RC Prodotti"
+      },
+      {
+        "id": "RCTOP",
+        "label": "RCTOP"
+      },
+      {
+        "id": "MULTIRISCHI",
+        "label": "Polizza Helvetia Azienda"
+      }
+    ],
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività svolta dall'assicurato indicata in polizza",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro (RCT)",
+        "description": "Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona (RCT)",
+        "description": "Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali (RCT)",
+        "description": "Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore (RCT)",
+        "description": "Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_parametro",
+        "label": "Parametro regolazione (RCT)",
+        "description": "Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_importo_preventivo",
+        "label": "Importo preventivo parametro (RCT)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rct_tasso",
+        "label": "Tasso regolazione ‰ (RCT)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E23"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_imponibile",
+        "label": "Premio imponibile (RCT)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F28"
+          }
+        ]
+      },
+      {
+        "id": "rct_imposta",
+        "label": "Imposta (RCT)",
+        "description": "Imposta sul premio della sezione RCT (es. 273,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F29"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_totale",
+        "label": "Premio totale (RCT)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F30"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "F34"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Prodotti assicurati",
+        "description": "Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "Qualifica assicurato",
+        "description": "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Massimale per sinistro (RCP)",
+        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Massimale annuo (RCP)",
+        "description": "Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale interruzione attività (RCP)",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Scoperto minimo - Resto del mondo",
+        "description": "Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Scoperto massimo - Resto del mondo",
+        "description": "Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Scoperto minimo - USA/Canada/Messico",
+        "description": "Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_usa",
+        "label": "Scoperto massimo - USA/Canada/Messico",
+        "description": "Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCP)",
+        "description": "Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCP)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCP)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCP)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCP)",
+        "description": "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCP)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "F37"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548370",
+    "name": "RCP",
+    "types": [
+      {
+        "id": "RCT_O",
+        "label": "RC Terzi / Operai"
+      },
+      {
+        "id": "RCP",
+        "label": "RC Prodotti"
+      },
+      {
+        "id": "RCTOP",
+        "label": "RCTOP"
+      },
+      {
+        "id": "MULTIRISCHI",
+        "label": "Polizza Helvetia Azienda"
+      }
+    ],
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C3"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N18"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N16"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N17"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N15"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "P. IVA / Codice fiscale del CONTRAENTE(la persona o studio che stipula la polizza). E' diversa da quella dell'Assicuratore/compagnia che compare nell'intestazione del documento(es. 08037550962 AIG).. Prendi SOLO la P.IVA/CF chiaramente associata al Contraente(es. 'Partita Iva / Cod. Fiscale: 11640070014' accanto al nome del contraente nel frontespizio).",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "O21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "O20"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "Q21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "Q20"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività svolta dall'assicurato indicata in polizza",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "A10"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Prodotti assicurati",
+        "description": "Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "Qualifica assicurato",
+        "description": "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Massimale per sinistro (RCP)",
+        "description": "Massimale RC Professionale per ogni sinistro: sul frontespizio prendi il valore del blocco '5. Massimale' = 'Massimale aggregato per Periodo di validita della polizza' (la riga 'per i Danni cagionati dagli Assicurati: eur' o 'per tutte le Perdite pecuniarie di tutti gli Assicurati: eur' subito sotto), che e' l'importo GRANDE da milioni (es. 2.500.000,00 o 2.000.000,00). VIETATO prendere la franchigia ('6. Franchigia':  umento 2.500.000 e' il massimale aggregato, NON una franchigia); VIETATO prendere sottolimiti di estensioni (150.000,00 Privacy, 1.000,00 ecc.).",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Massimale annuo (RCP)",
+        "description": "Massimale aggregato RC Professionale per Periodo di validita della polizza (per piu sinistri): coincide col 'Massimale per sinistro' della stessa polizza(importo GRANDE del blocco '5. Massimale' del frontespizio). VIETATO prendere la franchigia o sottolimiti di estensioni.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "1781872397308",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti unico se non esiste un massimale per persona, per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale interruzione attività (RCP)",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Scoperto minimo - Resto del mondo",
+        "description": "Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Scoperto massimo - Resto del mondo",
+        "description": "Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Scoperto minimo - USA/Canada/Messico",
+        "description": "Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_usa",
+        "label": "Scoperto massimo - USA/Canada/Messico",
+        "description": "Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCP)",
+        "description": "Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCP)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCP)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCP)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCP)",
+        "description": "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCP)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F37"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548371",
+    "name": "RCT RCO",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività assicurata svolta dall'assicurato indicata in polizza o nei documenti più recenti",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per ogni sinistro (RC verso Terzi), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per ogni persona che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per danni materiali a cose e o animali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "65c843cb-b06b-4858-b3bc-376574bd9efd",
+        "label": "Massimale unico RCT",
+        "description": "Massimale RCT Responsabilità civile terzi unico da mettere solo se non esistono massimali RCT per ogni sinistro, per persona, per danni materiali a cose e animali",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "2e35e731-d03a-4607-8902-28eabe04401e",
+        "label": "Massimale RCO per sinistro",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni sinistro (es. 3.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore (RCO)",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E16"
+          }
+        ]
+      },
+      {
+        "id": "1781872220053",
+        "label": "Massimale RCO unico",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori unico solo se non esistono massimali RCO per ogni sinistro, per persona",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCTO)",
+        "description": "Parametro utilizzato per la regolazione del premio RCT RCO (es. Retribuzioni o Fatturato)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCTO)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT RCO (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCTO)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT RCO (es. 0,245)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCTO)",
+        "description": "Premio anticipato per RCT RCO (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCT RCO)",
+        "description": "Imposta sul premio della sezione RCT RCO (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCT RCO)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT RCO (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "bfb4228b-4db7-4cb3-95a6-48308c7beafd",
+        "label": "Franchigia generica o minima RCT",
+        "description": "Franchigia indicata specificatamente come generica (es. 50,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D54"
+          }
+        ]
+      },
+      {
+        "id": "311ac415-b0cb-4f96-83eb-969b0bd9efea",
+        "label": "Franchigia Inquinamento accidentale RCT",
+        "description": "Franchigia inquinamento accidentale (es. 1.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D55"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548372",
+    "name": "RCT RCO (ripristino descrizioni)",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del CONTRAENTE principale della polizza. NON la P.IVA/C.F. di un assicurato aggiuntivo, addizionale, terzo o coobbligato eventualmente citato in un'appendice (quella è di un altro soggetto).",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Settore/attività economica CONCRETA dell'azienda assicurata: COSA produce, lavora o commercia (es. 'produzione di oli e grassi vegetali'). NON un riferimento tipo \"l'attività della spett.le/ditta X\" (è un rinvio, non una descrizione), NON il solo nome dell'azienda, NON 'responsabilità civile' né 'retribuzioni'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro (RCT)",
+        "description": "Massimale RCT (responsabilità civile verso terzi) per ogni sinistro: il limite massimo di indennizzo, importo elevato (tipicamente milioni, uguale agli altri massimali RCT). NON è un premio, un totale, un'imposta, una franchigia, uno scoperto, un sotto-limite o un minimo di una singola garanzia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona (RCT)",
+        "description": "Massimale RCT (responsabilità civile verso terzi) per ogni persona che ha subito lesioni: il limite massimo di indennizzo per persona, importo elevato (tipicamente milioni, uguale agli altri massimali RCT). NON è un premio, un totale, un'imposta, una franchigia, uno scoperto, un sotto-limite o un minimo di una singola garanzia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per danni materiali a cose e o animali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "65c843cb-b06b-4858-b3bc-376574bd9efd",
+        "label": "Massimale unico RCT",
+        "description": "Massimale RCT Responsabilità civile terzi unico da mettere solo se non esistono massimali RCT per ogni sinistro, per persona, per danni materiali a cose e animali",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "2e35e731-d03a-4607-8902-28eabe04401e",
+        "label": "Massimale RCO per sinistro",
+        "description": "Massimale RCO (RC verso dipendenti/prestatori d'opera) per ogni sinistro: l'IMPORTO in euro del limite massimo (cifra elevata, tipicamente milioni). Restituisci SOLO il numero dell'importo; NON una sigla o il nome della garanzia (es. 'RCO', 'R.C.O.'), NON una franchigia, scoperto, sotto-limite o minimo. Se la pagina non riporta l'importo, lascia invariato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore (RCO)",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E16"
+          }
+        ]
+      },
+      {
+        "id": "1781872220053",
+        "label": "Massimale RCO unico",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori unico solo se non esistono massimali RCO per ogni sinistro, per persona",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCTO)",
+        "description": "Restituisci la grandezza economica misurata per la regolazione: la dicitura che contiene 'Retribuzioni' (oppure Salari, Fatturato, Ricavi), es. 'Retribuzioni preventivate Inail e non Inail'. VIETATO restituire da sole le parole 'Consuntivo', 'Consuntivi', 'Preventivo', 'Preventivato': sono intestazioni di colonna, NON il parametro. Se trovi solo quelle senza il nome della grandezza, ometti il campo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCTO)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT RCO (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCTO)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT RCO (es. 0,245)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCTO)",
+        "description": "Premio imponibile annuo della polizza = l'ANTICIPO o il 'Premio Minimo' (es. 4.500,00). NON il 'Premio Consuntivo', NON il saldo o conguaglio della regolazione, NON un importo su una riga con scritto 'consuntivo', 'conguaglio' o 'regolazione'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCT RCO)",
+        "description": "Imposta sul premio della sezione RCT RCO (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCT RCO)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT RCO (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "bfb4228b-4db7-4cb3-95a6-48308c7beafd",
+        "label": "Franchigia generica o minima RCT",
+        "description": "Franchigia indicata specificatamente come generica (es. 50,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D54"
+          }
+        ]
+      },
+      {
+        "id": "311ac415-b0cb-4f96-83eb-969b0bd9efea",
+        "label": "Franchigia Inquinamento accidentale RCT",
+        "description": "Lo SCOPERTO/FRANCHIGIA dell'inquinamento accidentale, cioè la quota a carico dell'Assicurato per sinistro (es. 'scoperto 10% minimo 5.000'). NON il massimale/limite di indennizzo della garanzia inquinamento (l'importo 'fino a concorrenza di ...', cifra grande tipo 1.000.000): quello è un altro dato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D55"
+          }
+        ]
+      }
+    ],
+    "promptExtra": "Estrai un campo SOLO se nella pagina il valore è esplicitamente etichettato con il significato di quel campo. Se una pagina nomina un concetto a parole (es. 'il massimale per sinistro') ma SENZA un importo numerico esplicito accanto, NON inventare un numero: ometti il campo. Non assegnare un numero a un campo perché è l'unico della pagina o perché lì vicino compare una parola simile al nome del campo. Un importo etichettato come premio, totale, lordo, imposta, conguaglio, consuntivo, regolazione, franchigia o scoperto NON è un massimale. Una volta trovato un massimale (importo elevato, milioni), non sostituirlo con un importo molto più piccolo. Non scrivere MAI frasi o segnaposto come 'non specificato', 'non presente', 'n/d': se un dato non c'è, ometti il campo. Tra più documenti tieni il valore con la data interna più recente.",
+    "verificaCampi": "Decorrenza, Scadenza, Parametro, Franchigia generica, P. IVA",
+    "verificaModel": "claude-sonnet-4-6",
+    "ocrEnabled": true,
+    "consensusPasses": 3
+  },
+  {
+    "id": "1788467548373",
+    "name": "CSA RCT-RCO completo",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA (ESATTAMENTE 11 cifre) o codice fiscale del CONTRAENTE principale della polizza. La P.IVA italiana ha sempre 11 cifre: se un documento la riporta con un numero diverso di cifre (es. 16) e' un refuso OCR, scartalo e usa la versione a 11 cifre presente negli altri documenti. NON la P.IVA/C.F. di un assicurato aggiuntivo, terzo o coobbligato citato in un'appendice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di inizio del PERIODO DI COPERTURA / rinnovo annuale (tipicamente un 31/12, es. 31/12/2024). NON una data di variazione amministrativa infra-periodo (es. la data di un cambio contraente come 27/05). NON l'inizio storico originario della polizza.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Settore/attività economica CONCRETA dell'azienda assicurata: COSA produce, lavora o commercia (es. 'produzione di oli e grassi vegetali'). NON un riferimento tipo \"l'attività della spett.le/ditta X\" (è un rinvio, non una descrizione), NON il solo nome dell'azienda, NON 'responsabilità civile' né 'retribuzioni'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro",
+        "description": "Massimale RCT (responsabilità civile verso terzi) per ogni sinistro: il limite massimo di indennizzo, importo elevato (tipicamente milioni, uguale agli altri massimali RCT). NON è un premio, un totale, un'imposta, una franchigia, uno scoperto, un sotto-limite o un minimo di una singola garanzia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona",
+        "description": "Massimale RCT (responsabilità civile verso terzi) per ogni persona che ha subito lesioni: il limite massimo di indennizzo per persona, importo elevato (tipicamente milioni, uguale agli altri massimali RCT). NON è un premio, un totale, un'imposta, una franchigia, uno scoperto, un sotto-limite o un minimo di una singola garanzia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali",
+        "description": "Massimale RCT Responsabilità civile terzi per danni materiali a cose e o animali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "65c843cb-b06b-4858-b3bc-376574bd9efd",
+        "label": "Massimale unico RCT",
+        "description": "Massimale RCT Responsabilità civile terzi unico da mettere solo se non esistono massimali RCT per ogni sinistro, per persona, per danni materiali a cose e animali",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "2e35e731-d03a-4607-8902-28eabe04401e",
+        "label": "Massimale RCO per sinistro",
+        "description": "Massimale RCO (RC verso dipendenti/prestatori d'opera) per ogni sinistro: l'IMPORTO in euro del limite massimo (cifra elevata, tipicamente milioni). Restituisci SOLO il numero dell'importo; NON una sigla o il nome della garanzia (es. 'RCO', 'R.C.O.'), NON una franchigia, scoperto, sotto-limite o minimo. Se la pagina non riporta l'importo, lascia invariato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E16"
+          }
+        ]
+      },
+      {
+        "id": "1781872220053",
+        "label": "Massimale RCO unico",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori unico solo se non esistono massimali RCO per ogni sinistro, per persona",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCTO)",
+        "description": "Restituisci la grandezza economica misurata per la regolazione: la dicitura che contiene 'Retribuzioni' (oppure Salari, Fatturato, Ricavi), es. 'Retribuzioni preventivate Inail e non Inail'. VIETATO restituire da sole le parole 'Consuntivo', 'Consuntivi', 'Preventivo', 'Preventivato': sono intestazioni di colonna, NON il parametro. Se trovi solo quelle senza il nome della grandezza, ometti il campo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCTO)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT RCO (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCTO)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT RCO (es. 0,245)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCTO)",
+        "description": "Premio imponibile annuo della polizza = l'ANTICIPO o il 'Premio Minimo' (es. 4.500,00). NON il 'Premio Consuntivo', NON il saldo o conguaglio della regolazione, NON un importo su una riga con scritto 'consuntivo', 'conguaglio' o 'regolazione'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCT RCO)",
+        "description": "Imposta sul premio annuo della polizza: la voce 'di cui imposta' della quietanza o del conteggio premio (es. 1.001,25). NON l'imposta del conguaglio/regolazione (importo piccolo).",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCT RCO)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT RCO (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "bfb4228b-4db7-4cb3-95a6-48308c7beafd",
+        "label": "Franchigia generica o minima RCT",
+        "description": "La franchigia fissa generica o minima a carico dell'Assicurato (importo, es. 500,00). NON uno scoperto percentuale, NON un sotto-limite, NON la franchigia di una garanzia specifica (es. inquinamento).",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D54"
+          }
+        ]
+      },
+      {
+        "id": "311ac415-b0cb-4f96-83eb-969b0bd9efea",
+        "label": "Franchigia Inquinamento accidentale RCT",
+        "description": "Lo SCOPERTO/FRANCHIGIA dell'inquinamento accidentale, cioè la quota a carico dell'Assicurato per sinistro (es. 'scoperto 10% minimo 5.000'). NON il massimale/limite di indennizzo della garanzia inquinamento (l'importo 'fino a concorrenza di ...', cifra grande tipo 1.000.000): quello è un altro dato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D55"
+          }
+        ]
+      }
+    ],
+    "promptExtra": "Estrai un campo SOLO se nella pagina il valore è esplicitamente etichettato con il significato di quel campo. Se una pagina nomina un concetto a parole (es. 'il massimale per sinistro') ma SENZA un importo numerico esplicito accanto, NON inventare un numero: ometti il campo. Non assegnare un numero a un campo perché è l'unico della pagina o perché lì vicino compare una parola simile al nome del campo. Un importo etichettato come premio, totale, lordo, imposta, conguaglio, consuntivo, regolazione, franchigia o scoperto NON è un massimale. Una volta trovato un massimale (importo elevato, milioni), non sostituirlo con un importo molto più piccolo. Non scrivere MAI frasi o segnaposto come 'non specificato', 'non presente', 'n/d': se un dato non c'è, ometti il campo. Tra più documenti tieni il valore con la data interna più recente.",
+    "verificaCampi": "Decorrenza, Scadenza, Parametro, Franchigia generica, P. IVA",
+    "verificaModel": "claude-sonnet-4-6",
+    "ocrEnabled": true,
+    "consensusPasses": 3,
+    "wholeDossier": true,
+    "wholeDossierModel": "claude-sonnet-4-6"
+  },
+  {
+    "id": "1788467548374",
+    "name": "CSA RC Professionale",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero completo della polizza o del certificato riferito alla copertura in corso. NON il numero di preventivo, proposta o appendice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice che assume il rischio. NON il broker, l'agenzia, l'underwriter o la MGA, salvo che sia indicata espressamente come assicuratore.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente",
+        "description": "Nome, cognome o ragione sociale del contraente principale della polizza.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "assicurato",
+        "label": "Assicurato",
+        "description": "Professionista, studio, associazione o società la cui responsabilità professionale è assicurata. Se coincide con il contraente, riporta lo stesso nominativo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente principale. La P.IVA italiana deve avere esattamente 11 cifre; scarta letture OCR con un numero errato di cifre.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo della sede o del domicilio del contraente indicato nella scheda di polizza.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "professione_attivita",
+        "label": "Professione / attività assicurata",
+        "description": "Professione e attività concretamente comprese nella copertura, come descritte nella scheda di polizza o nelle condizioni particolari. NON riportare la generica dicitura 'responsabilità civile professionale'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "numero_addetti_professionisti",
+        "label": "Numero addetti / professionisti",
+        "description": "Numero di professionisti, soci, collaboratori o addetti dichiarati e assicurati, solo se espressamente indicato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "fatturato_compensi",
+        "label": "Fatturato / compensi dichiarati",
+        "description": "Importo annuo del fatturato, degli introiti, degli onorari o dei compensi dichiarati per la tariffazione. Indica anche l'anno di riferimento se presente. NON usare il premio di polizza.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di inizio del periodo di copertura più recente. NON la data di emissione, firma o variazione amministrativa.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di fine del periodo di copertura più recente.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "regime_temporale",
+        "label": "Regime temporale",
+        "description": "Forma temporale della garanzia, riportando solo 'Claims made', 'Loss occurrence' o altra formula espressamente indicata.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "retroattivita",
+        "label": "Retroattività",
+        "description": "Data iniziale, numero di anni oppure dicitura 'illimitata' della retroattività. NON confondere con decorrenza, continuità assicurativa o postuma.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "continuita_assicurativa",
+        "label": "Continuità assicurativa",
+        "description": "Data di continuità della copertura o precedente assicurazione riconosciuta, soltanto se indicata espressamente come continuità.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "postuma_ultrattivita",
+        "label": "Postuma / ultrattività",
+        "description": "Durata, data finale oppure dicitura 'illimitata' della garanzia postuma o ultrattività. Indica se è automatica, acquistabile o subordinata a condizioni, quando specificato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "massimale_sinistro",
+        "label": "Massimale per sinistro",
+        "description": "Limite massimo di indennizzo per ciascun sinistro della RC professionale. Restituisci l'importo, non un premio, una franchigia, uno scoperto o il sottolimite di una singola estensione.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "massimale_aggregato",
+        "label": "Massimale aggregato annuo",
+        "description": "Limite massimo complessivo per tutti i sinistri nel periodo assicurativo. Se coincide con il massimale per sinistro, riporta comunque l'importo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "franchigia_scoperto_ordinario",
+        "label": "Franchigia / scoperto ordinario",
+        "description": "Franchigia fissa o scoperto percentuale applicabile in via generale ai sinistri, compresi eventuali minimo e massimo. NON una franchigia prevista solo per un'attività speciale.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "franchigie_scoperti_speciali",
+        "label": "Franchigie / scoperti speciali",
+        "description": "Elenco breve delle sole franchigie o scoperti diversi da quello ordinario, indicando l'attività o garanzia cui si riferiscono.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "premio_imponibile",
+        "label": "Premio imponibile",
+        "description": "Premio annuo imponibile della polizza, al netto delle imposte. NON un conguaglio, un premio di appendice o l'importo di una singola rata, salvo che il documento riporti soltanto quello.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "imposte",
+        "label": "Imposte",
+        "description": "Importo complessivo delle imposte applicate al premio annuo della polizza.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "premio_lordo",
+        "label": "Premio lordo annuo",
+        "description": "Premio annuo totale comprensivo di imposte. NON un conguaglio, un rimborso o il premio di un'appendice. Se è indicata solo una rata, riportala specificando che si tratta della rata.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "frazionamento",
+        "label": "Frazionamento",
+        "description": "Periodicità di pagamento del premio: annuale, semestrale, trimestrale o altra formula espressamente indicata.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "tacito_rinnovo",
+        "label": "Tacito rinnovo",
+        "description": "Riporta 'Sì' se la polizza prevede tacito rinnovo e 'No' se è senza tacito rinnovo, solo quando il dato è espresso o chiaramente stabilito dal contratto.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "termine_disdetta",
+        "label": "Termine di disdetta",
+        "description": "Preavviso richiesto per impedire il rinnovo, espresso in giorni o mesi.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "territorialita",
+        "label": "Territorialità",
+        "description": "Paesi o ambito geografico in cui l'attività professionale è coperta, comprese eventuali esclusioni territoriali specifiche.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "giurisdizione",
+        "label": "Giurisdizione",
+        "description": "Giurisdizioni o foro entro cui sono ammesse le richieste di risarcimento, solo se indicati.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "visto_conformita",
+        "label": "Visto di conformità",
+        "description": "Indica se è coperta l'attività di rilascio del visto di conformità e, se presenti, massimale, sottolimite, franchigia o limitazioni specifiche. Se non è menzionata, ometti il campo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "cariche_societarie",
+        "label": "Sindaco / revisore / ODV",
+        "description": "Copertura delle cariche di sindaco, revisore legale, componente ODV o incarichi analoghi, con eventuali sottolimiti e franchigie specifiche.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "dlgs_81_08",
+        "label": "Attività D.Lgs. 81/08",
+        "description": "Copertura delle attività di coordinatore della sicurezza, RSPP o altri incarichi ai sensi del D.Lgs. 81/08, con eventuali limitazioni.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "altre_estensioni",
+        "label": "Altre estensioni rilevanti",
+        "description": "Elenco sintetico delle principali estensioni specificamente richiamate nella scheda di polizza, nelle condizioni particolari o nelle appendici. NON riepilogare tutte le garanzie standard delle condizioni generali.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "esclusioni_limitazioni",
+        "label": "Esclusioni / limitazioni specifiche",
+        "description": "Elenco sintetico delle esclusioni, limitazioni o deroghe specifiche applicate a questa polizza. NON copiare l'intero elenco standard delle esclusioni contenuto nelle condizioni generali.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      }
+    ],
+    "promptExtra": "Estrai solo dati riferiti alla polizza effettivamente emessa e all'annualità più recente. Dai priorità a scheda di polizza, condizioni particolari e appendici; usa le condizioni generali solo se richiamate e non derogate. Non dedurre e non confondere massimali, sottolimiti, premi, franchigie e scoperti. Usa il formato GG/MM/AAAA per le date e indica chiaramente gli importi in euro. Se un dato non è presente, ometti il campo senza scrivere 'n/d', 'non presente' o spiegazioni. Per estensioni ed esclusioni riporta solo quelle specifiche del contratto, in forma breve.",
+    "verificaCampi": "Decorrenza, Scadenza, Retroattività, Massimale per sinistro, Franchigia / scoperto ordinario, Premio lordo annuo, P. IVA",
+    "verificaModel": "claude-sonnet-4-6",
+    "ocrEnabled": true,
+    "consensusPasses": 3,
+    "wholeDossier": true,
+    "wholeDossierModel": "claude-sonnet-4-6"
+  },
+  {
+    "id": "1788467548375",
+    "name": "RCTOP",
+    "types": [
+      {
+        "id": "RCT_O",
+        "label": "RC Terzi / Operai"
+      },
+      {
+        "id": "RCP",
+        "label": "RC Prodotti"
+      },
+      {
+        "id": "RCTOP",
+        "label": "RCTOP"
+      },
+      {
+        "id": "MULTIRISCHI",
+        "label": "Polizza Helvetia Azienda"
+      }
+    ],
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività svolta dall'assicurato indicata in polizza",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro (RCT)",
+        "description": "Massimale RCT per ogni sinistro (RC verso Terzi e Prestatori di Lavoro), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona (RCT)",
+        "description": "Massimale RCT per ogni persona che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali (RCT)",
+        "description": "Massimale RCT per danni materiali (compresi gli animali), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore (RCT)",
+        "description": "Massimale RCT per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_parametro",
+        "label": "Parametro regolazione (RCT)",
+        "description": "Parametro utilizzato per la regolazione del premio RCT (es. Salari e stipendi + Quota TFR)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_importo_preventivo",
+        "label": "Importo preventivo parametro (RCT)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT (es. 450.000,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rct_tasso",
+        "label": "Tasso regolazione ‰ (RCT)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT (es. 2,450)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E23"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_imponibile",
+        "label": "Premio imponibile (RCT)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RCT (es. 1.227,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F28"
+          }
+        ]
+      },
+      {
+        "id": "rct_imposta",
+        "label": "Imposta (RCT)",
+        "description": "Imposta sul premio della sezione RCT (es. 273,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F29"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_totale",
+        "label": "Premio totale (RCT)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT (es. 1.500,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F30"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "F34"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Prodotti assicurati",
+        "description": "Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "Qualifica assicurato",
+        "description": "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Massimale per sinistro (RCP)",
+        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Massimale annuo (RCP)",
+        "description": "Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale interruzione attività (RCP)",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Scoperto minimo - Resto del mondo",
+        "description": "Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Scoperto massimo - Resto del mondo",
+        "description": "Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Scoperto minimo - USA/Canada/Messico",
+        "description": "Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_usa",
+        "label": "Scoperto massimo - USA/Canada/Messico",
+        "description": "Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCP)",
+        "description": "Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCP)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCP)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCP)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCP)",
+        "description": "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCP)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCTOP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTOP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTOP",
+            "cell": "F37"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548376",
+    "name": "RCP",
+    "types": [
+      {
+        "id": "RCT_O",
+        "label": "RC Terzi / Operai"
+      },
+      {
+        "id": "RCP",
+        "label": "RC Prodotti"
+      },
+      {
+        "id": "RCTOP",
+        "label": "RCTOP"
+      },
+      {
+        "id": "MULTIRISCHI",
+        "label": "Polizza Helvetia Azienda"
+      }
+    ],
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C3"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N18"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N16"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N17"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N15"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "O21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "O20"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "Q21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "Q20"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività svolta dall'assicurato indicata in polizza",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "A10"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Prodotti assicurati",
+        "description": "Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "Qualifica assicurato",
+        "description": "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Massimale per sinistro (RCP)",
+        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Massimale annuo (RCP)",
+        "description": "Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "1781872397308",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti unico se non esiste un massimale per persona, per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale interruzione attività (RCP)",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Scoperto minimo - Resto del mondo",
+        "description": "Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Scoperto massimo - Resto del mondo",
+        "description": "Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Scoperto minimo - USA/Canada/Messico",
+        "description": "Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_usa",
+        "label": "Scoperto massimo - USA/Canada/Messico",
+        "description": "Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCP)",
+        "description": "Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCP)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCP)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCP)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCP)",
+        "description": "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCP)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F37"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548377",
+    "name": "RCP",
+    "types": [
+      {
+        "id": "RCT_O",
+        "label": "RC Terzi / Operai"
+      },
+      {
+        "id": "RCP",
+        "label": "RC Prodotti"
+      },
+      {
+        "id": "RCTOP",
+        "label": "RCTOP"
+      },
+      {
+        "id": "MULTIRISCHI",
+        "label": "Polizza Helvetia Azienda"
+      }
+    ],
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C3"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N18"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N16"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N17"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N15"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "O21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "O20"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "Q21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "Q20"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività svolta dall'assicurato indicata in polizza",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "A10"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Prodotti assicurati",
+        "description": "Prodotti per i quali è stipulata la RC Prodotti (es. OLII E GRASSI ANIMALI O VEGETALI, NON ALIMENTARI)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "Qualifica assicurato",
+        "description": "Qualifica dell'assicurato nella sezione RC Prodotti (es. Fabbricante)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Massimale per sinistro (RCP)",
+        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Massimale annuo (RCP)",
+        "description": "Massimale RC Prodotti per più sinistri e per anno assicurativo, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "1781872397308",
+        "label": "Massimale danni materiali (RCP)",
+        "description": "Massimale RC Prodotti unico se non esiste un massimale per persona, per danni materiali (compresi gli animali), es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale interruzione attività (RCP)",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Scoperto minimo - Resto del mondo",
+        "description": "Minimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 6.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Scoperto massimo - Resto del mondo",
+        "description": "Massimo di scoperto per i danni avvenuti nel resto del mondo (esclusi USA/Canada/Messico), es. 100.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Scoperto minimo - USA/Canada/Messico",
+        "description": "Minimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 75.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_usa",
+        "label": "Scoperto massimo - USA/Canada/Messico",
+        "description": "Massimo di scoperto per i danni avvenuti in USA, Canada e Messico, es. 150.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCP)",
+        "description": "Parametro utilizzato per la regolazione del premio RCP (es. Ricavi delle vendite e delle prestazioni)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCP)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCP (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCP)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCP (es. 0,245)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCP)",
+        "description": "Premio/anticipo di sezione annuo imponibile della sezione RC Prodotti (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCP)",
+        "description": "Imposta sul premio della sezione RC Prodotti (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCP)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F37"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548378",
+    "name": "RCT RCO",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza (es. 31/12/2021)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Descrizione dell'attività assicurata svolta dall'assicurato indicata in polizza o nei documenti più recenti",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per ogni sinistro (RC verso Terzi), es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per persona (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per ogni persona che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Massimale danni materiali (RCT)",
+        "description": "Massimale RCT Responsabilità civile terzi per danni materiali a cose e o animali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "65c843cb-b06b-4858-b3bc-376574bd9efd",
+        "label": "Massimale unico RCT",
+        "description": "Massimale RCT Responsabilità civile terzi unico da mettere solo se non esistono massimali RCT per ogni sinistro, per persona, per danni materiali a cose e animali",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "2e35e731-d03a-4607-8902-28eabe04401e",
+        "label": "Massimale RCO per sinistro",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni sinistro (es. 3.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Massimale per prestatore (RCO)",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori per ogni prestatore di lavoro che abbia subito lesioni personali, es. 3.000.000,00",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E16"
+          }
+        ]
+      },
+      {
+        "id": "1781872220053",
+        "label": "Massimale RCO unico",
+        "description": "Massimale RCO Responsabilità civile dipendenti e o collaboratori unico solo se non esistono massimali RCO per ogni sinistro, per persona",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione (RCTO)",
+        "description": "Parametro utilizzato per la regolazione del premio RCT RCO (es. Retribuzioni o Fatturato)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro (RCTO)",
+        "description": "Importo preventivo annuo del parametro di regolazione RCT RCO (es. 240.000.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ (RCTO)",
+        "description": "Tasso di regolazione imponibile per mille della sezione RCT RCO (es. 0,245)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile (RCTO)",
+        "description": "Premio anticipato per RCT RCO (es. 58.799,99)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposta (RCT RCO)",
+        "description": "Imposta sul premio della sezione RCT RCO (es. 13.082,99)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio totale (RCT RCO)",
+        "description": "Premio/anticipo di sezione annuo totale della sezione RCT RCO (es. 71.882,98)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "bfb4228b-4db7-4cb3-95a6-48308c7beafd",
+        "label": "Franchigia generica o minima RCT",
+        "description": "Franchigia indicata specificatamente come generica (es. 50,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D54"
+          }
+        ]
+      },
+      {
+        "id": "311ac415-b0cb-4f96-83eb-969b0bd9efea",
+        "label": "Franchigia Inquinamento accidentale RCT",
+        "description": "Franchigia inquinamento accidentale (es. 1.000,00)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D55"
+          }
+        ]
+      }
+    ],
+    "promptExtra": ""
+  },
+  {
+    "id": "1788467548379",
+    "name": "Rc Professionale V3",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Estrai il numero di polizza. Non confondere con numero preventivo, proposta o appendice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C3"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Estrai la compagnia assicuratrice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N18"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N16"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Estrai contraente e assicurato. Se sono diversi, riportali entrambi.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N17"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N15"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del CONTRAENTE/assicurato (es. 02698680150). È il codice del contraente nel frontespizio (voce 'C.F./P. IVA' accanto al nome del contraente). MAI la P.IVA della compagnia assicuratrice (es. quella nel footer societario 'R.E.A. ... Codice Fiscale e P. Iva 12525420159' della compagnia).",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Estrai indirizzo o sede dell’assicurato/contraente.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Estrai la data di decorrenza della polizza.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "O21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "O20"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Estrai la data di scadenza della polizza.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "Q21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "Q20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposte",
+        "description": "Imposte della polizza RC (es. 49,05): è la cifra nella colonna 'IMPOSTE' del frontespizio. È un importo fiscale, non il premio complessivo e non l'imponibile. Restituisci solo la cifra delle imposte.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio lordo",
+        "description": "Premio lordo annuo totale della polizza RC (es. 269,50). È l'importo nella colonna 'TOTALE' / 'PREMIO TOTALE' del frontespizio (imponibile + imposte). NON confondere con premio imponibile o premio di rata.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile",
+        "description": "Premio imponibile della polizza RC (es. 220,45). È l'importo nella colonna 'IMPONIBILE' del frontespizio. NON confondere con il premio lordo totale o con il frazionamento.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Professione dichiarata",
+        "description": "Professione dichiarata dell'assicurato: è la professione indicata al 'Punto 3. Attività professionali' del frontespizio (es. 'Avvocato', 'Avvocato, iscritto all'Albo del relativo ordine'). È la PROFESSIONE, non la definizione contrattuale di 'servizi professionali'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "A10"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+        "label": "Fatturato dichiarato",
+        "description": "Estrai il fatturato dichiarato usato per quotazione o regolazione premio.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "c125c0d1-695b-4755-81db-e99137169686",
+        "label": "Retroattività",
+        "description": "Estrai la retroattività prevista: illimitata, da data specifica, limitata o non indicata.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+        "label": "Data retroattività",
+        "description": "Estrai la data precisa di retroattività, se presente.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+        "label": "Sinistri e circostanze ",
+        "description": "Verifica se sono dichiarati sinistri, richieste di risarcimento o circostanze note.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro",
+        "description": "Limite massimo di indennizzo per singolo sinistro della RC Professionale: è l'importo indicato al 'Punto 5. Massimale' del frontespizio di polizza (es. 2.500.000,00), per i Danni cagionati dagli Assicurati. È l'importo più grande della sezione 'Massimale' del frontespizio, NON un sottolimite di un'estensione (es. 150.000,00) né la franchigia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale annuo",
+        "description": "Massimale annuo aggregato della RC Professionale per il periodo assicurativo (es. 2.500.000,00). Se coincide col massimale per sinistro, riporta comunque l'importo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Franchigia",
+        "description": "Franchigia della RC Professionale: è l'importo indicato al 'Punto 6. Franchigia' del frontespizio di polizza, es. '€ 1.500,00 (per ogni e ciascuna Richiesta di Risarcimento)'. È UN IMPORTO PICCOLO di poche migliaia di euro. NON è il sottolimite di un'estensione (es. 150.000,00) né il limite massimo di indennizzo (milioni). Se vedi '1.500,00' e '150.000,00', scegli '1.500,00'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Scoperto base",
+        "description": "Estrai lo scoperto base. Indica percentuale, minimo e massimo se presenti.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_parametro",
+        "label": "Sottolimiti",
+        "description": "Estrai tutti i sottolimiti presenti, indicando la garanzia a cui si riferiscono.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_importo_preventivo",
+        "label": "Estensioni operative",
+        "description": "Estrai le estensioni effettivamente operanti indicate in scheda, appendici o condizioni particolari.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rct_tasso",
+        "label": "Esclusioni particolari",
+        "description": "Estrai le esclusioni particolari o rilevanti.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E23"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_imponibile",
+        "label": "Condizioni particolari",
+        "description": "Estrai clausole speciali, condizioni particolari o appendici richiamate.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F28"
+          }
+        ]
+      },
+      {
+        "id": "rct_imposta",
+        "label": "Visto leggero",
+        "description": "Verifica se la polizza comprende visto leggero, assistenza fiscale o compensazione crediti. Indica: presente, escluso o non indicato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F29"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_totale",
+        "label": "Massimale visto leggero",
+        "description": "Estrai il massimale specifico per visto leggero, assistenza fiscale o compensazione crediti. Se opera entro il massimale generale, scrivi “entro il massimale di polizza”. Se inferiore a 3.000.000 €, segnala attenzione.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F30"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "F34"
+          }
+        ]
+      },
+      {
+        "id": "rcp_prodotti",
+        "label": "Sindaco / Revisore",
+        "description": "Verifica se sono coperti incarichi di sindaco, revisore legale, collegio sindacale o organo di controllo. Riporta massimali o limiti.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_qualifica",
+        "label": "ODV / CDA",
+        "description": "Verifica se sono coperti incarichi in ODV ex D.Lgs. 231/2001, consigliere di amministrazione o amministratore di società/enti.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_massimale_sinistro",
+        "label": "Progettazione / DL",
+        "description": "Verifica se sono coperte progettazione, direzione lavori, coordinamento sicurezza, collaudo, certificazioni energetiche o asseverazioni tecniche.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "D14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_annuo",
+        "label": "Legge Merloni / Appalti",
+        "description": "Verifica se è presente copertura per progettista, ex Legge Merloni, appalti pubblici o D.Lgs. 36/2023.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "E14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_mat",
+        "label": "Visto pesante / bonus edilizi",
+        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F14"
+          }
+        ]
+      },
+      {
+        "id": "rcp_massimale_interr",
+        "label": "Massimale visto pesante",
+        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Attività giudiziale / stragiudiziale",
+        "description": "Verifica se sono coperte attività giudiziale, stragiudiziale, domiciliazioni, mediazione o arbitrato.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_max_mondo",
+        "label": "Incarichi giudiziari",
+        "description": "Verifica se sono coperti incarichi di curatore, custode giudiziario, delegato alle vendite o incarichi conferiti dall’autorità giudiziaria.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_scoperto_min_usa",
+        "label": "Custodia documenti / valori",
+        "description": "Verifica se sono coperte perdita documenti, custodia documenti, somme, titoli o valori.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      }
+    ],
+    "promptExtra": "Estrai solo dati realmente presenti nel documento.\nNon inventare, non dedurre, non completare da conoscenze esterne.\nSe un dato non è presente, scrivi \"non indicato\".\nSe un dato è ambiguo, scrivi \"da verificare\".\n\nDai priorità a:\n1. scheda di polizza / frontespizio;\n2. appendici;\n3. condizioni particolari;\n4. questionario;\n5. condizioni generali.\n\nNon prendere massimali, franchigie, scoperti, retroattività, premio o garanzie operative dalle condizioni generali se non sono richiamati nella scheda di polizza, nelle appendici o nelle condizioni particolari.\n\nClassifica la professione dell’assicurato tra:\narchitetto, ingegnere, geometra, commercialista, esperto contabile, consulente del lavoro, avvocato, notaio, amministratore condominiale, perito, consulente, società di servizi, altro professionista ordinistico, altro professionista non ordinistico, non indicato.\n\nDistingui sempre:\n- massimale per sinistro;\n- massimale annuo aggregato;\n- sottolimite per singola garanzia;\n- franchigia;\n- scoperto;\n- minimo scoperto;\n- massimo scoperto;\n- retroattività;\n- postuma;\n- esclusioni;\n- condizioni particolari;\n- garanzie effettivamente operanti;\n- garanzie solo descritte nelle condizioni generali.\n\nPer commercialisti, esperti contabili e consulenti del lavoro verifica sempre:\n- visto di conformità;\n- visto leggero;\n- visto pesante;\n- assistenza fiscale;\n- compensazione crediti;\n- modello 730;\n- 730 precompilato;\n- certificazioni tributarie;\n- asseverazioni;\n- bonus edilizi;\n- Superbonus;\n- sindaco/revisore;\n- ODV;\n- consigliere di amministrazione;\n- procedure concorsuali;\n- elaborazione paghe.\n\nPer il visto leggero o assistenza fiscale/compensazione crediti, estrai sempre:\n- presenza della garanzia;\n- massimale specifico;\n- eventuale operatività entro il massimale generale;\n- franchigia;\n- scoperto;\n- esclusioni;\n- copertura 730/730 precompilato.\n\nSe il massimale per visto di conformità, visto leggero o assistenza fiscale/compensazione crediti è inferiore a 3.000.000 €, segnala:\n\"attenzione: massimale potenzialmente insufficiente per visto di conformità\".\n\nPer architetti, ingegneri e geometri verifica sempre:\n- progettazione;\n- direzione lavori;\n- coordinamento sicurezza CSP/CSE;\n- collaudo;\n- certificazioni energetiche;\n- asseverazioni tecniche;\n- pratiche edilizie;\n- opere pubbliche;\n- Legge Merloni / progettista;\n- D.Lgs. 36/2023;\n- valore massimo opere;\n- tipo opere;\n- esclusioni per opere particolari.\n\nPer avvocati verifica sempre:\n- attività giudiziale;\n- attività stragiudiziale;\n- domiciliazioni;\n- mediazione;\n- arbitrato;\n- incarichi giudiziari;\n- curatore;\n- custode giudiziario;\n- delegato alle vendite;\n- sindaco/revisore;\n- privacy/DPO;\n- perdita documenti.\n\nPer notai verifica sempre:\n- attività notarile;\n- redazione atti;\n- registrazioni;\n- trascrizioni;\n- adempimenti fiscali;\n- custodia documenti;\n- custodia valori;\n- collaboratori;\n- praticanti;\n- infedeltà dipendenti.\n\nPer professionisti non ordinistici verifica sempre:\n- attività dichiarata;\n- consulenza professionale;\n- errori e omissioni;\n- responsabilità contrattuale;\n- violazione privacy;\n- perdita documenti;\n- diffamazione/reputazione;\n- esclusioni per attività non regolamentate.\n\nNon confondere:\n- massimale generale con massimale specifico;\n- franchigia con scoperto;\n- retroattività con postuma;\n- premio imponibile con premio lordo;\n- attività assicurata con semplice oggetto sociale;\n- garanzia operante con garanzia solo descritta nelle condizioni generali.\n\nPer ogni dato importante indica, se disponibile, la pagina o la sezione del PDF da cui è stato ricavato.\nSe trovi valori discordanti, segnala \"possibile incongruenza\".",
+    "verificaCampi": "",
+    "verificaModel": "claude-sonnet-4-6",
+    "ocrEnabled": true,
+    "consensusPasses": 3,
+    "matchKeywords": "prof, professionale, pofess",
+    "contentKeywords": "prof, professionale, pofess"
+  },
+  {
+    "id": "1788467548380",
+    "name": "RC PROF MED V2",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Estrai il numero del CERTIFICATO di adesione della polizza RC PROFESSIONALE MEDICA: è il 'Certificato N°' del frontespizio del certificato 'AMTRUST PROFESSIONISTA SANITARIO PROTETTO' (es. 'RCSPEM00000098'). Il PDF contiene PIÙ certificati (Tutela Medici, Polizza 3Virus): usa il numero del certificato RC professionale medica, che inizia con 'RCSPEM'. NON usare i numeri degli altri certificati (es. 'TLM190942268' della Tutela Medici, 'INV21001EP...' della Polizza 3Virus) né il numero del preventivo/proposta (es. 'P202512040040').",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C3"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Estrai la compagnia assicuratrice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N18"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N16"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Estrai contraente e assicurato. Se sono diversi, riportali entrambi.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "N17"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "N15"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del CONTRAENTE/assicurato (es. 03131670345). È accanto al nome dell'assicurato nel certificato. MAI la P.IVA della compagnia assicuratrice.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Estrai indirizzo o sede dell’assicurato/contraente.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C5"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "agenzia",
+        "label": "Agenzia",
+        "description": "Nome dell'agenzia assicurativa (es. ACQUI TERME)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Estrai la DATA DI EFFETTO del certificato: è la data nella riga 'EFFETTO' del frontespizio (es. '30/11/2025'), la prima delle tre date 'EFFETTO SCADENZA SCADENZA PROSSIMA RATA'. NON è la data di emissione/stampa ('Emesso in Milano il ...').",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "O21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "O20"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Estrai la data di scadenza della polizza.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCT_O",
+            "cell": "Q21"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "Q20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposte",
+        "description": "Imposte della polizza RC (es. 26,46): è la cifra nella colonna 'IMPOSTE ALLA FIRMA' del certificato (premio netto + imposte = premio lordo). È un importo PICCOLO (decine di euro), MAI il premio lordo totale (es. 145,36) né l'imponibile (118,90).",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio lordo",
+        "description": "Premio lordo annuo totale della polizza RC (es. 145,36): è la cifra nella colonna 'PREMIO LORDO ALLA FIRMA' del certificato. NON confondere con il premio imponibile (118,90) né con le imposte (26,46).",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile",
+        "description": "Premio imponibile della polizza RC (es. 118,90): è la cifra nella colonna 'PREMIO NETTO' del certificato (es. 'PREMIO NETTO ALLA FIRMA'). NON confondere con il premio lordo.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCP",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "attivita",
+        "label": "Professione dichiarata",
+        "description": "Professione dichiarata dell'assicurato: è la professione indicata nella riga 'ATTIVITÀ' del certificato (es. 'INFERMIERE PROFESSIONALE/INFERMIERE PEDIATRICO/VIGILATRICE D'INFANZIA').",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "A10"
+          },
+          {
+            "sheet": "RCP",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "e1d90f78-3e3a-4e42-be90-001b8c34c05a",
+        "label": "Fatturato dichiarato",
+        "description": "Estrai il fatturato dichiarato usato per quotazione o regolazione premio.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "c125c0d1-695b-4755-81db-e99137169686",
+        "label": "Retroattività",
+        "description": "Estrai la retroattività prevista: illimitata, da data specifica, limitata o non indicata.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "89ffb116-bf3b-4bcb-a6bb-7ceeed04cfee",
+        "label": "Data retroattività",
+        "description": "Estrai la data precisa di retroattività, se presente.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "6e39add8-de2c-4d48-b231-f03cd4e05bd5",
+        "label": "Sinistri e circostanze ",
+        "description": "Verifica se sono dichiarati sinistri, richieste di risarcimento o circostanze note.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro",
+        "description": "Massimale per SINGOLO SINISTRO della RC medica: è il PRIMO importo della coppia nella riga 'MASSIMALE PER SINISTRO / ANNO' del certificato (es. '€ 1.000.000/3.000.000' → 1.000.000 è il per-sinistro, 3.000.000 è il per-anno). Prendi SEMPRE il primo (il più piccolo) della coppia.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale annuo",
+        "description": "Estrai il massimale annuo aggregato o per periodo assicurativo.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_danni",
+        "label": "Franchigia",
+        "description": "Franchigia per sinistro della RC medica (es. 'NESSUNA', 'COME DA SCHEDA TECNICA'): è il valore nella riga 'FRANCHIGIA PER SINISTRO' del certificato.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_prestatore",
+        "label": "Scoperto base",
+        "description": "Estrai lo scoperto base. Indica percentuale, minimo e massimo se presenti.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D16"
+          }
+        ]
+      },
+      {
+        "id": "rct_parametro",
+        "label": "Sottolimiti",
+        "description": "Estrai tutti i sottolimiti presenti, indicando la garanzia a cui si riferiscono.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rct_importo_preventivo",
+        "label": "Estensioni operative",
+        "description": "Estrai le estensioni effettivamente operanti indicate in scheda, appendici o condizioni particolari.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rct_tasso",
+        "label": "Esclusioni particolari",
+        "description": "Estrai le esclusioni particolari o rilevanti.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "E23"
+          }
+        ]
+      },
+      {
+        "id": "rct_premio_imponibile",
+        "label": "Condizioni particolari, aggiuntiive",
+        "description": "Estrai clausole speciali, condizioni particolari, aggiuntive o appendici richiamate.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCT_O",
+            "cell": "F28"
+          }
+        ]
+      },
+      {
+        "id": "rcp_scoperto_min_mondo",
+        "label": "Tutela",
+        "description": "Verifica se presente garanzia Tutela e/o Tutela Legale.",
+        "type": "text",
+        "sheet": "RCP",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "c23c8480-d1bd-4ed7-adb2-f0b0dd999308",
+        "label": "Massimale Tutela",
+        "description": "Verifica il massimale della garanzia Tutela e/o Tutela Legale",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "6d1e131a-9700-4409-85b9-e476de07204e",
+        "label": "Franchigia Tutela",
+        "description": "verifica la franchigia e/o scoperto della garanzia Tutela e/o Tutela Leale",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "0df0e5bc-c285-444f-a653-b8dbe1daab16",
+        "label": "Premio Lordo Tutela",
+        "description": "Verifica il premio lordo della garanzia Tutela e/o Tutela Legale",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "campo_ga0i6mu",
+        "label": "Frazionamento",
+        "description": "Frazionamento del premio: è il valore nella riga 'FRAZIONAMENTO' del frontespizio del certificato (es. 'ANNUALE', 'SEMESTRALE', 'TRIMESTRALE'). Nella scheda 'NESSUNA ANNUALE' la parola sotto 'FRAZIONAMENTO' è 'ANNUALE'. È un TESTO di periodicità, MAI un importo, MAI 'ILLIMITATA' (quella è la retroattività) e MAI 'NESSUNA' (quella è la franchigia).",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      }
+    ],
+    "promptExtra": "Estrai solo dati realmente presenti nel documento.\nNon inventare, non dedurre, non completare da conoscenze esterne.\nSe un dato non è presente, scrivi \"non indicato\".\nSe un dato è ambiguo, scrivi \"da verificare\".\n\nDai priorità a:\n1. scheda di polizza / frontespizio;\n2. appendici;\n3. condizioni particolari;\n4. questionario;\n5. condizioni generali.\n\nNon prendere massimali, franchigie, scoperti, retroattività, premio o garanzie operative dalle condizioni generali se non sono richiamati nella scheda di polizza, nelle appendici o nelle condizioni particolari.\n\nClassifica la professione dell’assicurato tra:\narchitetto, ingegnere, geometra, commercialista, esperto contabile, consulente del lavoro, avvocato, notaio, amministratore condominiale, perito, consulente, società di servizi, altro professionista ordinistico, altro professionista non ordinistico, non indicato.\n\nDistingui sempre:\n- massimale per sinistro;\n- massimale annuo aggregato;\n- sottolimite per singola garanzia;\n- franchigia;\n- scoperto;\n- minimo scoperto;\n- massimo scoperto;\n- retroattività;\n- postuma;\n- esclusioni;\n- condizioni particolari;\n- garanzie effettivamente operanti;\n- garanzie solo descritte nelle condizioni generali.\n\nPer commercialisti, esperti contabili e consulenti del lavoro verifica sempre:\n- visto di conformità;\n- visto leggero;\n- visto pesante;\n- assistenza fiscale;\n- compensazione crediti;\n- modello 730;\n- 730 precompilato;\n- certificazioni tributarie;\n- asseverazioni;\n- bonus edilizi;\n- Superbonus;\n- sindaco/revisore;\n- ODV;\n- consigliere di amministrazione;\n- procedure concorsuali;\n- elaborazione paghe.\n\nPer il visto leggero o assistenza fiscale/compensazione crediti, estrai sempre:\n- presenza della garanzia;\n- massimale specifico;\n- eventuale operatività entro il massimale generale;\n- franchigia;\n- scoperto;\n- esclusioni;\n- copertura 730/730 precompilato.\n\nSe il massimale per visto di conformità, visto leggero o assistenza fiscale/compensazione crediti è inferiore a 3.000.000 €, segnala:\n\"attenzione: massimale potenzialmente insufficiente per visto di conformità\".\n\nPer architetti, ingegneri e geometri verifica sempre:\n- progettazione;\n- direzione lavori;\n- coordinamento sicurezza CSP/CSE;\n- collaudo;\n- certificazioni energetiche;\n- asseverazioni tecniche;\n- pratiche edilizie;\n- opere pubbliche;\n- Legge Merloni / progettista;\n- D.Lgs. 36/2023;\n- valore massimo opere;\n- tipo opere;\n- esclusioni per opere particolari.\n\nPer avvocati verifica sempre:\n- attività giudiziale;\n- attività stragiudiziale;\n- domiciliazioni;\n- mediazione;\n- arbitrato;\n- incarichi giudiziari;\n- curatore;\n- custode giudiziario;\n- delegato alle vendite;\n- sindaco/revisore;\n- privacy/DPO;\n- perdita documenti.\n\nPer notai verifica sempre:\n- attività notarile;\n- redazione atti;\n- registrazioni;\n- trascrizioni;\n- adempimenti fiscali;\n- custodia documenti;\n- custodia valori;\n- collaboratori;\n- praticanti;\n- infedeltà dipendenti.\n\nPer professionisti non ordinistici verifica sempre:\n- attività dichiarata;\n- consulenza professionale;\n- errori e omissioni;\n- responsabilità contrattuale;\n- violazione privacy;\n- perdita documenti;\n- diffamazione/reputazione;\n- esclusioni per attività non regolamentate.\n\nNon confondere:\n- massimale generale con massimale specifico;\n- franchigia con scoperto;\n- retroattività con postuma;\n- premio imponibile con premio lordo;\n- attività assicurata con semplice oggetto sociale;\n- garanzia operante con garanzia solo descritta nelle condizioni generali.\n\nPer ogni dato importante indica, se disponibile, la pagina o la sezione del PDF da cui è stato ricavato.\nSe trovi valori discordanti, segnala \"possibile incongruenza\".",
+    "verificaCampi": "",
+    "verificaModel": "claude-sonnet-4-6",
+    "ocrEnabled": true,
+    "consensusPasses": 3,
+    "matchKeywords": "MEDICO, medico, med",
+    "contentKeywords": "MEDICO, medico, med"
+  },
+  {
+    "id": "1788467548381",
+    "name": "Tutela Legale 3",
+    "fields": [
+      {
+        "id": "polizza_numero",
+        "label": "N° Polizza",
+        "description": "Numero di polizza (es. 410000880)",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C3"
+          }
+        ]
+      },
+      {
+        "id": "compagnia",
+        "label": "Compagnia",
+        "description": "Nome della compagnia assicuratrice (es. Generali Italia S.p.A.)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C6"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N18"
+          }
+        ]
+      },
+      {
+        "id": "contraente",
+        "label": "Contraente/Assicurato",
+        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C4"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "N17"
+          }
+        ]
+      },
+      {
+        "id": "codice_fiscale_iva",
+        "label": "P. IVA / Cod. Fiscale",
+        "description": "Partita IVA o codice fiscale del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F5"
+          }
+        ]
+      },
+      {
+        "id": "indirizzo",
+        "label": "Indirizzo",
+        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C5"
+          }
+        ]
+      },
+      {
+        "id": "decorrenza",
+        "label": "Decorrenza",
+        "description": "Data di decorrenza della polizza: la data del blocco 'DATI CONTRATTUALI' del frontespizio, nella riga 'DECORRENZA SCADENZA FRAZIONAMENTO' (es. 04/06/2025). È la prima delle due date della riga 'DECORRENZA SCADENZA'. La data 'MILANO 14/04/2025' è la data di emissione del profilo cliente, NON la decorrenza. Restituisci la decorrenza nel formato GG/MM/AAAA.",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "C7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "O21"
+          }
+        ]
+      },
+      {
+        "id": "scadenza",
+        "label": "Scadenza",
+        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "type": "date",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E7"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "Q21"
+          }
+        ]
+      },
+      {
+        "id": "campo_ga0i6mu",
+        "label": "Frazionamento",
+        "description": "Frazionamento del premio (es. 'Annuale', 'Semestrale', 'Trimestrale'). È un TESTO, non una data. Restituisci la parola per INTERO ('Annuale', non 'Annua').",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "attivita",
+        "label": "Attività assicurata",
+        "description": "Attività assicurata: il settore di attività del contraente nel Profilo Cliente, sezione 'SETTORE ATTIVITÀ / FORMA GIURIDICA' (es. 'Servizi vari', 'Professionista/Studio associato'). Riporta il valore nella colonna 'SETTORE ATTIVITÀ'. NON riportare la ragione sociale (es. 'GUFFANTI GROUP & PARTNERS S.R.L.').",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "A10"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_sinistro",
+        "label": "Massimale per sinistro tutela legale",
+        "description": "Massimale per ogni sinistro es 20.000",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D15"
+          }
+        ]
+      },
+      {
+        "id": "rct_massimale_persona",
+        "label": "Massimale per anno tutela legale",
+        "description": "Massimale per anno della tutela legale (es. 40.000,00). È il valore nella colonna 'MASSIMALE PER ANNO' del frontespizio. Se in polizza è indicato solo un limite per singolo evento e non un massimale annuo separato, lascia vuoto. Se il valore è 'Illimitato', riporta 'Illimitato'.",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E15"
+          }
+        ]
+      },
+      {
+        "id": "rcp_parametro",
+        "label": "Parametro regolazione ",
+        "description": "Parametro utilizzato per la regolazione del premio (es. 'Retribuzioni', 'Fatturato', 'n. addetti'). È il NOME del parametro (TESTO), non l'importo: l'importo va nel campo 'Importo preventivo parametro regolazione'.",
+        "type": "text",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D23"
+          }
+        ]
+      },
+      {
+        "id": "rcp_importo_preventivo",
+        "label": "Importo preventivo parametro regolazione",
+        "description": "Importo preventivo annuo del parametro di regolazione (es. 240.000.000,00)",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D20"
+          }
+        ]
+      },
+      {
+        "id": "rcp_tasso",
+        "label": "Tasso regolazione ‰ ",
+        "description": "Tasso di regolazione imponibile per mille (es. 0,245). Se la polizza non riporta un tasso di regolazione, lascia il campo vuoto.",
+        "type": "",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "E20"
+          }
+        ]
+      },
+      {
+        "id": "bfb4228b-4db7-4cb3-95a6-48308c7beafd",
+        "label": "Franchigia generica o minima",
+        "description": "Franchigia indicata specificatamente come generica/minima (es. 200,00). Se il documento non indica una franchigia (i limiti tipo 'anticipo spese penale doloso 5.000 euro' non sono franchigie), lascia vuoto.",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "D54"
+          }
+        ]
+      },
+      {
+        "id": "campo_ypcasda",
+        "label": "Garanzie scelte/operanti",
+        "description": "Elenco dei nomi delle garanzie scelte/operanti in polizza. È un TESTO con i nomi delle garanzie, non un importo. Esempi di risposta corretta: 'Tutela Legale Pacchetto Base', 'Anticipo spese penale doloso 5.000 euro', 'Retroattività 3 anni', 'Pacchetto sicurezza privacy e cyber'. Cerca i nomi nella sezione 'GARANZIE SCELTE' della scheda di polizza. Non restituire importi numerici.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "campo_qgw86e4",
+        "label": "Garanzie non operanti",
+        "description": "Garanzie NON attivate/operanti (es. 'Pacchetto difesa circolazione'). Riporta le garanzie non scelte, non le informazioni aggiuntive della polizza.",
+        "type": "text",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_premio_imponibile",
+        "label": "Premio imponibile tutela legale",
+        "description": "Premio imponibile anticipato tutela legale: è l'importo nella colonna 'NETTO IMPONIBILE' della tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 1.270,10). È la cifra nella colonna 'NETTO IMPONIBILE'. NON è il 'PREMIO LORDO' (colonna più a destra, es. 1.540,00) né le 'IMPOSTE'.",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F30"
+          }
+        ]
+      },
+      {
+        "id": "campo_9s9xh6e",
+        "label": "Interessi di frazionamento",
+        "description": "Interessi di frazionamento del premio tutela legale: l'importo della colonna 'INTERESSE DI FRAZIONAMENTO' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'.",
+        "type": "number",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "campo_vwmu800",
+        "label": "Diritti",
+        "description": "Diritti premio tutela legale: l'importo della colonna 'DIRITTI' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'.",
+        "type": "number",
+        "enabled": true,
+        "cells": []
+      },
+      {
+        "id": "rcp_imposta",
+        "label": "Imposte",
+        "description": "Imposte del premio tutela legale: l'importo della colonna 'IMPOSTE' nella tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 269,90). NON confondere con il 'PREMIO LORDO' (colonna più a destra). L'IMPOSTE è l'importo più piccolo nella riga, accanto a 'PREMIO LORDO'.",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F31"
+          }
+        ]
+      },
+      {
+        "id": "rcp_premio_totale",
+        "label": "Premio lordo totale tutela legale",
+        "description": "Premio/anticipo di sezione annuo totale lordo tutela legale (es. 5.184,00)",
+        "type": "number",
+        "sheet": "RCT_O",
+        "enabled": true,
+        "cells": [
+          {
+            "sheet": "RCTO",
+            "cell": "F32"
+          },
+          {
+            "sheet": "RCTO",
+            "cell": "F37"
+          }
+        ]
+      },
+      {
+        "id": "campo_j3byrdl",
+        "label": "Bisogni assicurativi",
+        "description": "Indicare i bisogni assicurativi spuntati con una \"X\" o altro segno di spunta (es. Tutela mobilità/circolazione, Tutela vita privata, Tutale attività professionale, Tutela imprese o ente, Tutela manager e/o organi sociaetari, Sospensione patente)",
+        "type": "",
+        "enabled": true,
+        "cells": []
+      }
+    ],
+    "promptExtra": "",
+    "matchKeywords": "",
+    "contentKeywords": "tutela legale, premio lordo tutela legale, premio tutela legale"
+  }
+]

@@ -72,11 +72,12 @@ function dateTsOf(s) {
 // ─── 4. FRAMMENTI DI INTESTAZIONE / PRODOTTO (generici) ─────────────────────
 
 // Identificativo di prodotto/sezione: SOLO codice alfanumerico MONOBLOCCO
-// (≥14 char, ≥8 cifre) che NON è un numero di polizza valido. Un numero
-// polizza reale è più corto (12-14 char SENZA suffisso di sezione) e non
-// deve essere filtrato. Il segno di "codice-interfaccia/modulo" è la
-// lunghezza + la cadenza di cifre/lettere.
-const PRODUCT_ID_RE = /^[A-Z0-9][A-Z0-9_-]{13,}$/
+// (≥15 char, ≥8 cifre) che NON è un numero di polizza/certificato valido. Un
+// numero polizza/certificato reale è più corto (12-14 char SENZA suffisso di
+// sezione, es. "RCSPEM00000098", "01469DAS00086") e non deve essere filtrato.
+// Il segno di "codice-interfaccia/modulo" è la lunghezza (≥15) + la cadenza
+// di cifre/lettere. Con 14 char si rischia di scartare un certificato vero.
+const PRODUCT_ID_RE = /^[A-Z0-9][A-Z0-9_-]{14,}$/
 
 // Identificativo con suffisso di sezione ("…_AA", "…_AB", "…_PROD") o di
 // assemblaggio pagina: il valore INTERO è il codice + suffisso, non un dato.
@@ -277,23 +278,51 @@ export function findParameterPair(docs) {
 
 // La coppia "Attività <valore>" sta nella scheda di polizza, sia su riga
 // singola sia su più righe. Il valore NON è mai la riga "Fatturato".
+// Due layout reali:
+//  (A) "Fatturato X\nAttività <valore>" (il valore sta sulla stessa riga
+//      dell'etichetta, e "Fatturato" può precederlo o seguirlo);
+//  (B) "Attività <valore>\nFatturato X" (il valore può proseguire sulla
+//      riga successiva prima di "Fatturato").
+// La (A) copre il layout DAS/Tutela Legale, la (B) il layout EULIP/RC.
+const ATTIVITA_SAME_LINE_RE =
+  /(?:^|\n)\s*(?:\d{1,2}[.)]\s*)?attivit[àa](?:\s*(?:assicurata|professionali|dichiarata))?\s*[:]?\s*([^\n]{10,200})/igm
 const ATTIVITA_SEED_RE =
-  /(?:^|\n)\s*attivit[àa](?:\s*(?:assicurata))?\s*[:]?\s*\n?\s*([^\n]{10,200})(?:\s*\n[^\n]{10,200})?\s*\n\s*fatturato\b/i
+  /(?:^|\n)\s*(?:\d{1,2}[.)]\s*)?attivit[àa](?:\s*(?:assicurata|professionali|dichiarata))?\s*[:]?\s*\n?\s*([^\n]{10,200})(?:\s*\n[^\n]{10,200})?\s*\n\s*fatturato\b/im
 
 function findAttivitaSeed(docs) {
   for (const d of Array.isArray(docs) ? docs : []) {
     const text = d?.text || (Array.isArray(d?.pages) ? d.pages.join('\n') : '')
     if (!text) continue
-    const m = text.match(ATTIVITA_SEED_RE)
-    if (!m) continue
-    let candidate = m[1].trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
-    if (candidate.length < 10) continue
-    if (/^[A-Z\s'.]{10,}$/.test(candidate)) continue // heading tutto maiuscolo
-    if (/\b(?:servizi\s+vary?|non\s+indicato|n\.?\/?a\.?|assente|null)\b/i.test(candidate)) continue
-    if (/\b(?:attività|denominazione|ragione\s+sociale|sede|legale)\b/i.test(candidate)) continue
-    return { value: candidate, file: d.name }
+    // Prima il pattern che richiede "fatturato" a valle (più selettivo), poi il
+    // pattern stesso-riga (layout DAS). Il primo match VALIDO vince; si
+    // scartano le definizioni contrattuali ("Si intendono…", "sono i servizi…")
+    // che NON sono la professione dichiarata.
+    const seedRe = text.match(ATTIVITA_SEED_RE)
+    if (seedRe) {
+      const cand = cleanAttivitaCandidate(seedRe[1])
+      if (cand) return { value: cand, file: d.name }
+    }
+    for (const m of text.matchAll(ATTIVITA_SAME_LINE_RE)) {
+      const cand = cleanAttivitaCandidate(m[1])
+      if (cand) return { value: cand, file: d.name }
+    }
   }
   return null
+}
+
+function cleanAttivitaCandidate(raw) {
+  let candidate = String(raw || '').trim().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '')
+  if (candidate.length < 10) return null
+  if (/^[A-Z\s'.]{10,}$/.test(candidate)) return null // heading tutto maiuscolo
+  if (/\b(?:servizi\s+vary?|non\s+indicato|n\.?\/?a\.?|assente|null)\b/i.test(candidate)) return null
+  // Definizione contrattuale ("Si intendono i servizi professionali…", "sono
+  // i servizi…", "compresa la consulenza…", "svolti dall'Assicurato…") NON è
+  // la professione dichiarata: scartala. Il modello la copierebbe al posto
+  // della professione vera ("Avvocato").
+  if (/^(?:si\s+intendono|sono\s+i\s+servizi|per\s+servizi|intendesi)\b/i.test(candidate)) return null
+  if (/\b(?:compresa\s+la\s+consulenza|svolti?\s+dall|si\s+intendono|sono\s+i\s+servizi\s+professionali)\b/i.test(candidate)) return null
+  if (/\b(?:attività|denominazione|ragione\s+sociale|sede|legale)\b/i.test(candidate)) return null
+  return candidate
 }
 
 // ─── 6. MASSIMALE PER SINISTRO dalla sezione etichettata ────────────────────
@@ -318,16 +347,35 @@ const MASSIMALE_ILLIMITATO_AMOUNT_RE = /(\d[\d.]*(?:,\d+)?)\s*(?:Illimitato|illi
 
 // Trova l'importo del massimale per sinistro: richiede la sezione etichettata
 // e l'importo co-occorrente con "Illimitato" (il valore della polizza).
+// Fallback generico per la coppia "MASSIMALE PER SINISTRO / ANNO  € X/Y"
+// (il valore per-sinistro è il PRIMO, il per-anno il secondo): si prende X.
 function findMassimaleSinistroSeed(docs) {
   for (const d of Array.isArray(docs) ? docs : []) {
     const text = d?.text || (Array.isArray(d?.pages) ? d.pages.join('\n') : '')
     if (!text) continue
     if (!MASSIMALE_SINISTRO_LABEL_RE.test(text)) continue
+    // 1) Pattern "… Illimitato" (GUFFANTI/DAS): importo + "Illimitato".
     const m = text.match(MASSIMALE_ILLIMITATO_AMOUNT_RE)
-    if (!m) continue
-    const n = parseAmountMaybe(m[1])
-    if (n == null) continue
-    return { value: formatAmountIT(n), file: d.name }
+    if (m) {
+      const n = parseAmountMaybe(m[1])
+      if (n != null) return { value: formatAmountIT(n), file: d.name }
+    }
+    // 2) Coppia "MASSIMALE PER SINISTRO / ANNO  € 1.000.000/3.000.000":
+    //    il per-sinistro è il PRIMO della coppia (il più piccolo), il
+    //    per-anno il secondo. TIPO-BLIND. Il layout AmTrust mette la coppia
+    //    su una riga e l'etichetta sulla riga SOTTO: si scorre la banda ±1
+    //    riga attorno all'etichetta.
+    const lines = String(text).split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (!/\bmassimale\s+per\s+(?:ogni\s+|singolo\s+|ciascun\s+)?sinistro/i.test(lines[i])) continue
+      for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j++) {
+        if (j === i) continue
+        const mm = lines[j].match(/(\d[\d.]*(?:,\d+)?)\s*\/\s*(\d[\d.]*(?:,\d+)?)/)
+        if (!mm) continue
+        const n = parseAmountMaybe(mm[1])
+        if (n != null) return { value: formatAmountIT(n), file: d.name }
+      }
+    }
   }
   return null
 }
@@ -493,29 +541,43 @@ export function applyDossierOverrides(best, activeFields, docs, diag = []) {
     const curV = String(cur?.valore ?? '').trim()
     const curDoc = cur?.file ? plainDocs.find((d) => d.name === fileFor(plainDocs, cur.file)) : null
     // il valore attuale è già su una riga "DECORRENZA…"? → resta com'è.
+    // Verifica sulla BANDA ±1 riga (l'etichetta può stare sotto i valori).
     let curIsLabeled = false
     if (curDoc && curV) {
       const nv = normForMatch(curV)
-      if (nv) {
-        const idx = normForMatch(curDoc.text).indexOf(nv)
-        if (idx !== -1) {
-          const winRaw = curDoc.text.slice(Math.max(0, idx - 60), idx + nv.length + 20)
-          curIsLabeled = /decorrenz|effetto|inizio\s+copertura|data\s+inizio/i.test(winRaw)
+      const lines = String(curDoc.text).split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        if (!normForMatch(lines[i]).includes(nv)) continue
+        for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j++) {
+          if (j === i) continue
+          if (/decorrenz|effetto|inizio\s+copertura|data\s+inizio/i.test(normForMatch(lines[j]))) { curIsLabeled = true; break }
         }
+        if (curIsLabeled) break
       }
     }
     // minima data etichettata tra TUTTI i doc (stessa logica del service):
     // la data può stare su una riga successiva ("DECORRENZA SCADENZA\n…\n04/06/2025")
+    // ma il layout "DAS/AmTrust" mette l'ETICHETTA SOTTO i valori
+    // ("30/11/2025 30/11/2026\nEFFETTO SCADENZA …") e le date di
+    // emissione/firma ("Emesso in Milano il 04/12/2025") NON sono una
+    // decorrenza. Si scorre la BANDA ±1 riga attorno all'etichetta e si
+    // escludono le righe di emissione/firma/stampa.
     let minDec = null, minTs = Infinity, minDoc = null
     for (const d of plainDocs) {
-      for (const m of d.text.matchAll(/(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA|DATA\s+INIZIO)\b[^\n]*/gi)) {
-        const win = d.text.slice(Math.max(0, m.index), Math.min(d.text.length, m.index + 160))
-        const dd = win.match(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/)
-        if (!dd) continue
-        const norm = normalizeDateValueStyle(dd[0])
-        if (!norm) continue
-        const ts = dateTsOf(norm)
-        if (ts < minTs) { minTs = ts; minDec = norm; minDoc = d }
+      const lines = String(d.text).split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        if (!/(?:DECORRENZA|EFFETTO|INIZIO\s+COPERTURA|DATA\s+INIZIO)\b/i.test(lines[i])) continue
+        for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j++) {
+          if (j === i) continue
+          // Mai una data di emissione/firma/stampa è una decorrenza.
+          if (/MILANO|EMESS|EMISSIONE|STAMPAT|RILASCIAT|FIRMA|PROFILO\s+CLIENTE|Il\s+premio\s+e['’]?\s*stato\s+incassato/i.test(lines[j])) continue
+          for (const dm of lines[j].matchAll(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/g)) {
+            const norm = normalizeDateValueStyle(dm[0])
+            if (!norm) continue
+            const ts = dateTsOf(norm)
+            if (ts < minTs) { minTs = ts; minDec = norm; minDoc = d }
+          }
+        }
       }
     }
     if (minDec && minDoc && (!curIsLabeled || curV !== minDec)) {

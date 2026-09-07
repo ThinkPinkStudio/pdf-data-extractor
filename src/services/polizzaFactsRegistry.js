@@ -20,6 +20,7 @@
  */
 import { looseAmount, factNature, descriptionDeniesNature } from './polizzaValidation.js'
 import { scanKindForField, NUMERIC_SCAN_KINDS } from './polizzaNumericScan.js'
+import { fieldNatura } from './polizzaFieldKind.js'
 
 // Importo "LARGO": sotto questa soglia un candidato senza riscontro nel registro
 // non viene MAI bloccato (troppo facile far scattare falsi veto su cifre piccole,
@@ -406,8 +407,8 @@ export function vetoForeignNatureFranchigia(registry, field, candidateAmount) {
     f.kind === 'amount' && factNature(f.cats) === 'basso' && f.value >= 1000 && f.value < 100000)
   // milioni e sempre (o mai) etichettati massimale → non franchigia; se nel
   // fascicolo c'è un valore piccolo coerente, è quello la franchigia, non i milioni
-  if (massNatures.length && massNatures.length / matches.length >= 0.5) return true
-  if (anySmallCoherent && amt >= 1000000) return true
+  if (massNatures.length && massNatures.every((f) => isPremiumNature(f)) && anySmallCoherent) return true
+  if (!massNatures.length && anySmallCoherent && amt >= 1000000) return true
   return false
 }
 
@@ -433,8 +434,15 @@ function isPremiumNature(f) {
  */
 export function vetoFranchigiaAsMassimale(registry, field, candidateAmount) {
   if (!registry || !field) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
-  if (!/massimal/i.test(blob)) return false // solo campi massimale
+  // Solo campi che sono DAVVERO un massimale (natura massimale_*). Il controllo
+  // sul solo id/blob ("massimale" nel nome, es. rct_massimale_danni) era un bug:
+  // un campo la cui NATURA è franchigia (label "Franchigia") NON deve essere
+  // vetato come "franchigia-come-massimale" — la franchigia È il suo valore.
+  const nat = fieldNatura(field)
+  const isMassimale = nat === 'massimale' || nat === 'massimale_sinistro' || nat === 'massimale_annuo'
+    || nat === 'massimale_danni' || nat === 'massimale_persona' || nat === 'massimale_prestatore'
+    || nat === 'massimale_mat' || nat === 'massimale_interr'
+  if (!isMassimale) return false
   const amt = looseAmount(candidateAmount)
   if (amt == null || !Number.isFinite(amt)) return false
   if (amt >= 1000000) return false // importo da massimale: mai veto
@@ -477,7 +485,14 @@ export function vetoForeignNatureMassimale(registry, field, candidateAmount) {
   const kind = scanKindForField(field)
   const isScanSinistro = kind === NUMERIC_SCAN_KINDS.MASSIMALE_SINISTRO
   const isScanAnnuo = kind === NUMERIC_SCAN_KINDS.MASSIMALE_ANNUO
-  if (isScanSinistro || isScanAnnuo) return false
+  // Fallback type-blind via fieldNatura (label+descrizione): un campo la cui
+  // natura è un massimale-per-sinistro/annuo è legittimamente un massimale
+  // ANCHE se il profilo lo dichiara type:'text' (profilo Rc Professionale V3),
+  // che farebbe tornare scanKindForField = null e il veto scattare in errore.
+  const nat = fieldNatura(field)
+  const isNatSinistro = nat === 'massimale_sinistro'
+  const isNatAnnuo = nat === 'massimale_annuo'
+  if (isScanSinistro || isScanAnnuo || isNatSinistro || isNatAnnuo) return false
   const amt = looseAmount(candidateAmount)
   if (amt == null || !Number.isFinite(amt)) return false
   if (amt < 100000) return false // valori piccoli: mai veto

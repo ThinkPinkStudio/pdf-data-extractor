@@ -330,6 +330,14 @@ export function fieldNatura(field) {
     .split(/\b(?:non\s+confonder\w*|non\s+riutilizz\w*|non\s+deve\w*|non\s+pu[oò]\w*|non\s+[èe]\b|mai\b|evitare\b|es\.|esempi\w*)\b/i)[0]
   const blob = `${String(field.label || '')} ${descCut}`
   const low = ' ' + String(blob).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+  const labelLow = ' ' + String(field.label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+
+  // FRANCHIGIA / SCOPERTO: la LABEL è il segnale primario. Un campo la cui
+  // label dice "Franchigia"/"Scoperto" è franchigia/scoperto anche se la
+  // descrizione cita "massimale" in contrapposizione ("NON il massimale"):
+  // la citazione negativa NON deve riclassificarlo come massimale.
+  if (/franchig/i.test(labelLow)) return 'franchigia'
+  if (/scopert/i.test(labelLow)) return 'scoperto'
 
   // Massimali: la grandezza specifica vince sul generico "massimale".
   if (low.includes('massimale')) {
@@ -341,10 +349,13 @@ export function fieldNatura(field) {
       ['per prestatore', 'massimale_prestatore'],
       ['prestatore', 'massimale_prestatore'],
       ['danni materiali', 'massimale_danni'],
-      ['danni', 'massimale_danni'],
+      // "per sinistro"/"singolo sinistro"/"ogni sinistro" PRIMA del "danni"
+      // nudo: una descrizione di un massimale PER SINISTRO può citare i
+      // "danni cagionati dagli Assicurati" e NON è un massimale danni.
       ['per sinistro', 'massimale_sinistro'],
       ['singolo sinistro', 'massimale_sinistro'],
       ['ogni sinistro', 'massimale_sinistro'],
+      ['danni', 'massimale_danni'],
     ]
     for (const [pat, kind] of spec) {
       if (low.includes(pat)) return kind
@@ -353,18 +364,41 @@ export function fieldNatura(field) {
     return 'massimale'
   }
 
+  // PREMI / IMPOSTA / ATTIVITÀ: la LABEL è il segnale primario.
+  // Un campo la cui label dice "Imposte/Imposta" è imposta anche se la
+  // descrizione cita il "PREMIO TOTALE" della tabella del premio (GUFFANTI:
+  // "Imposte … nella tabella 'PREMIO TOTALE NETTO IMPONIBILE …'"). Allo stesso
+  // modo un campo "Premio lordo/totale" resta premio_totale anche se la
+  // descrizione cita "imposte". Solo se la label non è parlante si ricade
+  // sulla descrizione, e SOLO per i prefissi chiari (mai una citazione di
+  // contesto). Questo evita che la presenza delle parole "imposte"/"attività"
+  // nella descrizione riclassifichi un campo di natura diversa.
+  if (/\bimpost/i.test(labelLow)) return 'imposta'
+  if (/premio\s+imponib/i.test(labelLow)) return 'premio_imponibile'
+  if (/premio\s+(?:lordo|totale|annuo)/i.test(labelLow)) return 'premio_totale'
+  // Descrizione con prefisso ESPLICITO (all'inizio): "PREMIO IMPONIBILE…",
+  // "PREMIO LORDO…" → natura premio. Una citazione a metà ("la colonna
+  // 'PREMIO TOTALE'") NON è un prefisso e non deve riclassificare.
+  if (/^[^.,;:]*premio\s+imponib/i.test(low)) return 'premio_imponibile'
+  if (/^[^.,;:]*premio\s+(?:lordo|totale|annuo)/i.test(low)) return 'premio_totale'
+  if (/\bimpost/i.test(low)) return 'imposta'
   if (/franchig/i.test(low)) return 'franchigia'
   if (/scopert/i.test(low)) return 'scoperto'
-
-  if (/premio\s+(?:lordo|totale|annuo)/i.test(low)) return 'premio_totale'
-  if (/premio\s+imponib/i.test(low)) return 'premio_imponibile'
-
-  if (/\bimpost/i.test(low)) return 'imposta'
   if (/\btass/i.test(low)) return 'tasso'
   if (/parametro\s+regolaz/i.test(low) || /\bparametro\b/i.test(low)) return 'parametro'
   if (/importo\s+preventiv/i.test(low) || /preventiv/i.test(low)) return 'importo_preventivo'
   if (/fatturat/i.test(low)) return 'fatturato'
-  if (/attivit|professione/i.test(low)) return 'attivita'
+  // ATTIVITÀ / BISOGNI: la LABEL è il segnale primario. Un campo la cui label
+  // dice "Bisogni assicurativi" NON è "attività" anche se la descrizione
+  // elenca "Tutela della propria attività professionale" tra i bisogni
+  // (GUFFANTI: campo_j3byrdl). Allo stesso modo una label "Garanzie scelte"
+  // non è "attività". La descrizione conta solo per i campi la cui label
+  // dichiara esplicitamente l'attività/professione.
+  if (/\bbisogn/i.test(labelLow)) return 'bisogni'
+  if (/\battivit|professione/i.test(labelLow)) return 'attivita'
+  // "attività" con confine di PAROLA: NON deve matchare "Retroattività" né
+  // "Data retroattività" (che sono la retroattività, non l'attività assicurata).
+  if (/\battivit|professione/i.test(low)) return 'attivita'
 
   return null
 }

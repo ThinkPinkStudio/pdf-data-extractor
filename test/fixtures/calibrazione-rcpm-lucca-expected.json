@@ -1,0 +1,21 @@
+{
+  "id": "rcpm-lucca",
+  "label": "RC PROF MED V2 — LUCCA VIVIANA (RCSPEM00000098)",
+  "fields": {
+    "polizza_numero": { "value": "RCSPEM00000098", "mode": "exact" },
+    "compagnia": { "value": "AmTrust Assicurazioni", "mode": "contains" },
+    "contraente": { "value": "LUCCA VIVIANA", "mode": "contains" },
+    "codice_fiscale_iva": { "value": "03131670345", "mode": "vat" },
+    "indirizzo": { "value": "STRADA MULATTIERA SUPERIORE", "mode": "contains" },
+    "decorrenza": { "value": "30/11/2025", "mode": "date" },
+    "scadenza": { "value": "30/11/2026", "mode": "date" },
+    "attivita": { "value": "INFERMIERE PROFESSIONALE", "mode": "contains" },
+    "c125c0d1-695b-4755-81db-e99137169686": { "value": "ILLIMITATA", "mode": "contains" },
+    "rct_massimale_sinistro": { "value": "1.000.000", "mode": "amount" },
+    "rct_massimale_persona": { "value": "3.000.000", "mode": "amount" },
+    "rcp_premio_imponibile": { "value": "118,90", "mode": "amount" },
+    "rcp_imposta": { "value": "26,46", "mode": "amount" },
+    "rcp_premio_totale": { "value": "145,36", "mode": "amount" },
+    "campo_ga0i6mu": { "value": "ANNUALE", "mode": "contains" }
+  }
+}

@@ -1135,15 +1135,28 @@ export function validateCrossFields(best, fields, opts = {}) {
   const list = Array.isArray(fields) ? fields : []
 
   // ── Decorrenza / scadenza ────────────────────────────────────────────────
-  const decField = list.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(fieldBlob(f)))
-  const scaField = list.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(fieldBlob(f)))
+  // Risoluzione per LABEL (priorità) poi pattern descrittivi NON ambigui:
+  // una descrizione che cita "DECORRENZA SCADENZA" come etichetta NON deve far
+  // risolvere il campo scadenza (altrimenti decTs==scaTs → decorrenza svuotata).
+  const decField = list.find((f) => /decorrenz|data\s+(?:di\s+)?inizio|\beffetto\b/i.test(String(f.label || '')))
+    || list.find((f) => /^decorrenz|data\s+di\s+decorrenza|data\s+(?:di\s+)?inizio\s+(?:copertura|polizza)/i.test(fieldBlob(f)))
+  const scaField = list.find((f) => /scadenz|data\s+(?:di\s+)?fine/i.test(String(f.label || '')))
+    || list.find((f) => /^scadenz|data\s+di\s+scadenza|scadenza\s+della\s+polizza|fine\s+(?:copertura|polizza)/i.test(fieldBlob(f)))
   const decTs = decField ? dateStrToTs(normalizeDateValue(entryValore(best, decField.id))) : null
   const scaTs = scaField ? dateStrToTs(normalizeDateValue(entryValore(best, scaField.id))) : null
   if (decField && scaField && decTs != null && scaTs != null) {
     const THIRTEEN_MONTHS = 400 * 24 * 3600 * 1000
     if (decTs >= scaTs) {
-      dropField(best, decField.id, notes,
-        `Coerenza date: decorrenza ${entryValore(best, decField.id)} ≥ scadenza ${entryValore(best, scaField.id)} → decorrenza svuotata (impossibile)`)
+      // Due date incoerenti (decorrenza ≥ scadenza): una delle due è errata.
+      // La regola storica svuotava la DECORRENZA; ma quando la data sbagliata
+      // è la SCADENZA (identica alla decorrenza, o una data di emissione/firma
+      // precedente — es. "MILANO 14/04/2025" del profilo cliente), azzerare una
+      // decorrenza corretta è un errore. In un contratto "decorrenza < scadenza"
+      // la data più debole è sempre la scadenza quando le due non sono ordinate:
+      // si conserva la decorrenza e si svuota la scadenza (meglio vuoto che
+      // una data chiaramente impossibile).
+      dropField(best, scaField.id, notes,
+        `Coerenza date: scadenza ${entryValore(best, scaField.id)} ≤ decorrenza ${entryValore(best, decField.id)} → scadenza svuotata (la decorrenza corretta si conserva)`)
     } else if (opts.hasAnnualPeriodics && scaTs - decTs > THIRTEEN_MONTHS) {
       dropField(best, decField.id, notes,
         `Coerenza date: decorrenza ${entryValore(best, decField.id)} incoerente con scadenza ${entryValore(best, scaField.id)} su polizza a rate annuali → decorrenza svuotata (meglio vuoto che sbagliato)`)
