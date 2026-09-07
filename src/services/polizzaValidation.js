@@ -474,6 +474,88 @@ export function hasOcrDigitRun(text, digits) {
   return flush()
 }
 
+/**
+ * Variante di hasOcrDigitRun per gli IMPORTI (non i codici): un numero
+ * proposto come importo strutturale deve comparire nel testo come blocco
+ * FORMATTATO (separatore di migliaia `.` o virgola decimale `,`), non come
+ * run nuda di cifre dentro un codice/riferimento. I codici di legge, i CAP e
+ * i numeri di R.E.A. ("n.1124", "20123 Milano", "R.E.A. n. 1562313") sono run
+ * di cifre SENZA separatori: un modello che pesca "1124" o "20.123,00" da
+ * queste sequenze inventa un importo. Invece "2.500.000,00" ha sia il punto
+ * di migliaia sia la virgola decimale, e "150.000" il punto di migliaia.
+ *
+ * Regola: se la parte intera del valore ha meno di 7 cifre, il blocco trovato
+ * DEVE contenere un separatore (`.` o `,`) per essere un importo plausibile.
+ * I numeri con 7+ cifre intere (>= 1.000.000) sono quasi sempre importi veri
+ * e restano liberi (evita false-negative su massimali scritti senza separatore).
+ */
+export function hasOcrDigitRunAsAmount(text, digits) {
+  const n = String(digits || '')
+  if (!n || n.length < 4) return false
+  const isDigitOrOcr = (ch) => (ch >= '0' && ch <= '9') || OCR_DIGIT_LETTERS.includes(ch.toLowerCase())
+  const cleanOf = (run) => [...run].filter((c) => c >= '0' && c <= '9').join('')
+  let run = ''
+  let runHasSep = false // c'è un separatore (.,) TRA due cifre DENTRO la run
+  let hasDigitBeforeSep = false
+  let pendingSep = false
+  const flush = () => {
+    const hit = (() => {
+      // La parte intera del numero = le cifre PRIMA della virgola (la virgola
+      // è il solo separatore DECIMALE italiano; il punto resta nelle migliaia).
+      const commaAt = run.indexOf(',')
+      const intRun = commaAt === -1 ? run : run.slice(0, commaAt)
+      const intClean = cleanOf(intRun)
+      // La parte intera DEVE essere ESATTAMENTE n: "112,4" ha parte intera
+      // "112" ≠ "1124" e "12.701" ≠ "1.270" — nessun match per incidente.
+      if (intClean !== n) return false
+      // Un importo nel testo è SEMPRE formattato (punto di migliaia o virgola
+      // decimale): "2.500.000,00", "150.000", "1.500,00", "2.699,39". Una run
+      // nuda di cifre — "n.1124", "20123 Milano", "R.E.A. 1562313" — è un
+      // codice o un riferimento, NON un importo. Il "." di abbreviatura
+      // ("n.", "R.E.A.") o la virgola di PUNTEGGIATURA finale ("1124,") non
+      // contano: il separatore deve stare TRA due cifre (ne serve una prima E
+      // una dopo, segnate rispettivamente da hasDigitBeforeSep e pendingSep).
+      if (!runHasSep && !hasDotBeforeDec) return false
+      // Decimali: nessuna cifra dopo la parte intera, oppure 1-2 cifre
+      // SOLO se precedute da una virgola DECIMALE.
+      const decClean = cleanOf(commaAt === -1 ? '' : run.slice(commaAt + 1))
+      if (decClean === '') return true
+      if (decClean === '00') return true
+      return /^\d{1,2}$/.test(decClean)
+    })()
+    run = ''
+    runHasSep = false
+    hasDigitBeforeSep = false
+    pendingSep = false
+    // hasDotBeforeDec: c'è un punto di migliaia nella parte intera (serve a
+    // distinguere "1.124" da "1124" nudo quando non ci sono decimali).
+    hasDotBeforeDec = false
+    return hit
+  }
+  const isSep = (ch) => ch === '.' || ch === ','
+  const inRun = (ch) => isDigitOrOcr(ch) || isSep(ch)
+  let hasDotBeforeDec = false
+  for (const ch of String(text || '')) {
+    if (inRun(ch)) {
+      if (isSep(ch)) {
+        if (ch === '.' && hasDigitBeforeSep) hasDotBeforeDec = true
+        if (hasDigitBeforeSep) pendingSep = true
+        run += ch
+        continue
+      }
+      // cifra (o lettera OCR 0→O/1→l/5→s)
+      if (ch >= '0' && ch <= '9') {
+        if (pendingSep && hasDigitBeforeSep) runHasSep = true
+        hasDigitBeforeSep = true
+      }
+      run += ch
+      continue
+    }
+    if (flush()) return true
+  }
+  return flush()
+}
+
 // ─── Guardrail garanzia Tutela (FIX 4: niente valori inventati da altre garanzie)
 // La description del campo deve dichiarare la natura CONDIZIONATA ("Verifica se
 // presente/presente") con la garanzia Tutela: è il tratto già usato dal profilo
@@ -645,7 +727,12 @@ export function factNature(cat) {
   const s = String(cat || '').toLowerCase()
   if (/premi|imponib|impost|fatturat|preventiv|parametro|retrib|premio/.test(s)) return 'premio'
   if (/massimal/.test(s)) return 'massimale'
-  if (/franchig|scopert/.test(s)) return 'basso'
+  // Sottolimiti di clausola/estensione: importi che limitano UNA garanzia
+  // specifica ("sottolimite di € 150.000,00 per sinistro qualunque sia il
+  // numero delle persone decedute") NON sono il massimale principale della
+  // polizza: sono "piccoli/specifici" (natura 'basso') e i veti dei
+  // massimali li escludono dai campi "massimale per sinistro/anno".
+  if (/sottolimit|scopert|franchig/.test(s)) return 'basso'
   return null
 }
 
@@ -943,10 +1030,47 @@ export function isInsurerFooterPIva(docText, value) {
   const re = new RegExp(digits.split('').join('[\\s.]?'), 'g')
   for (const m of text.matchAll(re)) {
     found = true
-    const around = text.slice(Math.max(0, m.index - 200), m.index + m[0].length + 120)
-    if (!INSURER_FOOTER_RE.test(around)) return false // almeno un'occorrenza "pulita"
+    // Finestra = SOLO la riga in cui sta il valore (delimitata da newline),
+    // più i pochi char della riga immediately precedente (per casi di wrap).
+    // Una finestra AMPIA (200+120 char) faceva fallire anche la P.IVA
+    // LEGITTIMA del contraente: il footer di compagnia è ripetuto su ogni
+    // pagina del PDF e finiva sempre nel raggio — "11640070014" accanto a
+    // "Partita Iva / Cod. Fiscale:" veniva bloccata perché più avanti, a 200
+    // char, c'era "Sede legale … Capitale Sociale". Con la sola riga corrente,
+    // la P.IVA del contraente resta pulita e solo l'occorrenza nella riga
+    // societaria (Sede/Footer) viene riconosciuta come quella dell'assicuratore.
+    const ls = text.lastIndexOf('\n', Math.max(0, m.index - 1)) + 1
+    let le = text.indexOf('\n', m.index + m[0].length)
+    if (le === -1) le = text.length
+    const row = text.slice(ls, le)
+    if (!INSURER_FOOTER_RE.test(row)) return false // almeno un'occorrenza "pulita"
   }
   return found // trovato, e SOLO in contesto footer
+}
+
+// Importo che nel documento sorgente compare SOLO nella riga societaria della
+// compagnia ("Capitale Sociale Sterline 197.118.479", "Capitale Sociale Euro
+// 259.156.875 i.v."): è il capitale dell'assicuratore, MAI un massimale o un
+// premio di polizza. Il modello piccolo lo pesca come "massimale annuo" o
+// "importo preventivo" perché è il numero grande più visibile del frontespizio.
+// Stessa logica di isInsurerFooterPIva: tutte le occorrenze del valore devono
+// stare in una riga societaria perché sia escluso; un'occorrenza "pulita"
+// (es. il vero 2.500.000,00 del frontespizio) lo lascia passare.
+export function isInsurerFooterAmount(docText, value) {
+  const text = String(docText || '')
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!text || digits.length < 7) return false
+  let found = false
+  const re = new RegExp(digits.split('').join('[\\s.,]?'), 'g')
+  for (const m of text.matchAll(re)) {
+    found = true
+    const ls = text.lastIndexOf('\n', Math.max(0, m.index - 1)) + 1
+    let le = text.indexOf('\n', m.index + m[0].length)
+    if (le === -1) le = text.length
+    const row = text.slice(ls, le)
+    if (!INSURER_FOOTER_RE.test(row)) return false
+  }
+  return found
 }
 
 /**
@@ -1014,9 +1138,22 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
       // dichiarazione 2026 perdeva contro il 5.000.000,00 dell'atto 2018.
       // rawCtx (con virgole/spazi) preferito: distingue i decimali (",10") dai
       // multipli (12.701 non valida 1.270). Fallback: normCtx normalizzato.
-      if (hasOcrDigitRun(rawCtx ?? normCtx, intDigits)) return true
+      // Gli IMPORTÒ strutturali, quando il contesto è il TESTO ORIGINALE (rawCtx,
+      // con punteggiatura), devono comparire come run FORMATTATA (separatore di
+      // migliaia o virgola decimale tra cifre): una run nuda di cifre
+      // ("n.1124", "20123 Milano", "R.E.A. 1562313") è un codice o un
+      // riferimento, non un importo. I modelli piccoli pescano proprio quelle
+      // sequenze ("1124" sul premio, "20.123,00" sul preventivo).
+      // Il CONTESTO NORMALIZZATO (normCtx) ha eliminato i separatori: lì codici
+      // e importi non sono più distinguibili → si resta sul comportamento
+      // storico di hasOcrDigitRun (permissivo), che non rompe i golden EULIP.
+      if (rawCtx) {
+        if (hasOcrDigitRunAsAmount(rawCtx, intDigits)) return true
+      } else if (hasOcrDigitRun(normCtx, intDigits)) {
+        return true
+      }
       if (!evidenza) return false
-      if (!hasOcrDigitRun(evidenza, intDigits)) return false
+      if (!hasOcrDigitRunAsAmount(evidenza, intDigits)) return false
       const ne = normForMatch(evidenza)
       return ne.length >= 10 && normCtx.includes(ne)
     }

@@ -721,7 +721,7 @@
       {
         "id": "rcp_massimale_sinistro",
         "label": "Massimale per sinistro (RCP)",
-        "description": "Massimale RC Professionale per ogni sinistro: sul frontespizio prendi il valore del blocco '5. Massimale' = 'Massimale aggregato per Periodo di validita della polizza' (la riga 'per i Danni cagionati dagli Assicurati: eur' o 'per tutte le Perdite pecuniarie di tutti gli Assicurati: eur' subito sotto), che e' l'importo GRANDE da milioni (es. 2.500.000,00 o 2.000.000,00). VIETATO prendere la franchigia ('6. Franchigia':  umento 2.500.000 e' il massimale aggregato, NON una franchigia); VIETATO prendere sottolimiti di estensioni (150.000,00 Privacy, 1.000,00 ecc.).",
+        "description": "Massimale RC Professionale per SINISTRO: sul FRONTESPIZIO, nel blocco '5. Massimale', prendi l'importo della riga 'Massimale aggregato per Periodo di validità della polizza...' (l'etichetta che lo precede può variare: 'per i Danni cagionati dagli Assicurati', 'per tutte le Perdite pecuniarie' o simili). Se nel frontespizio c'è UN SOLO importo di massimale, quel valore è sia il massimale per sinistro sia quello annuo. NIENTE sottolimiti di estensioni o garanzie aggiunte: quelli sono limiti di coperture extra.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -735,7 +735,7 @@
       {
         "id": "rcp_massimale_annuo",
         "label": "Massimale annuo (RCP)",
-        "description": "Massimale aggregato RC Professionale per Periodo di validita della polizza (per piu sinistri): coincide col 'Massimale per sinistro' della stessa polizza(importo GRANDE del blocco '5. Massimale' del frontespizio). VIETATO prendere la franchigia o sottolimiti di estensioni.",
+        "description": "Massimale RC Professionale aggregato per l'INTERO Periodo di validità (per più sinistri): sul FRONTESPIZIO coincide con l'importo del 'Massimale aggregato per Periodo di validità della polizza' quando la polizza non distingue un massimale per sinistro separato (es. 2.500.000,00). NIENTE sottolimiti di estensioni né importi scritti su garanzie aggiunte.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -887,7 +887,7 @@
       {
         "id": "rcp_premio_totale",
         "label": "Premio totale (RCP)",
-        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "description": "Premio/anticipo di sezione annuo TOTALE/LORDO (imposte incluse): la voce 'PREMIO LORDO' o 'PREMIO TOTALE' della sezione 'Formazione del Premio' del frontespizio (es. 71.882,98). NON è l'imponibile (netto), NON l'imposta, NON un sotto-massimale o un importo di un'altra garanzia/estensione.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -2982,7 +2982,7 @@
       {
         "id": "rcp_massimale_sinistro",
         "label": "Massimale per sinistro (RCP)",
-        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "description": "Massimale RC Professionale per SINISTRO: sul FRONTESPIZIO, nel blocco '5. Massimale', prendi l'importo della riga 'Massimale aggregato per Periodo di validità della polizza...' (l'etichetta che lo precede può variare: 'per i Danni cagionati dagli Assicurati', 'per tutte le Perdite pecuniarie' o simili). Se nel frontespizio c'è UN SOLO importo di massimale, quel valore è sia il massimale per sinistro sia quello annuo. NIENTE sottolimiti di estensioni o garanzie aggiunte: quelli sono limiti di coperture extra.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -3148,7 +3148,7 @@
       {
         "id": "rcp_premio_totale",
         "label": "Premio totale (RCP)",
-        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "description": "Premio/anticipo di sezione annuo TOTALE/LORDO (imposte incluse): la voce 'PREMIO LORDO' o 'PREMIO TOTALE' della sezione 'Formazione del Premio' del frontespizio (es. 71.882,98). NON è l'imponibile (netto), NON l'imposta, NON un sotto-massimale o un importo di un'altra garanzia/estensione.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -3394,7 +3394,7 @@
       {
         "id": "rcp_massimale_sinistro",
         "label": "Massimale per sinistro (RCP)",
-        "description": "Massimale RC Prodotti per ogni sinistro, es. 5.000.000,00",
+        "description": "Massimale RC Professionale per SINISTRO: sul FRONTESPIZIO, nel blocco '5. Massimale', prendi l'importo della riga 'Massimale aggregato per Periodo di validità della polizza...' (l'etichetta che lo precede può variare: 'per i Danni cagionati dagli Assicurati', 'per tutte le Perdite pecuniarie' o simili). Se nel frontespizio c'è UN SOLO importo di massimale, quel valore è sia il massimale per sinistro sia quello annuo. NIENTE sottolimiti di estensioni o garanzie aggiunte: quelli sono limiti di coperture extra.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -3560,7 +3560,7 @@
       {
         "id": "rcp_premio_totale",
         "label": "Premio totale (RCP)",
-        "description": "Premio/anticipo di sezione annuo totale della sezione RC Prodotti (es. 71.882,98)",
+        "description": "Premio/anticipo di sezione annuo TOTALE/LORDO (imposte incluse): la voce 'PREMIO LORDO' o 'PREMIO TOTALE' della sezione 'Formazione del Premio' del frontespizio (es. 71.882,98). NON è l'imponibile (netto), NON l'imposta, NON un sotto-massimale o un importo di un'altra garanzia/estensione.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -4735,7 +4735,7 @@
       {
         "id": "rct_massimale_danni",
         "label": "Franchigia",
-        "description": "Franchigia per sinistro della RC medica (es. 'NESSUNA', 'COME DA SCHEDA TECNICA'): è il valore nella riga 'FRANCHIGIA PER SINISTRO' del certificato.",
+        "description": "Franchigia per sinistro della RC medica (es. 'NESSUNA', 'COME DA SCHEDA TECNICA', oppure un importo): è il valore nella cella sotto 'FRANCHIGIA PER SINISTRO' del certificato. NIENTE la cifra del 'MASSIMALE PER SINISTRO / ANNO' (es. 1.000.000/3.000.000): quello è il massimale. Se la riga dice NESSUNA, restituisci la parola 'NESSUNA'.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4847,7 +4847,7 @@
       {
         "id": "campo_ga0i6mu",
         "label": "Frazionamento",
-        "description": "Frazionamento del premio: è il valore nella riga 'FRAZIONAMENTO' del frontespizio del certificato (es. 'ANNUALE', 'SEMESTRALE', 'TRIMESTRALE'). Nella scheda 'NESSUNA ANNUALE' la parola sotto 'FRAZIONAMENTO' è 'ANNUALE'. È un TESTO di periodicità, MAI un importo, MAI 'ILLIMITATA' (quella è la retroattività) e MAI 'NESSUNA' (quella è la franchigia).",
+        "description": "Frazionamento del premio: è il valore nella riga 'FRAZIONAMENTO' del frontespizio del certificato (es. 'ANNUALE', 'SEMESTRALE', 'TRIMESTRALE'). MAI 'ILLIMITATA' (quella è la Retroattività) né 'NESSUNA'. Nel certificato RC la coppia è 'FRANCHIGIA PER SINISTRO | FRAZIONAMENTO' con i valori su due celle: per il FRAZIONAMENTO prendi la cella sotto FRAZIONAMENTO (es. 'ANNUALE').",
         "type": "text",
         "enabled": true,
         "cells": []

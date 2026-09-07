@@ -158,7 +158,7 @@ export default function SettingsTechnicalPage() {
                 min={1}
                 step={1024}
                 value={s.polizzaBatchContext ?? ''}
-                placeholder="24576"
+                placeholder="8192"
                 onChange={(e) => up('polizzaBatchContext', e.target.value === '' ? undefined : (parseInt(e.target.value, 10) || undefined))}
               />
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>

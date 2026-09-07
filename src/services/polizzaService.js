@@ -35,8 +35,8 @@ import {
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
-  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva,
-  isOtherCoveragePremiumSource,
+  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva, isInsurerFooterAmount,
+  isOtherCoveragePremiumSource, hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
   validateCrossFields,
@@ -48,6 +48,15 @@ import {
   vetoForeignNatureMassimaleAnnuo, vetoForeignNatureFatturato, vetoForeignNatureFranchigia,
   vetoSottolimitiOptionOnly, vetoFranchigiaAsMassimale, vetoForeignNatureMassimale, guardAntiSpill,
 } from './polizzaFactsRegistry.js'
+
+// MASSIMO ASSOLUTO di contesto per la VRAM 8GB della 3060 Ti: caricare
+// qwen3:8b (o simili) oltre 8192 di num_ctx occupa più di 8GB e spilla su
+// CPU (visto sul campo: 11 GB con 40960 → 41%/59% CPU/GPU e Ollama
+// bloccato in "Stopping..."). Qualsiasi batch/chiamata singola viene cappata
+// a questo valore (non è hardcode di una polizza: è il limite fisico del modello
+// sull'hardware. Se un giorno si cambia GPU/modello, si alza questa costante).
+const MAX_BATCH_CTX_8GB = 8192
+
 import { applyDeterministicOverrides, DETERMINISTIC_MIN_CONFIDENCE, guardPostMergeSpill, guardEconomicToStructuralSpill, guardFranchigiaScoperto } from './polizzaNumericScan.js'
 import { applyDossierOverrides } from './polizzaDossierOverrides.js'
 import {
@@ -498,7 +507,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
   // Sovrascrivibile con settings.ollamaNumCtx per chi ha più VRAM.
   const NUM_PREDICT = 2048
   const promptTokens = estimateOllamaTokens((systemPrompt?.length || 0) + (userPrompt?.length || 0))
-  const capCtx = Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384)
+  const capCtx = Math.min(MAX_BATCH_CTX_8GB, Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384))
   const numCtx = Math.min(capCtx, Math.max(8192, Math.ceil((promptTokens + NUM_PREDICT + 512) / 1024) * 1024))
   // Streaming + watchdog per token (vedi ollamaChatStream): lento ≠ morto.
   const { content } = await ollamaChatStream(url, {
@@ -1211,7 +1220,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   // num_ctx/timeout sovrascrivibili: il "fascicolo intero" invia prompt molto più
   // grandi di un batch da 3 pagine e ha bisogno di contesto e tempi maggiori.
-  const numCtx = opts.numCtx || 16384    // default: batch (3 pagine) + guida campi + risposta delta
+  const numCtx = Math.min(MAX_BATCH_CTX_8GB, opts.numCtx || 16384)    // default: batch (3 pagine) + guida campi + risposta delta; MASSIMO 8192
   const timeoutMs = opts.timeoutMs || 180000
   // opts.diag: collettore di righe di diagnostica leggibili (finisce nel log
   // "Salva diagnostica" del renderer/web). Le statistiche di Ollama sono l'unico
@@ -1723,7 +1732,7 @@ function passesEvidenceCheck(cleaned, entry, strict) {
  * il primo valore trovato resta. Guardrail: i campi strutturali sono accettati
  * solo da documenti non periodici. Ritorna la shape della chiamata singola.
  */
-async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null, consCtx = 32768) {
+async function extractWholeDossierOllamaBatched(fullText, settings, activeFields, buildUserPrompt, batchCtx, diag = [], onProgress = null, consCtx = MAX_BATCH_CTX_8GB) {
   const rawParts = String(fullText).split(/^===== DOCUMENTO: (.+?) =====$/m)
   const docs = []
   for (let i = 1; i < rawParts.length; i += 2) {
@@ -2772,6 +2781,43 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // stare, niente invenzione. Il valore resta valido se è davvero il premio RC.
     if (isOtherCoveragePremiumSource(field, source?.file || srcDoc?.name)) { counters.guardrail++; note(k, 'guardrail:premio-copertura-diversa', cleaned); continue }
     if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
+    // CAPITALE SOCIALE della compagnia ≠ dato di polizza: un importo che nel
+    // documento compare SOLO nella riga societaria ("Capitale Sociale Euro
+    // 259.156.875", "…Sterline 197.118.479") è il capitale dell'assicuratore,
+    // mai un massimale/premio. Il modello piccolo lo pesca come importo strutturale
+    // perché è il numero grande più visibile del frontespizio. La guardia è
+    // CONDIZIONALE al contenuto testuale del campo (termine importo) e nulla per
+    // i campi che descrivono l'identità (P.IVA/CF gestiti sopra). Vale per i
+    // 7+ digit (i capitali sociali sono sempre ≥ 1.000.000): mai per premi piccoli.
+    if (srcDoc?.text && /\b(?:massimale|premio|imponibile|imposta|importo|tasso|capitale)\b/i.test(fieldText)
+        && isInsurerFooterAmount(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:capitale-sociale', cleaned); continue }
+
+    // GIUSTAPPOSIZIONE SPAZIALE ≠ DATO: una pagina a colonne può UNIRE i numeri
+    // di due colonne adiacenti in un solo importo nel testo SPAZIALE (es. "15."
+    // della colonna massimale + "000.000,00" della colonna accanto → "15.000.000,00")
+    // che NON esiste nel testo lineare (PIATTO) del documento. Un importo
+    // strutturale deve esistere ANCHE nel PIATTO (`srcDoc.text`, il collapse
+    // della pagina), che è la verità lineare del layout: gli artefatti creati
+    // dal riallineamento SPAZIALE restano fuori ("meglio vuoto che sbagliato").
+    // Il check è nullo se non c'è un documento reale o se il valore non è
+    // un importo grande (cifre intere ≥ 4), quindi non tocca testi/premi piccoli.
+    if (srcDoc?.text && srcDoc.text !== rawCtx) {
+      const amtNum = parsePureAmount(cleaned)
+      if (amtNum != null && String(Math.trunc(Math.abs(amtNum))).length >= 4) {
+        // Identità numeriche (P.IVA/CF/REA/codici): una sequenza nuda di 6+ cifre
+        // SENZA separatori né decimali non è un importo (gli importi italiani
+        // hanno virgola decimale o punto di migliaia) — il giustapposto spaziale
+        // da bloccare riguarda SOLO gli importi. Il controllo nel piatto non le
+        // tocca, altrimenti una P.IVA legittima scritta "11640070014" (nuda)
+        // verrebbe scartata perché la run non ha separatori.
+        const isBareCode = /^\d{6,16}$/.test(cleaned) && !/[.,]/.test(cleaned)
+        if (!isBareCode && !hasOcrDigitRunAsAmount(srcDoc.text, String(Math.trunc(Math.abs(amtNum))))) {
+          counters.noEvidence++
+          note(k, 'senza-evidenza-nel-piatto', cleaned)
+          continue
+        }
+      }
+    }
 
     // VETO FATTI (registro numerico deterministico, integrato solo qui nel merge):
     // 1. FONTE-OPZIONI: per un campo strutturale, un importo LARGO che nel
@@ -3233,13 +3279,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB. Il DEFAULT resta 24576;
   // polizzaBatchContext lo rende sovrascrivibile (ma vedi il warning sotto per
   // il vincolo VRAM quando si supera il valore prudente).
+  // MASSIMO ASSOLUTO per la VRAM 8GB: qwen3:8b caricato oltre 8192 di contesto
+  // occupa più di 8GB e spilla su CPU (visto: 11 GB con num_ctx 40960, 41%/59%
+  // CPU/GPU, e resta bloccato in "Stopping..."). Il tetto è 8192 e NON è
+  // superabile: qualsiasi valore più alto (settings o default) viene ripiegato
+  // a 8192. Non è hardcode di una polizza: è il limite fisico del modello.
   const batchLimit = settings.polizzaBatchContext && settings.polizzaBatchContext > 0
-    ? settings.polizzaBatchContext
-    : 24576
-  if (batchLimit > 24576) {
-    diag.push(`AVVISO: batchContext ${batchLimit} supera il tetto sicuro 24576 (${settings.ollamaModel} su VRAM 8GB) — il KV può spillare su CPU e rallentare il modello`)
+    ? Math.min(settings.polizzaBatchContext, MAX_BATCH_CTX_8GB)
+    : MAX_BATCH_CTX_8GB
+  if (settings.polizzaBatchContext > MAX_BATCH_CTX_8GB) {
+    diag.push(`AVVISO: batchContext richiesto ${settings.polizzaBatchContext} supera il MASSIMO 8192 (VRAM 8GB) — forzato a 8192 per evitare lo spill su CPU`)
   }
-  const batchCtx = Math.min(modelLimit || 131072, batchLimit)
+  const batchCtx = Math.min(modelLimit || MAX_BATCH_CTX_8GB, batchLimit, MAX_BATCH_CTX_8GB)
 
   // ── AFFINITÀ SEMANTICA descrizione↔testo (agnostica: niente classi keyword) ─
   // La DESCRIZIONE del campo è l'unica verità semantica disponibile: guida DOVE
@@ -3808,10 +3859,37 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
           pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
         }
-        const RECOVERY_CTX_CHARS = 12000
+        const RECOVERY_CTX_CHARS = 8000
         let ctx = ''
         let ctxCost = 0
         const usedNames = new Set()
+        // Campo che la descrizione dice di cercare "sul FRONTESPIZIO": il frontespizio
+        // è quasi sempre tra le prime 2 pagine del documento, ma il ranking semantico
+        // (embeddings) lo mette in coda perché le condizioni generali ripetono i suoi
+        // token ("massimale", "franchigia"…). Se il frontespizio non entra nel budget
+        // (pagine di condizioni molto più utili), viene SPONSORIZZATO: pagina 1 e 2 di
+        // ogni documento candidato entrano PRIMA delle pagine rankate. Regola basata
+        // sulla DESCRIZIONE (generalizzata), non sul nome campo.
+        const wantFrontespizio = b.fields.some((f) => /\bfrontespizio\b/i.test(String(f.description || '')))
+        if (wantFrontespizio) {
+          const seen = new Set()
+          for (const s of pool) {
+            for (const p of [0, 1]) {
+              if (p >= s.d.pages.length) break
+              const key = `${s.d.name}:${p}`
+              if (seen.has(key)) continue
+              seen.add(key)
+              const pageText = (s.d.spatialPages?.[p] ?? s.d.pages[p])
+              if (!pageText || !pageText.trim()) continue
+              const block = `[${s.d.name} · pag. ${p + 1}]\n${pageText.trim()}`
+              const cost = usefulLength(block)
+              if (ctx && ctxCost + cost > RECOVERY_CTX_CHARS) continue
+              ctx += (ctx ? '\n---\n' : '') + block
+              ctxCost += cost
+              usedNames.add(s.d.name)
+            }
+          }
+        }
         for (const s of pool) {
           // Prompt con la pagina SPAZIALE (colonne preservate); budget misurato
           // sui caratteri UTILI, o il padding dimezzava le pagine inviate.
@@ -3837,14 +3915,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         diag.push(`Recupero [${b.kind}] campi ${b.fields.map((f) => f.id).join(', ')} — pagine inviate: ${sentPages.join(', ')}${usedNames.size > sentPages.length ? ', …' : ''}`)
 
         const fieldLines = b.fields
-          .map((f) => `- ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+          .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
           .join('\n')
         // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
         // Recupero a UN campo per chiamata: si chiede ATTIVAMENTE il valore (il
         // comando "metti null se non c'è" troppo forte faceva rispondere null anche
         // quando l'evidenza era sotto gli occhi — visto su massimale e premi).
-        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE:\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci {"label_campo": {"valore":"...","evidenza":"testo esatto copiato"}}. Se NON è presente, restituisci {"label_campo": {"valore": null}}.`
+        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE:\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci un JSON la cui CHIAVE è l'id ESATTO del campo scritto sopra (es. "rcp_massimale_sinistro"), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {id_campo: {"valore": null}}. Usa esattamente gli id indicati sopra come chiavi del JSON.
+ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
@@ -4204,8 +4283,8 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME 
     // Modelli THINKING (qwen3): a 32K di contesto la KV cache supera gli 8 GB di
     // VRAM della 3060 Ti e il modello spillerebbe su CPU. Per loro si cappa la
     // chiamata singola a 16K (dentro gli 8 GB con think:false).
-    const SINGLE_CALL_MAX_CTX = isThinkingModel(ollamaModel) ? 16384 : 32768
-    const PRACTICAL_BATCH_CTX = isThinkingModel(ollamaModel) ? 8192 : 16384
+    const SINGLE_CALL_MAX_CTX = isThinkingModel(ollamaModel) ? MAX_BATCH_CTX_8GB : 32768
+    const PRACTICAL_BATCH_CTX = isThinkingModel(ollamaModel) ? MAX_BATCH_CTX_8GB : 16384
     const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
     const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
     if (estTokens > singleCtxCap) {
@@ -4214,7 +4293,7 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME 
       diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
       return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress, singleCtxCap)
     }
-    const numCtx = Math.min(singleCtxCap, Math.max(16384, Math.ceil(estTokens / 1024) * 1024))
+    const numCtx = Math.min(singleCtxCap, MAX_BATCH_CTX_8GB, Math.max(8192, Math.ceil(estTokens / 1024) * 1024))
     console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
     diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
     // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere
