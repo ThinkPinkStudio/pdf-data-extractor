@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
-  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
+  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms, hasPolicyEvidence,
   KEYWORD_MIN_RATIO, SEMANTIC_MIN, LLM_MIN,
 } from '../src/services/polizzaPrecheck.js'
 
@@ -169,4 +169,31 @@ test('topContentTerms: termini frequenti senza boilerplate assicurativo', () => 
   const terms = topContentTerms(norm, 3)
   assert.deepEqual(terms.slice(0, 2), ['incendio', 'fabbricati'])
   assert.ok(!terms.includes('polizza') && !terms.includes('compagnia'))
+})
+
+test('hasPolicyEvidence: frontee "polizza vera" vs solo informativo/quietanza', () => {
+  const withPol = normalizeForPrecheck('Numero polizza: BL05000049\nContraente: Pilato\nMassimale per sinistro: 2.500.000,00\nPremio: 3.300,00')
+  const infoOnly = normalizeForPrecheck('Questo fascicolo contiene il prospetto informativo e la quietanza di rinnovo. Le condizioni generali di assicurazione sono allegate.')
+  const tooShort = normalizeForPrecheck('Breve.')
+  assert.equal(hasPolicyEvidence(withPol), true)
+  assert.equal(hasPolicyEvidence(infoOnly), false)
+  assert.equal(hasPolicyEvidence(tooShort), false) // non giudicabile → non blocca
+  assert.equal(hasPolicyEvidence(''), false)
+})
+
+test('decidePrecheck: validità "polizza vera" — mismatch solo per info/quietanza, mai per guasti', () => {
+  const base = { mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0.6 }, requireValidPolicy: true }
+  // con polizza vera → ok (le keyword passano)
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: true }).verdict, 'ok')
+  // solo informativo/quietanza → mismatch con reason chiaro
+  const d = decidePrecheck({ ...base, hasPolicyEvidence: false })
+  assert.equal(d.verdict, 'mismatch')
+  assert.match(d.reason, /senza polizza valida/)
+  // testo non giudicabile/guasto (hasPolicyEvidence non boolean) → comportamento
+  // storico (keyword ok → ok), MAI blocco per validità
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: null }).verdict, 'ok')
+  // opt-out → il blocco non scatta (resta ok)
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: false, requireValidPolicy: false }).verdict, 'ok')
+  // nessun profilo → il blocco validità non si applica (skipped come sempre)
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false, requireValidPolicy: true, hasPolicyEvidence: false }).verdict, 'skipped')
 })

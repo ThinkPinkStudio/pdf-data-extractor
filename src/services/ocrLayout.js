@@ -17,6 +17,10 @@
 // coordinate (parole ruotate, bbox impazzite). Il padding si tronca qui.
 const MAX_COLS = 600
 
+// Checklist/selezione: riusiamo i glifi della classificazione checkbox (puro,
+// senza dipendenza inversa: polizzaFactsRegistry non importa ocrLayout).
+import { CHECKBOX_CHECKED_RE, CHECKBOX_EMPTY_RE, detectCheckedRow } from './polizzaFactsRegistry.js'
+
 function median(nums) {
   if (!nums.length) return 0
   const s = [...nums].sort((a, b) => a - b)
@@ -243,6 +247,8 @@ function acceptable(p) {
 
 // Un token è un VALORE se ha la forma di data/numero/importo; le parole brevi
 // alfanumeriche ("ACQUI", "TERME") NON lo sono (niente cifre).
+// ECCEZIONE CHECKBOX: un token che inizia con un glifo di selezione esplicito
+// ("[x] Azienda", "☒ Studio") è il valore di una checklist (anche senza cifre).
 function isValueLike(tok) {
   const t = String(tok || '').trim()
   if (!t) return false
@@ -251,6 +257,8 @@ function isValueLike(tok) {
   if (/^[+-]?\d{1,3}(\.\d{3})*(,\d+)?[€¢]?$/.test(t)) return true
   if (/^[+-]?\d+(,\d+)?[ ]?[€%]?$/.test(t)) return true
   if (/\d/.test(t) && t.replace(/[0-9.,:€%/+ -]/g, '').length <= 1) return true
+  // glifo di selezione in testa → è un valore di checkbox (es. "[x] Studio")
+  if (/^\[[xX✓✔\s_]+\]|^☒|^☐/u.test(t)) return true
   return false
 }
 
@@ -303,17 +311,29 @@ function badLabel(label) {
 }
 
 // Un valore è scartabile se vuoto, troppo lungo/multitoken o senza cifre.
+// ECCEZIONE CHECKBOX: una riga di selezione (glifo spuntato/vuoto in testa) può
+// portare un valore breve SENZA cifre ("Azienda", "Studio professionale") —
+// è il valore di una checklist, non un numero. Richiede un glifo ESPLICITO
+// ([[x]], ☒, [ ], ☐) — una "X" nuda non basta (potrebbe essere testo).
+// Un valore è scartabile se vuoto, troppo lungo/multitoken o senza cifre.
+// ECCEZIONE CHECKBOX: una riga di selezione (glifo spuntato/vuoto in testa) può
+// portare un valore breve SENZA cifre ("Azienda", "Studio professionale") —
+// è il valore di una checklist, non un numero. Richiede un glifo ESPLICITO
+// ([x], ☒, [ ], ☐) — una "X" nuda non basta (potrebbe essere testo).
 function badValue(value) {
   const t = String(value || '').trim()
   if (!t) return true
   if (t.length > MAX_VAL_CHARS) return true
   const nTok = t.split(/\s+/).length
   if (nTok > MAX_VAL_TOKENS) return true
-  if (!/\d/.test(t)) return true
+  if (!/\d/.test(t)) {
+    // senza cifre: valido solo se in testa c'è un glifo di selezione esplicito
+    return /^\s*(?:\[[xX✓✔\s_]+\]|☒|☐)\b/u.test(t) ? false : true
+  }
   return false
 }
 
-// Toglie i ':' finali (e le estetiche) da una label; trims.
+
 function cleanLabel(l) {
   return String(l || '').replace(/:+$/g, '').trim()
 }

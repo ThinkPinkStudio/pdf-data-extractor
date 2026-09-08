@@ -273,9 +273,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // Attiva il pre-check di pertinenza quando:
   //  - lo switch globale è su un metodo (keywords/semantic/llm), OPPURE
   //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
-  //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off'.
+  //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
+  //  - oppure è ATTIVA la regola di validità "polizza vera" (default on):
+  //    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
   const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
-  const shouldPrecheck = job.profile_id && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords)
+  const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
+  const shouldPrecheck = job.profile_id && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{

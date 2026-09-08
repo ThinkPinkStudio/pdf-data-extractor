@@ -47,6 +47,7 @@ import {
   buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText,
   vetoForeignNatureMassimaleAnnuo, vetoForeignNatureFatturato, vetoForeignNatureFranchigia,
   vetoSottolimitiOptionOnly, vetoFranchigiaAsMassimale, vetoForeignNatureMassimale, guardAntiSpill,
+  detectCheckedValues, descriptionAsksCheckbox,
 } from './polizzaFactsRegistry.js'
 
 // MASSIMO ASSOLUTO di contesto per la VRAM 8GB della 3060 Ti: caricare
@@ -2598,7 +2599,14 @@ const STAGED_GROUP_NOTES = {
     'RECENTE. MAI il nome della compagnia, la sede legale o la direzione.',
 }
 
-function stagedSystemPrompt(kind) {
+function stagedSystemPrompt(kind, checkboxFields = []) {
+  const checkboxRule = checkboxFields.length
+    ? '6. CAMPIONI A CHECKBOX/SELEZIONE MULTIPLA (caselle spuntate): SE il valore di un campo\n' +
+      '   è scelto da una lista con caselle ([x] / ☒ / ☐), restituisci SOLO la/le opzioni\n' +
+      '   SPIUNTATE ([x] o ☒), una per volta o separate da " / " se più di una. Se la casella\n' +
+      '   NON è barrata o NON è determinabile, OMETTI il campo (mai inventare). Se invece il\n' +
+      '   dato è semplicemente scritto (senza caselle), estrailo normalmente.\n'
+    : ''
   return (
     'Sei un estrattore di dati da un fascicolo assicurativo italiano (polizze RC).\n' +
     'Ricevi ALCUNI documenti del fascicolo e un ELENCO RIDOTTO di campi.\n' +
@@ -2611,6 +2619,7 @@ function stagedSystemPrompt(kind) {
     '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+    checkboxRule +
     `${NATURA_BLIND_RULES}` +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
     `${KNOWN_TRAPS_SYSTEM_TEXT}` +
@@ -3251,6 +3260,46 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   if (seedNotes.length) diag.push(`Stadio A: seed regex — ${seedNotes.join(' · ')}`)
 
+  // ── Stage A.5: CHECKBOX/SELEZIONI deterministiche ─────────────────────────
+  // Per i campi la cui description parla di checkbox/selezione ("Tipologia
+  // tutela legale", "spunta la casella", ecc.), il dato è SPIUNTATO su una
+  // tabella a riquadri: si legge con il layout SPAZIALE (chi è 'checked' e il
+  // testo della sua riga), prima di spendere il modello. Zero LLM. Se più
+  // opzioni sono spuntate, si scrive il valore multiplo separato da " / ".
+  // Il candidato compete nel merge come gli altri (mai blindato), con fonte
+  // reale (file+pagina dove è stato trovato).
+  const checkboxFields = (fieldsById && Object.values(fieldsById))
+  if (checkboxFields && checkboxFields.length) {
+    const withCheckbox = checkboxFields.filter((f) => descriptionAsksCheckbox(f.description || '') || /checkbox|tipologia|spunt|barrar|selezion/i.test(`${f.label || ''}`))
+    if (withCheckbox.length) {
+      let hits = 0
+      for (const f of withCheckbox) {
+        if (best[f.id]?.valore) continue // già valorizzato (seed/altro): non sovrascrivere
+        const found = []
+        for (const d of analyzed) {
+          const pages = d.spatialPages?.length ? d.spatialPages : d.pages
+          for (let pi = 0; pi < pages.length; pi++) {
+            const vals = detectCheckedValues(pages[pi])
+            for (const v of vals) {
+              const cleaned = sanitizeFieldValue(f, v.value)
+              if (!cleaned) continue
+              const src = findStagedSource(analyzed, null, cleaned, null)
+              found.push({ valore: cleaned, doc: d, page: pi + 1, file: src?.file || d.name })
+            }
+          }
+        }
+        if (found.length) {
+          const joined = found.map((x) => x.valore).join(' / ')
+          const first = found[0]
+          best[f.id] = { valore: joined, effDate: first.doc.dateStr, docType: first.doc.type, appendixOrd: first.doc.appendixOrd, docPos: first.doc.pos, file: first.file, page: first.page }
+          hits++
+          diag.push(`Checkbox[${f.id}] = "${joined.slice(0, 80)}" (${found.length} opzione/i spuntata/e da ${first.file} p${first.page})`)
+        }
+      }
+      if (hits) diag.push(`Stadio A.5: checkbox deterministiche — ${hits} campi seminati`)
+    }
+  }
+
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
   // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
   // nel merge per recency come ogni altro candidato (mai valori blindati).
@@ -3625,7 +3674,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     plan.fieldLines = groupFields
       .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
       .join('\n')
-    plan.system = stagedSystemPrompt(kind)
+    plan.system = stagedSystemPrompt(kind, groupFields.filter((f) => descriptionAsksCheckbox(f.description || '')).map((f) => f.id))
     plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
     // Budget di TESTO per batch: contesto del modello (num_ctx) meno guida campi
     // + system ESPRESSO IN TOKEN, con un MARGINE di sicurezza (12% + quota fissa)

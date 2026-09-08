@@ -11,7 +11,7 @@ import { embedTexts } from './vectorIndexService.js'
 import { streamChatWithProvider } from './llmService.js'
 import {
   normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
-  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
+  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms, hasPolicyEvidence,
 } from './polizzaPrecheck.js'
 
 // Cap dei costi: il pre-check deve costare SECONDI, non minuti.
@@ -122,6 +122,11 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
     hasContentExclude: contentExcludeKws.length > 0,
     keyword, semantic, llm,
     contentExclude,
+    // Validità "polizza vera": solo quando il testo è giudicabile (>=80 char).
+    // Flag opt-out dal settings (default attivo). Un guasto/ambiguità → null →
+    // skipped, mai mismatch.
+    hasPolicyEvidence: normText ? hasPolicyEvidence(normText) : null,
+    requireValidPolicy: settings?.polizzaRequireValidPolicy !== false,
   })
   return {
     ...decision,

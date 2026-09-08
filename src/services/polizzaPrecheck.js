@@ -112,7 +112,8 @@ export function llmComparisonScore(detected, profileTerms) {
  *
  * @param {object} p { mode, hasProfile, hasContentKeywords, hasContentExclude,
  *                     keyword: {ratio}|null, semantic: number|null, llm: number|null,
- *                     contentExclude: {matched:string[]}|null }
+ *                     contentExclude: {matched:string[]}|null,
+ *                     hasPolicyEvidence: boolean|null, requireValidPolicy: boolean }
  * @returns {{ verdict: 'ok'|'mismatch'|'skipped', mode: string, score: number|null, threshold: number|null, reason: string }}
  */
 export function decidePrecheck(p) {
@@ -126,6 +127,25 @@ export function decidePrecheck(p) {
     return {
       verdict: 'mismatch', mode, score: 0, threshold: 0,
       reason: `parola del contenuto da evitare trovata: "${p.contentExclude.matched[0]}"`,
+    }
+  }
+
+  // BLOCCANTE "polizza non valida" (solo informativo/quietanza): se il profilo
+  // va elaborato SOLO quando c'è una polizza vera (flag `requireValidPolicy`,
+  // default attivo) e il testo è giudicabile ma NON ha evidenza di frontespizio
+  // (numero polizza + importo strutturale) → il fascicolo è materiale non-valido
+  // (profilo informativo/DIP/quietanza da sola). Come le parole da evitare,
+  // scatta ANCHE con pre-check off: è una regola di validità del contenuto,
+  // non un metodo di pertinenza.
+  // Il blocco si attiva SOLO se `hasPolicyEvidence` è esplicitamente boolean:
+  // con undefined/null (chiamanti storici, o testo non giudicabile) il
+  // comportamento resta identico a prima (mai blocco, mai skipped extra).
+  if (typeof p?.hasPolicyEvidence === 'boolean' && p?.requireValidPolicy !== false && p?.hasProfile) {
+    if (p.hasPolicyEvidence === false) {
+      return {
+        verdict: 'mismatch', mode, score: 0, threshold: 0,
+        reason: 'cartella senza polizza valida: solo materiale informativo/quietanza, nessun frontespizio di polizza vera nel contenuto',
+      }
     }
   }
 
@@ -182,4 +202,41 @@ export function topContentTerms(normText, n = 5) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, n)
     .map(([t]) => t)
+}
+
+// ─── VALIDITÀ POLIZZA VERA (non solo materiale informativo/quietanza) ────────
+// Una cartella può contenere SOLO il profilo informativo/DIP o quietanze di
+// rinnovo, senza il frontespizio di una polizza reale. In quei casi l'estrazione
+// NON ha senso: i campi strutturali (numeri, massimali, premi) non esistono,
+// e il job produrrebbe valori da materiale non-valido. Qui si rileva la
+// PRESENZA di evidenza di "polizza vera" (markers tipici del frontespizio) e,
+// se manca E il flag lo richiede, il pre-check blocca con 'mismatch'.
+//
+// Regole TRASVERSALI: il rilevamento è per CONTENUTO (mai per nome file/tipo);
+// un guasto infra o un'ambiguità NON devono mai produrre blocco (→ 'skipped',
+// mai 'mismatch'); il flag `polizzaRequireValidPolicy` permette l'OPT-OUT.
+
+/** Default del flag "richiedi polizza vera" (attivo: blocca se manca). */
+export const REQUIRE_VALID_POLICY_DEFAULT = true
+
+// Marker di "frontespizio di polizza vera" nel testo NORMALIZZATO (minuscole,
+// senza punteggiatura): n° polizza alfanumerico, massimali con importi,
+// premi/imponibili con importi. Un documento informativo/DIP/quietanza quasi
+// mai li ha tutti insieme.
+const POLICY_NUM_RE = /(?:n[.:°]?\s*polizz|polizz\s*n[.:°]?|contraent|numero\s+polizz)/i
+const POLICY_AMOUNT_RE = /(?:massimal|franchig[ie]|premio|imponibil|impost|scopert|tasso\s+regolaz|indennit)/i
+
+/**
+ * Indica se il testo (normalizzato) mostra evidenza di una polizza VERA
+ * (frontespizio con almeno un numero di polizza e almeno un importo strutturale).
+ *
+ * @param {string} normText  testo normalizzato (vedi normalizeForPrecheck)
+ * @returns {boolean} true se pare esserci una polizza reale
+ */
+export function hasPolicyEvidence(normText) {
+  const t = String(normText || '')
+  if (t.length < 80) return false // troppo poco testo: non giudicabile → niente mismatch
+  const hasNum = POLICY_NUM_RE.test(t)
+  const hasAmount = POLICY_AMOUNT_RE.test(t)
+  return hasNum && hasAmount
 }

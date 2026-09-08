@@ -95,6 +95,11 @@ export interface WebSettings {
   // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
   // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Regola di validità "polizza vera": se attiva (default), un fascicolo che
+  // contiene SOLO materiale informativo/quietanza senza un frontespizio di
+  // polizza reale va in 'mismatch' (mai estrarre valori da documenti non-validi).
+  // OPT-OUT: polizzaRequireValidPolicy=false la disattiva.
+  polizzaRequireValidPolicy?: boolean
   // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
   // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):
   // non cambia il comportamento del motore. true = abilitata.
@@ -171,7 +176,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled', 'polizzaRequireValidPolicy'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -234,6 +239,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
+    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

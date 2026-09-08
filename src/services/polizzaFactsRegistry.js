@@ -230,6 +230,89 @@ export function detectOptionLikeText(text) {
   return OPTION_MARKER_RE.test(String(text || ''))
 }
 
+// ─── CHECKBOX / SELEZIONI (lettura, non solo rivelazione di "opzioni") ───────
+// C'è una classe di campi in cui il dato NON è scritto ma SPIUNTATO su una
+// tabella a checkbox (es. "Tipologia tutela legale": [x] Azienda, [ ] Studente,
+// ...). Le utility Opzioni esistenti trattano questi documenti come "scelte da
+// scartare" (vetoOptionSourceOnly). Qui invece serve il percorso ESPOSTO:
+// capire QUALE riga è spuntata (o, se più righe, TUTTE le spuntate) per leggere
+// il valore come dato reale. Funzioni PURE e TESTABILI (zero LLM).
+
+/** Glifi di una casella di selezione: spuntata / non spuntata. */
+export const CHECKBOX_CHECKED_RE = /(?:\[[xX✓✔]\]|☒|✓|✔|х\b)/u
+export const CHECKBOX_EMPTY_RE = /(?:\[[\s_]*\]|☐|○|◯)/u
+// Indica una checkbox/opzione nel TESTO (colonna "selezione" o riga di scelta).
+export const CHECKBOX_HINT_RE = /checkbox|casella|spunt|barrar|selezion|opzion|tipologia|categor|☐|☒|\[[ xX]?\]/iu
+// Isola il glifo all'INIZIO di una cella/riga (eventuale "X" o "☑" protagonisti).
+export const CHECKBOX_LEAD_RE = /^\s*(?:\[[xX✓✔\s_]+\]|☒|☐|✓|✔|[xXх])\s*/iu
+
+/**
+ * Classifica lo stato di selezione di una singola cella/riga di testo
+ * (tipicamente la PRIMA colonna di una tabella a checkbox).
+ *
+ * @param {string} cell  testo della cella (può contenere solo il glifo,
+ *                       o glifo + testo).
+ * @returns {'checked'|'unchecked'|'none'}
+ */
+export function classifyCheckboxState(cell) {
+  const c = String(cell || '').trim()
+  if (!c) return 'none'
+  if (CHECKBOX_CHECKED_RE.test(c)) return 'checked'
+  if (CHECKBOX_EMPTY_RE.test(c)) return 'unchecked'
+  // "X" isolata come prima parola (OCR delle caselle barrate a mano).
+  const first = c.split(/\s+/)[0] || ''
+  if (/^[xXх]$/.test(first) && c.split(/\s+/).length <= 2) return 'checked'
+  return 'none'
+}
+
+/**
+ * Estrae da una riga di testo spaziale la coppia {checked, value} quando la
+ * riga porta una checkbox.
+ *
+ * @param {string} line  riga della griglia spaziale (già con colonne/indentazione)
+ * @returns {{checked:boolean, value:string, raw:string}|null}
+ *          null se la riga NON ha una checkbox riconoscibile.
+ */
+export function detectCheckedRow(line) {
+  const l = String(line || '')
+  if (!CHECKBOX_HINT_RE.test(l) && !CHECKBOX_CHECKED_RE.test(l) && !CHECKBOX_EMPTY_RE.test(l)) return null
+  const m = l.match(CHECKBOX_LEAD_RE)
+  if (!m) return null
+  const state = classifyCheckboxState(m[0])
+  if (state === 'none') return null
+  const rest = l.slice(m[0].length).replace(/\s+/g, ' ').trim()
+  return { checked: state === 'checked', value: rest, raw: l }
+}
+
+/**
+ * Scansiona una pagina spaziale (o un array di righe) e restituisce i valori
+ * delle checkbox SPIUNTATE, nell'ordine in cui compaiono.
+ *
+ * Gestisce anche PIÙ checkbox sulla STESSA riga (tabella a colonne): la riga
+ * viene spezzata sui gap larghi (≥2 spazi, come la griglia spaziale) e ogni
+ * "cella" viene valutata singolarmente. Così "[x] Azienda    [ ] Studente"
+ * produce SOLO "Azienda".
+ *
+ * @param {string|string[]} page  testo spaziale (multi-riga) o array di righe
+ * @returns {Array<{value:string, row:number}>}  valori checked (non vuoti)
+ */
+export function detectCheckedValues(page) {
+  const lines = Array.isArray(page) ? page : String(page || '').split('\n')
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    for (const cell of lines[i].split(/ {2,}/)) {
+      const hit = detectCheckedRow(cell)
+      if (hit && hit.checked && hit.value) out.push({ value: hit.value, row: i + 1 })
+    }
+  }
+  return out
+}
+
+/** true se una DESCRIPTION di campo parla di checkbox/selezione multipla. */
+export function descriptionAsksCheckbox(description) {
+  return CHECKBOX_HINT_RE.test(String(description || ''))
+}
+
 /**
  * Vetta un candidato che per un campo STRUTTURALE (massimale/franchigia/scoperto/
  * tutela) porta un importo LARGO il cui UNICO diritto nel fascicolo è un documento
