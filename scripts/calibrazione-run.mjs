@@ -113,12 +113,17 @@ const docs = []
 for (const f of files) {
   const p = join(dir, f)
   if (!existsSync(p)) { console.warn(`  !! manca: ${f}`); continue }
-  const pages = await extractPages(p)
+  let pages = await extractPages(p)
   const flat = pages.map((pg) => collapseSpatial(pg)).join('\n')
   docs.push({ name: f, pages, text: flat })
   console.log(`  doc: ${f} — ${pages.length} pagine, ${flat.length} char`)
 }
 if (!docs.length) { console.error('Nessun documento utilizzabile.'); process.exit(2) }
+
+// OCR attivo solo se servono pagine (scan senza text layer): per i PDF con
+// testo leggibile l'OCR è uno spreco. I docs hanno `pages` (piatta) già
+// popolate; una pagina vuota = potrebbe essere scan → attiviamo Tesseract.
+const hasEmptyPage = docs.some((d) => (d.pages || []).some((p) => !String(p || '').trim()))
 
 const settings = {
   ollamaUrl,
@@ -127,7 +132,7 @@ const settings = {
   polizzaConstrainedJson: true,
   polizzaPerField: false,
   polizzaStagedCascade: false,
-  polizzaOcrEnabled: false,
+  polizzaOcrEnabled: hasEmptyPage,
   embeddingModel: 'bge-m3',
   polizzaBatchContext: ctx,
 }

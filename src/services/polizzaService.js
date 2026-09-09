@@ -1431,12 +1431,25 @@ async function ocrImageToText(base64DataUrl, lang = 'ita') {
     if (!_ocrWorker) {
       _ocrWorker = await createWorker(lang, undefined, tessLangOptions())
       // Migliora l'allineamento anche del testo piatto di fallback (data.text).
-      try { await _ocrWorker.setParameters({ preserve_interword_spaces: '1' }) } catch { /* parametro opzionale */ }
+      try { await _ocrWorker.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6' }) } catch { /* parametro opzionale */ }
     }
+    // Pre-processing dell'immagine (solo per scan): contrasto/upscale/sharpening
+    // PRIMA di Tesseract. Se il modulo non è disponibile torna l'originale.
+    const { preprocessImage } = await import('./ocrPreprocess.js')
+    const imageToOcr = await preprocessImage(base64DataUrl) || base64DataUrl
     // blocks: le COORDINATE parola escono dalla stessa chiamata (zero OCR in
     // più) e permettono di ricostruire la pagina come griglia a colonne — i
     // layout tabellari restano incolonnati invece di venire "srotolati".
-    const { data } = await _ocrWorker.recognize(base64DataUrl, {}, { text: true, blocks: true })
+    let data = await _ocrWorker.recognize(imageToOcr, {}, { text: true, blocks: true })
+    data = data?.data || data
+    // Fallback PSM: se con PSM 6 (un blocco) non esce testo (pagine
+    // multicolonna), riprovo col PSM 3 (automatico).
+    if (!data?.text || !data.text.trim()) {
+      try { await _ocrWorker.setParameters({ tessedit_pageseg_mode: '3' }) } catch { /* ok */ }
+      const retry = await _ocrWorker.recognize(imageToOcr, {}, { text: true, blocks: true })
+      data = retry?.data || retry
+      try { await _ocrWorker.setParameters({ tessedit_pageseg_mode: '6' }) } catch { /* ok */ }
+    }
     const spatial = buildSpatialPage(data?.blocks)
     if (spatial.trim()) return spatial
     return (data?.text || '').trim()
