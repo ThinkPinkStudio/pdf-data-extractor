@@ -1017,6 +1017,15 @@ export function isCompanyNameAsAgency(value) {
   return /\bs\.?\s*p\.?\s*a\b|\bs\.?\s*r\.?\s*l\b|societa|società|\bassicurazioni\b|\bcompagnia\b/i.test(String(value || ''))
 }
 
+// Nome di INTERMEDIARIO (broker/agenzia di brokeraggio) ≠ compagnia/contraente/
+// indirizzo. I frontespizi XL/DAS riportano "Blue Underwriting Agency srl" /
+// "…Underwriting Agency s.r.l." accanto ai soggetti; il modello piccolo la
+// attribuisce a compagnia, contraente o indirizzo. Regola: un candidato che
+// è SOLO il nome di un intermediario non è mai un dato anagrafico del contratto.
+export function isIntermediaryName(value) {
+  return /underwriting\s+agency|intermediar\w*|broker\w*|agenzia\s+di\s+brokeraggio/i.test(String(value || ''))
+}
+
 // P.IVA/CF che nel documento sorgente compare SOLO nel footer societario della
 // compagnia (Sede legale… Registro Imprese… Capitale Sociale… IVASS): è
 // l'identità dell'assicuratore, mai quella del contraente.
@@ -1069,6 +1078,33 @@ export function isInsurerFooterAmount(docText, value) {
     if (le === -1) le = text.length
     const row = text.slice(ls, le)
     if (!INSURER_FOOTER_RE.test(row)) return false
+  }
+  return found
+}
+
+// Indirizzo della COMPAGNIA (sede legale/direzione generale) ≠ indirizzo del
+// contraente. ATTENZIONE: questo fix è stato REVOCATO — la guardia risultava
+// troppo layout-specifica e causava regressioni sui frontespizi normali (il
+// modello finiva su un indirizzo di contatto AIG invece del contraente). Il
+// problema reale (LAMBRATE: indirizzo Verona dalla sede DAS) va risolto nella
+// SELEZIONE DEL FRONTESPIZIO, non con una guardia puntuale sull'indirizzo.
+// (Funzione mantenuta solo per documentazione; NON usata nel merge.)
+export function isInsurerAddress(docText, value) {
+  const text = String(docText || '')
+  const v = String(value || '').trim().toLowerCase()
+  if (!text || v.length < 5) return false
+  const compact = v.replace(/[^a-z0-9]+/g, '')
+  if (compact.length < 5) return false
+  // cerca il valore normalizzato (caratteri non alfanumerici variabili)
+  const re = new RegExp(compact.split('').map((c) => `[^a-z0-9]{0,2}?${c}`).join(''), 'ig')
+  let found = false
+  for (const m of text.matchAll(re)) {
+    found = true
+    const ls = text.lastIndexOf('\n', Math.max(0, m.index - 180)) + 1
+    let le = text.indexOf('\n', m.index + m[0].length + 60)
+    if (le === -1) le = text.length
+    const win = text.slice(ls, le).toLowerCase()
+    if (!/sede\s+(?:legale|e\s+direzione)|direzione\s+generale|capitale\s+sociale|registro\s+(?:delle\s+)?imprese|ivass|partita\s+iva|albo\s+imprese/i.test(win)) return false
   }
   return found
 }
@@ -1369,6 +1405,14 @@ export function validateCrossFields(best, fields, opts = {}) {
       const tot = parsePureAmount(entryValore(best, tTotale.id)) ?? looseAmount(entryValore(best, tTotale.id))
       const imp = parsePureAmount(entryValore(best, tImponibile.id)) ?? looseAmount(entryValore(best, tImponibile.id))
       const tax = parsePureAmount(entryValore(best, tImposta.id)) ?? looseAmount(entryValore(best, tImposta.id))
+      // GUARDIA DECISIVA: un IMPONIBILE non può essere ≥ del TOTALE/LORDO
+      // (il totale = imponibile + imposte). Se lo è, il modello ha preso il
+      // LORDO al posto dell'imponibile (righe adiacenti nel frontespizio):
+      // meglio svuotare che lasciare un valore chiaramente impossibile.
+      if (tot != null && imp != null && imp >= tot) {
+        dropField(best, tImponibile.id, notes,
+          `Coerenza premio: imponibile ${entryValore(best, tImponibile.id)} ≥ totale ${entryValore(best, tTotale.id)} → è il LORDO, non l'imponibile: svuotato (meglio vuoto che sbagliato)`)
+      }
       if (tot != null && imp != null && tax != null) {
         const sum = imp + tax
         const tol = Math.max(1, Math.abs(tot) * 0.02)

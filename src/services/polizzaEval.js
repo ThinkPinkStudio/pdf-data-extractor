@@ -16,6 +16,15 @@ import {
   parsePureAmount, looseAmount, normForMatch, validateCodiceFiscaleIva,
 } from './polizzaValidation.js'
 
+// Normalizza una label per il confronto label→campo (minuscole, senza accenti,
+// senza punteggiatura: "N° Polizza" == "n polizza"). Caso d'uso: il golden usa
+// le label, l'estrazione usa gli id del profilo.
+export function normLabel(label) {
+  return String(label || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
 /**
  * Fascicolo di riferimento (EULIP, 45 PDF).
  * Valori da CLAUDE.md — taratura, non un secondo prompt.
@@ -31,22 +40,26 @@ import {
 export const EULIP_EXPECTED = {
   id: 'eulip',
   label: 'Fascicolo EULIP (45 PDF)',
+  // Chiavi = LABEL dei campi (stabili e leggibili). Gli id dei campi ora sono
+  // UUID casuali: il golden NON può dipendere da loro. scoreExtraction risolve
+  // la label verso il campo estratti tramite `fieldDefs` (se passato) o
+  // direttamente se l'estrazione usa chiavi-label.
   fields: {
-    '1ec23911-3e7d-5549-b2e2-be3db9d06ee8': { value: '283618616',     mode: 'exact' },     // polizza_numero
-    '6f260040-ae1d-56d8-a185-1eb178e384fb': { value: '00151510344',   mode: 'vat' },       // codice_fiscale_iva
-    '4dc720d8-8237-5084-b288-fd32bd1d19c6': { value: '31/12/2024',    mode: 'date' },      // decorrenza
-    '22408456-185d-5803-b489-02af1a084911': { value: '31/12/2025',    mode: 'date' },      // scadenza
-    '94cbee3c-f83b-5b95-87b8-8b68d02d6d59': { value: '4.000.000,00',  mode: 'amount' },    // rct_massimale_sinistro
-    '37ab743b-316e-58a4-8fe4-3112bc6d2139': { value: '1.001,25',      mode: 'amount' },    // rct_imposta
-    '545374de-c000-5905-8c62-d36f9fdf7f43': { value: '5.501,25',      mode: 'amount' },    // rct_premio_totale
-    '4ffc5b95-9f28-551a-b587-12f4ea740b12': { value: 'ACQUI TERME',   mode: 'text' },      // agenzia
-    '28672974-6247-5654-a053-be29b408ffc1': {                                    // rct_parametro
+    'N° Polizza': { value: '283618616',     mode: 'exact' },
+    'P. IVA / Cod. Fiscale': { value: '00151510344',   mode: 'vat' },
+    'Decorrenza': { value: '31/12/2024',    mode: 'date' },
+    'Scadenza': { value: '31/12/2025',    mode: 'date' },
+    'Massimale per sinistro': { value: '4.000.000,00',  mode: 'amount' },
+    'Imposta': { value: '1.001,25',      mode: 'amount' },
+    'Premio totale': { value: '5.501,25',      mode: 'amount' },
+    'Agenzia': { value: 'ACQUI TERME',   mode: 'text' },
+    'Parametro regolazione': {                                    // rct_parametro
       value: 'retribuzioni',
       mode: 'contains',
       // Bug storico: il modello copiava l'intestazione di colonna "Premi".
       forbidden: ['Premi', 'Premio', 'Consuntivo', 'Preventivo'],
     },
-    '9517aacb-987f-55c8-8737-2df19980c55f': { value: '1.800.000',     mode: 'amount' },    // rct_importo_preventivo
+    'Importo preventivo parametro': { value: '1.800.000',     mode: 'amount' },
   },
 }
 
@@ -167,11 +180,21 @@ export function scoreExtraction(extracted, expected = EULIP_EXPECTED) {
   const perField = {}
   const counts = { exact: 0, normalized: 0, mismatch: 0, missing: 0, forbidden: 0 }
 
-  for (const [id, spec] of Object.entries(specs)) {
-    const cmp = compareField(spec, got[id])
-    perField[id] = {
+  // Mappa label → id campo (estrazioni moderne con chiavi UUID/c0): il golden
+  // usa LABEL stabili, l'estratto usa gli id del profilo.
+  const labelToId = new Map()
+  for (const f of Array.isArray(expected?.fieldDefs) ? expected.fieldDefs : []) {
+    if (f?.label) labelToId.set(normLabel(f.label), f.id)
+  }
+
+  for (const [key, spec] of Object.entries(specs)) {
+    const k = (key in got)
+      ? key
+      : (labelToId.get(normLabel(key)) && labelToId.get(normLabel(key)) in got ? labelToId.get(normLabel(key)) : key)
+    const cmp = compareField(spec, got[k])
+    perField[key] = {
       expected: spec.value,
-      actual: got[id] || '',
+      actual: got[k] || '',
       mode: spec.mode || 'text',
       ...cmp,
     }

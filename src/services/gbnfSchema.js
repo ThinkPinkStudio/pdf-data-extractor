@@ -165,7 +165,7 @@ export function buildJsonSchema(fields, shape = 'staged', opts = {}) {
     }
   }
   const properties = {}
-  for (const f of list) properties[f.id] = entrySchema(fieldValueKind(f))
+  for (const [i, f] of list.entries()) properties[`c${i}`] = entrySchema(fieldValueKind(f))
   return {
     $schema: 'https://json-schema.org/draft/07/schema#',
     type: 'object',
@@ -235,7 +235,7 @@ export function buildGbnfGrammar(fields, shape = 'staged', opts = {}) {
     const name = gbnfRuleName(f.id, i)
     const kind = fieldValueKind(f)
     // Escape minimo dell'id nel letterale JSON (gli id sono uuid o snake_case).
-    const lit = JSON.stringify(f.id)
+    const lit = JSON.stringify(`c${i}`)
     alts.push(`${name}_kv`)
     rules.push(`${name}_kv ::= ${lit} ws ":" ws ${name}_entry`)
     rules.push(gbnfEntryRule(name, kind))

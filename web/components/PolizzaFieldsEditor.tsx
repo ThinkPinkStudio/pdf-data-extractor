@@ -39,7 +39,10 @@ const FIELD_TYPE_OPTIONS: { value: string; key: string }[] = [
 ]
 
 function uid() {
-  return 'campo_' + Math.random().toString(36).slice(2, 9)
+  // UUID STABILE: mai rigenerato al salvataggio/import. L'id serve SOLO come
+  // identificatore del campo (persistito), NON entra nei prompt né guida
+  // l'estrazione (quella usa solo le descrizioni).
+  return crypto.randomUUID ? crypto.randomUUID() : 'campo_' + Math.random().toString(36).slice(2, 9)
 }
 
 export default function PolizzaFieldsEditor() {
@@ -137,7 +140,7 @@ export default function PolizzaFieldsEditor() {
   async function saveProfile() {
     if (!profileName.trim()) return
     const next = [...profiles, {
-      id: String(Date.now()), name: profileName.trim(), fields, promptExtra,
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: profileName.trim(), fields, promptExtra,
       matchKeywords: profileKeywords.trim(),
       matchExcludeKeywords: profileMatchExcludeKeywords.trim(),
       contentKeywords: profileContentKeywords.trim(),
@@ -191,7 +194,7 @@ export default function PolizzaFieldsEditor() {
     // Copia il profilo (campi + prompt + keywords) con un nome «X (copia)» e un id nuovo.
     const copy: Profile = {
       ...profile,
-      id: String(Date.now()),
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
       name: `${profile.name} (copia)`,
       fields: (profile.fields || []).map((f) => ({ ...f, cells: [...(f.cells || [])] })),
     }
@@ -219,7 +222,10 @@ export default function PolizzaFieldsEditor() {
     try {
       const parsed = JSON.parse(await file.text())
       const arr: Profile[] = Array.isArray(parsed) ? parsed : [parsed]
-      const stamped = arr.map((p, i) => ({ ...p, id: String(Date.now() + i) }))
+      // NON ristampare più gli id: si conservano quelli importati (se mancanti,
+      // si genera un UUID). L'id è un identificatore stabile, non una chiave di
+      // estrazione (mai nei prompt).
+      const stamped = arr.map((p, i) => ({ ...p, id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + i)) }))
       const next = [...profiles, ...stamped]
       setProfiles(next)
       // Applica l'ultimo profilo e PERSISTE campi+prompt insieme ai profili (come desktop),

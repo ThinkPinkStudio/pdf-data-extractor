@@ -2,25 +2,85 @@
   "id": "guffanti",
   "label": "Fascicolo GUFFANTI GROUP (Tutela Legale DAS)",
   "fields": {
-    "polizza_numero": { "value": "01469DAS00086", "mode": "exact" },
-    "compagnia": { "value": "DAS Difesa Automobilistica Sinistri", "mode": "contains" },
-    "contraente": { "value": "GUFFANTI GROUP & PARTNERS S.R.L.", "mode": "text" },
-    "codice_fiscale_iva": { "value": "06457990965", "mode": "vat" },
-    "indirizzo": { "value": "VIALE CATERINA DA FORLI", "mode": "contains" },
-    "decorrenza": { "value": "04/06/2025", "mode": "date" },
-    "scadenza": { "value": "04/06/2026", "mode": "date" },
-    "campo_ga0i6mu": { "value": "Annua", "mode": "contains" },
-    "attivita": { "value": "Studio associato", "mode": "contains" },
-    "rct_massimale_sinistro": { "value": "50.000,00", "mode": "amount" },
-    "rct_massimale_persona": { "value": "illimitato", "mode": "contains" },
-    "rcp_parametro": { "value": "Fatturato", "mode": "text" },
-    "rcp_importo_preventivo": { "value": "1.500.000,00", "mode": "amount" },
-    "campo_ypcasda": { "value": "Tutela Legale Pacchetto Base", "mode": "contains" },
-    "rcp_premio_imponibile": { "value": "1.270,10", "mode": "amount" },
-    "campo_9s9xh6e": { "value": "0,00", "mode": "amount" },
-    "campo_vwmu800": { "value": "0,00", "mode": "amount" },
-    "rcp_imposta": { "value": "269,90", "mode": "amount" },
-    "rcp_premio_totale": { "value": "1.540,00", "mode": "amount" },
-    "campo_j3byrdl": { "value": "Dichiarazioni inesatte e reticenze", "mode": "contains" }
+    "N° Polizza": {
+      "value": "01469DAS00086",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "DAS Difesa Automobilistica Sinistri",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "GUFFANTI GROUP & PARTNERS S.R.L.",
+      "mode": "text"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "06457990965",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "VIALE CATERINA DA FORLI",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "04/06/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "04/06/2026",
+      "mode": "date"
+    },
+    "Frazionamento": {
+      "value": "Annua",
+      "mode": "contains"
+    },
+    "Attività assicurata": {
+      "value": "Studio associato",
+      "mode": "contains"
+    },
+    "Massimale per sinistro tutela legale": {
+      "value": "50.000,00",
+      "mode": "amount"
+    },
+    "Massimale per anno tutela legale": {
+      "value": "illimitato",
+      "mode": "contains"
+    },
+    "Parametro regolazione ": {
+      "value": "Fatturato",
+      "mode": "text"
+    },
+    "Importo preventivo parametro regolazione": {
+      "value": "1.500.000,00",
+      "mode": "amount"
+    },
+    "Garanzie scelte/operanti": {
+      "value": "Tutela Legale Pacchetto Base",
+      "mode": "contains"
+    },
+    "Premio imponibile tutela legale": {
+      "value": "1.270,10",
+      "mode": "amount"
+    },
+    "Interessi di frazionamento": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Diritti": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Imposte": {
+      "value": "269,90",
+      "mode": "amount"
+    },
+    "Premio lordo totale tutela legale": {
+      "value": "1.540,00",
+      "mode": "amount"
+    },
+    "Tipologia tutela legale": {
+      "value": "Dichiarazioni inesatte e reticenze",
+      "mode": "contains"
+    }
   }
 }

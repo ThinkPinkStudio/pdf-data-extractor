@@ -35,7 +35,7 @@ import {
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
-  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerFooterPIva, isInsurerFooterAmount,
+  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isIntermediaryName, isInsurerFooterPIva, isInsurerFooterAmount,
   isOtherCoveragePremiumSource, hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
@@ -456,12 +456,12 @@ async function extractPolizzaWithProvider(settings, fields, contextText) {
 
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
 
-  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+  const jsonTemplate = '{\n' + fields.map((f, i) => `  "c${i}": null`).join(',\n') + '\n}'
 
-  // La DESCRIZIONE è la specifica di cosa estrarre: va sempre inviata al modello
-  // (l'id del campo è solo una chiave arbitraria)
+  // La DESCRIZIONE è la specifica di cosa estrarre: mai id/label nei prompt.
+  // Ogni campo è un indice (0,1,2…) e la risposta usa chiavi c0,c1,… allineate.
   const fieldGuide = fields
-    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '')}`)
+    .map((f, i) => `${i}. ${(f.description || '')}`)
     .join('\n')
 
   const systemPrompt =
@@ -494,7 +494,21 @@ ${jsonTemplate}`
   // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
   const raw = await callOllama(settings, systemPrompt, userPrompt)
 
-  return parseJsonResponse(raw)
+  const parsed = parseJsonResponse(raw)
+  // Le risposte usano chiavi di INDICE c0,c1,…: rimappa all'id del campo.
+  const out = {}
+  for (const [k, v] of Object.entries(parsed == null ? {} : parsed)) {
+    const cm = String(k).match(/^c(\d+)$/i)
+    const field = cm ? fields[parseInt(cm[1], 10)] : fieldsByIdGuess(fields, k)
+    if (!field) continue
+    out[field.id] = v
+  }
+  return out
+}
+
+function fieldsByIdGuess(fields, k) {
+  const f = fields.find((x) => x.id === k || (x.label && x.label.toLowerCase() === String(k).toLowerCase()))
+  return f
 }
 
 async function callOllama(settings, systemPrompt, userPrompt) {
@@ -617,10 +631,10 @@ export async function extractPolizzaFromImages(imageFiles, settings) {
 }
 
 async function callVisionProvider(settings, fields, pages) {
-  const jsonTemplate = '{\n' + fields.map(f => `  "${f.id}": null`).join(',\n') + '\n}'
+  const jsonTemplate = '{\n' + fields.map((f, i) => `  "c${i}": null`).join(',\n') + '\n}'
 
   const fieldGuide = fields
-    .map(f => `${f.id} — ${f.label}: ${(f.description || f.label || '')}`)
+    .map((f, i) => `${i}. ${(f.description || '')}`)
     .join('\n')
 
   const systemPrompt =
@@ -645,7 +659,16 @@ ${jsonTemplate}`
   // SOLO Ollama: il provider cloud è stato rimosso dal prodotto.
   const raw = await callOllamaVision(settings, systemPrompt, userPrompt, pages)
 
-  return parseJsonResponse(raw)
+  const parsed = parseJsonResponse(raw)
+  // Rimappa chiavi di indice c0,c1,… → id campo (il chiamante usa id come chiave).
+  const out = {}
+  for (const [k, v] of Object.entries(parsed == null ? {} : parsed)) {
+    const cm = String(k).match(/^c(\d+)$/i)
+    const field = cm ? fields[parseInt(cm[1], 10)] : fields.find((x) => x.id === k)
+    if (!field) continue
+    out[field.id] = v
+  }
+  return out
 }
 
 async function callOllamaVision(settings, systemPrompt, userPrompt, pages) {
@@ -883,11 +906,31 @@ function sanitizeFieldValue(field, rawValue) {
  */
 // parsePureAmount: importata da polizzaValidation.js.
 
-function mergeRollingState(state, updated, fieldsById = {}, docDate = null, source = null) {
+function mergeRollingState(state, updated, fieldsById = {}, docDate = null, source = null, fieldOrder = null) {
   if (!updated || typeof updated !== 'object' || Array.isArray(updated)) return state
 
   const merged = { ...state }
-  for (const [key, rawEntry] of Object.entries(updated)) {
+  // Risolvi chiave del modello -> id campo. Le risposte moderne usano chiavi di
+  // INDICE `c{N}` allineate all'ordine del prompt (mai id/label nel testo):
+  // il parsing mappa c{N} → fieldOrder[N]. Fallback ai modi storici (id esatto,
+  // label) per compatibilità con risposte salvate.
+  const resolveKey = (key) => {
+    if (key in merged) return key
+    if (fieldOrder && typeof key === 'string' && /^c\d+$/i.test(key)) {
+      const idx = parseInt(key.slice(1), 10)
+      return fieldOrder[idx]
+    }
+    // label → id (risposte storiche che usavano la label come chiave)
+    if (typeof key === 'string') {
+      for (const [fid, fdef] of Object.entries(fieldsById)) {
+        if (fdef?.label && String(fdef.label).trim().toLowerCase() === key.trim().toLowerCase()) return fid
+      }
+    }
+    return key
+  }
+
+  for (const [rawKey, rawEntry] of Object.entries(updated)) {
+    const key = resolveKey(rawKey)
     if (!(key in merged)) continue
 
     let entry = rawEntry
@@ -962,21 +1005,27 @@ function mergeRollingState(state, updated, fieldsById = {}, docDate = null, sour
 }
 
 /**
- * Costruisce l'elenco campi per il prompt rolling: id, label, DESCRIZIONE
- * (è la descrizione a definire COSA estrarre — l'id è solo una chiave) e
- * valore attuale. Una riga per campo.
+ * Costruisce l'elenco campi per il prompt rolling: SOLO la DESCRIZIONE (mai
+ * id, mai label: la label è cosa del cliente, non guida; l'id è un UUID casuale).
+ * Ogni riga è numerata con un INDICE (0,1,2…) e la risposta del modello usa
+ * chiavi `c0,c1,…` allineate all'ordine di questo elenco — il parsing mappa
+ * `c{N}` → campo per posizione, nessuna chiave semantica nel prompt.
  */
+function rollingFieldOrder(fields) {
+  return (fields || []).map((f) => f.id)
+}
+
 function buildRollingFieldLines(fields, state) {
-  return fields.map(f => {
-    // Nessun troncamento: la descrizione è la guida principale per il modello,
-    // l'utente deve poterci scrivere quanto serve per essere preciso.
-    const desc = (f.description || f.label || f.id)
+  return (fields || []).map((f, i) => {
+    // Nessun troncamento: la descrizione è l'UNICA guida per il modello.
+    const desc = String(f.description || '').trim()
     const entry = state[f.id]
     const effDate = entry?.data_validita || entry?.fonte_data
     const current = entry?.valore != null && entry.valore !== ''
       ? `[attuale: "${entry.valore}"${effDate ? ` — validità ${effDate}` : ''}]`
-      : '[DA ESTRARRE]'
-    return `- ${f.id} — ${f.label}: ${desc} ${current}`
+      : ''
+    const tag = current ? ` ${current}` : ''
+    return `${i}. ${desc}${tag}`
   }).join('\n')
 }
 
@@ -1303,15 +1352,15 @@ async function callOllamaVisionRolling(settings, systemPrompt, userPrompt, base6
 
 /**
  * Aggiorna lo stato rolling con un batch di testo (fino a 3 pagine + coda precedente).
- * Il prompt include la GUIDA dei campi (label + descrizione): è la descrizione a
- * definire cosa estrarre, l'id da solo non basta.
+ * Il prompt include la GUIDA dei campi: SOLO le descrizioni numerate (0,1,2…).
+ * La risposta usa chiavi `c0,c1,…` allineate all'ordine di questa guida.
  * Lancia un errore classificato (vedi classifyLlmError) se la chiamata LLM fallisce:
  * è il chiamante a decidere se proseguire o interrompere l'estrazione.
  */
 async function callRollingLLMText(settings, state, batchText, fields, docDate = null, source = null) {
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   const userPrompt =
-`CAMPI (id — nome: descrizione [valore attuale]):
+`CAMPI (0. descrizione — ogni campo ha un indice; rispondi con chiavi c0, c1, ….):
 ${buildRollingFieldLines(fields, state)}
 ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}${docDate ? `\nDATA DOCUMENTO: ${docDate}\n` : ''}
 TESTO PAGINE:
@@ -1330,7 +1379,7 @@ Rispondi SOLO con i campi da aggiornare (oggetto JSON, {} se nessuno):`
 
   const updated = parseJsonResponse(raw)
   const fieldsById = Object.fromEntries(fields.map(f => [f.id, f]))
-  return mergeRollingState(state, updated, fieldsById, docDate, source)
+  return mergeRollingState(state, updated, fieldsById, docDate, source, rollingFieldOrder(fields))
 }
 
 /**
@@ -1460,7 +1509,7 @@ async function callRollingLLMVision(settings, state, imageBase64, pageNum, total
     ? `\nTESTO OCR DELLA PAGINA (FONTE PRIMARIA — ogni valore che riporti DEVE comparire qui dentro; l'immagine serve solo per capire il layout/tabelle):\n"""\n${ocrText.slice(0, 8000)}\n"""\n`
     : ''
   const userPrompt =
-`CAMPI (id — nome: descrizione [valore attuale]):
+`CAMPI (0. descrizione — ogni campo ha un indice; rispondi con chiavi c0, c1, ….):
 ${buildRollingFieldLines(fields, state)}
 ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima, prevalgono in caso di dubbio):\n${promptExtra}\n` : ''}${ocrBlock}
 Pagina ${pageNum}/${totalPages}
@@ -1494,7 +1543,7 @@ Leggi il contenuto (TESTO OCR + immagine) e rispondi SOLO con i campi da aggiorn
     return verList.some(v => v === id || v === lbl || (v.length >= 3 && lbl.includes(v)))
   }) : []
   const flaggedHit = flaggedFields.some(f => hasVal(delta1[f.id]))
-  if (!flaggedHit) return mergeRollingState(state, delta1, fieldsById, docDate, source)
+  if (!flaggedHit) return mergeRollingState(state, delta1, fieldsById, docDate, source, rollingFieldOrder(fields))
 
   // Fase di verifica PROTETTA: qualunque errore qui → si ricade sul risultato di
   // pass 1 (l'estrazione non si rompe mai).
@@ -1517,7 +1566,7 @@ Leggi il contenuto (TESTO OCR + immagine) e rispondi SOLO con i campi da aggiorn
     console.warn('[verifica mirata] fallita, uso il risultato della prima passata:', e.message)
     updated = delta1
   }
-  return mergeRollingState(state, updated, fieldsById, docDate, source)
+  return mergeRollingState(state, updated, fieldsById, docDate, source, rollingFieldOrder(fields))
 }
 
 /**
@@ -1688,9 +1737,9 @@ const WHOLE_DOSSIER_SYSTEM =
   `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
   'FORMATO: un solo oggetto JSON\n' +
-  '{"id_campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}\n' +
-  'dove "data_validita" è la data (emissione/decorrenza/periodo) del documento da cui\n' +
-  'hai preso il valore, se presente nel testo. Zero testo extra, zero markdown.'
+  '{"c0": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}, "c1": {...}, ...}\n' +
+  'Le chiavi c0, c1, … seguono l\'ORDINE degli indici dell\'elenco campi qui sopra. "data_validita" è la data\n' +
+  '(emissione/decorrenza/periodo) del documento da cui hai preso il valore, se presente nel testo. Zero testo extra, zero markdown.'
 
 // Campi STRUTTURALI: definiti dalla polizza base/appendici/condizioni (massimali,
 // franchigie, scoperti, attività, prodotti, qualifica, garanzie). Una quietanza o
@@ -1854,7 +1903,12 @@ async function extractWholeDossierOllamaBatched(fullText, settings, activeFields
     let discarded = 0
     let evidenceDiscarded = 0
     for (const [k, e] of Object.entries(parsed || {})) {
-      const field = fieldsById[k] || fieldsById[labelsById[k]]
+      let field = fieldsById[k]
+      if (!field && /^c\d+$/i.test(k)) {
+        const idx = parseInt(k.slice(1), 10)
+        field = activeFields[idx]
+      }
+      if (!field) field = fieldsById[labelsById[k]]
       if (!field) continue
       const val = (e && typeof e === 'object') ? e.valore : e
       const cleaned = sanitizeFieldValue(field, val)
@@ -2316,8 +2370,8 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
     const userPrompt = (grounding && picked.length)
       ? recencyPrompt(f, picked, docMeta, kind)
       :
-`CAMPO: ${f.label}
-DESCRIZIONE: ${stripFieldExamples(f.description || f.label || f.id)}
+`CAMPO DA ESTRARRE:
+DESCRIZIONE: ${stripFieldExamples(f.description || '')}
 
 ESTRATTI CANDIDATI (ordinati dal più recente al più vecchio):
 ${(picked.length ? picked : allOrdered).map((c) =>
@@ -2624,7 +2678,8 @@ function stagedSystemPrompt(kind, checkboxFields = []) {
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
     `${KNOWN_TRAPS_SYSTEM_TEXT}` +
     'FORMATO: un solo oggetto JSON\n' +
-    '{"id_campo": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}}\n' +
+    '{"c0": {"valore":"...", "documento":"nome file", "data_validita":"GG/MM/AAAA o null", "evidenza":"testo esatto copiato"}, "c1": {...}, ...}\n' +
+    'Le chiavi c0, c1, … seguono l\'ORDINE degli indici dell\'elenco campi qui sopra.\n' +
     'Zero testo extra, zero markdown.'
   )
 }
@@ -2658,7 +2713,7 @@ const STAGED_RECOVERY_SYSTEM =
   '6. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   `${NATURA_BLIND_RULES}` +
   `${KNOWN_TRAPS_SYSTEM_TEXT}` +
-  'FORMATO: un solo oggetto JSON, con chiavi = label o id dei campi richiesti: {"<chiave>": {"valore":"…"|null, "evidenza":"…"}}.\n' +
+  'FORMATO: un solo oggetto JSON, con chiavi = gli INDICI dei campi richiesti (c0, c1, …): {"c0": {"valore":"…"|null, "evidenza":"…"}}. Le chiavi c0, c1, … seguono l\'ordine dell\'elenco campi.\n' +
   'Zero testo extra, zero markdown.'
 
 // Stadio B a CASCATA: un documento alla volta, dal più recente al più vecchio,
@@ -2678,7 +2733,7 @@ const STAGED_CASCADE_SYSTEM =
   '7. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
   '8. Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una FRASE, MAI un numero/importo.\n' +
   `${NATURA_BLIND_RULES}` +
-  'FORMATO: un solo oggetto JSON {"id_campo": {"valore":"…"|null, "evidenza":"…"}}.\n' +
+  'FORMATO: un solo oggetto JSON con chiavi = gli INDICI dei campi (c0, c1, …): {"c0": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
 /**
@@ -2736,9 +2791,23 @@ function matchRealDoc(analyzed, docName) {
  */
 async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
-  // Il prompt (recupero mirato) può rispondere con la LABEL del campo invece
-  // dell'id: riconvertiamo label→id. La label è il nome leggibile dal profilo.
+  // Il prompt può rispondere con chiavi di INDICE `c{N}` (allineate all'ordine
+  // di groupFields) — è il formato moderno, senza id/label nel prompt.
+  // Fallback storici: label (vecchie risposte) e fuzzy su id.
   const byLabel = Object.fromEntries(groupFields.map((f) => [String(f.label || '').trim().toLowerCase(), f.id]))
+  const resolveKey = (k0) => {
+    if (byId[k0]) return k0
+    if (typeof k0 === 'string') {
+      const cm = k0.match(/^c(\d+)$/i)
+      if (cm) {
+        const field = groupFields[parseInt(cm[1], 10)]
+        if (field) return field.id
+      }
+      const lbl = byLabel[k0.trim().toLowerCase()]
+      if (lbl) return lbl
+    }
+    return k0
+  }
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
   // scartato e con quale valore.
@@ -2747,15 +2816,12 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
   }
   let accepted = 0
   for (const [k0, e] of Object.entries(parsed || {})) {
-    // Chiave storpiata dal modello (visto in produzione: "311ac411-…" per il
-    // campo "311ac415-…"): i modelli piccoli ricopiano male gli id lunghi.
-    // Fuzzy SOLO se univoco e se l'id vero non è già presente ESATTO nella
-    // risposta (altrimenti sarebbe un duplicato, non un refuso).
-    const k = byId[k0]
-      ? k0
-      : (byLabel[String(k0).trim().toLowerCase()]
-        ? byLabel[String(k0).trim().toLowerCase()]
-        : (matchFieldKey(k0, Object.keys(byId).filter((id) => !(id in (parsed || {})))) || k0))
+    // Chiave risolta: `c{N}` (ordine del prompt) → id; altrimenti id esatto,
+    // poi label, poi fuzzy sull'id (solo per risposte storiche con id lunghi).
+    const resolved = resolveKey(k0)
+    const k = resolved !== k0
+      ? resolved
+      : (matchFieldKey(k0, Object.keys(byId).filter((id) => !(id in (parsed || {})))) || k0)
     const field = byId[k]
     if (!field) { counters.unknown++; continue }
     if (k !== k0) note(k, 'chiave-corretta', k0)
@@ -2779,6 +2845,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // Il confine condiziona SOLO i campi che parlano di "attività" come parola.
     if (/\battivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
     if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
+    // INTERMEDIARIO ≠ compagnia/contraente/indirizzo: il broker/underwriting
+    // agency è un soggetto distinto. Non è mai un dato anagrafico del contratto.
+    if (/compagnia|contraente|indirizzo/i.test(fieldText) && isIntermediaryName(cleaned)) { counters.guardrail++; note(k, 'guardrail:intermediario', cleaned); continue }
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
@@ -2968,7 +3037,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     ? analyzed.filter((d) => d.type === 'polizza')
     : analyzed.filter((d) => !isPeriodicDocName(d.name))).sort(byStagedRecency)
   const seedNotes = []
-  if ('1ec23911-3e7d-5549-b2e2-be3db9d06ee8' in fieldsById) {
+  // Campo "N° Polizza" per RUOLO SEMANTICO (label/descrizione), mai per UUID
+  // (gli id campo ora sono UUID casuali stabili, non chiavi di estrazione).
+  const numFieldId = activeFields.find((f) => /n[°º]?\s*\.?\s*polizz|numero\s+polizza|polizza\s*n[°º.]?/i.test(`${f.label || ''} ${f.description || ''}`))?.id
+    || (('1ec23911-3e7d-5549-b2e2-be3db9d06ee8' in fieldsById) ? '1ec23911-3e7d-5549-b2e2-be3db9d06ee8' : null)
+  if (numFieldId) {
     const numCount = new Map()
     for (const d of basePool) {
       const rx = extractFieldsWithRegex(d.text)
@@ -2982,7 +3055,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const [num, info] = [...numCount.entries()].sort((a, b) => b[1].n - a[1].n)[0]
       // Fonte cercata PRIMA nel documento del seed (mai attribuzioni ad altri file)
       const src = findStagedSource(analyzed, null, num, new Set([info.doc.name]))
-      best.polizza_numero = { valore: num, effDate: info.doc.dateStr, docType: info.doc.type, appendixOrd: info.doc.appendixOrd, docPos: info.doc.pos, file: src?.file || info.doc.name, page: src?.page ?? '' }
+      best[numFieldId] = { valore: num, effDate: info.doc.dateStr, docType: info.doc.type, appendixOrd: info.doc.appendixOrd, docPos: info.doc.pos, file: src?.file || info.doc.name, page: src?.page ?? '' }
       seedNotes.push(`polizza_numero="${num}" (in ${info.n} documento/i base)`)
     }
   }
@@ -3578,10 +3651,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (!missingHere.length) { if (doc.type === 'polizza') polizzaVisited = true; continue }
 
     const fieldLines = missingHere
-      .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+      .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
       .join('\n')
     const docHeader = `DOCUMENTO ANALIZZATO: "${doc.name}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
-    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"id_campo": {"valore":"...","evidenza":"testo esatto copiato"}}, e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + buildPrompt('').length) + 3000 + 512
@@ -3672,10 +3745,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // fieldLines COMPLETO solo per stimare la riserva di budget; i campi chiesti
     // davvero a ogni batch sono quelli ELEGGIBILI per affinità semantica.
     plan.fieldLines = groupFields
-      .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+      .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
       .join('\n')
     plan.system = stagedSystemPrompt(kind, groupFields.filter((f) => descriptionAsksCheckbox(f.description || '')).map((f) => f.id))
-    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (id — nome: descrizione):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, … — SOLO descrizioni):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
     // Budget di TESTO per batch: contesto del modello (num_ctx) meno guida campi
     // + system ESPRESSO IN TOKEN, con un MARGINE di sicurezza (12% + quota fissa)
     // perché un budget a filo del limite fa troncare il prompt in silenzio dal
@@ -3746,7 +3819,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         continue
       }
       const batchFieldLines = batchFields
-        .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+        .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
         .join('\n')
 
       // num_ctx SEMPRE al tetto del batch: allocare meno per "risparmiare" rischia
@@ -3964,14 +4037,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         diag.push(`Recupero [${b.kind}] campi ${b.fields.map((f) => f.id).join(', ')} — pagine inviate: ${sentPages.join(', ')}${usedNames.size > sentPages.length ? ', …' : ''}`)
 
         const fieldLines = b.fields
-          .map((f) => `- ${f.id} — ${f.label}: ${stripFieldExamples(f.description || f.label || f.id) || f.label || f.id}`)
+          .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
           .join('\n')
         // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
         // Recupero a UN campo per chiamata: si chiede ATTIVAMENTE il valore (il
         // comando "metti null se non c'è" troppo forte faceva rispondere null anche
         // quando l'evidenza era sotto gli occhi — visto su massimale e premi).
-        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE:\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci un JSON la cui CHIAVE è l'id ESATTO del campo scritto sopra (es. "rcp_massimale_sinistro"), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {id_campo: {"valore": null}}. Usa esattamente gli id indicati sopra come chiavi del JSON.
+        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.
 ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
@@ -4081,7 +4154,7 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
   // (decorrenza/effetto/inizio copertura) di tutti i documenti; la scadenza è
   // la data di FINE più recente (scadenza/periodo). MONOTONO: interviene SOLO
   // se c'è un'etichetta esplicita che riallinea a prima della rata corrente.
-  if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById || '22408456-185d-5803-b489-02af1a084911' in fieldsById) {
+  if (decFieldId || scaFieldId) {
     let minDec = null
     let maxSca = null
     for (const d of analyzed) {
@@ -4092,23 +4165,23 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
       const perFine = parseLastDateFromContextLine(d.text, /PERIODO\b[^\n]{0,140}/i)
       if (perFine && (dateStrToTs(perFine) ?? -Infinity) > (dateStrToTs(maxSca) ?? -Infinity)) maxSca = perFine
     }
-    if ('4dc720d8-8237-5084-b288-fd32bd1d19c6' in fieldsById && minDec) {
+    if (decFieldId && minDec) {
       const norm = normalizeDateValue(minDec)
-      const cur = best.decorrenza?.valore
+      const cur = best[decFieldId]?.valore
       const curTs = cur ? dateStrToTs(cur) : null
       if (norm && norm !== cur && (curTs == null || (dateStrToTs(norm) ?? 0) < curTs)) {
-        best.decorrenza = {
+        best[decFieldId] = {
           valore: norm, effDate: norm, docType: null, appendixOrd: null, docPos: null,
           file: 'documenti', page: '', affinity: 1, lex: 1, deterministic: true,
         }
         diag.push(`Regola 8 (decorrenza): ${cur} → ${norm} (decorrenza originaria più antica, non la rata corrente)`)
       }
     }
-    if ('22408456-185d-5803-b489-02af1a084911' in fieldsById && maxSca) {
+    if (scaFieldId && maxSca) {
       const norm = normalizeDateValue(maxSca)
-      const cur = best.scadenza?.valore
+      const cur = best[scaFieldId]?.valore
       if (norm && norm !== cur) {
-        best.scadenza = {
+        best[scaFieldId] = {
           valore: norm, effDate: norm, docType: null, appendixOrd: null, docPos: null,
           file: 'documenti', page: '', affinity: 1, lex: 1, deterministic: true,
         }
@@ -4287,22 +4360,20 @@ export async function extractPolizzaFromFullText(fullText, settings, onProgress 
   const activeFields = configuredFields.filter(f => f.enabled !== false)
   // Ollama (modelli piccoli): descrizioni SENZA esempi — il modello li copierebbe
   // nel risultato invece di leggere i documenti.
-  const descFor = (f) => stripFieldExamples(f.description || f.label || f.id) || f.label || f.id
-  // La chiave JSON di ritorno è l'id del campo, ma nel TESTO del prompt l'id
-  // NON serve (i modelli piccoli lo ricopiano male): si usano label+descrizione.
-  const fieldLines = activeFields.map(f => `- ${f.label}: ${descFor(f)}`).join('\n')
+  const descFor = (f) => stripFieldExamples(f.description || '') || ''
+  // Il prompt NON contiene id/label: SOLO descrizioni numerate (0,1,2…), e la
+  // risposta usa chiavi `c0,c1,…` allineate all'ordine degli activeFields.
+  const fieldLines = activeFields.map((f, i) => `${i}. ${descFor(f)}`).join('\n')
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   // Riusato anche dal path a batch: stesso prompt, testo diverso per chiamata.
-  // jsonKeys mappa label→id: il modello risponde con la LABEL, noi riconvertiamo.
-  const jsonKeys = Object.fromEntries(activeFields.map(f => [f.label, f.id]))
   const buildUserPrompt = (text) =>
-`CAMPI DA ESTRARRE (nome — descrizione):
+`CAMPI DA ESTRARRE (ogni campo è un indice: 0,1,2…; rispondi con chiavi c0, c1, …):
 ${fieldLines}
 ${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}
 TESTO DEI DOCUMENTI DEL FASCICOLO:
 ${text}
 
-Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME del campo, NON reinventare nomi; se un campo non lo trovi nel testo, OMETTILO — non inventare valori). Formato {"nome campo": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}.`
+Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave c0, c1, … nell'ordine degli indici qui sopra). Formato {"c0": {"valore": "...", "documento": "nome file", "data_validita": "GG/MM/AAAA o null", "evidenza": "testo esatto copiato dal documento"}}. Se un campo non lo trovi, OMETTILO — non inventare valori.`
   const userPrompt = buildUserPrompt(fullText)
   // Diagnostica leggibile della chiamata (ritornata al chiamante e mostrata nel
   // log "Salva diagnostica"): con "0 campi estratti" deve essere possibile capire
@@ -4371,9 +4442,14 @@ Restituisci UN SOLO oggetto JSON con i campi che trovi (usa come chiave il NOME 
   const unknownKeys = [], discardedKeys = [], guardrailKeys = [], evidenceKeys = []
   const strictEvidence = true // solo Ollama: importi senza evidenza = inventati
   for (const [k, e] of Object.entries(parsed || {})) {
-    // Il prompt chiede di rispondere con la LABEL: riconvertiamo label→id.
-    // Fallback: se la chiave è già l'id, la usiamo direttamente.
-    const field = fieldsById[k] || fieldsById[labelsById[k]]
+    // Risoluzione chiave → campo: `c{N}` (indice del prompt, formato moderno),
+    // poi id esatto, poi label (formato storico).
+    let field = fieldsById[k]
+    if (!field && /^c\d+$/i.test(k)) {
+      const idx = parseInt(k.slice(1), 10)
+      field = activeFields[idx]
+    }
+    if (!field) field = fieldsById[labelsById[k]]
     if (!field) { unknownKeys.push(k); continue }
     const val = (e && typeof e === 'object') ? e.valore : e
     const cleaned = sanitizeFieldValue(field, val)

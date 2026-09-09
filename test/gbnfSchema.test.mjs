@@ -86,15 +86,16 @@ test('buildJsonSchema staged: pattern sui campi vincolati, testo libero altrove'
   const s = buildJsonSchema(fields, 'staged')
   assert.equal(s.type, 'object')
   assert.equal(s.additionalProperties, false)
-  assert.ok(s.properties.decorrenza)
-  const decVal = s.properties.decorrenza.properties.valore.anyOf[0]
+  // Le proprietà hanno chiavi di INDICE c0,c1,… (mai l'id nei prompt)
+  assert.ok(s.properties.c1) // decorrenza (indice 1)
+  const decVal = s.properties.c1.properties.valore.anyOf[0]
   assert.equal(decVal.pattern, VALUE_PATTERNS.date)
-  const amtVal = s.properties.rct_massimale_sinistro.properties.valore.anyOf[0]
+  const amtVal = s.properties.c3.properties.valore.anyOf[0] // rct_massimale_sinistro
   assert.equal(amtVal.pattern, VALUE_PATTERNS.amount)
-  const vatVal = s.properties.codice_fiscale_iva.properties.valore.anyOf[0]
+  const vatVal = s.properties.c2.properties.valore.anyOf[0] // codice_fiscale_iva
   assert.equal(vatVal.pattern, VALUE_PATTERNS.vat)
-  // attività: stringa libera, niente pattern
-  const actVal = s.properties.attivita.properties.valore.anyOf[0]
+  // attività (indice 5): stringa libera, niente pattern
+  const actVal = s.properties.c5.properties.valore.anyOf[0]
   assert.equal(actVal.pattern, undefined)
   assert.equal(actVal.type, 'string')
 })
@@ -136,11 +137,11 @@ test('ollamaFormatFor: con grounding per-field produce schema con source', () =>
   assert.match(g, /\\"doc\\"/)
 })
 
-test('buildGbnfGrammar staged: contiene i vincoli e gli id campo', () => {
+test('buildGbnfGrammar staged: contiene i vincoli e le chiavi di indice c{N}', () => {
   const g = buildGbnfGrammar(fields, 'staged')
   assert.match(g, /^root ::=/)
-  assert.match(g, /"polizza_numero"/)
-  assert.match(g, /"decorrenza"/)
+  assert.match(g, /"c0"/) // polizza_numero (indice 0)
+  assert.match(g, /"c1"/) // decorrenza
   assert.match(g, /date-body ::=/)
   assert.match(g, /amount ::=/)
   assert.match(g, /vat ::=/)
