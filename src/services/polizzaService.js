@@ -35,7 +35,7 @@ import {
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
-  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isIntermediaryName, isInsurerFooterPIva, isInsurerFooterAmount,
+  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
   isOtherCoveragePremiumSource, hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
@@ -2630,6 +2630,31 @@ export function buildGroupBatches(docList, budgetChars) {
   return batches
 }
 
+// Batch dedicato al FRONTESPIZIO (prima pagina con riepilogo polizza/premi).
+// Riconosce il frontespizio dai marker che NEI FRONTESPIZI AIG/DAS compaiono
+// insieme: "Polizza Nr/N° Polizza", "DATI ANAGRAFICI E CONTRATTUALI",
+// "GARANZIE PRESCELTE/riepilogo premi" ecc. TIPO-BLIND: sono segnali di layout,
+// non di fascia di polizza. Ritorna un batch { text } con la pagina marcata
+// "[FRONTESPIZIO …]" se trovata, altrimenti null (nessun frontespizio chiaro).
+function frontespizioFirstBatch(docList, budgetChars) {
+  const FRONT_MARKERS = /polizza\s+nr|n[°º.]?\s*polizza|dati\s+anagrafici\s+e\s+contrattuali|garanzie\s+prescelte|riepilogo\s+premio|premio\s+annuo|premio\s+totale/i
+  for (const d of Array.isArray(docList) ? docList : []) {
+    const pages = (d.spatialPages?.length === d.pages?.length ? d.spatialPages : d.pages) || []
+    for (let p = 0; p < Math.min(pages.length, 4); p++) {
+      const t = String(pages[p] || '').trim()
+      if (!t) continue
+      if (!FRONT_MARKERS.test(t)) continue
+      // deve avere almeno un importo plausibile (premi/massimali) per essere un
+      // vero frontespizio di riepilogo, e NON essere una pagina di condizioni.
+      if (/\b(?:€|eur(?:o)?)[ \t]*[\d.]{3,}|[\d.]{3,}[ \t]*€|\bpremio\b.*[\d.,]{4,}/i.test(t) === false) continue
+      const block = `[FRONTESPIZIO: ${d.name} · pag. ${p + 1}]\n${t}`
+      const cost = usefulLength(block)
+      return { text: cost > budgetChars ? block.slice(0, budgetChars) : block, usedNames: new Set([d.name]) }
+    }
+  }
+  return null
+}
+
 // Prompt di sistema condiviso dei passaggi per gruppo + note specifiche.
 const STAGED_GROUP_NOTES = {
   strutturali:
@@ -2848,6 +2873,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // INTERMEDIARIO ≠ compagnia/contraente/indirizzo: il broker/underwriting
     // agency è un soggetto distinto. Non è mai un dato anagrafico del contratto.
     if (/compagnia|contraente|indirizzo/i.test(fieldText) && isIntermediaryName(cleaned)) { counters.guardrail++; note(k, 'guardrail:intermediario', cleaned); continue }
+    // N° POLIZZA mai un nome file/header di batch: il modello copia i marcatori
+    // "[file · pag. N]" come valore (visto su LAMBRATE). Meglio vuoto.
+    if (/polizz|numero\s+polizza|n[°º.]?\s*polizza/i.test(fieldText) && isFileNameLike(cleaned)) { counters.guardrail++; note(k, 'guardrail:polizza=nome-file', cleaned); continue }
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
@@ -3764,6 +3792,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     })
     plan.budgetChars = budgetChars
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
+    // ── FRONTESPIZIO SEPARATO in testa (gruppi strutturali/economici) ────────
+    // Sui PDF multi-sezione (frontespizio + DIP/condizioni, es. LAMBRATE/guida
+    // 18 pagine) il modello pesca i premi/massimali dal corpo ("di 21.000 euro
+    // per sinistro" del DIP) invece della tabella premi del frontespizio (p1),
+    // perché le pagine del corpo arrivano mescolate nei batch. Cura: per i
+    // gruppi ECONOMICI e STRUTTURALI, se il documento più grande ha una prima
+    // pagina che sembra un frontespizio (contiene n° polizza DAS/riepilogo
+    // premi), si prepende UN batch dedicato con SOLO quella pagina marcata
+    // "[FRONTESPIZIO …]", così il modello la vede isolata subito.
+    if (kind === 'economici' || kind === 'strutturali') {
+      const front = frontespizioFirstBatch(groupDocs, budgetChars)
+      if (front) plan.batches = [front, ...plan.batches]
+    }
     // Batch FOCALIZZATI in testa al gruppo: un documento per batch, mai mescolato
     // agli altri. Due criteri, entrambi TYPE-BLIND (documenti tutti uguali —
     // decidono datazione e descrizioni, mai il nome o il tipo del file):

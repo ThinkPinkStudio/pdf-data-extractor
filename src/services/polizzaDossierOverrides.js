@@ -358,7 +358,11 @@ function findMassimaleSinistroSeed(docs) {
     const m = text.match(MASSIMALE_ILLIMITATO_AMOUNT_RE)
     if (m) {
       const n = parseAmountMaybe(m[1])
-      if (n != null) return { value: formatAmountIT(n), file: d.name }
+      // GUARDIA DI PLAUSIBILITÀ: un massimale per sinistro NON è mai < 1.000.
+      // Importi piccoli ("27,00", "500,00") sono franchise/diritti o premi della
+      // tabella premio che il seed pesca accidentalmente (visto su LAMBRATE:
+      // "massimale-sinistro-seed = 27,00" mentre il massimale vero era 31.000).
+      if (n != null && n >= 1000) return { value: formatAmountIT(n), file: d.name }
     }
     // 2) Coppia "MASSIMALE PER SINISTRO / ANNO  € 1.000.000/3.000.000":
     //    il per-sinistro è il PRIMO della coppia (il più piccolo), il

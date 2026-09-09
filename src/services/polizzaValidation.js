@@ -1017,6 +1017,19 @@ export function isCompanyNameAsAgency(value) {
   return /\bs\.?\s*p\.?\s*a\b|\bs\.?\s*r\.?\s*l\b|societa|società|\bassicurazioni\b|\bcompagnia\b/i.test(String(value || ''))
 }
 
+// Un valore che è in realtà un NOME FILE (o un header di batch "[file · pag. N]")
+// NON è mai un dato di polizza. Il modello piccolo, ricevendo nel contesto i
+// marcatori "[nome.pdf · pag. 3]", a volte li copia come valore del campo
+// (visto su LAMBRATE: N° Polizza = "…LAMBRATE 3 CONDOMINIO.pdf · pag. 3").
+export function isFileNameLike(value) {
+  const t = String(value || '').trim()
+  if (!t) return false
+  if (/\.pdf\b/i.test(t)) return true
+  if (/\[?[^\]\n]{1,80}\.pdf\s*·\s*pag/i.test(t)) return true
+  if (t.length > 40 && /\s+·\s*pag\b/i.test(t)) return true
+  return false
+}
+
 // Nome di INTERMEDIARIO (broker/agenzia di brokeraggio) ≠ compagnia/contraente/
 // indirizzo. I frontespizi XL/DAS riportano "Blue Underwriting Agency srl" /
 // "…Underwriting Agency s.r.l." accanto ai soggetti; il modello piccolo la
