@@ -196,4 +196,41 @@ export async function initDb() {
   `)
 }
 
+/**
+ * LOCK DISTRIBUITO tra processi tramite advisory lock PostgreSQL.
+ *
+ * Perche: in produzione ci sono piu repliche/container del worker, ognuno con la
+ * propria memoria — una coda in-memory non basta per garantire "una sola run di
+ * estrazione alla volta" (la VRAM 8GB esplode con run parallele). L'advisory lock
+ * è condiviso da TUTTI i processi che puntano allo stesso Postgres, quindi una
+ * sola run puo girare a livello di intero sistema; le altre si accodano
+ * (pg_advisory_lock è BLOCCANTE) invece di partire in parallelo.
+ *
+ * @param key  chiave del lock (es. 'extraction_run')
+ * @param fn   lavoro da eseguire sotto lock (la run di estrazione)
+ */
+export async function withDistributedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect()
+  try {
+    // pg_advisory_lock è bloccante: se un altro processo tiene il lock, ATTENDE
+    // (non fallisce, non parte in parallelo). La chiave va passata come bigint:
+    // deriviamo un hash deterministico a 31 bit dalla stringa.
+    const lockId = (hashLockKey(key) & 0x7fffffff)
+    await client.query('SELECT pg_advisory_lock($1)', [lockId])
+    try {
+      return await fn()
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [lockId])
+    }
+  } finally {
+    client.release()
+  }
+}
+
+function hashLockKey(key: string): number {
+  let h = 0
+  for (const ch of String(key || '')) h = (h * 31 + ch.charCodeAt(0)) & 0xffffffff
+  return h
+}
+
 export { pool }

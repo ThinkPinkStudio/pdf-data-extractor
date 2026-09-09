@@ -1,5 +1,9 @@
 # PDF Data Extractor — memo per l'assistente
 
+> **PRIMA di agire leggi [REGOLE_AGENTI.md](REGOLE_AGENTI.md)**: estrazione per
+> DESCRIZIONE soltanto (mai id/label nei prompt), contesto MASSIMO 8192, una sola
+> run alla volta (anche in produzione, con lock condiviso). Vincolante per ogni agente.
+
 Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
 
 ## Infrastruttura (produzione)
