@@ -20,7 +20,10 @@ const nextConfig = {
   },
   // Next.js 14 uses experimental.serverComponentsExternalPackages
   experimental: {
-    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs', 'tesseract.js', 'jszip', '@napi-rs/canvas', 'playwright', 'playwright-core', 'docxtemplater', 'pizzip', 'pdf-lib', 'ssh2-sftp-client', 'basic-ftp'],
+    // @firecrawl/pdf-inspector è un native module (NAPI-RS, .node): webpack
+    // non può processarlo a build-time ("Module parse failed"). Va escluso
+    // dal bundle (server-only, come pg/playwright/etc.) e risolto a runtime.
+    serverComponentsExternalPackages: ['pg', 'nodemailer', 'pdfjs-dist', 'pdf-parse', 'exceljs', 'tesseract.js', 'jszip', '@napi-rs/canvas', 'playwright', 'playwright-core', 'docxtemplater', 'pizzip', 'pdf-lib', 'ssh2-sftp-client', 'basic-ftp', '@firecrawl/pdf-inspector', '@firecrawl/pdf-inspector-linux-x64-gnu', '@firecrawl/pdf-inspector-linux-arm64-gnu', '@firecrawl/pdf-inspector-linux-x64-musl', '@firecrawl/pdf-inspector-linux-arm64-musl', '@firecrawl/pdf-inspector-darwin-arm64', '@firecrawl/pdf-inspector-darwin-x64'],
     instrumentationHook: true,
   },
 }
