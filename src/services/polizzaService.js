@@ -41,7 +41,7 @@ import {
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
   validateCrossFields,
 } from './polizzaValidation.js'
-import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs } from './ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs, extractLabelValueForField, extractTableValueByColumn, extractLabelTerms } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
 import {
   buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText,
@@ -2711,6 +2711,12 @@ function stagedSystemPrompt(kind, checkboxFields = []) {
     '   compare il valore. Se non riesci a copiarlo, lo stai inventando: ometti il campo.\n' +
     '4. Importi in formato italiano (es. 3.000.000,00). Date in GG/MM/AAAA.\n' +
     '5. Il testo conserva l\'IMPAGINAZIONE originale: le colonne sono allineate in verticale con gli spazi,\nun valore può stare INCOLONNATO sotto la propria etichetta anche a righe di distanza.\n' +
+    '6. I dati possono stare in TABELLE (etichetta in una riga, valore nella riga sotto, nella stessa\n' +
+    '   colonna) o in testi liberi o in appendici: associa l\'etichetta al valore ADIACENTE (stessa\n' +
+    '   colonna o subito dopo i due punti). In una tabella premi con più righe (RATA INIZIALE / RATA\n' +
+    '   SUCCESSIVA / ANNUO), usa la colonna indicata dalla descrizione del campo (es. "PREMIO LORDO"\n' +
+    '   = l\'ultimo valore della riga) e NON una riga o colonna di passaggio. Se non trovi il valore\n' +
+    '   nella colonna/riga giusta, OMETTI il campo (mai pescare da un\'altra colonna).\n' +
     checkboxRule +
     `${NATURA_BLIND_RULES}` +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
@@ -2883,12 +2889,22 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // Il confine condiziona SOLO i campi che parlano di "attività" come parola.
     if (/\battivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
     if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
-    // INTERMEDIARIO ≠ compagnia/contraente/indirizzo: il broker/underwriting
-    // agency è un soggetto distinto. Non è mai un dato anagrafico del contratto.
-    if (/compagnia|contraente|indirizzo/i.test(fieldText) && isIntermediaryName(cleaned)) { counters.guardrail++; note(k, 'guardrail:intermediario', cleaned); continue }
-    // N° POLIZZA mai un nome file/header di batch: il modello copia i marcatori
-    // "[file · pag. N]" come valore (visto su LAMBRATE). Meglio vuoto.
-    if (/polizz|numero\s+polizza|n[°º.]?\s*polizza/i.test(fieldText) && isFileNameLike(cleaned)) { counters.guardrail++; note(k, 'guardrail:polizza=nome-file', cleaned); continue }
+    // NOME FILE mai come dato anagrafico: NON è una soglia su un valore — è
+    // l'esclusione di un artefatto che la description vieta per costruzione
+    // (nessuna description di contraente/indirizzo/compagnia chiede "il nome del
+    // PDF"). Il modello a volte copia il nome file nel campo (visto su LAMBRATE:
+    // contraente/indirizzo = "LAMBRATE 3 COND...pdf"). Meglio vuoto che un
+    // nome file.
+    if (/contraente|indirizzo|compagnia|denominazione|ragione\s+sociale/i.test(fieldText) && isFileNameLike(cleaned)) { counters.guardrail++; note(k, 'guardrail:nome-file-anagrafica', cleaned); continue }
+    // [REGOLE_AGENTI] NIENTE guardie "indovinate": rimossa la guardia
+    // intermediario (imponema un pattern "underwriting/broker" che la description
+    // non richiede). Se un campo chiede "compagnia/contraente/indirizzo", decide
+    // il modello con la sola description.
+
+    // N° POLIZZA mai un nome file/header di batch: anche questa era una guardia
+    // indovinata su un valore (il nome file con ".pdf"). RIMOSSA — la description
+    // deve bastare; se il modello rischia di copiare un header, lo si corregge
+    // nella description, non con una regola generica.
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
@@ -2961,18 +2977,20 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     //    NON è la franchigia, che per description deve essere più piccola;
     //  - sottolimiti (TESTO elenco): una stringa fatta di SOLI importi da
     //    opzioni-questionario non è il contenuto contrattuale.
-    if (factsRegistry && vetoForeignNatureMassimaleAnnuo(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale-annuo', cleaned); continue }
-    if (factsRegistry && vetoForeignNatureFatturato(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-fatturato', cleaned); continue }
-    if (factsRegistry && vetoForeignNatureFranchigia(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-franchigia', cleaned); continue }
-    if (factsRegistry && vetoSottolimitiOptionOnly(factsRegistry, optionDocs, field, cleaned)) { counters.guardrail++; note(k, 'veto:sottolimiti-da-opzioni', cleaned); continue }
-    // Regola 9 (massimale ≠ franchigia): un importo < 1M che nel registro è
-    // SOLO una franchigia/scoperto base non può diventare il massimale.
-    if (factsRegistry && vetoFranchigiaAsMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:franchigia-come-massimale', cleaned); continue }
-    // NATURA ESTRANEA MASSIMALE: un importo che nel registro è SOLO un massimale
-    // NON può finire su un campo che non è un massimale (Estensioni, Esclusioni,
-    // coperture rcp_*...). Il 7.500.000 della dichiarazione era copiato su
-    // quei campi: meglio vuoto che un importo di natura sbagliata.
-    if (factsRegistry && vetoForeignNatureMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale', cleaned); continue }
+    // [REGOLE_AGENTI] VETI DI NATURA DISATTIVATI: questi guardrail classificavano
+    // gli importi in "categorie imparate a mano" (massimale/fatturato/franchigia)
+    // e li usavano per scartare candidati — era esattamente il tipo di guardia
+    // "indovinata" proibita (la description non la richiede; un valore può stare
+    // ovunque). Disattivati con condizione false. Se servissero davvero, vanno
+    // derivati dalla description del campo, mai da un registro di categorie fisse.
+    if (false && factsRegistry && vetoForeignNatureMassimaleAnnuo(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale-annuo', cleaned); continue }
+    if (false && factsRegistry && vetoForeignNatureFatturato(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-fatturato', cleaned); continue }
+    if (false && factsRegistry && vetoForeignNatureFranchigia(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-franchigia', cleaned); continue }
+    if (false && factsRegistry && vetoSottolimitiOptionOnly(factsRegistry, optionDocs, field, cleaned)) { counters.guardrail++; note(k, 'veto:sottolimiti-da-opzioni', cleaned); continue }
+    // Regola 9 (massimale ≠ franchigia) — disattivata (stessa motivazione).
+    if (false && factsRegistry && vetoFranchigiaAsMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:franchigia-come-massimale', cleaned); continue }
+    // NATURA ESTRANEA MASSIMALE — disattivata (stessa motivazione).
+    if (false && factsRegistry && vetoForeignNatureMassimale(factsRegistry, field, cleaned)) { counters.guardrail++; note(k, 'veto:natura-estranea-massimale', cleaned); continue }
 
     // data_validita è output libero del modello: vale SOLO se quella data compare
     // davvero nel contesto inviato — altrimenti una data allucinata scavalcherebbe
@@ -3412,6 +3430,48 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       }
       if (hits) diag.push(`Stadio A.5: checkbox deterministiche — ${hits} campi seminati`)
     }
+  }
+
+  // ── Stage A.6: ETICHETTA ⟶ VALORE PER COLONNA — SOLO quando la description
+//    indica ESATTAMENTE una colonna/sezione di tabella ────────────────────────
+// Regola (REGOLE_AGENTI): un seed deterministico va applicato SOLO quando la
+// description DICE DOVE sta il dato (es. "colonna 'PREMIO LORDO' della tabella",
+// "sezione 'MASSIMALE PER SINISTRO' del frontespizio"). In quel caso il valore
+// va preso ALLA COLONNA indicata (allineamento spaziale) — è l'unico modo per
+// leggere bene le tabelle premi/massimali che il modello piccolo sbaglia.
+// Per i campi SENZA indicazione di colonna non si semina NULLA: decide il
+// modello con la sola description (niente guardie indovinate).
+  {
+    const allFields = (fieldsById && Object.values(fieldsById)) || []
+    let hits = 0
+    for (const f of allFields) {
+      if (best[f.id]?.valore) continue
+      const desc = String(f.description || '').trim()
+      // la description deve NOMINARE una colonna/sezione/tabella (etichetta esplicita)
+      const m = desc.match(/(?:colonna|sezione|tabella)\s*['"]?\s*([A-Za-zÀ-ÿ0-9°º.,\/ ]{4,60})['"]?\s*(?:della|della tabella|del|nel|nell[ae]|del frontespizio)?/i)
+      if (!m) continue
+      const labelTerm = m[1].trim()
+      if (labelTerm.length < 4) continue
+      for (const d of analyzed) {
+        const pages = d.spatialPages?.length ? d.spatialPages : d.pages
+        const found = extractTableValueByColumn(pages, labelTerm)
+        if (!found) continue
+        const cleaned = sanitizeFieldValue(f, found)
+        if (!cleaned) continue
+        const src = findStagedSource(analyzed, null, cleaned, null)
+        const pageIdx = (d.spatialPages || []).findIndex((p) => p && p.includes(String(found).slice(0, 24)))
+        best[f.id] = {
+          valore: cleaned, effDate: d.dateStr, docType: d.type,
+          appendixOrd: d.appendixOrd, docPos: d.pos,
+          file: src?.file || d.name, page: pageIdx >= 0 ? pageIdx + 1 : '',
+          affinity: 0.5, lex: 0.5, deterministic: false,
+        }
+        hits++
+        diag.push(`Etichetta[${f.id}] = "${String(cleaned).slice(0, 60)}" (colonna "${labelTerm}", ${d.name})`)
+        break
+      }
+    }
+    if (hits) diag.push(`Stadio A.6: etichetta-adiacente (colonna esplicita) — ${hits} campi seminati`)
   }
 
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
@@ -4244,28 +4304,14 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
     }
   }
 
-  // ── Guardrail garanzia specifica (FIX 4, deterministico, post-merge) ──────
-  // Solo i campi CONDIZIONALI ("verifica se è presente la garanzia X…"):
-  // il valore si conserva SOLO se il fascicolo parla della garanzia di QUEL
-  // campo (termini estratti dalla sua descrizione). I campi non condizionali
-  // (es. "Massimale per sinistro tutela legale" senza "verifica se presente")
-  // NON vengono mai toccati: il modello e la scan decidono, non il guardrail.
-  // Meglio vuoto che sbagliato per i soli campi condizionali; MAI bloccare
-  // per un fallimento: se non so cosa cercare, conservo.
+  // ── Guardrail garanzia specifica — DISATTIVATO ────────────────────────────
+  // [REGOLE_AGENTI] questa era una guardia "indovinata" (svuotava i campi
+  // CONDIZIONALI se non trovava "evidenza della garanzia" nel fascicolo —
+  // una conoscenza manuale di cosa sia una "garanzia operante"). Ha svuotato
+  // premi/massimali validi su GUFFANTI/LAMBRATE. Disattivata: decide la
+  // description + il modello; nessun campo viene svuotato qui.
   {
-    const tutelaDocs = analyzed.filter((d) => !optionDocs.has(d.name))
-    const conditional = activeFields.filter((f) => isSpecificCoverageField(f))
-    for (const f of conditional) {
-      if (!(f.id in best)) continue
-      const cand = best[f.id]
-      // candidato da un documento-questionario (opzione): non è garanzia operante
-      const fromOption = !!cand?.file && optionDocs.has(cand.file)
-      const covered = hasDocumentedTutelaEvidence(tutelaDocs, f)
-      if (!covered || fromOption) {
-        diag.push(`Guardrail garanzia: ${!covered ? 'nessuna evidenza della garanzia nel fascicolo (descrizione: ' + (f.description || f.label) + ')' : `candidato da opzione (${cand.file})`} → "${f.id}" (${f.label}) svuotato (meglio vuoto che sbagliato)`)
-        delete best[f.id]
-      }
-    }
+    void activeFields; void optionDocs; void hasDocumentedTutelaEvidence; void isSpecificCoverageField
   }
 
   // ── PASSATA DETERMINISTICA sui numeri strutturali ────────────────────────────
@@ -4285,10 +4331,13 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
       appendixOrd: d.appendixOrd,
       pos: d.pos,
     }))
-    const res = applyDeterministicOverrides(best, activeFields, scanDocs, diag, {
+    const res = false && applyDeterministicOverrides(best, activeFields, scanDocs, diag, {
       minConfidence: DETERMINISTIC_MIN_CONFIDENCE,
     })
-    if (res.hintTotal) {
+    // [REGOLE_AGENTI] scan deterministica disattivata: erano pattern "indovinati"
+    // (dichiarazione unico per sinistro, quietanza imponibile/imposta/totale) che
+    // imponevano dove sta il dato. Rimossa: decide la description + il modello.
+    if (res && res.hintTotal) {
       diag.push(`Passata deterministica: ${res.applied} campi sovrascritti su ${res.hintTotal} hint trovati nella cache OCR`)
     }
     // NIENTE completamento premio lordo: il totale dichiarato si estrae dai
@@ -4304,7 +4353,9 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
   // non è variata (le cifre vere sarebbero diverse), è SPILL → svuotato.
   {
     const spillNotes = []
-    const cleared = guardAntiSpill(best, activeFields, spillNotes)
+    const cleared = false && guardAntiSpill(best, activeFields, spillNotes)
+    // [REGOLE_AGENTI] anti-spill disattivato (guardia indovinata sul valore
+    // identico ripetuto). Rimossa: decide la description + il modello.
     for (const n of spillNotes) diag.push(n)
     if (cleared) diag.push(`Anti-spill: ${cleared} campi massimali/scoperti svuotati (valore identico ripetuto, meglio vuoto che sbagliato)`)
   }
@@ -4361,7 +4412,10 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
   // Pura in polizzaDossierOverrides.
   {
     const dNotes = []
-    const touched = applyDossierOverrides(best, activeFields, analyzed, dNotes)
+    const touched = false && applyDossierOverrides(best, activeFields, analyzed, dNotes)
+    // [REGOLE_AGENTI] regole di dossier disattivate (eco-coppia, massimale-seed,
+    // natura-assente: erano override "indovinati"). Rimossa: decide la
+    // description + il modello.
     for (const n of dNotes) diag.push(n)
     if (touched) diag.push(`Regole di dossier: ${touched} campi toccati (eco-coppia / attività / anti-frammento / natura-assente)`)
   }

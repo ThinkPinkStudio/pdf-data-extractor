@@ -29,6 +29,27 @@ Esempio VIETATO nel prompt:
 - campo_1234 — ...
 ```
 
+## Regola 1b — NIENTE guardie "indovinate" (regola critica)
+
+- **NON scrivere guardie deterministiche basate su valori/soglie che non vengono
+  dalla `description`** (es. "massimale < 1000 = sbagliato", "nome con X =
+  intermediario", "nome file = sbagliato"). Queste regole impongono una conoscenza
+  che l'agente NON ha: il dato richiesto può avere QUALSIASI valore, e la stessa
+  cosa può stare in posti diversi in polizze diverse.
+- Si può validare SOLO ciò che la `description` dichiara (es. "importo" → il valore
+  deve avere cifre; "data" → formato data) e la coerenza INTERNA al documento
+  (es. premio ≈ imponibile+imposta), MAI soglie assolute o pattern di "sospetto".
+
+## Regola 1c — Estrai da TABELLE associando etichetta ⟶ valore adiacente
+
+- Il dato può stare **in un testo, in una tabella (etichetta in riga, valore in
+  colonna) o in un'appendice**. NON presupporre dove sia: lo si trova associando
+  l'ETICHETTA (quella descritta) al VALORE ADIACENTE (stessa riga dopo i due punti,
+  o stessa colonna sotto/accanto) usando il layout SPAZIALE (`buildSpatialPage`,
+  `detectLabelValuePairs`).
+- Se l'etichetta indicata dalla `description` non ha un valore adiacente, il campo
+  resta VUOTO (mai forzare, mai indovinare).
+
 ## Regola 2 — Contesto massimo: 8192 (MASSIMO, non superabile)
 
 - La costante `MAX_BATCH_CTX_8GB = 8192` (in `src/services/polizzaService.js`) è il

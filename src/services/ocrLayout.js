@@ -364,3 +364,146 @@ function prunePairs(pairs) {
   }
   return out
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ASSOCIAZIONE ETICHETTA ⟶ VALORE ADIACENTE (per la description di un campo).
+//
+// Il metodo "etichetta-adiacente" (REGOLE_AGENTI): per ogni campo, si estraggono
+// i TERMINI-ETICHETTA dalla description (n-grammi non-stopword già normalizzati)
+// e si cerca nel testo SPAZIALE la riga che li contiene; poi si prende il VALORE
+// ADIACENTE:
+//   - stessa riga: i token value-like subito DOPO l'etichetta (dopo i ":" o,
+//     nei layout a celle, nella cella successiva separata da gap);
+//   - riga sotto: se l'etichetta chiude la riga e la riga seguente inizia con un
+//     valore (tabella con intestazione sopra).
+// Ritorna il valore trovato (stringa) o null. Il risultato è un SEED
+// COMPETITIVO per il campo (mai blindato): il modello conferma/rifiuta.
+// TIPO-BLIND: nessuna ipotesi su cosa sia il valore, solo adiacenza spaziale.
+
+// Stopword per estrarre i termini-etichetta dalla description.
+const LABEL_STOP = new Set([
+  'della', 'delle', 'dello', 'degli', 'dei', 'del', 'di', 'per', 'con', 'una', 'un',
+  'che', 'non', 'il', 'lo', 'la', 'le', 'i', 'gli', 'e', 'o', 'sono', 'sia', 'anche',
+  'piu', 'più', 'es', 'esempio', 'valore', 'campo', 'campi', 'ma', 'se', 'quando', 'come',
+  'estrai', 'prendi', 'riporta', 'cerca', 'indicare', 'del', 'della', 'nel', 'nella',
+  'nelle', 'sul', 'sulla', 'sulle', 'in', 'a', 'da', 'su', 'tra', 'fra', 'numero', 'data',
+])
+const normWord = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+
+export function extractLabelTerms(description) {
+  const words = normWord(description).split(' ').filter((w) => w.length >= 4 && !LABEL_STOP.has(w))
+  // n-grammi 2-3 tokens (frasi) più le parole singole lunghe (>=6).
+  const grams = []
+  for (let n = 2; n <= 3; n++) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const g = words.slice(i, i + n).join(' ').trim()
+      if (g.length >= 6) grams.push(g)
+    }
+  }
+  for (const w of words) if (w.length >= 6) grams.push(w)
+  return [...new Set(grams)]
+}
+
+// Token value-like: riusa isValueLike (definita in questo modulo).
+export function extractLabelValueForField(pages, description) {
+  const terms = extractLabelTerms(description)
+  if (!terms.length) return null
+  const isVal = (t) => isValueLike(t)
+  const lines = Array.isArray(pages) ? pages : String(pages || '').split('\n')
+
+  // 1) Coppie etichetta→valore per COLONNA (detectLabelValuePairs): è il metodo
+  //    che allinea l'intestazione (es. "PREMIO LORDO") col valore sotto la stessa
+  //    colonna (255,00) — la forma tabellare vera. Cerco la coppia la cui label
+  //    (normalizzata) contiene uno dei termini-etichetta della description.
+  const pairs = detectLabelValuePairs(lines)
+  if (pairs.length) {
+    for (const p of pairs) {
+      const nl = normWord(p.label)
+      if (terms.some((t) => nl.includes(t))) return p.value
+    }
+  }
+
+  // 2) Stessa riga: primo token value-like subito dopo l'etichetta.
+  for (const raw of lines) {
+    const line = String(raw || '')
+    const n = normWord(line)
+    // la riga deve contenere almeno UN termine-etichetta in forma di frase o parola
+    if (!terms.some((t) => n.includes(t))) continue
+    const toks = tokenizeLine(line)
+    // trova l'indice del token che chiude l'etichetta (l'ultimo token prima del primo valore)
+    let valIdx = -1
+    for (let i = 0; i < toks.length; i++) {
+      if (isVal(toks[i].text)) { valIdx = i; break }
+    }
+    if (valIdx <= 0) continue
+    // UN campo = UN valore: prendo il PRIMO token value-like dopo l'etichetta
+    // (per i campi economici in tabella il modello confermerà col resto).
+    const val = toks[valIdx].text
+    if (val && val.length <= 50) return val
+  }
+  // Fallback "riga sotto": l'etichetta su una riga e il valore sulla riga successiva
+  // (tabella con intestazione sopra, es. "MASSIMALE PER SINISTRO EURO" / "31.000,00").
+  for (let i = 0; i < lines.length - 1; i++) {
+    const n = normWord(lines[i])
+    if (!terms.some((t) => n.includes(t))) continue
+    const next = lines[i + 1]
+    const nextToks = tokenizeLine(next)
+    const firstVal = nextToks.find((t) => isVal(t.text))
+    if (firstVal) return firstVal.text
+  }
+  return null
+}
+
+/**
+ * Estrae il valore di una TABELLA per COLONNA, allineando l'intestazione al
+ * valore adiacente in verticale.
+ *
+ * Il layout spaziale mantiene le colonne: l'intestazione (es. "PREMIO LORDO") e
+ * il valore (es. "255,00") stanno su RIGHE DIVERSE ma ALLA STESSA posizione-x.
+ * Questa funzione trova la riga che contiene il termine-etichetta, e nelle righe
+ * adiacenti (sopra o sotto) il token value-like che inizia alla stessa colonna.
+ *
+ * @param {string[]|string} pages  righe spaziali
+ * @param {string} labelTerm  n-gramma/parola dell'etichetta (es. "premio lordo")
+ * @returns {string|null} il valore allineato per colonna
+ */
+export function extractTableValueByColumn(pages, labelTerm) {
+  const term = normWord(labelTerm)
+  if (!term) return null
+  const lines = Array.isArray(pages) ? pages : String(pages || '').split('\n')
+  const words = term.split(' ').filter((w) => w.length >= 4)
+  // chiave di colonna: la parola più SIGNIFICATIVA del termine — per le
+  // intestazioni multi-parola ("PREMIO LORDO", "NETTO IMPONIBILE") l'allineamento
+  // è con l'ULTIMA parola (LORDO, IMPONIBILE); per quelle singole basta la prima.
+  const key = words.length > 1 ? words[words.length - 1] : words[0]
+  if (!key) return null
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || '')
+    const nLine = normWord(line)
+    if (!nLine.includes(key)) continue
+    const labelToks = tokenizeLine(line)
+    let startIdx = labelToks.findIndex((t) => normWord(t.text).startsWith(key))
+    if (startIdx < 0) continue
+    const col = labelToks[startIdx].x + Math.floor(labelToks[startIdx].text.length / 2)
+    // righe ±2 con un valore nella stessa colonna (tabella: intestazione sopra/sotto valori)
+    for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
+      if (j === i) continue
+      const valToks = tokenizeLine(lines[j])
+      const best = valToks.filter((t) => isValueLike(t.text) && Math.abs(t.x - col) <= 8)
+      if (best.length) {
+        best.sort((a, b) => Math.abs(a.x - col) - Math.abs(b.x - col))
+        return best[0].text
+      }
+    }
+    // stessa riga: salta le parole non-value ("EURO" ...) fino al primo valore
+    // (layout "ETICHETTA  EURO  31.000,00"); accetta anche il valore TESTUALE
+    // "Illimitato" (massimali senza cifra) — non è value-like ma è il dato vero.
+    for (let a = startIdx + 1; a < labelToks.length; a++) {
+      const tt = labelToks[a].text
+      if (isValueLike(tt) || /^illimitat/i.test(tt)) return tt
+      if (a - startIdx > 3) break
+    }
+    break
+  }
+  return null
+}

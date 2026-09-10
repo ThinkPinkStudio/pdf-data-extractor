@@ -5104,7 +5104,7 @@
       {
         "id": "f8b38bba-57e1-4093-9924-426bb9c18911",
         "label": "Premio imponibile tutela legale",
-        "description": "Premio imponibile anticipato tutela legale: è l'importo nella colonna 'NETTO IMPONIBILE' della tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 1.270,10). È la cifra nella colonna 'NETTO IMPONIBILE'. NON è il 'PREMIO LORDO' (colonna più a destra, es. 1.540,00) né le 'IMPOSTE'.",
+        "description": "Premio imponibile anticipato tutela legale: è l'importo nella colonna 'NETTO IMPONIBILE' della tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 1.270,10). È la cifra nella colonna 'NETTO IMPONIBILE'. NON è il 'PREMIO LORDO' (colonna più a destra, es. 1.540,00) né le 'IMPOSTE'. Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualità), NON quella di anni precedenti.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5118,7 +5118,7 @@
       {
         "id": "fd70f420-d926-4e78-b632-cc38aaa9115d",
         "label": "Interessi di frazionamento",
-        "description": "Interessi di frazionamento del premio tutela legale: l'importo della colonna 'INTERESSE DI FRAZIONAMENTO' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'. Interessi di frazionamento premio tutela legale (es.",
+        "description": "Interessi di frazionamento del premio tutela legale: l'importo della colonna 'INTERESSE DI FRAZIONAMENTO' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'. Interessi di frazionamento premio tutela legale (es.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
         "type": "number",
         "enabled": true,
         "cells": []
@@ -5126,7 +5126,7 @@
       {
         "id": "05009844-d73d-464e-9ba5-12336ef67935",
         "label": "Diritti",
-        "description": "Diritti premio tutela legale: l'importo della colonna 'DIRITTI' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'.",
+        "description": "Diritti premio tutela legale: l'importo della colonna 'DIRITTI' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
         "type": "number",
         "enabled": true,
         "cells": []
@@ -5134,7 +5134,7 @@
       {
         "id": "7ef9f4bd-3880-462f-8e37-579f9720647f",
         "label": "Imposte",
-        "description": "Imposte del premio tutela legale: l'importo della colonna 'IMPOSTE' nella tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 269,90). NON confondere con il 'PREMIO LORDO' (colonna più a destra). L'IMPOSTE è l'importo più piccolo nella riga, accanto a 'PREMIO LORDO'.",
+        "description": "Imposte del premio tutela legale: l'importo della colonna 'IMPOSTE' nella tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 269,90). NON confondere con il 'PREMIO LORDO' (colonna più a destra). L'IMPOSTE è l'importo più piccolo nella riga, accanto a 'PREMIO LORDO'.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5148,7 +5148,7 @@
       {
         "id": "7776fd69-18bc-4d03-baa4-45ff45909217",
         "label": "Premio lordo totale tutela legale",
-        "description": "Premio/anticipo di sezione annuo totale lordo tutela legale (es. 5.184,00)",
+        "description": "Premio/anticipo di sezione annuo totale lordo tutela legale (es. 5.184,00)  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
