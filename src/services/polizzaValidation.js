@@ -1436,5 +1436,56 @@ export function validateCrossFields(best, fields, opts = {}) {
     }
   }
 
+  // ── Refuso candidato: valore identico su campi economici DIVERSI ──────────
+  // Solo SEGNALAZIONE (mai distruttivo). Se due campi di natura economica
+  // diversa (premio/imponibile/imposta/diritti/interessi/franchigia/massimale/
+  // tasso/importo) hanno lo STESSO importo non-zero, probabilmente il modello
+  // ha copiato lo stesso numero in due campi (es. imponibile 207,83 e interessi
+  // 207,83 nei test LAMBRATE). La nota va in diagnostica; il valore resta (mai
+  // svuotare un valore solo perché DUPLICATO, potrebbe essere legittimo).
+  // CLASSIFICAZIONE type-blind via label/description (termini ECONOMICI del
+  // dato, mai layout): ogni campo economico riceve un "ruolo" dai propri termini.
+  const econRole = (f) => {
+    const blob = `${f.label || ''} ${f.description || ''}`.toLowerCase()
+    if (/\bimpost/i.test(blob)) return 'imposta'
+    if (/premio\s+imponib/i.test(blob)) return 'imponibile'
+    if (/premio\s+(?:lordo|totale|annuo)/i.test(blob) || /\btotale\b.*premio/i.test(blob)) return 'totale'
+    if (/interess/i.test(blob)) return 'interessi'
+    if (/\bdiritt/i.test(blob)) return 'diritti'
+    if (/franchig/i.test(blob)) return 'franchigia'
+    if (/scopert/i.test(blob)) return 'scoperto'
+    if (/massimale/i.test(blob)) {
+      if (/annuo|annuale|per\s+anno/i.test(blob)) return 'massimale_annuo'
+      if (/sinistro|evento|singolo|per\s+ogni/i.test(blob)) return 'massimale_sinistro'
+      return 'massimale'
+    }
+    if (/\btass/i.test(blob)) return 'tasso'
+    if (/\bimporto\b/i.test(blob)) return 'importo'
+    return null
+  }
+  const isEconValue = (v) => { const n = looseAmount(v); return n != null && n !== 0 }
+  const econById = new Map()
+  for (const f of list) {
+    const role = econRole(f)
+    if (!role) continue
+    const v = entryValore(best, f.id)
+    if (!isEconValue(v)) continue
+    econById.set(f.id, { f, role, amount: looseAmount(v), raw: v })
+  }
+  const seenPairs = new Set()
+  const econIds = [...econById.keys()]
+  for (let i = 0; i < econIds.length; i++) {
+    for (let j = i + 1; j < econIds.length; j++) {
+      const a = econById.get(econIds[i])
+      const b = econById.get(econIds[j])
+      if (!a || !b || a.role === b.role) continue // stesso ruolo: ripetizione plausibile
+      if (a.amount !== b.amount) continue
+      const pair = [a.role, b.role].sort().join('|')
+      if (seenPairs.has(pair)) continue
+      seenPairs.add(pair)
+      notes.push(`Refuso candidato: "${a.f.label}" e "${b.f.label}" hanno lo stesso importo ${a.raw} — probabile copia dello stesso numero in due campi economici diversi (${a.role}/${b.role}); NON svuotato (solo segnalazione)`)
+    }
+  }
+
   return notes
 }

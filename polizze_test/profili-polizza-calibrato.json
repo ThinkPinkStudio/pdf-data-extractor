@@ -4868,7 +4868,7 @@
       {
         "id": "2a8626c3-3d47-4016-b215-4beee15bd6d1",
         "label": "N° Polizza",
-        "description": "Numero di polizza (es. 410000880)",
+        "description": "Numero identificativo della polizza: una sequenza di cifre (con eventuali prefissi o suffissi alfanumerici) che identifica il contratto. Esempi: 410000880, 0146905092, BL05000049. NON è il nome del fabbricato/condominio né la descrizione del rischio.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4932,7 +4932,7 @@
       {
         "id": "b60ccd93-5bce-4944-8e8f-dfc9c3f1617a",
         "label": "Indirizzo",
-        "description": "Indirizzo completo del domicilio/sede del contraente",
+        "description": "Indirizzo completo di domicilio o sede legale del contraente/assicurato: via, numero civico, CAP, città (es. VIA LAMBRATE 3, 20131 MILANO). È l'indirizzo associato al NOME del contraente/assicurato e alla sua P.IVA/CF, nello stesso blocco anagrafico. NON è mai l'indirizzo della compagnia assicuratrice, dell'agenzia, del legale o dell'intermediario, anche se compaiono prima nel documento.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4946,7 +4946,7 @@
       {
         "id": "dc1e3e96-7127-4cf1-a9c3-18fad41f58fe",
         "label": "Decorrenza",
-        "description": "Data di decorrenza della polizza: la data del blocco 'DATI CONTRATTUALI' del frontespizio, nella riga 'DECORRENZA SCADENZA FRAZIONAMENTO' (es. 04/06/2025). È la prima delle due date della riga 'DECORRENZA SCADENZA'. La data 'MILANO 14/04/2025' è la data di emissione del profilo cliente, NON la decorrenza. Restituisci la decorrenza nel formato GG/MM/AAAA. Data di decorrenza della polizza (es.",
+        "description": "Data di decorrenza della polizza: la data (giorno/mese/anno) da cui inizia la copertura assicurativa (es. 04/06/2025, 27/04/2020). È la data di INIZIO del periodo di copertura, non la data di emissione del documento né la data di scadenza.",
         "type": "date",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4964,7 +4964,7 @@
       {
         "id": "40c0db3b-fac3-4eda-8e34-94a4cf111ca1",
         "label": "Scadenza",
-        "description": "Data di scadenza della polizza più recente cerca in tutti i files (es. 31/12/2022)",
+        "description": "Data di scadenza della polizza: la data (giorno/mese/anno) in cui termina la copertura assicurativa (es. 31/12/2022, 30/09/2021). È la data di FINE del periodo di copertura, non la data di emissione né la decorrenza.",
         "type": "date",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4982,7 +4982,7 @@
       {
         "id": "4c885ba2-1872-4f01-841b-5202648c13de",
         "label": "Frazionamento",
-        "description": "Frazionamento del premio (es. 'Annuale', 'Semestrale', 'Trimestrale'). È un TESTO, non una data. Restituisci la parola per INTERO ('Annuale', non 'Annua'). È un TESTO: 'Annuale', 'Semestrale'...",
+        "description": "Frazionamento del premio: la periodicità di pagamento del premio, come TESTO (es. Annuale, Semestrale, Trimestrale, Mensile). Riporta la parola per intero (es. \"Annuale\", non \"Annua\" o \"Ann\"). NON è una data né un importo.",
         "type": "text",
         "enabled": true,
         "cells": []
@@ -4990,7 +4990,7 @@
       {
         "id": "bf73aa23-bb27-43a3-95a9-41535611c1d7",
         "label": "Attività assicurata",
-        "description": "Attività assicurata: il settore di attività del contraente nel Profilo Cliente, sezione 'SETTORE ATTIVITÀ / FORMA GIURIDICA' (es. 'Servizi vari', 'Professionista/Studio associato'). Riporta il valore nella colonna 'SETTORE ATTIVITÀ'. NON riportare la ragione sociale (es. 'GUFFANTI GROUP & PARTNERS S.R.L.'). Descrizione dell'attività assicurata svolta dall'assicurato indicata in polizza o nei documenti più recenti",
+        "description": "Attività assicurata: il settore o tipo di attività del contraente/assicurato che è oggetto della copertura (es. Servizi vari, Professionista/Studio associato, Condominio, Difesa Condominio). È un TESTO che descrive l'attività, non un importo né una data.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5004,7 +5004,7 @@
       {
         "id": "5942f7dc-88b1-4b6a-93ee-85b57c9198b5",
         "label": "Massimale per sinistro tutela legale",
-        "description": "Massimale per ogni sinistro es 20.000",
+        "description": "Massimale per sinistro: l'importo massimo (in euro) che la compagnia paga per ogni singolo sinistro/evento coperto dalla garanzia tutela legale. È un importo, spesso con migliaia (es. 20.000, 21.000,00, 4.000.000,00). Se il documento riporta più importi, scegli quello associato al singolo sinistro/evento, non quello annuale né il premio.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5018,7 +5018,7 @@
       {
         "id": "bdfd3d58-0099-469d-8b83-86853432c996",
         "label": "Massimale per anno tutela legale",
-        "description": "Massimale per anno della tutela legale (es. 40.000,00). È il valore nella colonna 'MASSIMALE PER ANNO' del frontespizio. Se in polizza è indicato solo un limite per singolo evento e non un massimale annuo separato, lascia vuoto. Se il valore è 'Illimitato', riporta 'Illimitato'. Massimale PER ANNO della tutela legale, se indicato in polizza (es. Se la polizza indica solo il massimale per sinistro e non quello per anno, lascia vuoto.",
+        "description": "Massimale per anno: l'importo massimo (in euro) che la compagnia paga complessivamente in un anno per tutti i sinistri coperti dalla garanzia tutela legale. È un importo (es. 40.000,00) oppure la parola \"Illimitato\"/\"ILLIMITATO\" quando non c'è limite. NON è il massimale per singolo sinistro né il premio.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5032,7 +5032,7 @@
       {
         "id": "d864b2f4-7d4a-4cb5-b868-1ecec0eacb3d",
         "label": "Parametro regolazione ",
-        "description": "Parametro utilizzato per la regolazione del premio (es. 'Retribuzioni', 'Fatturato', 'n. addetti'). È il NOME del parametro (TESTO), non l'importo: l'importo va nel campo 'Importo preventivo parametro regolazione'.",
+        "description": "Parametro utilizzato per la regolazione del premio: il NOME del parametro come TESTO (es. Retribuzioni, Fatturato, n. addetti, numero degli addetti e/o del fatturato annuo). NON è l'importo del parametro (quello va nel campo \"Importo preventivo parametro regolazione\") né un tasso.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5046,7 +5046,7 @@
       {
         "id": "eafb454f-3aad-442e-8ca8-972a3549b116",
         "label": "Importo preventivo parametro regolazione",
-        "description": "Importo preventivo annuo del parametro di regolazione (es. 240.000.000,00)",
+        "description": "Importo preventivo annuo del parametro di regolazione: l'importo (in euro) dichiarato come base per la regolazione del premio (es. 240.000.000,00, 1.800.000). È un importo, tipicamente grande. NON è il premio né il tasso di regolazione.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5060,7 +5060,7 @@
       {
         "id": "0ccb0e17-67ed-4445-9483-92bcd9c196b7",
         "label": "Tasso regolazione ‰ ",
-        "description": "Tasso di regolazione imponibile per mille (es. 0,245). Se la polizza non riporta un tasso di regolazione, lascia il campo vuoto.",
+        "description": "Tasso di regolazione: il tasso espresso per mille (‰) applicato al parametro di regolazione (es. 0,245, 44,16). È un numero, tipicamente con virgola decimale. Se la polizza non riporta un tasso di regolazione, lascia il campo vuoto.",
         "type": "",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5074,7 +5074,7 @@
       {
         "id": "0c5ceb51-df71-4135-bbf6-efc5c608c2ff",
         "label": "Franchigia generica o minima",
-        "description": "Franchigia indicata specificatamente come generica/minima (es. 200,00). Se il documento non indica una franchigia (i limiti tipo 'anticipo spese penale doloso 5.000 euro' non sono franchigie), lascia vuoto.",
+        "description": "Franchigia generica o minima della polizza: l'importo (in euro) che resta a carico dell'assicurato per ogni sinistro, indicato esplicitamente come franchigia (es. 200,00, 21.000,00). È un importo con due decimali. NON sono franchigie i limiti tipo \"anticipo spese penale doloso 5.000 euro\" né i massimali né i premi. Se il documento non indica una franchigia, lascia il campo vuoto.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5088,7 +5088,7 @@
       {
         "id": "0a49540b-6d6b-4402-a1c6-5b2b7f84234b",
         "label": "Garanzie scelte/operanti",
-        "description": "Elenco dei nomi delle garanzie scelte/operanti in polizza. È un TESTO con i nomi delle garanzie, non un importo. Esempi di risposta corretta: 'Tutela Legale Pacchetto Base', 'Anticipo spese penale doloso 5.000 euro', 'Retroattività 3 anni', 'Pacchetto sicurezza privacy e cyber'. Cerca i nomi nella sezione 'GARANZIE SCELTE' della scheda di polizza. Non restituire importi numerici. Garanzie scelte/operanti, informazioni aggiuntive (es.",
+        "description": "Elenco dei nomi delle garanzie scelte/operanti (attive) nella polizza: un TESTO con i nomi delle coperture (es. Tutela Legale, Tutela Legale Pacchetto Base, Anticipo spese penale doloso, Controversie nei confronti di DAS). Riporta i nomi delle garanzie ATTIVE, non gli importi né le date.",
         "type": "text",
         "enabled": true,
         "cells": []
@@ -5096,7 +5096,7 @@
       {
         "id": "6b29de80-1f2a-4433-9fe0-4e163a97a0e9",
         "label": "Garanzie non operanti",
-        "description": "Garanzie NON attivate/operanti (es. 'Pacchetto difesa circolazione'). Riporta le garanzie non scelte, non le informazioni aggiuntive della polizza.",
+        "description": "Elenco dei nomi delle garanzie NON attivate/operanti (escluse) nella polizza: un TESTO con i nomi delle coperture non scelte (es. Pacchetto difesa circolazione, Condominio). Riporta SOLO le garanzie non attive, non le informazioni aggiuntive né i massimali.",
         "type": "text",
         "enabled": true,
         "cells": []
@@ -5104,7 +5104,7 @@
       {
         "id": "f8b38bba-57e1-4093-9924-426bb9c18911",
         "label": "Premio imponibile tutela legale",
-        "description": "Premio imponibile anticipato tutela legale: è l'importo nella colonna 'NETTO IMPONIBILE' della tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 1.270,10). È la cifra nella colonna 'NETTO IMPONIBILE'. NON è il 'PREMIO LORDO' (colonna più a destra, es. 1.540,00) né le 'IMPOSTE'. Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualità), NON quella di anni precedenti.",
+        "description": "Premio imponibile (netto) COMPLESSIVO della garanzia tutela legale per l'intero contratto/periodo di copertura: la base imponibile del premio, al netto di imposte, diritti e interessi. È un importo con due decimali (es. 207,83, 501,30, 1.200,00). È il valore economico del CONTRATTO nel suo totale, NON il premio di una singola garanzia/copertura elencata nella tabella dei rischi/garanzie, né un importo per-rata. Se compaiono più importi (rata iniziale, rata successiva), scegli quello della rata/importo che rappresenta il totale o la somma del periodo di copertura.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5118,7 +5118,7 @@
       {
         "id": "fd70f420-d926-4e78-b632-cc38aaa9115d",
         "label": "Interessi di frazionamento",
-        "description": "Interessi di frazionamento del premio tutela legale: l'importo della colonna 'INTERESSE DI FRAZIONAMENTO' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'. Interessi di frazionamento premio tutela legale (es.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
+        "description": "Interessi di frazionamento COMPLESSIVI del premio della garanzia tutela legale: l'importo (in euro) aggiunto al premio se il pagamento è rateizzato (es. 0,00, 2,48, 3,01). È un importo con due decimali; se zero riporta '0,00'. È la voce economica del premio totale del contratto, non un valore di una singola garanzia. Se compaiono più importi, scegli quello associato alla rata/importo che rappresenta il totale del periodo di copertura.",
         "type": "number",
         "enabled": true,
         "cells": []
@@ -5126,7 +5126,7 @@
       {
         "id": "05009844-d73d-464e-9ba5-12336ef67935",
         "label": "Diritti",
-        "description": "Diritti premio tutela legale: l'importo della colonna 'DIRITTI' nella tabella del premio (es. 0,00). Se è zero riporta '0,00'.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
+        "description": "Diritti COMPLESSIVI sul premio della garanzia tutela legale per l'intero contratto: l'importo (in euro) dei diritti di emissione (es. 0,00, 2,48, 19,30). È un importo con due decimali; se zero riporta '0,00'. È la voce economica del premio totale del contratto, NON il valore di una colonna di una tabella di singole garanzie. Di solito è piccolo o zero. Se compaiono più importi, scegli quello associato alla rata/importo che rappresenta il totale del periodo di copertura.",
         "type": "number",
         "enabled": true,
         "cells": []
@@ -5134,7 +5134,7 @@
       {
         "id": "7ef9f4bd-3880-462f-8e37-579f9720647f",
         "label": "Imposte",
-        "description": "Imposte del premio tutela legale: l'importo della colonna 'IMPOSTE' nella tabella 'PREMIO TOTALE NETTO IMPONIBILE FRAZIONAMENTO INTERESSE DI DIRITTI IMPOSTE PREMIO LORDO' (es. 269,90). NON confondere con il 'PREMIO LORDO' (colonna più a destra). L'IMPOSTE è l'importo più piccolo nella riga, accanto a 'PREMIO LORDO'.  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
+        "description": "Imposte COMPLESSIVE sul premio della garanzia tutela legale per l'intero contratto: l'importo (in euro) delle imposte applicate sul premio (es. 19,30, 44,69, 110,11). È un importo con due decimali. È la voce economica del premio totale del contratto, NON il valore di una colonna 'IMPOSTE' di una tabella di singole garanzie né il premio lordo. Di solito è il più piccolo tra gli importi economici (imponibile/imposte/diritti). Se compaiono più importi, scegli quello associato alla rata/importo che rappresenta il totale del periodo di copertura.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5148,7 +5148,7 @@
       {
         "id": "7776fd69-18bc-4d03-baa4-45ff45909217",
         "label": "Premio lordo totale tutela legale",
-        "description": "Premio/anticipo di sezione annuo totale lordo tutela legale (es. 5.184,00)  Se nella tabella del premio compaiono PIU righe (es. RATA INIZIALE, RATA SUCCESSIVA, ANNUO), usa la riga del PERIODO PIU RECENTE (RATA SUCCESSIVA o l ultima annualita), NON quella di anni precedenti.",
+        "description": "Premio lordo TOTALE della garanzia tutela legale per l'intero contratto/periodo di copertura: l'importo complessivo (in euro) che il contraente paga, comprensivo di imposte, diritti e interessi (es. 255,00, 611,41, 5.184,00). È l'importo TOTALE del contratto, NON il premio di una singola garanzia/copertura elencata nella tabella dei rischi, né una rata isolata. Se compaiono più importi (rata iniziale, rata successiva, totale annuo), scegli quello che rappresenta il totale dell'intero periodo di copertura (la somma delle rate o il valore totale dichiarato).",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -5166,7 +5166,7 @@
       {
         "id": "c7885238-02cd-4679-9ae0-a27ee52560a9",
         "label": "Tipologia tutela legale",
-        "description": "Indicare i bisogni assicurativi spuntati con una \"X\" o altro segno di spunta (es. Tutela mobilità/circolazione, Tutela vita privata, Tutale attività professionale, Tutela imprese o ente, Tutela manager e/o organi sociaetari, Sospensione patente) Identifica la tipologia principale della polizza analizzata e restituisci una sola delle seguenti categorie: “Azienda”, “Professionista/Studio professionale”, “Auto/Circolazione”, “Condominio” oppure “Altra tipologia”. Se selezioni “Altra tipologia”, specifica brevemente quale, ad esempio “Altra tipologia – Famiglia/Vita privata”. Basa la classificazione sull’oggetto della copertura e sui soggetti assicurati, non su una singola garanzia accessoria. Se la tipologia non è determinabile dai documenti, lascia il campo vuoto.",
+        "description": "Tipologia di bisogni assicurativi coperti dalla tutela legale: un TESTO che elenca gli ambiti di copertura (es. Tutela mobilità/circolazione, Tutela vita privata, Tutela attività professionale, Tutela imprese o ente, Tutela manager). Riporta gli ambiti indicati nel documento come coperti.",
         "type": "",
         "enabled": true,
         "cells": []

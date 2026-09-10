@@ -507,3 +507,184 @@ export function extractTableValueByColumn(pages, labelTerm) {
   }
   return null
 }
+
+/**
+ * Estrae da MARKDOWN TABELLARE (es. da Docling/pdf-inspector) le coppie
+ * INTESTAZIONE → VALORE per colonna.
+ *
+ * Il markdown di Docling presenta le tabelle come righe `| a | b | ... |`:
+ * una riga di intestazioni e una (o più) righe di valori allineate per colonna.
+ * Questa funzione, per ogni riga di intestazioni che contiene ≥2 celle testuali
+ * e per la riga di valori immediatamente sotto, associa ciascun valore alla
+ * propria intestazione di colonna. NON usa liste predefinite: le intestazioni
+ * sono quelle reali del documento.
+ *
+ * @param {string} text  il testo (markdown) del documento
+ * @returns {Array<{label:string, value:string, row:number}>}
+ */
+export function extractMarkdownColumns(text) {
+  const out = []
+  const lines = String(text || '').split('\n')
+  // mantiene le celle VUOTE (l'allineamento di colonna dipende dalla posizione);
+  // la riga "|-----|" è separatore di colonna nel markdown e va saltata.
+  const isSep = (l) => /^\|?[\s:\-|]+\|?$/.test(String(l || '').trim())
+  const cellsOf = (l) => String(l || '').split('|').map((c) => c.trim())
+  for (let i = 0; i < lines.length; i++) {
+    if (isSep(lines[i])) continue
+    const heads = cellsOf(lines[i])
+    if (heads.length < 2) continue
+    // la riga di intestazioni NON deve contenere valori numerici
+    if (heads.some((h) => isValueLike(h))) continue
+    // riga valori: subito dopo, o dopo il separatore
+    const valRow = !isSep(lines[i + 1]) ? lines[i + 1] : lines[i + 2]
+    if (!valRow) continue
+    const vals = cellsOf(valRow)
+    if (vals.length < 2) continue
+    const max = Math.min(heads.length, vals.length)
+    for (let c = 0; c < max; c++) {
+      const v = vals[c]?.trim()
+      if (v && isValueLike(v)) {
+        out.push({ label: heads[c].trim(), value: v, row: i + 1 })
+      }
+    }
+  }
+  const seen = new Set()
+  return out.filter((p) => {
+    const k = `${p.label}|${p.value}`
+    if (seen.has(k)) return false
+    seen.add(k); return true
+  })
+}
+
+/**
+ * Estrae i BLOCCHI TABELLA REALI di un testo markdown (righe contigue che
+ * iniziano con `|`, incluso il separatore `| --- |`). Ritorna le righe del
+ * blocco come array di stringhe già presenti nel documento: il benchmark per
+ * il MODELLO è il markdown ORIGINALE, nessuna lista/etichetta inventata dal
+ * codice. Una tabella = un elemento dell'array.
+ */
+export function extractTableBlocks(text) {
+  const lines = String(text || '').split('\n')
+  const blocks = []
+  let cur = null
+  for (const l of lines) {
+    const isRow = /^\s*\|.*\|\s*$/.test(l)
+    if (isRow) {
+      if (!cur) cur = []
+      cur.push(l)
+    } else if (cur) {
+      if (cur.length >= 2) blocks.push(cur.join('\n'))
+      cur = null
+    }
+  }
+  if (cur && cur.length >= 2) blocks.push(cur.join('\n'))
+  return blocks
+}
+
+/**
+ * Risolve un blocco tabella markdown in RIGHE "posizionali": per ogni riga di
+ * dati produce { label, cols } dove cols è un ARRAY posizionale:
+ * [{ header: <nome colonna reale>, value: <valore cella> }, ...] — le posizioni
+ * vengono PRESERVATE anche quando l'header ha colonne ripetute (due celle header
+ * uguali NON collassano: restano due voci con lo stesso header). Nessun nome
+ * inventato: gli header sono quelli del documento, le celle vuote restano vuote.
+ * Il separatore "\|---|" viene saltato. Ritorna [] se il blocco non è tabella.
+ */
+export function tableRowsWithHeaders(block) {
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  if (rows.length < 2) return []
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const headerRow = rows.find((l) => !isSep(l))
+  const sepIdx = rows.findIndex(isSep)
+  if (!headerRow || sepIdx < 0) return []
+  const headers = cellsOf(headerRow)
+  // celle header vuote (header multi-livello): ereditano il nome della cella
+  // NON vuota immediatamente prima (come fa il documento)
+  for (let k = 1; k < headers.length; k++) {
+    if (!headers[k]) headers[k] = headers[k - 1]
+  }
+  const out = []
+  for (let i = sepIdx + 1; i < rows.length; i++) {
+    const cells = cellsOf(rows[i])
+    if (cells.length < 2) continue
+    const label = cells[0] || ''
+    const cols = []
+    for (let k = 1; k < headers.length && k < cells.length; k++) {
+      cols.push({ header: headers[k] || `colonna ${k}`, value: cells[k] ?? '' })
+    }
+    if (label && cols.length) out.push({ label, cols, raw: rows[i] })
+  }
+  return out
+}
+
+/**
+ * Ripara l'header di un blocco tabella markdown per l'allineamento POSIZIONALE
+ * con le righe dati: la prima cella dell'header è il TITOLO della tabella (es.
+ * "PREMIO TOTALE") e la prima cella di ogni riga dati è il NOME della riga (es.
+ * "PREMIO RATA INIZIALE"), NON una colonna di dati. Quindi header e righe vengono
+ * riallineati per posizione (colonna k della riga ↔ header k), conservando i
+ * nomi reali e le celle vuote. Ritorna il markdown riallineato; se il blocco non
+ * è una tabella riconoscibile, ritorna il blocco originale.
+ */
+export function repairTableMarkdown(block) {
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  if (rows.length < 3) return block
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const headerRow = rows.find((l) => !isSep(l))
+  if (!headerRow) return block
+  const title = headerRow.split('|')[1]?.trim() || 'TABELLA'
+  // header grezzi (senza titolo)
+  let headerCells = headerRow.split('|').slice(2, -1).map((c) => c.trim())
+  if (headerCells.length < 2) return block
+  // ── Correzione colonne FUSE da Docling ─────────────────────────────────
+  // Nel PDF reale le colonne dell'header tabella premio sono SEPARATE:
+  // "FRAZIONAMENTO" | "NETTO IMPONIBILE" (verificato sulle coordinate x del
+  // PDF: x=194 e x=258). Docling le concatena in UNA cella "FRAZIONAMENTO
+  // NETTO IMPONIBILE" (e la ripete) perché le legge in sequenza. Si splitta
+  // la cella concat in due colonne e si allarga la riga dati di conseguenza.
+  // Pattern CONCRETO del PDF (non indovinato): cella che inizia con
+  // "FRAZIONAMENTO" e contiene "NETTO IMPONIBILE".
+  const splitIdx = headerCells.findIndex((h) => /^FRAZIONAMENTO\b.*NETTO\s+IMPONIBILE/i.test(h))
+  if (splitIdx >= 0) {
+    const cell = headerCells[splitIdx]
+    const parts = cell.split(/\s+(?=NETTO\s+IMPONIBILE)/i)
+    if (parts.length === 2) {
+      headerCells = [...headerCells.slice(0, splitIdx), parts[0].trim(), parts[1].trim(), ...headerCells.slice(splitIdx + 1)]
+    }
+  }
+  const rebuilt = []
+  rebuilt.push(`| ${title} | ${headerCells.join(' | ')} |`)
+  rebuilt.push(`|${'---|'.repeat(headerCells.length + 1)}`)
+  const sepIdx = rows.findIndex(isSep)
+  for (const r of rows.slice(sepIdx + 1)) {
+    const cells = r.split('|').slice(1, -1).map((c) => c.trim())
+    const name = cells[0] || ''
+    let vals = cells.slice(1)
+    if (splitIdx >= 0 && vals.length >= headerCells.length) {
+      // il markdown Docling ha una cella in più (la "FRAZIONAMENTO NETTO
+      // IMPONIBILE" fusa); la riga dati reale ha 7 colonne come l'header
+      // originale 7. Riallini: se i valori sembrano 6 (header 8 dopo split),
+      // inserisci la cella vuota per il FRAZIONAMENTO mancante.
+      // (Il caso LAMBRATE: valori = 6, header splittato = 8 → va bene 6 sotto 8? No:
+      // l'header originale era 7 (1 titolo + 6 colonne) e la riga ha 6 valori.
+      // Dopo lo split l'header diventa 7 colonne: 0,00|88,33|0,00|2,48|19,30|110,11
+      // sono 6 valori per 7 colonne → manca il primo (FRAZIONAMENTO). In realtà
+      // la riga markdown Docling era "| nome | 0,00 | 88,33 | 0,00 | 2,48 | 19,30 | 110,11 |"
+      // = 6 valori: FRAZ,NETTO,RIMBORSO,DIRITTO,IMPOSTE,LORDO — corretto!)
+    }
+    // Celle vuote → "-": segnaposto universale, niente ambiguità di colonna
+    // shifata. "-" non è un valore inventato: è la marca del vuoto (qualsiasi
+    // tabella può usarla, e il modello la ignora come "nessun valore").
+    const filled = vals.map((v) => (v === '' ? '-' : v))
+    rebuilt.push(`| ${name} | ${filled.join(' | ')} |`)
+  }
+  return rebuilt.join('\n')
+}

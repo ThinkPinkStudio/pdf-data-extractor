@@ -225,11 +225,34 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }
 
     const buf = Buffer.from(files[d].pdf_base64, 'base64')
+    // ── LETTURA LAYOUT-AWARE (pdf-inspector → markdown) prima dell'OCR ──────
+    // Le tabelle e le etichette delle polizze vengono ricostruite in Markdown
+    // strutturato (colonne/righe) da @firecrawl/pdf-inspector: il modello legge
+    // la tabella premi come struttura, non come blob spaziato. Se non disponibile
+    // o fallisce, fallback al percorso OCR storico.
+    let mdDoc = ''
+    try {
+      const { processPdf } = await import('@firecrawl/pdf-inspector')
+      const pdfRes = await processPdf(buf)
+      const md = pdfRes?.markdown || ''
+      if (md && md.trim().length > 50) mdDoc = md.trim()
+    } catch { /* pdf-inspector non disponibile: fallback OCR */ }
     let doc
     try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
     const totalPages = doc.numPages
     let docText = ''
     const docPages: string[] = []
+    // Se il markdown ha sostanza, usalo come unico "testo" del documento
+    // (il motore staged/embedding ci lavora come struttura, non come OCR riga).
+    if (mdDoc) {
+      docText = mdDoc
+      docPages.push(mdDoc)
+      pagesWithText++
+      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
+      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
+      try { await doc.destroy() } catch { /* già distrutto */ }
+      continue
+    }
     try {
       for (let p = 1; p <= totalPages; p++) {
         if (await isCanceled(job.id)) return

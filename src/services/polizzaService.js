@@ -9,7 +9,7 @@
  * 2. pdf-parse – ultimo fallback generico
  */
 
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, existsSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 // Nell'app web (Node puro) electron NON deve esistere: lo carichiamo in modo
@@ -41,7 +41,7 @@ import {
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
   validateCrossFields,
 } from './polizzaValidation.js'
-import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs, extractLabelValueForField, extractTableValueByColumn, extractLabelTerms } from './ocrLayout.js'
+import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs, extractMarkdownColumns, extractTableBlocks, repairTableMarkdown, tableRowsWithHeaders } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
 import {
   buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText,
@@ -1248,6 +1248,7 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
         try {
           const j = JSON.parse(line)
           if (j.message?.content) content += j.message.content
+          else if (j.message?.thinking) content += j.message.thinking
           if (j.done) { promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
         } catch { /* riga NDJSON parziale: completata al prossimo chunk */ }
       }
@@ -1281,20 +1282,25 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
   // Streaming + watchdog per token: LENTO va avanti (anche 15+ min se i token
   // arrivano), MORTO viene tagliato e la generazione cancellata lato server.
   // Il vecchio timeoutMs cieco sopravvive solo come componente del tetto duro.
-  const { content, promptEval, evalCount } = await ollamaChatStream(url, {
+  // format=false → OMESSO (Ollama rifiuta format:false con 500; significa
+  // "nessun vincolo", risposta libera — usato dallo Stadio A.7 che ha chiavi
+  // proprie k0..kN non coperte dallo schema c0..cN).
+  const format = opts.format ?? ollamaFormatFor(opts.fields, opts.shape || 'staged', settings)
+  const payload = {
     model: settings.ollamaModel,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt   }
     ],
-    format: opts.format ?? ollamaFormatFor(opts.fields, opts.shape || 'staged', settings),
+    ...(format === false ? {} : { format }),
     ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
     options: {
       num_ctx:     numCtx,
       temperature: 0,
       num_predict: opts.numPredict || 3000
     }
-  }, { hardCapMs: Math.max(timeoutMs * 4, 1800000), cancelFlag: settings.__cancelFlag || null })
+  }
+  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, 1800000), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
@@ -2140,12 +2146,64 @@ const RECENCY_SYSTEM_EXPLICIT =
  */
 function withPairs(pageText) {
   const t = String(pageText || '')
+  // NIENTE liste hardcoded: le intuizioni vengono SOLO dal documento (blocchi
+  // tabella markdown Docling/pdf-inspector + coppie etichetta→valore dal
+  // layout spaziale). Il modello riceve la STRUTTURA REALE, non coppie scarne.
+  const blocks = extractTableBlocks(t)
   const pairs = detectLabelValuePairs(t)
-  if (!pairs.length) return t
-  const structured = pairs
-    .map((p) => `RIGA ${p.row} — "${p.label}" → ${p.value}`)
-    .join('\n')
-  return `ESTRATTI STRUTTURATI:\n${structured}\n\nTESTO:\n${t}`
+  const parts = []
+  if (blocks.length) parts.push('TABELLE DEL DOCUMENTO (righe reali):\n' + blocks.join('\n'))
+  if (pairs.length) {
+    const seen = new Set()
+    const rows = pairs
+      .filter((p) => (seen.has(p.label) ? false : (seen.add(p.label), true)))
+      .map((p) => `RIGA ${p.row || '?'} — "${p.label}" → ${p.value}`)
+      .slice(0, 25)
+    if (rows.length) parts.push('COPPIE ETICHETTA→VALORE (dal layout):\n' + rows.join('\n'))
+  }
+  return parts.length ? parts.join('\n\n') + '\n\nTESTO:\n' + t : t
+}
+
+// Blocco "TABELLE ESTRATTE" per il prompt dei batch: estrae dai testi del batch
+// le coppie etichetta→valore (per colonna, dal layout spaziale) sulle etichette
+// tabellari note — così il modello riceve la tabella già strutturata, non i
+// numeri sparsi. Restituisce '' se non trova nulla (prompt invariato).
+function extractPromptTables(text) {
+  // Passa al modello le tabelle REALI del documento:
+  //  1) blocchi tabella markdown interi (righe contigue `| … |`, prodotti da
+  //     Docling/pdf-inspector) — il modello vede la riga-e-colonna giusta
+  //     (es. PREMIO TOTALE vs PREMIO RATA INIZIALE);
+  //  2) coppie etichetta→valore (dal layout spaziale) come suggerimento di
+  //     lettura.
+  // Nessuna lista predefinita: tutto viene dal documento.
+  const blocks = extractTableBlocks(text)
+  const pairs = detectLabelValuePairs(text)
+  const parts = []
+  if (blocks.length) {
+    // Passiamo TUTTI i blocchi tabella reali del documento (markdown Docling
+    // originale). MA se un blocco ha colonne con header AMBIGUO (prima cella =
+    // titolo della tabella, o header ripetuti/cellule vuote in colonne dati),
+    // il modello sposta i valori di colonna. Si RIPARA il blocco stesso:
+    // l'header viene riallineato per POSIZIONE alle celle dati (la prima cella
+    // è il nome della riga, la seconda l'header della prima colonna dati), e
+    // le celle vuote restano al loro posto. Nessun nome inventato: si
+    // conservano i nomi reali, si riallinea solo la struttura.
+    parts.push('TABELLE DEL DOCUMENTO (righe reali, colonne reali — leggi qui i valori per RIGA):')
+    for (const b of blocks.slice(0, 12)) parts.push(repairTableMarkdown(b))
+  }
+  if (pairs.length) {
+    const seen = new Set()
+    const rows = []
+    for (const p of pairs) {
+      const k = `${p.label}|${p.value}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      rows.push(`  - "${p.label}" → ${p.value}`)
+      if (rows.length >= 12) break
+    }
+    if (rows.length) parts.push(`COPPIE ETICHETTA→VALORE (dal layout, per abbinare):\n${rows.join('\n')}`)
+  }
+  return parts.length ? parts.join('\n') + '\n' : ''
 }
 
 /**
@@ -2201,7 +2259,7 @@ export async function extractPolizzaPerField(docs, fullText, settings, onProgres
   }
   diag.push(`Indice in memoria: ${chunks.length} chunk (modello embeddings ${settings.embeddingModel || 'bge-m3'})`)
 
-  const queries = activeFields.map(f => `${f.label}. ${stripFieldExamples(f.description || f.label || f.id)}`)
+  const queries = activeFields.map(f => `${stripFieldExamples(f.description || '')}`)
   let queryVecs
   try {
     queryVecs = []
@@ -2621,18 +2679,39 @@ export function buildGroupBatches(docList, budgetChars) {
     // in caratteri UTILI (usefulLength): le run di spazi del padding costano
     // quasi zero token ma 1:1 in char — contarle piene rimpiccioliva i batch
     // e separava etichetta e valore, l'esatto contrario dello scopo.
-    const promptPages = d.spatialPages?.length === d.pages.length ? d.spatialPages : d.pages
+    const promptPages = d.spatialPages?.length ? d.spatialPages : d.pages
     for (let p = 0; p < promptPages.length; p++) {
       const t = promptPages[p]?.trim()
       if (!t) continue
-      let block = `[${d.name} · pag. ${p + 1}]\n${withPairs(t)}`
+      // Se il documento ha ANCHE il markdown Docling (d.pages) per la stessa
+      // pagina e lo spaziale NON ha righe di tabella (|), unisce le TABELLE
+      // Docling (riparate per allineamento) al testo spaziale: il modello vede
+      // sia la griglia allineata sia le tabelle strutturate. Se lo spaziale ha
+      // già le tabelle (|), lo spaziale basta.
+      let extraTables = ''
+      const mdPage = d.pages?.[p] && d.pages[p] !== promptPages[p] ? String(d.pages[p] || '') : ''
+      if (mdPage && !/^\s*\|/.test(t)) {
+        const bl = extractTableBlocks(mdPage)
+        if (bl.length) {
+          const repaired = bl.map(repairTableMarkdown).filter((b) => b !== bl)
+          if (repaired.length) extraTables = `\nTABELLE DOCLING (strutturate):\n${repaired.join('\n\n')}`
+        }
+      }
+      let block = `[${d.name} · pag. ${p + 1}]\n${withPairs(t)}${extraTables}`
       let cost = usefulLength(block)
-      // Pagina singola oltre il budget (caso limite di documenti con pagine
-      // enormi): si taglia A budgetChars, mai più — oltre sarebbe TONCATO in
-      // silenzio dal server (num_ctx < prompt). Il documento viene già spezzato
-      // per pagina tra i batch (spillover) e qui gli si dà il massimo che il
-      // contesto può contenere senza margine negativo.
-      if (cost > budgetChars) { block = block.slice(0, budgetChars); cost = usefulLength(block) }
+      // Pagina singola oltre il budget: va SPEZZATA su confini strutturali
+      // (paragrafi, tabelle intere, righe di tabella con header ripetuto), MAI
+      // tagliata a metà riga/tabella a budgetChars — quello perdeva i dati.
+      if (cost > budgetChars) {
+        const pieces = splitPageAtBoundaries(withPairs(t) + extraTables, budgetChars)
+        for (const piece of pieces) {
+          const b = `[${d.name} · pag. ${p + 1}]\n${piece}`
+          const c = usefulLength(b)
+          if (used + c + 2 > budgetChars) flush()
+          parts.push(b); names.add(d.name); used += c + 2
+        }
+        continue
+      }
       if (used + cost + 2 > budgetChars) flush()
       parts.push(block)
       names.add(d.name)
@@ -2641,6 +2720,123 @@ export function buildGroupBatches(docList, budgetChars) {
   }
   flush()
   return batches
+}
+
+// Spezza una pagina (già con le coppie/tabelle) su confini strutturali:
+//  1. blocchi di paragrafo (doppio a-capo) e tabelle INTERE restano uniti;
+//     quando un blocco supera il budget, si spezza alla RIGA DI TABELLA
+//     riprependendo la riga di intestazione (mai a metà riga);
+//  2. se non c'è altro, si taglia all'ultimo spazio.
+// Ritorna un array di pezzi di testo, ognuno minimizzabile dal budget.
+function splitPageAtBoundaries(text, budgetChars) {
+  const pieces = []
+  let buf = ''
+  let bufCost = 0
+  const flushBuf = () => {
+    if (buf.trim()) { pieces.push(buf.trim()); buf = ''; bufCost = 0 }
+  }
+  const add = (s) => {
+    const cs = usefulLength(s)
+    if (buf && bufCost + cs > budgetChars) flushBuf()
+    if (buf) { buf += '\n\n' + s; bufCost = usefulLength(buf) } else { buf = s; bufCost = cs }
+  }
+  // Separa la pagina in "unità" (paragrafo o tabella intera) usando il
+  // delimitatore di blocco markdown (riga vuota). Le righe `|` contigue +
+  // separatore formano una tabella trattata come unità atomica.
+  const units = splitMarkdownUnits(text)
+  for (const u of units) {
+    if (buf && bufCost + usefulLength(u) > budgetChars && buf.trim()) flushBuf()
+    if (usefulLength(u) > budgetChars) {
+      // blocco singolo oltre il budget: se è tabella spezza per righe col
+      // header ripetuto, altrimenti taglia all'ultimo spazio.
+      if (isTableBlock(u)) {
+        for (const sub of splitTableByRows(u, budgetChars)) add(sub)
+      } else {
+        add(cutAtLastSpace(u, budgetChars))
+      }
+      continue
+    }
+    add(u)
+  }
+  flushBuf()
+  return pieces
+}
+
+// Divide un testo markdown in unità: paragrafi (righe vuote come separatore)
+// e TABELLE intere (blocchi di righe `|` consecutive + separatore `|---|`)
+// come unità singole, MAI spezzate.
+function splitMarkdownUnits(text) {
+  const units = []
+  const lines = String(text || '').split('\n')
+  let cur = []
+  let inTable = false
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l)
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(l) && l.includes('|')
+  const flush = () => {
+    if (cur.length) { units.push(cur.join('\n')); cur = [] }
+  }
+  for (const l of lines) {
+    const row = isRow(l)
+    if (row && (inTable || cur.length === 0 || /^\s*\|/.test(l))) {
+      if (!inTable && cur.length) flush()
+      inTable = true
+      cur.push(l)
+      continue
+    }
+    if (isSep(l) && inTable) { cur.push(l); continue }
+    if (inTable) { flush(); inTable = false }
+    if (!l.trim()) { flush(); continue }
+    cur.push(l)
+  }
+  flush()
+  return units
+}
+
+// TRUE se il blocco è una tabella markdown (almeno 2 righe che iniziano con `|`
+// e una riga separatore `|---|`).
+function isTableBlock(block) {
+  const lines = String(block || '').split('\n').filter((l) => l.trim())
+  const firstIsRow = /^\s*\|.*\|\s*$/.test(lines[0] || '')
+  const hasSep = lines.some((l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(l) && l.includes('|'))
+  return firstIsRow && hasSep && lines.length >= 3
+}
+
+// Spezza una tabella per RIGHE in pezzi che stanno nel budget, RIPETENDO la
+// riga di intestazione (la prima riga `|...|`) in testa a ogni pezzo — MAI a
+// metà riga. Il separatore `|---|` viene incluso subito dopo l'header.
+function splitTableByRows(block, budgetChars) {
+  const lines = String(block || '').split('\n')
+  // header = prima riga `|...|`; separatore = la riga `|---|` che la segue
+  const header = lines.find((l) => /^\s*\|.*\|\s*$/.test(l))
+  if (!header) return [block]
+  const others = lines.filter((l) => l !== header)
+  const sep = others.find((l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(l) && l.includes('|')) || ''
+  const rows = others.filter((l) => l !== sep)
+  const pieces = []
+  let cur = [header]
+  if (sep) cur.push(sep)
+  let cost = usefulLength(cur.join('\n'))
+  for (const r of rows) {
+    const c = usefulLength(r)
+    if (cost + c > budgetChars && cur.length > 2) {
+      pieces.push(cur.join('\n'))
+      cur = [header]
+      if (sep) cur.push(sep)
+      cost = usefulLength(cur.join('\n'))
+    }
+    cur.push(r)
+    cost += c
+  }
+  if (cur.length > 2) pieces.push(cur.join('\n'))
+  return pieces.length ? pieces : [block]
+}
+
+// Taglia a budgetChars rispettando le parole (ultimo spazio entro il limite).
+function cutAtLastSpace(s, budgetChars) {
+  if (s.length <= budgetChars) return s
+  const cut = s.slice(0, budgetChars)
+  const sp = cut.lastIndexOf(' ')
+  return (sp > budgetChars * 0.5 ? cut.slice(0, sp) : cut)
 }
 
 // Batch dedicato al FRONTESPIZIO (prima pagina con riepilogo polizza/premi).
@@ -2652,7 +2848,7 @@ export function buildGroupBatches(docList, budgetChars) {
 function frontespizioFirstBatch(docList, budgetChars) {
   const FRONT_MARKERS = /polizza\s+nr|n[°º.]?\s*polizza|dati\s+anagrafici\s+e\s+contrattuali|garanzie\s+prescelte|riepilogo\s+premio|premio\s+annuo|premio\s+totale/i
   for (const d of Array.isArray(docList) ? docList : []) {
-    const pages = (d.spatialPages?.length === d.pages?.length ? d.spatialPages : d.pages) || []
+    const pages = (d.spatialPages?.length ? d.spatialPages : d.pages) || []
     for (let p = 0; p < Math.min(pages.length, 4); p++) {
       const t = String(pages[p] || '').trim()
       if (!t) continue
@@ -2717,6 +2913,14 @@ function stagedSystemPrompt(kind, checkboxFields = []) {
     '   SUCCESSIVA / ANNUO), usa la colonna indicata dalla descrizione del campo (es. "PREMIO LORDO"\n' +
     '   = l\'ultimo valore della riga) e NON una riga o colonna di passaggio. Se non trovi il valore\n' +
     '   nella colonna/riga giusta, OMETTI il campo (mai pescare da un\'altra colonna).\n' +
+    '7. PREMI E IMPOSTE: distingui SEMPRE due tipi di tabelle numeriche. (a) La tabella dei RISCHI/\n' +
+    '   GARANZIE elenca i premi PER SINGOLA COPERTURA (es. TUTELA LEGALE: premio 207,83, imposte\n' +
+    '   44,16, lordo 251,99): sono valori PER-GARANZIA, usa il campo solo se la sua descrizione lo\n' +
+    '   chiede esplicitamente. (b) La voce economica TOTALE del contratto (PREMIO TOTALE / imponibile /\n' +
+    '   imposte / diritti / premio lordo del periodo di copertura) è un\'ALTRA tabella con una riga\n' +
+    '   TOTALE o le rate del premio: quando la descrizione del campo parla di imponibile/imposte/\n' +
+    '   diritti/premio lordo COMPLESSIVO, usa QUESTA voce (quella del totale del contratto), NON i\n' +
+    '   valori per singola garanzia e NON un valore di una colonna diversa.\n' +
     checkboxRule +
     `${NATURA_BLIND_RULES}` +
     `${STAGED_GROUP_NOTES[kind] || ''}\n` +
@@ -3432,47 +3636,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── Stage A.6: ETICHETTA ⟶ VALORE PER COLONNA — SOLO quando la description
-//    indica ESATTAMENTE una colonna/sezione di tabella ────────────────────────
-// Regola (REGOLE_AGENTI): un seed deterministico va applicato SOLO quando la
-// description DICE DOVE sta il dato (es. "colonna 'PREMIO LORDO' della tabella",
-// "sezione 'MASSIMALE PER SINISTRO' del frontespizio"). In quel caso il valore
-// va preso ALLA COLONNA indicata (allineamento spaziale) — è l'unico modo per
-// leggere bene le tabelle premi/massimali che il modello piccolo sbaglia.
-// Per i campi SENZA indicazione di colonna non si semina NULLA: decide il
-// modello con la sola description (niente guardie indovinate).
-  {
-    const allFields = (fieldsById && Object.values(fieldsById)) || []
-    let hits = 0
-    for (const f of allFields) {
-      if (best[f.id]?.valore) continue
-      const desc = String(f.description || '').trim()
-      // la description deve NOMINARE una colonna/sezione/tabella (etichetta esplicita)
-      const m = desc.match(/(?:colonna|sezione|tabella)\s*['"]?\s*([A-Za-zÀ-ÿ0-9°º.,\/ ]{4,60})['"]?\s*(?:della|della tabella|del|nel|nell[ae]|del frontespizio)?/i)
-      if (!m) continue
-      const labelTerm = m[1].trim()
-      if (labelTerm.length < 4) continue
-      for (const d of analyzed) {
-        const pages = d.spatialPages?.length ? d.spatialPages : d.pages
-        const found = extractTableValueByColumn(pages, labelTerm)
-        if (!found) continue
-        const cleaned = sanitizeFieldValue(f, found)
-        if (!cleaned) continue
-        const src = findStagedSource(analyzed, null, cleaned, null)
-        const pageIdx = (d.spatialPages || []).findIndex((p) => p && p.includes(String(found).slice(0, 24)))
-        best[f.id] = {
-          valore: cleaned, effDate: d.dateStr, docType: d.type,
-          appendixOrd: d.appendixOrd, docPos: d.pos,
-          file: src?.file || d.name, page: pageIdx >= 0 ? pageIdx + 1 : '',
-          affinity: 0.5, lex: 0.5, deterministic: false,
-        }
-        hits++
-        diag.push(`Etichetta[${f.id}] = "${String(cleaned).slice(0, 60)}" (colonna "${labelTerm}", ${d.name})`)
-        break
-      }
-    }
-    if (hits) diag.push(`Stadio A.6: etichetta-adiacente (colonna esplicita) — ${hits} campi seminati`)
-  }
+  // ── Stage A.5b: rimosso ────────────
+  // Il markdown Docling/`extractPromptTables` è GIÀ nel prompt del modello
+  // (`buildPrompt`): leggere la tabella e associare le colonne ai campi è
+  // compito DEL MODELLO, con la description come unico ponte. Nessuna mappa
+  // deterministica campo↔intestazione di mia invenzione (i match laschi
+  // facevano peggio).
+
+  // ── Stage A.6: rimosso ─────────────────
+  // L'associazione etichetta→valore la fa IL MODELLO sulle tabelle reali che
+  // riceve nel prompt (markdown Docling + coppie `withPairs`/`extractPromptTables`).
+  // Nessun seed deterministico basato su "termini della descrizione" cercati
+  // nel layout: quei match laschi (es. "7.3." come tipologia, "1.000" come
+  // imposte) peggioravano l'estrazione ed erano guardie indovinate vietate.
 
   // ── Stage B: un passaggio per gruppo ───────────────────────────────────────
   // NESSUN campo viene escluso dal modello per via dei seed: i seed competono
@@ -3525,7 +3701,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const winVecCache = new Map()    // finestra di contesto (norm) → vettore
   let embeddingsOk = true
   let semanticLogged = false
-  const fieldQueryText = (f) => `${f.label || ''}. ${stripFieldExamples(f.description || f.label || f.id)}`
+  const fieldQueryText = (f) => `${stripFieldExamples(f.description || f.label || f.id)}`
   const lexTokenize = (str) => String(str || '')
     .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
     .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
@@ -3569,11 +3745,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   diag.push(`Affinità semantica: embedding di ${totPages} pagine + ${activeFields.length} descrizioni in corso (${settings.embeddingModel || 'bge-m3'})…`)
   onProgress?.({ batch: 0, batchTotal: 1 })
   try {
-    await ensurePageVecs(analyzed)
-    await ensureDescVecs()
-    const nPages = pageVecCache.size
-    diag.push(`Affinità semantica attiva (${settings.embeddingModel || 'bge-m3'}): ${nPages} pagine + ${descVecCache.size} descrizioni embeddate — instradamento e arbitrato guidati dalle DESCRIZIONI dei campi`)
-    semanticLogged = true
+    // Se l'embedding è DISATTIVATO (embeddingModel vuoto), si salta del tutto:
+    // su VRAM 8GB un secondo modello (bge-m3) insieme a qwen3 spilla su CPU e
+    // tutto crolla. Niente affinità semantica → fallback lessicale puro.
+    if (!String(settings.embeddingModel || '').trim()) {
+      embeddingsOk = false
+      diag.push('Affinità semantica DISATTIVATA (embeddingModel vuoto) → solo affinità lessicale (un solo modello in VRAM)')
+      semanticLogged = true
+    } else {
+      await ensurePageVecs(analyzed)
+      await ensureDescVecs()
+      const nPages = pageVecCache.size
+      diag.push(`Affinità semantica attiva (${settings.embeddingModel || 'bge-m3'}): ${nPages} pagine + ${descVecCache.size} descrizioni embeddate — instradamento e arbitrato guidati dalle DESCRIZIONI dei campi`)
+      semanticLogged = true
+    }
   } catch (err) {
     embeddingsOk = false
     diag.push(`Affinità semantica NON disponibile (${err.message}) → fallback LESSICALE sui token delle descrizioni. Suggerimento: «ollama pull ${settings.embeddingModel || 'bge-m3'}».`)
@@ -3675,6 +3860,162 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const seedAff = Object.entries(best).filter(([, c]) => typeof c?.affinity === 'number')
   if (seedAff.length) {
     diag.push(`Stadio A: affinità dei seed misurata — ${seedAff.map(([id, c]) => `${id}~${c.affinity.toFixed(2)}`).join(' · ')} (l'arbitro semantico non è più cieco sui seed)`)
+  }
+
+  // ── Stadio A.7: ESTRAZIONE dalla TABELLA CON IMPORTI ─────────────────────
+  // GIRA SEMPRE, su TUTTI i campi attivi (nessun filtro "economico" inventato:
+  // non so cosa contenga un campo, quindi NON decido cosa chiedere). Chiede al
+  // modello: "in QUESTA tabella, quale valore va a ciascun campo?" Il modello
+  // risponde solo per quelli che hanno un valore LÌ (gli altri li omette, e il
+  // gruppo normale li gestisce). La tabella è ENUMERATA per posizione
+  // (col1..colN, "-" per il vuoto): l'allineamento è meccanico, non semantico.
+  // Se non dà risultati, è comunque un ESITO. I candidati competono nel merge
+  // (pickSemanticCandidate): niente sostituzione, niente blindatura.
+  const a7Fields = activeFields.filter((f) => f.enabled !== false)
+  if (a7Fields.length) {
+    let a7Rows = 0
+    try {
+      const seenBlocks = new Set()
+      const econRows = [] // blocchi con importi (markdown `|`)
+      for (const d of analyzed) {
+        const sources = [d.spatialPages, d.pages].filter(Boolean)
+        for (const pages of sources) {
+          for (const p of pages) {
+            for (const b of extractTableBlocks(p)) {
+              if (seenBlocks.has(b)) continue
+              seenBlocks.add(b)
+              if ((b.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})/g) || []).length >= 2) econRows.push(b)
+            }
+          }
+        }
+      }
+      if (econRows.length) {
+        const dedup = econRows.slice(0, 4)
+        // Ogni campo riceve una CHIAVE-PAROLA unica (derivata dalla sua label),
+        // che il modello deve usare come chiave JSON nella risposta. Le chiavi
+        // NUMERICHE c0..cN il modello le compatta saltando i mancanti (visto in
+        // PITTALÀ: c0=imposte, c1=lordo, ...) — una parola legata al campo non
+        // può essere "ricompatatta": il modello la copia o la deforma (e il
+        // match lessicale la recupera). Nessuna guardia: è il modello che
+        // sceglie il valore, la chiave è solo un referente stabile.
+        const a7Keyed = a7Fields.map((f, i) => ({ f, key: `k${i}` }))
+        const fieldLines = a7Keyed
+          .map(({ f, key }, i) => `${i}. ${stripFieldExamples(f.description || '')} [chiave: ${key}]`)
+          .join('\n')
+        const enumerateTable = (blockMd) => {
+          const trw = tableRowsWithHeaders(blockMd)
+          if (!trw.length) return blockMd
+          return trw.map((r) => {
+            const part = [`RIGA "${r.label}":`]
+            r.cols.forEach((c, k) => {
+              const v = c.value === '' ? '-' : c.value
+              part.push(`  col${k + 1} ${c.header || ''} = ${v}`)
+            })
+            return part.join('\n')
+          }).join('\n')
+        }
+        const tableBlock = dedup.map(enumerateTable).join('\n\n')
+        const sys = 'Estrai i valori richiesti dalla TABELLA qui sotto. ' +
+          'Ogni RIGA ha colonne enumerate (col1, col2, ...) coi loro nomi reali; "-" = cella vuota. ' +
+          'REGOLA CAMPI: se il valore di un campo è nella tabella, restituiscilo ESATTO (colonna giusta). ' +
+          'Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell\'intero periodo (per il premio: il valore più grande, la rata che copre l\'anno) e rispondi UNA SOLA volta. ' +
+          'Se il valore non c\'è, OMETTI il campo. Non sommare, non inventare. ' +
+          'REGOLA CHIAVI: OGNI campo ha una chiave tra parentesi [chiave: k0], [chiave: k1]...: usa QUELLA chiave esatta nel JSON, ogni voce {"valore": "...", "riga": "...", "colonna": "..."}. UN solo valore per chiave.'
+        const user = `TABELLA DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (chiave tra [ ]):\n${fieldLines}\n\nRispondi SOLO JSON con le chiavi indicate, es. {"k1": {"valore": "...", "riga": "...", "colonna": "..."}}. OMETTI i campi senza valore.`
+        const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: false })
+        try { writeFileSync('/tmp/a7-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
+        let parsed = parseJsonResponse(raw)
+        // Se il modello risponde con un ARRAY (senza chiavi → ordine non
+        // affidabile), si riprova UNA volta chiedendo esplicitamente le chiavi
+        // k0..kN indicate per campo.
+        if (Array.isArray(parsed)) {
+          const user2 = user + '\n\nIMPORTANTISSIMO: rispondi con un OGGETTO JSON le cui chiavi sono le PAROLE-CHIAVE indicate (k0, k1, ...), MAI con un array.'
+          try {
+            const raw2 = await callOllamaRolling(settings, sys, user2, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: false })
+            const parsed2 = parseJsonResponse(raw2)
+            if (!Array.isArray(parsed2)) parsed = parsed2
+          } catch { /* resta l'array, mapping posizionale come ultima spiaggia */ }
+        }
+        // Risoluzione ROBUSTA della risposta → {campo, valore}: il modello può
+        // rispondere come (a) oggetto con chiavi c0..cN, (b) oggetto con chiavi
+        // SEMANTICHE, (c) ARRAY [{valore, riga, colonna}, ...] (dopo il retry).
+        // Niente guardie: si legge la risposta com'è e si mappa.
+        const normBlob = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ')
+        const fieldOfKey = (k) => {
+          const keyNorm = normBlob(k).trim()
+          // chiave-parola "k<indice>" (o "k<indice>_...") → campo per indice
+          const kIdx = String(k).trim().match(/^k(\d+)(?:_|$)/)
+          if (kIdx) {
+            const idx = Number(kIdx[1])
+            if (a7Fields[idx]) return a7Fields[idx]
+          }
+          const isIndexKey = /^c\d+$/i.test(String(k).trim()) || /^\d+$/.test(String(k).trim())
+          if (isIndexKey) {
+            const idx = Number(String(k).replace(/\D/g, ''))
+            if (Number.isFinite(idx) && a7Fields[idx]) return a7Fields[idx]
+          }
+          let best = null, bestScore = 0
+          const kw = keyNorm.split(' ').filter((w) => w.length >= 4)
+          for (const f of a7Fields) {
+            const lbl = normBlob(f.label)
+            let sc = 0
+            for (const w of kw) { if (lbl.includes(w)) sc++ }
+            if (sc > bestScore) { bestScore = sc; best = f }
+          }
+          return bestScore > 0 ? best : null
+        }
+        const entries = Array.isArray(parsed)
+          ? [] // array: il modello ha risposto ai campi nell'ordine che TROVA in tabella,
+               // NON nell'ordine chiesto → mapping posizionale sbarrato per costruzione.
+               // Meglio vuoto che sbagliato: i campi restano al gruppo normale.
+          : Object.entries(parsed || {})
+        if (Array.isArray(parsed) && parsed.length) {
+          diag.push(`Stadio A.7: risposta ARRAY (${parsed.length} voci) senza chiavi — NON mappata (l'ordine del modello ≠ ordine campi); i campi restano ai gruppi normali`)
+        }
+        for (const [k, v] of entries) {
+          // chiavi di servizio ("riga"/"colonna" a livello radice nel caso di
+          // risposta mista) NON sono campi: si saltano
+          if (/^(riga|colonna|documento|nota)$/i.test(String(k).trim())) continue
+          const f = fieldOfKey(k)
+          if (!f) continue
+          // il valore può essere: stringa ("50,96"), oggetto {valore, riga, colonna},
+          // o oggetto annidato {c0: {...}} — normalizzo difensivo
+          const valObj = (typeof v === 'string' || typeof v === 'number') ? { valore: String(v) } : (v || {})
+          if (!valObj.valore && v && typeof v === 'object' && !Array.isArray(v)) {
+            const inner = v.valore ?? (typeof v.c0 === 'object' ? v.c0.valore : null) ?? null
+            if (inner != null) valObj.valore = inner
+          }
+          if (!valObj.valore) continue
+          // "0"/"0,00" SENZA evidenza (riga/colonna vuote) = placeholder del
+          // modello per "non c'è valore" (visto in PITTALÀ: Fatturato=0,
+          // ODV=0, ...). Meglio vuoto che sbagliato: non è un dato reale.
+          const z = String(valObj.valore).replace(/[€\s]/g, '')
+          const isZeroNoEvid = (/^0(?:,0+)?$/.test(z) || /^0+$/.test(String(valObj.valore).replace(/,/g, '.')))
+            && !valObj.riga && !(v && typeof v === 'object' && v.riga)
+          if (isZeroNoEvid) {
+            diag.push(`Tabella-focus[${f.label}]: "0" senza evidenza scartato (placeholder, meglio vuoto)`)
+            continue
+          }
+          const cleaned = sanitizeFieldValue(f, valObj.valore)
+          if (!cleaned) continue
+          const cand = {
+            valore: cleaned, effDate: analyzed[0]?.dateStr, docType: analyzed[0]?.type,
+            appendixOrd: analyzed[0]?.appendixOrd, docPos: analyzed[0]?.pos,
+            file: analyzed[0]?.name, page: 1,
+            affinity: 0.9, lex: 0.9, deterministic: false,
+          }
+          const before = best[f.id]?.valore
+          best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
+          a7Rows++
+          diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (riga "${valObj.riga || (v && typeof v === 'object' ? v.riga : '') || ''}" col "${valObj.colonna || (v && typeof v === 'object' ? v.colonna : '') || ''}"${before ? `, prima "${before}"` : ''})`)
+        }
+      } else {
+        diag.push('Stadio A.7: nessuna tabella con importi trovata — nessun campo da tabella (esito valido)')
+      }
+    } catch (err) {
+      diag.push(`Stadio A.7 errore (${err.message}) — i campi restano come dagli altri stadi`)
+    }
+    diag.push(`Stadio A.7: ${a7Rows} campi proposti dalla tabella — gli altri stadi proseguono comunque (merge, mai sostituzione)`)
   }
 
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
@@ -3828,6 +4169,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   } else {
   // ── Stadio B a GRUPPI, copertura totale (percorso DEFAULT) ─────────────────
   const groupPlans = []
+  // NESSUN filtro dell'harness su "quali campi chiedere al gruppo": il gruppo
+  // economico chiede TUTTI i suoi campi; lo Stadio A.7 è girato prima senza
+  // condizioni e i suoi valori competono nel merge (l'affinità alta della
+  // tabella li fa vincere a pari fonte). L'harness NON sceglie: esegue.
   for (const kind of ['strutturali', 'economici', 'anagrafica']) {
     const groupFields = partition[kind]
     // Selezione documenti DINAMICA, guidata dalle DESCRIZIONI dei campi: la
@@ -3849,7 +4194,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
       .join('\n')
     plan.system = stagedSystemPrompt(kind, groupFields.filter((f) => descriptionAsksCheckbox(f.description || '')).map((f) => f.id))
-    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => `CAMPI DA ESTRARRE (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, … — SOLO descrizioni):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    plan.buildPrompt = (text, fieldLines = plan.fieldLines) => {
+      const tables = extractPromptTables(text)
+      return `CAMPI DA ESTRARRE (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, … — SOLO descrizioni):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\n${tables}\nTESTO DEI DOCUMENTI:\n${text}\n\nRestituisci SOLO il JSON.`
+    }
     // Budget di TESTO per batch: contesto del modello (num_ctx) meno guida campi
     // + system ESPRESSO IN TOKEN, con un MARGINE di sicurezza (12% + quota fissa)
     // perché un budget a filo del limite fa troncare il prompt in silenzio dal
@@ -3865,18 +4213,31 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     })
     plan.budgetChars = budgetChars
     plan.batches = buildGroupBatches(groupDocs, budgetChars)
-    // ── FRONTESPIZIO SEPARATO in testa (gruppi strutturali/economici) ────────
+    // ── FRONTESPIZIO come CONTESTO CONDIVISO (tutti i batch anagrafici/economici/
+    // strutturali) ─────────────────────────────────────────────────────────────
     // Sui PDF multi-sezione (frontespizio + DIP/condizioni, es. LAMBRATE/guida
     // 18 pagine) il modello pesca i premi/massimali dal corpo ("di 21.000 euro
     // per sinistro" del DIP) invece della tabella premi del frontespizio (p1),
-    // perché le pagine del corpo arrivano mescolate nei batch. Cura: per i
-    // gruppi ECONOMICI e STRUTTURALI, se il documento più grande ha una prima
-    // pagina che sembra un frontespizio (contiene n° polizza DAS/riepilogo
-    // premi), si prepende UN batch dedicato con SOLO quella pagina marcata
-    // "[FRONTESPIZIO …]", così il modello la vede isolata subito.
-    if (kind === 'economici' || kind === 'strutturali') {
+    // perché le pagine del corpo arrivano mescolate nei batch. Pattern
+    // Insura-AI Tier 1: le "declarations" (frontespizio) sono incluse come
+    // CONTESTO CONDIVISO in ogni batch — il modello ha sempre la declarations
+    // page davanti quando estrae anagrafica/premi/massimali, non solo nel
+    // primo batch del gruppo.
+    if (kind === 'anagrafica' || kind === 'economici' || kind === 'strutturali') {
       const front = frontespizioFirstBatch(groupDocs, budgetChars)
-      if (front) plan.batches = [front, ...plan.batches]
+      if (front) {
+        // prepende il frontespizio a OGNI batch del gruppo (contesto condiviso)
+        plan.batches = plan.batches.map((b) => {
+          const combined = `${front.text}\n\n${b.text}`
+          const cost = usefulLength(combined)
+          // se non ci sta nel budget, lascia il frontespizio come batch separato
+          // in testa (già assicurato dalla logica seguente) e il batch invariato
+          if (cost > budgetChars && b.text.length) return b
+          return { text: combined, usedNames: new Set([...front.usedNames, ...b.usedNames]) }
+        })
+        // e comunque il frontespizio da solo in testa al gruppo
+        plan.batches = [front, ...plan.batches]
+      }
     }
     // Batch FOCALIZZATI in testa al gruppo: un documento per batch, mai mescolato
     // agli altri. Due criteri, entrambi TYPE-BLIND (documenti tutti uguali —
@@ -4060,7 +4421,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         if (embeddingsOk) {
           try {
             await ensurePageVecs(b.allowedDocs)
-            const queries = b.fields.map((f) => `${f.label}. ${stripFieldExamples(f.description || f.label || f.id)}`)
+            const queries = b.fields.map((f) => `${stripFieldExamples(f.description || f.label || f.id)}`)
             const qVecs = await embedTexts(settings, queries)
             const semScored = []
             b.allowedDocs.forEach((d, docRank) => {

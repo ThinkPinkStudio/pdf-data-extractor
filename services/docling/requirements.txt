@@ -1,0 +1,3 @@
+fastapi
+uvicorn[standard]
+docling>=2.106

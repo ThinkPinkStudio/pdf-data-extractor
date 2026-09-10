@@ -29,7 +29,7 @@ Esempio VIETATO nel prompt:
 - campo_1234 — ...
 ```
 
-## Regola 1b — NIENTE guardie "indovinate" (regola critica)
+## Regola 1b — NIENTE guardie indovinate, liste hardcoded o seed deterministici (regola CRITICA)
 
 - **NON scrivere guardie deterministiche basate su valori/soglie che non vengono
   dalla `description`** (es. "massimale < 1000 = sbagliato", "nome con X =
@@ -40,15 +40,21 @@ Esempio VIETATO nel prompt:
   deve avere cifre; "data" → formato data) e la coerenza INTERNA al documento
   (es. premio ≈ imponibile+imposta), MAI soglie assolute o pattern di "sospetto".
 
-## Regola 1c — Estrai da TABELLE associando etichetta ⟶ valore adiacente
+## Regola 1c — IL MODELLO FA TUTTO. Il dato può stare in testo, tabella o appendice
 
 - Il dato può stare **in un testo, in una tabella (etichetta in riga, valore in
-  colonna) o in un'appendice**. NON presupporre dove sia: lo si trova associando
-  l'ETICHETTA (quella descritta) al VALORE ADIACENTE (stessa riga dopo i due punti,
-  o stessa colonna sotto/accanto) usando il layout SPAZIALE (`buildSpatialPage`,
-  `detectLabelValuePairs`).
-- Se l'etichetta indicata dalla `description` non ha un valore adiacente, il campo
-  resta VUOTO (mai forzare, mai indovinare).
+  colonna) o in un'appendice**. NON presupporre dove sia.
+- **IL MODELLO FA TUTTO**: dove sta il dato, quale etichetta gli corrisponde,
+  se è in una tabella, tutto lo decide IL MODELLO sui testi che riceve. Le
+  coppie `etichetta→valore` scoperte dal layout (markdown Docling/`withPairs`)
+  sono un SUGGERIMENTO di lettura per il modello, MAI una verità imposta.
+- **MAI scorrere il documento col codice per "trovare" il valore di un campo**
+  (incluso "cerca i termini della description nel layout e prendi l'adiacente
+  per colonna"). Anche se il modello sbaglia, il suo tentativo dal contesto
+  completo è SEMPRE meglio di un valore imposto da euristiche del codice.
+- **MAI liste hardcoded di etichette/colonne** (es.
+  `KNOWN_COLUMNS = ['NETTO IMPONIBILE', 'PREMIO LORDO', ...]`).
+- Se non c'è evidenza: il campo resta **VUOTO**, e lo dice il MODELLO.
 
 ## Regola 2 — Contesto massimo: 8192 (MASSIMO, non superabile)
 
