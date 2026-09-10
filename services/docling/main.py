@@ -21,6 +21,7 @@ app = FastAPI(title="docling-parse", version="1.0.0")
 # Import pesante e una sola volta (primo avvio scarica i model layout).
 from docling.document_converter import DocumentConverter  # noqa: E402
 from docling.datamodel.base_models import DocumentStream  # noqa: E402
+from docling.datamodel.pipeline_options import PdfPipelineOptions
 
 _converter = None
 
@@ -28,7 +29,12 @@ _converter = None
 def get_converter():
     global _converter
     if _converter is None:
-        _converter = DocumentConverter()
+        # CPU-only: evita il backend EasyOCR (che trascina torch CUDA).
+        # Il parsing layout + table funziona comunque; l'OCR di default
+        # resta disattivato (i PDF arrivano già con testo estratto).
+        opts = PdfPipelineOptions()
+        opts.do_ocr = False
+        _converter = DocumentConverter(pipeline_options=opts)
     return _converter
 
 

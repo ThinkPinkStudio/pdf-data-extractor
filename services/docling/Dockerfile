@@ -15,7 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --extra-index-url https://download.pytorch.org/whl/cpu: docling dipende da
+# torch/torchvision, ma da PyPI prenderebbe i wheel CUDA (~4 GB) che fanno
+# fallire la build per disco/RAM. Qui scarica i wheel CPU-only.
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 COPY main.py .
 

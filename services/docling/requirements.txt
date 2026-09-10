@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
-docling>=2.106
+# docling con accelerazione CPU-only: evita i wheel CUDA di torch/torchvision
+# (~4 GB di download) che non servono — il parsing PDF non fa inference GPU.
+# onnxruntime = OCR backend leggero (nessun easyocr/torch).
+docling[onnxruntime]>=2.106
