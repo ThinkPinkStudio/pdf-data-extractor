@@ -21,6 +21,7 @@ interface Settings {
   qdrantApiKey?: string
   qdrantCollection?: string
   embeddingModel?: string
+  doclingUrl?: string
 }
 
 const DEFAULTS: Settings = {
@@ -224,6 +225,11 @@ export default function SettingsTechnicalPage() {
             <label className="label">{t('set.embeddingModel')}</label>
             <input value={s.embeddingModel || ''} onChange={(e) => up('embeddingModel', e.target.value)} placeholder="bge-m3" />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.embeddingModelHelp')}</p>
+          </div>
+          <div className="form-group">
+            <label className="label">Docling (markdown layout-aware)</label>
+            <input value={s.doclingUrl || ''} onChange={(e) => up('doclingUrl', e.target.value)} placeholder="http://host:8101" />
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>URL del microservizio Docling (POST /parse). Vuoto = usa @firecrawl/pdf-inspector o OCR.</p>
           </div>
         </div>
 

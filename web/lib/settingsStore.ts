@@ -126,6 +126,9 @@ export interface WebSettings {
   qdrantApiKey?: string
   qdrantCollection?: string
   embeddingModel?: string
+  // Servizio Docling (PDF → markdown strutturato, layout-aware). Vuoto = usa
+  // @firecrawl/pdf-inspector o OCR come prima. Es. http://192.168.37.10:8101
+  doclingUrl?: string
   // Portafoglio Compare (sezione separata: confronto di due Excel). Nessun LLM.
   compareMatchKeys?: MatchKey[]
   compareFuzzyEnabled?: boolean
@@ -253,6 +256,8 @@ export async function getSettings(): Promise<WebSettings> {
     qdrantApiKey: map.qdrantApiKey ?? (process.env.QDRANT_API_KEY || ''),
     qdrantCollection: map.qdrantCollection || 'documenti',
     embeddingModel: map.embeddingModel || 'bge-m3',
+    // Servizio Docling (PDF → markdown). Vuoto = fallback pdf-inspector/OCR.
+    doclingUrl: map.doclingUrl || (process.env.DOCLING_URL || ''),
     // Portafoglio Compare — tutta configurazione persistita nel DB (nessun default env).
     compareMatchKeys: json<MatchKey[]>('compareMatchKeys'),
     compareFuzzyEnabled: bool('compareFuzzyEnabled', true),

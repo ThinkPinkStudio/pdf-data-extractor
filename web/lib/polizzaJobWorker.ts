@@ -35,6 +35,23 @@ async function appendLog(job: JobRow, line: string, logs: string[]) {
   await updateJob(job.id, { logs })
 }
 
+// Chiama il microservizio Docling (POST /parse) e ritorna il markdown estratto
+// dal PDF. Lancia se Docling non risponde o non produce testo.
+async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<string> {
+  const base = String(doclingUrl).replace(/\/+$/, '')
+  const res = await fetch(`${base}/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: 'documento.pdf', content_base64: pdfBuf.toString('base64') }),
+    signal: AbortSignal.timeout(300000), // PDF lunghi: Docling può impiegare minuti
+  })
+  if (!res.ok) throw new Error(`Docling HTTP ${res.status}`)
+  const j = (await res.json()) as { markdown?: string }
+  const md = String(j.markdown || '').trim()
+  if (md.length <= 50) throw new Error('Docling: markdown vuoto o troppo corto')
+  return md
+}
+
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)
@@ -225,18 +242,31 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }
 
     const buf = Buffer.from(files[d].pdf_base64, 'base64')
-    // ── LETTURA LAYOUT-AWARE (pdf-inspector → markdown) prima dell'OCR ──────
+    // ── LETTURA LAYOUT-AWARE (Docling → markdown) prima dell'OCR ────────────
     // Le tabelle e le etichette delle polizze vengono ricostruite in Markdown
-    // strutturato (colonne/righe) da @firecrawl/pdf-inspector: il modello legge
-    // la tabella premi come struttura, non come blob spaziato. Se non disponibile
-    // o fallisce, fallback al percorso OCR storico.
+    // strutturato (colonne/righe): il modello legge la tabella premi come
+    // struttura, non come blob spaziato. Il servizio Docling (impostazione
+    // doclingUrl) è il percorso PREFERITO; se non configurato o fallisce,
+    // si ripiega su @firecrawl/pdf-inspector e infine sull'OCR storico.
     let mdDoc = ''
-    try {
-      const { processPdf } = await import('@firecrawl/pdf-inspector')
-      const pdfRes = await processPdf(buf)
-      const md = pdfRes?.markdown || ''
-      if (md && md.trim().length > 50) mdDoc = md.trim()
-    } catch { /* pdf-inspector non disponibile: fallback OCR */ }
+    const doclingUrl = String(settings.doclingUrl || '').trim()
+    if (doclingUrl) {
+      try {
+        mdDoc = await markdownFromDocling(doclingUrl, buf)
+        if (mdDoc) await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char)`, logs)
+      } catch (err: any) {
+        mdDoc = ''
+        await appendLog(job, `Docling fallito per "${docName}", fallback pdf-inspector: ${err.message || err}`, logs)
+      }
+    }
+    if (!mdDoc) {
+      try {
+        const { processPdf } = await import('@firecrawl/pdf-inspector')
+        const pdfRes = await processPdf(buf)
+        const md = pdfRes?.markdown || ''
+        if (md && md.trim().length > 50) mdDoc = md.trim()
+      } catch { /* pdf-inspector non disponibile: fallback OCR */ }
+    }
     let doc
     try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
     const totalPages = doc.numPages
