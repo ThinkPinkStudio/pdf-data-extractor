@@ -22,7 +22,12 @@ RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     -r requirements.txt
 
-COPY main.py .
+COPY main.py predownload.py .
+# PREDOWNLOAD dei modelli layout di Docling (TableFormer/layout-heron, ~500 MB):
+# senza questo, il primo /parse scarica i pesi dal HuggingFace Hub e resta
+# bloccato per minuti (visto in produzione: "Loading weights"). Qui i pesi
+# entrano NELL'IMMAGINE: a runtime il modello è già in /root/.cache/huggingface.
+RUN python predownload.py && rm predownload.py
 
 EXPOSE 8101
 

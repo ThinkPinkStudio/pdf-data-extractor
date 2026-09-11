@@ -206,6 +206,17 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // Pagine per documento (testo OCR): servono all'indice vettoriale, che salva
   // ogni chunk con file+pagina come metadati.
   const docsForIndex: { name: string; pages: string[]; hash?: string }[] = []
+  // Testo PIATTO per il pre-check (filtro parole chiave): SEPARATO da
+  // docsForIndex. L'estrazione usa il markdown Docling (struttura), il filtro
+  // deve vedere il testo PIANO (senza "<!-- image -->", "#", "|"): com'era
+  // prima dell'introduzione del markdown nel worker.
+  const docsFlat: { name: string; pages: string[] }[] = []
+  const toFlat = (pg: string) => String(pg || '')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/^\s{0,4}#{1,6}\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
   let totalPagesProcessed = 0
   let pagesWithText = 0
   let ocrCacheHits = 0
@@ -265,6 +276,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
         parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
         docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
+        docsFlat.push({ name: docName, pages: cachedPages.map(toFlat) })
         continue
       }
     }
@@ -277,7 +289,8 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       totalPagesProcessed += 1
       pagesWithText++
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
-      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
+      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash }) // docPages = [mdDoc] (markdown)
+      docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
       // Salva nella cache OCR (stessa chiave) così i prossimi run con Docling
       // giù riusano il markdown invece di rifare tutto. Non fatale se fallisce.
       try { await putOcrCache(fileHash, docName, docPages) } catch { /* non fatale */ }
@@ -311,6 +324,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
+    docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
   }
   if (ocrCacheHits) await appendLog(job, `Cache OCR: ${ocrCacheHits}/${files.length} documenti riusati (contenuto identico già elaborato)`, logs)
 
@@ -343,7 +357,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; excludeMatched?: string[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
       const pre = await pcSvc.runPrecheck({
-        docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
+        // FILTRO ed ESTRAZIONE SEPARATI: il filtro parole chiave vede il TESTO
+        // PIATTO (docsFlat), l'estrazione il markdown Docling (docsForIndex).
+        // Il markdown inizia con "<!-- image -->" e metadati → il classificatore
+        // rispondeva "image" e bloccava tutto.
+        docs: docsFlat,
+        fieldDefs: job.field_defs || [], profile,
         profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
       })
       await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000) } })

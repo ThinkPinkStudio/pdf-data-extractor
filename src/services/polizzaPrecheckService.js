@@ -127,7 +127,7 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
     // skipped, mai mismatch.
     hasPolicyEvidence: normText ? hasPolicyEvidence(normText) : null,
     requireValidPolicy: settings?.polizzaRequireValidPolicy !== false,
-  })
+   130|  })
   return {
     ...decision,
     ...(keyword ? { matched: keyword.matched, missing: keyword.missing } : {}),
