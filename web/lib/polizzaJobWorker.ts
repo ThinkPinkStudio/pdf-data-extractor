@@ -52,6 +52,61 @@ async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<
   return md
 }
 
+// Griglia SPAZIALE per pagina (pdfjs → buildSpatialPage): le colonne/tabelle
+// restano allineate per coordinate REALI. Il motore staged le spezza in batch
+// che entrano nel contesto (8192): il markdown Docling da solo è UN blob unico
+// (decine di KB) che NON ci sta e i dati restano fuori contesto (visto in
+// produzione: recupero che risponde null, 2/23).
+async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[]> {
+  try {
+    const { buildSpatialPage } = await importSharedService<{ buildSpatialPage: (b: any) => string }>('ocrLayout.js')
+    const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
+    const pdfjs = pdfjsMod.default || pdfjsMod
+    if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(pdfBuf), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true, disableFontFace: true }).promise
+    const pages: string[] = []
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p)
+      const content = await page.getTextContent({ includeMarkedContent: false })
+      const words: { text: string; x0: number; x1: number; y0: number; y1: number; cy: number; h: number; bbox: { x0: number; x1: number; y0: number; y1: number } }[] = []
+      for (const item of content.items) {
+        if (!('str' in item) || !item.str) continue
+        const x0 = (item as any).transform[4], y0 = (item as any).transform[5]
+        const fs = Math.abs((item as any).transform[3]) || Math.abs((item as any).transform[0]) || 10
+        const totW = (item as any).width && (item as any).width > 0 ? (item as any).width : item.str.length * fs * 0.6
+        const parts = item.str.match(/\S+/g) || []
+        let pos = 0
+        const cw = totW / item.str.length
+        for (const w of parts) {
+          const idx = item.str.indexOf(w, pos)
+          pos = idx + w.length
+          const wpx = cw * (w.length + 1.5)
+          words.push({ text: w, x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs, cy: y0 + fs / 2, h: fs, bbox: { x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs } })
+        }
+      }
+      if (!words.length) continue
+      words.sort((a, b) => a.cy - b.cy || a.x0 - b.x0)
+      const rows: { cy: number; h: number; words: typeof words }[] = []
+      let cur: { cy: number; h: number; words: typeof words } | null = null
+      const rowTol = Math.max(1, Math.abs(words[0].h) / 2 || 5)
+      for (const w of words) {
+        if (cur && Math.abs(w.cy - cur.cy) <= rowTol) { cur.words.push(w); cur.cy = (cur.cy + w.cy) / 2 }
+        else { cur = { cy: w.cy, h: w.h, words: [w] }; rows.push(cur) }
+      }
+      const lines = rows.map((r) => {
+        r.words.sort((a, b) => a.x0 - b.x0)
+        return { words: r.words.map((w) => ({ text: w.text, bbox: w.bbox })), rowAttributes: { rowHeight: r.h } }
+      })
+      const blocks = [{ paragraphs: [{ lines }] }]
+      const spatial = buildSpatialPage(blocks)
+      if (spatial.trim()) pages.push(spatial.trim())
+    }
+    return pages
+  } catch {
+    return [] // pdfjs non disponibile/fallito → il worker usa solo il markdown
+  }
+}
+
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)
@@ -281,19 +336,32 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       }
     }
 
-    // Se il markdown (Docling/pdf-inspector) c'è, usalo come unico testo del
-    // documento (niente OCR pagina per pagina).
+    // Se il markdown (Docling/pdf-inspector) c'è, usalo come struttura. Come nei
+    // test di calibrazione: pages = markdown Docling, spatialPages = griglia
+    // spaziale pdfjs per pagina (le colonne/tabelle allineate per coordinate).
+    // Il motore staged spezza la griglia in batch che entrano nel contesto
+    // (8192) — il markdown da solo (decine di KB in una pagina) NON ci sta e i
+    // dati restano fuori contesto (recupero null, 2/23 in produzione).
     if (mdDoc) {
       const docText = mdDoc
       const docPages = [mdDoc]
-      totalPagesProcessed += 1
+      // Griglia spaziale: reperita dalla cache OCR se disponibile, altrimenti
+      // estratta dal PDF (pdfjs). MAI fatale: se non c'è, si usa solo il markdown
+      // (peggio, ma il flusso non si ferma).
+      let spatial: string[] | null = null
+      const cachedRaw = await getOcrCache(fileHash).catch(() => null)
+      if (cachedRaw && cachedRaw.length) spatial = cachedRaw
+      else {
+        spatial = await spatialPagesFromPdf(buf)
+        if (spatial.length) {
+          try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
+        } else spatial = null
+      }
+      totalPagesProcessed += (spatial?.length || 1)
       pagesWithText++
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
-      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash }) // docPages = [mdDoc] (markdown)
+      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ...(spatial ? { spatialPages: spatial } : {}) })
       docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
-      // Salva nella cache OCR (stessa chiave) così i prossimi run con Docling
-      // giù riusano il markdown invece di rifare tutto. Non fatale se fallisce.
-      try { await putOcrCache(fileHash, docName, docPages) } catch { /* non fatale */ }
       continue
     }
     let doc

@@ -2615,8 +2615,13 @@ function analyzeStagedDocs(docs) {
     //   datazione, embeddings, chunk RAG, finestre di contesto: tutte cose
     //   scritte per righe corte, che il padding romperebbe (la regex del n°
     //   polizza arrivava a CONCATENARE cifre di colonne diverse).
-    const spatialPages = Array.isArray(d?.pages) ? d.pages.map((p) => String(p || '')) : []
-    const pages = spatialPages.map(collapseSpatial)
+    // Il worker (docling/pdfjs) può passare spatialPages espliciti (griglia
+    // reale) + pages (markdown Docling): in quel caso si rispettano entrambi.
+    const rawSpatial = Array.isArray(d?.spatialPages) ? d.spatialPages : d?.pages
+    const spatialPages = (rawSpatial || []).map((p) => String(p || ''))
+    const pages = Array.isArray(d?.pages) && d.pages.length
+      ? d.pages.map((p) => String(p || ''))
+      : spatialPages.map(collapseSpatial)
     const text = pages.join('\n')
     let dateStr = latestDateExcludingEmission(text) || null
     const ym = name.match(/\b(19|20)\d{2}\b/)

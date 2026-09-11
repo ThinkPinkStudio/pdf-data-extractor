@@ -21,25 +21,40 @@ app = FastAPI(title="docling-parse", version="1.0.0")
 # Import pesante e una sola volta (primo avvio scarica i model layout).
 from docling.document_converter import DocumentConverter  # noqa: E402
 from docling.datamodel.base_models import DocumentStream  # noqa: E402
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import (  # noqa: E402
+    PdfPipelineOptions, TableStructureOptions, TableFormerMode,
+)
 
 _converter = None
+
+
+def _make_opts():
+    # CPU-only: niente OCR (i PDF arrivano col loro testo).
+    # Tabella in modalità ACCURATE con cell-matching: di default (FAST)
+    # TableFormer LASCIAVA CADERE metà celle ("40 of 83 pdf cells ... dropped
+    # from the table", visto nei log) → markdown con tabelle rotte e
+    # estrazione penosa in produzione.
+    opts = PdfPipelineOptions()
+    opts.do_ocr = False
+    try:
+        opts.table_structure_options = TableStructureOptions(
+            mode=TableFormerMode.ACCURATE,
+            do_cell_matching=True,
+        )
+    except Exception:  # pragma: no cover — API diversa: usa i default
+        pass
+    return opts
 
 
 def get_converter():
     global _converter
     if _converter is None:
-        # CPU-only: evita il backend EasyOCR (che trascina torch CUDA).
-        # Il parsing layout + table funziona comunque; l'OCR di default
-        # resta disattivato (i PDF arrivano già con testo estratto).
         from docling.document_converter import PdfFormatOption  # noqa: E402
-        opts = PdfPipelineOptions()
-        opts.do_ocr = False
-        # API Docling >= 2.120: `pipeline_options` NON si passa più come kwarg
-        # al costruttore (TypeError); si passa via format_options. In versioni
-        # precedenti il kwarg diretto era valido: fallback per compatibilità.
+        from docling.datamodel.base_models import InputFormat  # noqa: E402
+        opts = _make_opts()
+        # API Docling >= 2.120: `pipeline_options` NON è più kwarg del ctor.
         try:
-            _converter = DocumentConverter(format_options={"pdf": PdfFormatOption(pipeline_options=opts)})
+            _converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
         except TypeError:
             _converter = DocumentConverter(pipeline_options=opts)
     return _converter
