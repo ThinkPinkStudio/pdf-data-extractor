@@ -27,12 +27,13 @@ const dir = arg('dir')
 const profileName = arg('profile')
 const out = arg('out')
 const filesArg = arg('files')
-const ollamaUrl = arg('ollama', 'http://192.168.37.10:11434')
+const ollamaUrl = arg('ollama', process.env.OLLAMA_URL || 'http://192.168.37.10:11434')
+const modelName = arg('model', process.env.OLLAMA_MODEL || 'qwen3:8b')
 const profileJson = arg('profile-json', join(root, 'polizze_test/profili-polizza (5).json'))
 const onlyFields = arg('only-fields') // lista id separati da virgola
 const ctx = arg('ctx') ? Number(arg('ctx')) : 8192
 if (!dir || !profileName || !out) {
-  console.error('Uso: node scripts/calibrazione-run.mjs --dir <cartella> --profile "<Nome>" --out <out.json> [--files "a,b"] [--ollama <url>] [--profile-json <file>] [--only-fields "id1,id2"]')
+  console.error('Uso: node scripts/calibrazione-run.mjs --dir <cartella> --profile "<Nome>" --out <out.json> [--files "a,b"] [--ollama <url>] [--profile-json <file>] [--only-fields "id1,id2"] [--model qwen3:8b]')
   process.exit(2)
 }
 
@@ -85,7 +86,7 @@ const hasEmptyPage = docs.some((d) => (d.pages || []).some((p) => !String(p || '
 
 const settings = {
   ollamaUrl,
-  ollamaModel: 'qwen3:8b',
+  ollamaModel: modelName,
   polizzaFields: fields,
   polizzaConstrainedJson: true,
   polizzaPerField: false,
