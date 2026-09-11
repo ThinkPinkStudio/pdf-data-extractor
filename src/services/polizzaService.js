@@ -18,6 +18,7 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel } from './netFetch.js'
+import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
@@ -1220,12 +1221,14 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
     }
   }, 5000)
   try {
-    const send = async (body) => resilientFetch(`${url}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ac.signal
-    })
+    // POST in streaming via node:http (NON fetch/undici): il fetch di Node ha
+    // un headersTimeout di default di 300 s e Ollama, con stream:true, manda
+    // gli header solo DOPO la lettura del prompt. Se il prompt eval supera i
+    // 5 min (modello che sborda su CPU, hardware lento) fetch abortiva con
+    // "fetch failed", resilientFetch RITENTAVA da zero (stesso prompt, stessa
+    // attesa) e il watchdog tagliava tutto agli 8 min: batch perso, nessun
+    // token mai ricevuto. Con http.request comanda SOLO il watchdog qui sotto.
+    const send = async (body) => postJsonStream(`${url}/api/chat`, body, { signal: ac.signal })
     let using = { ...payload, stream: true }
     let res = await send(using)
     // Schema/GBNF rifiutato (Ollama vecchio o grammar non compilabile):
@@ -1243,12 +1246,9 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
       const errBody = await res.text().catch(() => '')
       throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
     }
-    const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buf = '', content = '', promptEval = null, evalCount = null
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
+    for await (const value of res.stream) {
       lastChunkAt = Date.now()
       buf += decoder.decode(value, { stream: true })
       let nl
