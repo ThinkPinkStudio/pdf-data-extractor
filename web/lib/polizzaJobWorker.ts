@@ -37,6 +37,21 @@ async function appendLog(job: JobRow, line: string, logs: string[]) {
 
 // Chiama il microservizio Docling (POST /parse) e ritorna il markdown estratto
 // dal PDF. Lancia se Docling non risponde o non produce testo.
+// Testo REALE del markdown: tolte immagini-marcatori (<!-- image -->), sintassi
+// markdown (#, |, ---), spazi. Un PDF SCANSIONATO con Docling do_ocr=False
+// produce solo marcatori: "length > 50" lo scambiava per testo (con do_ocr=False
+// e PDF scansionati è il caso normale) → OCR saltato → precheck che vede vuoto e
+// blocca ("rilevato: image" / "cartella senza polizza valida" su scansionati).
+// Richiede una quantità minima di testo vero; sotto quella, si degrada a OCR.
+function usableMarkdown(md: string): string {
+  const clean = String(md || '')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/[#>*|_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return clean.length >= 150 ? String(md).trim() : ''
+}
+
 async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<string> {
   const base = String(doclingUrl).replace(/\/+$/, '')
   const res = await fetch(`${base}/parse`, {
@@ -292,8 +307,10 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     const doclingUrl = String(settings.doclingUrl || '').trim()
     if (doclingUrl) {
       try {
-        mdDoc = await markdownFromDocling(doclingUrl, buf)
+        const rawMd = await markdownFromDocling(doclingUrl, buf)
+        mdDoc = usableMarkdown(rawMd)
         if (mdDoc) await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char)`, logs)
+        else if (rawMd) await appendLog(job, `Docling su "${docName}": solo marcatori/nessun testo reale (PDF scansionato?) → fallback OCR`, logs)
       } catch (err: any) {
         mdDoc = ''
         await appendLog(job, `Docling fallito per "${docName}": ${err.message || err}`, logs)
@@ -305,8 +322,8 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       try {
         const { processPdf } = await import('@firecrawl/pdf-inspector')
         const pdfRes = await processPdf(buf)
-        const md = pdfRes?.markdown || ''
-        if (md && md.trim().length > 50) mdDoc = md.trim()
+        const md = usableMarkdown(pdfRes?.markdown || '')
+        if (md) mdDoc = md
       } catch { /* pdf-inspector non disponibile: fallback OCR */ }
     }
 
