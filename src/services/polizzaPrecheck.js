@@ -216,8 +216,14 @@ export function topContentTerms(normText, n = 5) {
 // un guasto infra o un'ambiguità NON devono mai produrre blocco (→ 'skipped',
 // mai 'mismatch'); il flag `polizzaRequireValidPolicy` permette l'OPT-OUT.
 
-/** Default del flag "richiedi polizza vera" (attivo: blocca se manca). */
-export const REQUIRE_VALID_POLICY_DEFAULT = true
+/**
+ * Default del flag "richiedi polizza vera": DISATTIVO (opt-in).
+ * La regola usa liste di marcatori hardcoded (numero polizza + importo) e
+ * scarta un intero fascicolo senza che il modello lo abbia letto: è una
+ * "guardia indovinata" (REGOLE_AGENTI, Regola 1b). Resta disponibile come
+ * opt-in esplicito (`polizzaRequireValidPolicy=true`) per chi la vuole.
+ */
+export const REQUIRE_VALID_POLICY_DEFAULT = false
 
 // Marker di "frontespizio di polizza vera" nel testo NORMALIZZATO (minuscole,
 // senza punteggiatura): n° polizza alfanumerico, massimali con importi,
@@ -235,7 +241,11 @@ const POLICY_AMOUNT_RE = /(?:massimal|franchig[ie]|premio|imponibil|impost|scope
  */
 export function hasPolicyEvidence(normText) {
   const t = String(normText || '')
-  if (t.length < 80) return false // troppo poco testo: non giudicabile → niente mismatch
+  // Troppo poco testo: NON giudicabile. Deve essere `null` (non `false`):
+  // decidePrecheck blocca con 'mismatch' solo su boolean false; con `false`
+  // qui ogni pagina OCR corta o markdown di soli marcatori mandava il job in
+  // "cartella senza polizza valida" (visto in produzione sui PDF scansionati).
+  if (t.length < 80) return null
   const hasNum = POLICY_NUM_RE.test(t)
   const hasAmount = POLICY_AMOUNT_RE.test(t)
   return hasNum && hasAmount

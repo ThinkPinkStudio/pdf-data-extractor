@@ -5,3 +5,11 @@ dist
 *.log
 .claude/
 .env.*
+
+# bytecode Python del microservizio Docling (era finito nel repo per errore)
+__pycache__/
+*.pyc
+
+# output locali degli script di calibrazione/copertura
+.coverage-cache/
+.goldens-out/

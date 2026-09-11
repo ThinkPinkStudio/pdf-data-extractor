@@ -18,6 +18,7 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel } from './netFetch.js'
+import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
@@ -1193,7 +1194,13 @@ async function getOllamaContextLimit(settings, model) {
 //   - poi: se nessun token arriva per stallMs il run è morto → abort;
 //   - hardCapMs: tetto assoluto contro i loop infiniti.
 // Finché i token arrivano, NESSUN timeout: un batch legittimo può durare 15 min.
-async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs = 120000, hardCapMs = 1800000, cancelFlag = null } = {}) {
+// Limiti sovrascrivibili da ambiente per hardware LENTO (calibrazione su CPU,
+// modello che sborda dalla VRAM): OLLAMA_FIRST_CHUNK_MS (attesa del primo
+// token: lettura prompt), OLLAMA_STALL_MS (silenzio tra token), OLLAMA_HARD_CAP_MS
+// (tetto assoluto). In produzione su GPU i default bastano; senza questi
+// override una CPU a ~9 token/s perdeva ogni batch da >4k token (8 min).
+const envMs = (name, fallback) => { const v = Number(process.env[name]); return Number.isFinite(v) && v > 0 ? v : fallback }
+async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIRST_CHUNK_MS', 480000), stallMs = envMs('OLLAMA_STALL_MS', 120000), hardCapMs = envMs('OLLAMA_HARD_CAP_MS', 1800000), cancelFlag = null } = {}) {
   const ac = new AbortController()
   const startedAt = Date.now()
   let lastChunkAt = null // null = primo chunk non ancora arrivato
@@ -1220,12 +1227,14 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
     }
   }, 5000)
   try {
-    const send = async (body) => resilientFetch(`${url}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ac.signal
-    })
+    // POST in streaming via node:http (NON fetch/undici): il fetch di Node ha
+    // un headersTimeout di default di 300 s e Ollama, con stream:true, manda
+    // gli header solo DOPO la lettura del prompt. Se il prompt eval supera i
+    // 5 min (modello che sborda su CPU, hardware lento) fetch abortiva con
+    // "fetch failed", resilientFetch RITENTAVA da zero (stesso prompt, stessa
+    // attesa) e il watchdog tagliava tutto agli 8 min: batch perso, nessun
+    // token mai ricevuto. Con http.request comanda SOLO il watchdog qui sotto.
+    const send = async (body) => postJsonStream(`${url}/api/chat`, body, { signal: ac.signal })
     let using = { ...payload, stream: true }
     let res = await send(using)
     // Schema/GBNF rifiutato (Ollama vecchio o grammar non compilabile):
@@ -1243,12 +1252,9 @@ async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs =
       const errBody = await res.text().catch(() => '')
       throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
     }
-    const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buf = '', content = '', promptEval = null, evalCount = null
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
+    for await (const value of res.stream) {
       lastChunkAt = Date.now()
       buf += decoder.decode(value, { stream: true })
       let nl
@@ -1311,7 +1317,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       num_predict: opts.numPredict || 3000
     }
   }
-  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, 1800000), cancelFlag: settings.__cancelFlag || null })
+  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
@@ -2606,6 +2612,96 @@ const APPENDIX_ORD_RE = /appendice\s*(?:n[°.\s]*)?(\d{1,3})/i
  *   3. ordinale d'appendice ("appendice 12" > "appendice 8") come spareggio;
  *   4. nessuna data → il candidato non potrà mai scavalcare un valore datato.
  */
+/**
+ * DOPPIO TESTO di un documento in ingresso al motore, in UN SOLO posto (worker,
+ * script di calibrazione e test passano da qui):
+ *  - `spatialPages`  → la griglia (pdfjs/tesseract) che va nei PROMPT;
+ *  - `pages`         → il testo per regex, datazione, embeddings, gate
+ *                      campo×documento e finestre di affinità.
+ * Tre casi:
+ *  1. solo griglia (script/test, OCR): pages = griglia COLLASSATA per pagina;
+ *  2. griglia + markdown Docling PER PAGINA (stesso numero di pagine): si usano
+ *     entrambi così come sono;
+ *  3. griglia + markdown in un numero DIVERSO di pagine (il caso tipico: il
+ *     servizio Docling restituisce UN blocco unico da decine di KB): il
+ *     markdown viene SPEZZATO su confini strutturali (tabelle intere, mai a
+ *     metà) e ogni unità viene ALLINEATA alla pagina della griglia con cui
+ *     condivide più parole/numeri. Senza questo, `pages` era un blob solo: il
+ *     gate semantico vedeva i primi 2000 caratteri del documento, il
+ *     "documento più corposo" contava 1 pagina per tutti, e TUTTE le tabelle
+ *     del documento finivano incollate alla pagina 1 del prompt.
+ * @param {{ pages?: string[], spatialPages?: string[] }} d
+ * @returns {{ pages: string[], spatialPages: string[] }}
+ */
+export function normalizeStagedDocInput(d) {
+  const toStr = (arr) => (Array.isArray(arr) ? arr : []).map((p) => String(p || ''))
+  const explicitSpatial = toStr(d?.spatialPages)
+  const hasExplicitSpatial = explicitSpatial.some((p) => p.trim())
+  const spatialPages = hasExplicitSpatial ? explicitSpatial : toStr(d?.pages)
+  if (!hasExplicitSpatial) {
+    return { pages: spatialPages.map(collapseSpatial), spatialPages, textMode: 'griglia' }
+  }
+  const mdPages = toStr(d?.pages)
+  if (!mdPages.some((p) => p.trim())) {
+    return { pages: spatialPages.map(collapseSpatial), spatialPages, textMode: 'griglia' }
+  }
+  if (mdPages.length === spatialPages.length) return { pages: mdPages, spatialPages, textMode: 'griglia+markdown per pagina' }
+  return { pages: alignMarkdownToPages(mdPages, spatialPages), spatialPages, textMode: `griglia+markdown allineato (${mdPages.length}→${spatialPages.length} pagine)` }
+}
+
+// Token di ALLINEAMENTO (non di estrazione): parole di almeno 3 lettere e run di
+// cifre, senza accenti/maiuscole. Un importo "1.270,10" diventa {1, 270, 10};
+// una ragione sociale le sue parole. Serve solo a decidere A QUALE PAGINA della
+// griglia appartiene un'unità di markdown.
+function alignTokens(text) {
+  const t = String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return new Set(t.match(/[a-z]{3,}|\d+/g) || [])
+}
+
+/**
+ * Allinea il markdown (Docling/pdf-inspector) alle pagine della griglia
+ * spaziale quando il numero di pagine NON coincide (tipicamente: un blocco
+ * unico). Il markdown viene diviso in unità strutturali (paragrafi, tabelle
+ * INTERE); ogni unità va alla pagina con la maggiore frazione di token in
+ * comune; a parità (entro il 10%) vince la pagina più vicina all'ultima
+ * assegnata, perché il markdown segue l'ordine del documento; un'unità senza
+ * alcun token in comune resta sulla pagina corrente. Nessuna unità viene
+ * scartata: il testo di ritorno contiene tutto il markdown in ingresso.
+ * @param {string[]} mdPages   markdown (una o più parti, in ordine)
+ * @param {string[]} spatialPages  griglia per pagina (stesso ordine del PDF)
+ * @returns {string[]} markdown per pagina, allineato a spatialPages
+ */
+export function alignMarkdownToPages(mdPages, spatialPages) {
+  const pagesTok = (spatialPages || []).map((p) => alignTokens(collapseSpatial(p)))
+  const n = pagesTok.length
+  if (!n) return (mdPages || []).map((p) => String(p || ''))
+  const units = splitMarkdownUnits((mdPages || []).map((p) => String(p || '')).join('\n\n'))
+    .filter((u) => u.trim())
+  const out = Array.from({ length: n }, () => [])
+  let cursor = 0
+  for (const u of units) {
+    const ut = alignTokens(u)
+    let best = 0
+    const scores = pagesTok.map((pt) => {
+      if (!ut.size) return 0
+      let hit = 0
+      for (const tok of ut) if (pt.has(tok)) hit++
+      const sc = hit / ut.size
+      if (sc > best) best = sc
+      return sc
+    })
+    let target = cursor
+    if (best > 0) {
+      const near = (i) => Math.abs(i - cursor) + (i < cursor ? 0.5 : 0) // preferisce avanti
+      target = scores.reduce((bi, sc, i) => (sc >= best * 0.9 && (bi < 0 || near(i) < near(bi)) ? i : bi), -1)
+      if (target < 0) target = cursor
+    }
+    out[target].push(u)
+    cursor = target
+  }
+  return out.map((arr) => arr.join('\n\n'))
+}
+
 function analyzeStagedDocs(docs) {
   return (docs || []).map((d, i) => {
     const name = d?.name || `documento_${i + 1}.pdf`
@@ -2617,11 +2713,7 @@ function analyzeStagedDocs(docs) {
     //   polizza arrivava a CONCATENARE cifre di colonne diverse).
     // Il worker (docling/pdfjs) può passare spatialPages espliciti (griglia
     // reale) + pages (markdown Docling): in quel caso si rispettano entrambi.
-    const rawSpatial = Array.isArray(d?.spatialPages) ? d.spatialPages : d?.pages
-    const spatialPages = (rawSpatial || []).map((p) => String(p || ''))
-    const pages = Array.isArray(d?.pages) && d.pages.length
-      ? d.pages.map((p) => String(p || ''))
-      : spatialPages.map(collapseSpatial)
+    const { pages, spatialPages, textMode } = normalizeStagedDocInput(d)
     const text = pages.join('\n')
     let dateStr = latestDateExcludingEmission(text) || null
     const ym = name.match(/\b(19|20)\d{2}\b/)
@@ -2633,7 +2725,7 @@ function analyzeStagedDocs(docs) {
     }
     const om = name.match(APPENDIX_ORD_RE)
     return {
-      name, pages, spatialPages, text,
+      name, pages, spatialPages, text, textMode,
       normPages: pages.map((p) => normForMatch(p)),
       type: classifyDocType(name),
       dateStr,
@@ -2709,7 +2801,7 @@ export function buildGroupBatches(docList, budgetChars) {
       if (mdPage && !/^\s*\|/.test(t)) {
         const bl = extractTableBlocks(mdPage)
         if (bl.length) {
-          const repaired = bl.map(repairTableMarkdown).filter((b) => b !== bl)
+          const repaired = bl.map(repairTableMarkdown).filter(Boolean)
           if (repaired.length) extraTables = `\nTABELLE DOCLING (strutturate):\n${repaired.join('\n\n')}`
         }
       }
@@ -2742,40 +2834,52 @@ export function buildGroupBatches(docList, budgetChars) {
 //  1. blocchi di paragrafo (doppio a-capo) e tabelle INTERE restano uniti;
 //     quando un blocco supera il budget, si spezza alla RIGA DI TABELLA
 //     riprependendo la riga di intestazione (mai a metà riga);
-//  2. se non c'è altro, si taglia all'ultimo spazio.
-// Ritorna un array di pezzi di testo, ognuno minimizzabile dal budget.
-function splitPageAtBoundaries(text, budgetChars) {
-  const pieces = []
-  let buf = ''
-  let bufCost = 0
-  const flushBuf = () => {
-    if (buf.trim()) { pieces.push(buf.trim()); buf = ''; bufCost = 0 }
-  }
-  const add = (s) => {
-    const cs = usefulLength(s)
-    if (buf && bufCost + cs > budgetChars) flushBuf()
-    if (buf) { buf += '\n\n' + s; bufCost = usefulLength(buf) } else { buf = s; bufCost = cs }
-  }
-  // Separa la pagina in "unità" (paragrafo o tabella intera) usando il
-  // delimitatore di blocco markdown (riga vuota). Le righe `|` contigue +
-  // separatore formano una tabella trattata come unità atomica.
-  const units = splitMarkdownUnits(text)
-  for (const u of units) {
-    if (buf && bufCost + usefulLength(u) > budgetChars && buf.trim()) flushBuf()
-    if (usefulLength(u) > budgetChars) {
-      // blocco singolo oltre il budget: se è tabella spezza per righe col
-      // header ripetuto, altrimenti taglia all'ultimo spazio.
-      if (isTableBlock(u)) {
-        for (const sub of splitTableByRows(u, budgetChars)) add(sub)
-      } else {
-        add(cutAtLastSpace(u, budgetChars))
-      }
+//  2. altrimenti si spezza a confine di RIGA (mai a metà riga), e una singola
+//     riga più lunga del budget all'ultimo spazio — SENZA perdere nulla.
+// Ritorna un array di pezzi di testo, ognuno entro il budget.
+export function splitPageAtBoundaries(text, budgetChars) {
+  const src = String(text || '')
+  const total = usefulLength(src)
+  if (total <= budgetChars) return src.trim() ? [src.trim()] : []
+  // Pezzi BILANCIATI: k = quanti ne servono, target = total/k (+ margine). Una
+  // pagina da 1,1× budget diventa due metà, non "budget + briciola" (la
+  // briciola costava una chiamata LLM intera per 800 caratteri).
+  const k = Math.max(2, Math.ceil(total / Math.max(1, budgetChars)))
+  const target = Math.min(budgetChars, Math.ceil(total / k) + 200)
+  // Atomi: una TABELLA intera (o, se non ci sta, i suoi pezzi per righe con
+  // header ripetuto) oppure una singola RIGA di testo/griglia (una riga più
+  // lunga del target si divide all'ultimo spazio). Tra un'unità e l'altra
+  // resta la riga vuota (confine di paragrafo).
+  const atoms = []
+  for (const u of splitMarkdownUnits(src)) {
+    if (isTableBlock(u)) {
+      const parts = usefulLength(u) > target ? splitTableByRows(u, target) : [u]
+      for (const t of parts) atoms.push({ t, table: true })
+      atoms.push({ t: '', sep: true })
       continue
     }
-    add(u)
+    for (const l of u.split('\n')) {
+      if (usefulLength(l) > target) for (const t of splitTextByLines(l, target)) atoms.push({ t })
+      else atoms.push({ t: l })
+    }
+    atoms.push({ t: '', sep: true })
   }
-  flushBuf()
-  return pieces
+  const pieces = []
+  let cur = []
+  let cost = 0
+  const flush = () => {
+    const txt = cur.join('\n').trim()
+    if (txt) pieces.push(txt)
+    cur = []; cost = 0
+  }
+  for (const a of atoms) {
+    if (a.sep) { if (cur.length) { cur.push(''); cost += 1 } continue }
+    const c = usefulLength(a.t) + 1
+    if (cur.length && cost + c > target) flush()
+    cur.push(a.t); cost += c
+  }
+  flush()
+  return pieces.length ? pieces : [src.trim()]
 }
 
 // Divide un testo markdown in unità: paragrafi (righe vuote come separatore)
@@ -2832,9 +2936,14 @@ function splitTableByRows(block, budgetChars) {
   let cur = [header]
   if (sep) cur.push(sep)
   let cost = usefulLength(cur.join('\n'))
+  // Pezzi bilanciati (vedi splitTextByLines): l'header si ripete in ognuno.
+  const headCost = cost
+  const total = rows.reduce((n, r) => n + usefulLength(r), 0)
+  const k = Math.max(1, Math.ceil(total / Math.max(1, budgetChars - headCost)))
+  const target = Math.min(budgetChars, headCost + Math.ceil(total / k) + 40)
   for (const r of rows) {
     const c = usefulLength(r)
-    if (cost + c > budgetChars && cur.length > 2) {
+    if (cost + c > target && cur.length > 2) {
       pieces.push(cur.join('\n'))
       cur = [header]
       if (sep) cur.push(sep)
@@ -2847,12 +2956,39 @@ function splitTableByRows(block, budgetChars) {
   return pieces.length ? pieces : [block]
 }
 
-// Taglia a budgetChars rispettando le parole (ultimo spazio entro il limite).
-function cutAtLastSpace(s, budgetChars) {
-  if (s.length <= budgetChars) return s
-  const cut = s.slice(0, budgetChars)
-  const sp = cut.lastIndexOf(' ')
-  return (sp > budgetChars * 0.5 ? cut.slice(0, sp) : cut)
+// Spezza un blocco di testo in pezzi entro il budget a confine di RIGA; una
+// riga singola oltre il budget viene divisa all'ultimo spazio, e i resti
+// proseguono nel pezzo successivo. Nessun carattere viene scartato.
+export function splitTextByLines(s, budgetChars) {
+  const pieces = []
+  let cur = []
+  let cost = 0
+  // Pezzi BILANCIATI: un blocco da 1,1× budget non diventa "budget + briciola"
+  // (la briciola costerebbe una chiamata LLM a sé) ma due metà simili.
+  const total = usefulLength(String(s || ''))
+  const k = Math.max(1, Math.ceil(total / Math.max(1, budgetChars)))
+  const target = Math.min(budgetChars, Math.ceil(total / k) + 40)
+  const flush = () => { if (cur.length) { pieces.push(cur.join('\n')); cur = []; cost = 0 } }
+  const pushLine = (l) => {
+    const c = usefulLength(l) + 1
+    if (cur.length && cost + c > target) flush()
+    cur.push(l); cost += c
+  }
+  for (const line of String(s || '').split('\n')) {
+    if (usefulLength(line) <= budgetChars) { pushLine(line); continue }
+    // riga più lunga del budget: spezza all'ultimo spazio entro il limite
+    let rest = line
+    while (rest.length > budgetChars) {
+      const cut = rest.slice(0, budgetChars)
+      const sp = cut.lastIndexOf(' ')
+      const at = sp > budgetChars * 0.5 ? sp : budgetChars
+      pushLine(rest.slice(0, at))
+      rest = rest.slice(at).replace(/^\s+/, '')
+    }
+    if (rest) pushLine(rest)
+  }
+  flush()
+  return pieces.length ? pieces : [String(s || '')]
 }
 
 // Batch dedicato al FRONTESPIZIO (prima pagina con riepilogo polizza/premi).
@@ -3283,6 +3419,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
 
   // ── Stage A: analisi deterministica ────────────────────────────────────────
   const analyzed = analyzeStagedDocs(docs)
+  // Diagnostica del TESTO che il motore riceve, per documento: è la prima cosa
+  // da guardare quando "in test funziona e online no" (griglia sola, markdown
+  // per pagina, oppure blob Docling allineato alle pagine della griglia).
+  {
+    const modes = {}
+    for (const d of analyzed) modes[d.textMode || 'griglia'] = (modes[d.textMode || 'griglia'] || 0) + 1
+    const pagesTot = analyzed.reduce((n, d) => n + d.pages.length, 0)
+    diag.push(`Testo in ingresso: ${analyzed.length} documenti, ${pagesTot} pagine · ${Object.entries(modes).map(([m, n]) => `${n}× ${m}`).join(' · ')}`)
+  }
   if (!analyzed.length) {
     diag.push('Nessun testo utilizzabile nei documenti.')
     return { data: {}, sources: {}, diag }

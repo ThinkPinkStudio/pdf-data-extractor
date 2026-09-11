@@ -122,12 +122,12 @@ export async function runPrecheck({ docs, fieldDefs, profile, profileName, mode,
     hasContentExclude: contentExcludeKws.length > 0,
     keyword, semantic, llm,
     contentExclude,
-    // Validità "polizza vera": solo quando il testo è giudicabile (>=80 char).
-    // Flag opt-out dal settings (default attivo). Un guasto/ambiguità → null →
-    // skipped, mai mismatch.
+    // Validità "polizza vera": solo quando il testo è giudicabile (>=80 char,
+    // altrimenti hasPolicyEvidence ritorna null). Flag OPT-IN dal settings
+    // (default disattivo). Un guasto/ambiguità → null → skipped, mai mismatch.
     hasPolicyEvidence: normText ? hasPolicyEvidence(normText) : null,
-    requireValidPolicy: settings?.polizzaRequireValidPolicy !== false,
-   130|  })
+    requireValidPolicy: settings?.polizzaRequireValidPolicy === true,
+  })
   return {
     ...decision,
     ...(keyword ? { matched: keyword.matched, missing: keyword.missing } : {}),

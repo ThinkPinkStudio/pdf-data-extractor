@@ -4,6 +4,8 @@
 Espone:
   POST /parse   body json {"filename": str, "content_base64": str}
                 -> {"markdown": str, "pages": [str, ...], "num_pages": int}
+                   pages = markdown PER PAGINA (allineato alle pagine del PDF),
+                   markdown = documento intero
   GET  /health  -> {"ok": true, "docling": "2.126+"}
 
 Avvio:  uvicorn main:app --host 0.0.0.0 --port 8101 --workers 1
@@ -90,15 +92,35 @@ def parse(req: ParseRequest):
         conv = get_converter()
         stream = DocumentStream(name=req.filename, stream=io.BytesIO(raw))
         res = conv.convert(stream)
-        md = res.document.export_to_markdown()
-        # pagine: docling non espone un split per-pagina semplice nel markdown;
-        # restituiamo il markdown uniforme come unico blocco (il motore staged
-        # lo tratta come testo strutturato).
-        pages = [md]
+        # escape_html=False: di default Docling scrive "&amp;", "&lt;"… nel
+        # markdown ("GUFFANTI GROUP &amp; PARTNERS"): il modello ricopia le
+        # entità nei valori e la ricerca letterale dei valori fallisce. Il
+        # markdown va a un LLM, non a un browser: niente escape (né degli
+        # underscore, che diventavano "LUCCA\_VIVIANA").
+        _MD_OPTS = dict(escape_html=False, escape_underscores=False)
+        md = res.document.export_to_markdown(**_MD_OPTS)
+        # Markdown PER PAGINA (export_to_markdown(page_no=N), docling-core >= 2.x):
+        # il worker allinea pages[i] alla griglia spaziale pdfjs della stessa
+        # pagina, così le TABELLE Docling finiscono nel batch della pagina giusta
+        # e il motore spezza il documento per pagine invece di ricevere un blob
+        # unico da decine di KB (che non entra nel contesto 8192). Se l'export
+        # per pagina non è disponibile o non torna, si ripiega sul blocco unico.
+        num_pages = len(res.document.pages or {}) if getattr(res.document, "pages", None) else (
+            len(res.pages or []) if hasattr(res, "pages") else 1
+        )
+        pages = []
+        try:
+            if num_pages and num_pages > 1:
+                for n in range(1, num_pages + 1):
+                    pages.append(res.document.export_to_markdown(page_no=n, **_MD_OPTS) or "")
+        except Exception:  # pragma: no cover — API diversa: blocco unico
+            pages = []
+        if not pages or not any(p.strip() for p in pages):
+            pages = [md]
         return ParseResponse(
             markdown=md,
             pages=pages,
-            num_pages=len(res.pages or []) if hasattr(res, "pages") else 1,
+            num_pages=num_pages or len(pages),
             seconds=round(time.time() - t0, 2),
         )
     except HTTPException:

@@ -119,6 +119,39 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   modello/GBNF/strategia si misura qui PRIMA di dichiararlo un miglioramento.
   I test del solo scorer: `test/polizzaEval.test.mjs` (niente Ollama).
 
+- **UN SOLO percorso testo per worker, script e test** (11/09/2026): la griglia
+  spaziale pdfjs sta in `src/services/pdfTextLayer.js` (`spatialPagesFromPdf`)
+  ed è usata dal worker (`polizzaJobWorker.ts`), da `calibrazione-run.mjs`,
+  `test-guffanti.mjs`, `test-docling.mjs`. Prima era copiata in quattro posti:
+  "in test funziona, online no" nasceva anche da lì. Le pagine senza text layer
+  restano `''` al loro posto (numerazione stabile, OCR selettivo possibile).
+- **Golden dal LOCALE, contro l'Ollama vero** (il container cloud non
+  raggiunge 192.168.37.10 e su CPU un batch costa 10 minuti):
+  `cd web && npm ci && cd .. && ln -sfn web/node_modules node_modules`, poi
+  `node scripts/calibrazione-goldens.mjs` (tutti i fascicoli golden in
+  sequenza, motore a stadi, punteggio per fascicolo; `--only`, `--model`,
+  `--ollama`, `--resolve-only` per il solo controllo chiavi→campi).
+- **Copertura del testo PRIMA del modello**: `node scripts/coverage-check.mjs`
+  verifica che ogni valore dei golden sia nel testo che il modello riceve
+  (sorgenti `pdfjs`, `pymupdf`, `docling`). Misurato 11/09/2026 sui 6 fascicoli
+  golden presenti in `polizze_test`: pdfjs 84/84 valori. Se un dato non esce,
+  il problema NON è il testo: è prompt/arbitro/impostazioni.
+- **Servizi condivisi caricati a runtime**: il worker importa `src/services/*`
+  con `import()` dentro try/catch, quindi un errore di SINTASSI lì NON rompe né
+  `tsc` né `next build`: la funzione sparisce in silenzio (11/09/2026: un numero
+  di riga incollato in `polizzaPrecheckService.js` ha spento il pre-check per
+  tutti i deploy di un giorno). `test/servicesLoad.test.mjs` importa ogni modulo.
+- **Default riallineati ai test** (11/09/2026): `polizzaPerField` default
+  **false** (motore a stadi, come CLAUDE.md e gli script di calibrazione; il
+  per-campo resta opt-in dallo switch) e `polizzaRequireValidPolicy` default
+  **false** (regola con marcatori hardcoded → Regola 1b; opt-in). Il valore
+  salvato nel DB vince sempre sul default: controllare Impostazioni tecniche.
+- **Docling: il predownload deve CONVERTIRE**: Docling ≥ 2.12x carica i pesi
+  alla prima conversione, non alla costruzione del converter. `predownload.py`
+  ora converte un PDF minimo (stessa config di `main.py`); prima l'immagine
+  "pre-scaricata" non conteneva i modelli e il primo `/parse` scaricava a
+  runtime (o falliva 500 offline).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

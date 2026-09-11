@@ -95,10 +95,10 @@ export interface WebSettings {
   // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
   // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
-  // Regola di validità "polizza vera": se attiva (default), un fascicolo che
-  // contiene SOLO materiale informativo/quietanza senza un frontespizio di
-  // polizza reale va in 'mismatch' (mai estrarre valori da documenti non-validi).
-  // OPT-OUT: polizzaRequireValidPolicy=false la disattiva.
+  // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
+  // un fascicolo senza frontespizio di polizza reale (solo informativo/
+  // quietanza) va in 'mismatch'. Usa marcatori hardcoded, quindi resta spenta
+  // salvo scelta esplicita: polizzaRequireValidPolicy=true la attiva.
   polizzaRequireValidPolicy?: boolean
   // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
   // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):
@@ -226,7 +226,12 @@ export async function getSettings(): Promise<WebSettings> {
     ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
-    polizzaPerField: bool('polizzaPerField', true),
+    // Motore per-campo (RAG, una domanda per campo) OPT-IN: il default è il
+    // motore a stadi "Gruppi a copertura totale" (CLAUDE.md: vincitore dell'A/B
+    // sul campo; è quello degli script di calibrazione e dei golden). Con il
+    // vecchio default `true` produzione e test giravano su DUE MOTORI DIVERSI
+    // senza che nessuno lo avesse scelto.
+    polizzaPerField: bool('polizzaPerField', false),
     polizzaConstrainedJson: bool('polizzaConstrainedJson', true),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
@@ -242,7 +247,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
-    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
+    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', false),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
