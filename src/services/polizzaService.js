@@ -37,6 +37,7 @@ import {
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerName, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
+  isTextualField,
   isOtherCoveragePremiumSource, hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
@@ -816,7 +817,7 @@ function flattenRollingState(state) {
  * di imposta, un numero come "parametro di regolazione", una P.IVA di 4 cifre).
  * @returns {string|number|null}
  */
-function sanitizeFieldValue(field, rawValue) {
+export function sanitizeFieldValue(field, rawValue) {
   let v = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue)
   if (!v) return null
 
@@ -885,14 +886,27 @@ function sanitizeFieldValue(field, rawValue) {
   }
 
   // "Parametro di regolazione" è una descrizione testuale (es. "Fatturato",
-  // "Salari e stipendi + Quota TFR"), mai un numero o un tasso
-  if (/parametro/.test(low) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
+  // "Salari e stipendi + Quota TFR"), mai un numero o un tasso. SOLO sui campi
+  // TESTUALI: la parola "parametro" compare anche nelle descrizioni di
+  // "Importo preventivo del parametro" e "Tasso di regolazione applicato al
+  // parametro", che sono NUMERI — con il vecchio substring quei due campi
+  // non potevano MAI ricevere un valore (visto sul GUFFANTI: sempre vuoti).
+  if (/parametro/.test(low) && isTextualField(field) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
 
   // Il tasso è un numero per mille: togli l'eventuale simbolo
   if (/\btass/.test(low)) return v.replace(/\s*[‰%]\s*$/, '')
 
   // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
   if (/massimale|premio|imposta|importo|scoperto|franchig/.test(low) && /[%‰]\s*$/.test(v)) return null
+
+  // Un campo che la DESCRIZIONE dichiara IMPORTO (massimale, premio, imposta,
+  // importo, franchigia, diritti, interessi) non può valere una DATA: "04/06/2025"
+  // proposto come massimale annuo diventava "04062025" e passava il controllo di
+  // evidenza (le cifre sono nel testo). È la validazione del TIPO dichiarato
+  // dalla descrizione (Regola 1b), non una soglia: meglio vuoto che una data
+  // spacciata per importo.
+  if (/massimale|premio|imposta|importo|scoperto|franchig|diritti|interessi/.test(low)
+      && field?.type !== 'date' && /\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(v) && normalizeDateValue(v)) return null
 
   return v
 }
@@ -4053,15 +4067,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     let a7Rows = 0
     try {
       const seenBlocks = new Set()
-      const econRows = [] // blocchi con importi (markdown `|`)
+      const econRows = [] // blocchi con importi (markdown `|`) + documento/pagina di origine
       for (const d of analyzed) {
         const sources = [d.spatialPages, d.pages].filter(Boolean)
         for (const pages of sources) {
-          for (const p of pages) {
-            for (const b of extractTableBlocks(p)) {
+          for (let pi = 0; pi < pages.length; pi++) {
+            for (const b of extractTableBlocks(pages[pi])) {
               if (seenBlocks.has(b)) continue
               seenBlocks.add(b)
-              if ((b.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})/g) || []).length >= 2) econRows.push(b)
+              if ((b.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})/g) || []).length >= 2) econRows.push({ b, d, page: pi + 1 })
             }
           }
         }
@@ -4091,7 +4105,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             return part.join('\n')
           }).join('\n')
         }
-        const tableBlock = dedup.map(enumerateTable).join('\n\n')
+        const tableBlock = dedup.map(({ b }) => enumerateTable(b)).join('\n\n')
         const sys = 'Estrai i valori richiesti dalla TABELLA qui sotto. ' +
           'Ogni RIGA ha colonne enumerate (col1, col2, ...) coi loro nomi reali; "-" = cella vuota. ' +
           'REGOLA CAMPI: se il valore di un campo è nella tabella, restituiscilo ESATTO (colonna giusta). ' +
@@ -4175,11 +4189,23 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           }
           const cleaned = sanitizeFieldValue(f, valObj.valore)
           if (!cleaned) continue
+          // Documento/pagina REALI del blocco che contiene il valore (prima:
+          // sempre il primo documento, pagina 1). Affinità CALCOLATA come per
+          // ogni altro candidato (finestra attorno al valore ↔ descrizione):
+          // il vecchio 0.9 fisso rendeva imbattibile anche una lettura di
+          // colonna sbagliata (interessi = imposte sul GUFFANTI).
+          const vnorm = normForMatch(cleaned)
+          const origin = dedup.find(({ b }) => vnorm && normForMatch(b).includes(vnorm)) || dedup[0]
+          const srcDoc = origin?.d || analyzed[0]
+          let affPair = null
+          try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), srcDoc) } catch { affPair = null }
           const cand = {
-            valore: cleaned, effDate: analyzed[0]?.dateStr, docType: analyzed[0]?.type,
-            appendixOrd: analyzed[0]?.appendixOrd, docPos: analyzed[0]?.pos,
-            file: analyzed[0]?.name, page: 1,
-            affinity: 0.9, lex: 0.9, deterministic: false,
+            valore: cleaned, effDate: srcDoc?.dateStr, docType: srcDoc?.type,
+            appendixOrd: srcDoc?.appendixOrd, docPos: srcDoc?.pos,
+            file: srcDoc?.name, page: origin?.page || 1,
+            affinity: affPair && typeof affPair === 'object' ? affPair.aff : affPair,
+            lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
+            deterministic: false,
           }
           const before = best[f.id]?.valore
           best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
@@ -4253,11 +4279,23 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           if (/^0(?:,0+)?$/.test(z) && !valObj.riga) continue
           const cleaned = sanitizeFieldValue(f, valObj.valore)
           if (!cleaned) continue
+          // Documento/pagina REALI del blocco che contiene il valore (prima:
+          // sempre il primo documento, pagina 1). Affinità CALCOLATA come per
+          // ogni altro candidato (finestra attorno al valore ↔ descrizione):
+          // il vecchio 0.9 fisso rendeva imbattibile anche una lettura di
+          // colonna sbagliata (interessi = imposte sul GUFFANTI).
+          const vnorm = normForMatch(cleaned)
+          const origin = dedup.find(({ b }) => vnorm && normForMatch(b).includes(vnorm)) || dedup[0]
+          const srcDoc = origin?.d || analyzed[0]
+          let affPair = null
+          try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), srcDoc) } catch { affPair = null }
           const cand = {
-            valore: cleaned, effDate: analyzed[0]?.dateStr, docType: analyzed[0]?.type,
-            appendixOrd: analyzed[0]?.appendixOrd, docPos: analyzed[0]?.pos,
-            file: analyzed[0]?.name, page: 1,
-            affinity: 0.9, lex: 0.9, deterministic: false,
+            valore: cleaned, effDate: srcDoc?.dateStr, docType: srcDoc?.type,
+            appendixOrd: srcDoc?.appendixOrd, docPos: srcDoc?.pos,
+            file: srcDoc?.name, page: origin?.page || 1,
+            affinity: affPair && typeof affPair === 'object' ? affPair.aff : affPair,
+            lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
+            deterministic: false,
           }
           best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
           a8Rows++

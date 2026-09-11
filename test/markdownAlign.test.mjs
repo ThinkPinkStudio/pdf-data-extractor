@@ -122,3 +122,59 @@ test('buildGroupBatches: con markdown allineato, le tabelle Docling stanno nel b
   assert.equal(withTable.length, 1, 'la tabella compare in UN solo batch')
   assert.ok(withTable[0].text.includes('· pag. 2]'), 'ed è il batch della pagina 2')
 })
+
+test('sanitizeFieldValue: una DATA proposta per un campo IMPORTO viene scartata, un importo vero passa', async () => {
+  const { sanitizeFieldValue } = await import('../src/services/polizzaService.js')
+  const massimale = { id: 'x1', label: 'Massimale per anno tutela legale', description: "Massimale per anno: l'importo massimo (in euro) che la compagnia paga", type: 'number' }
+  assert.equal(sanitizeFieldValue(massimale, '04/06/2025'), null)
+  assert.equal(sanitizeFieldValue(massimale, '40.000,00'), '40.000,00')
+  const interessi = { id: 'x2', label: 'Interessi di frazionamento', description: "Interessi di frazionamento del premio: l'importo (in euro)", type: 'number' }
+  assert.equal(sanitizeFieldValue(interessi, '31-12-2025'), null)
+  assert.equal(sanitizeFieldValue(interessi, '0,00'), '0,00')
+  const decorrenza = { id: 'x3', label: 'Decorrenza', description: 'Data di decorrenza della polizza', type: 'date' }
+  assert.equal(sanitizeFieldValue(decorrenza, '04/06/2025'), '04/06/2025')
+})
+
+test('splitSubTables: una riga-intestazione dentro il corpo apre una sotto-tabella con i suoi nomi di colonna', async () => {
+  const { splitSubTables, tableRowsWithHeaders, repairTableMarkdown } = await import('../src/services/ocrLayout.js')
+  const block = [
+    '| RISCHI ASSICURATI |  |  |  |  |  |',
+    '|---|---|---|---|---|---|',
+    '| Attività | Studio associato | Studio associato | Studio associato | Studio associato | Studio associato |',
+    '| Fatturato | 1.500.000,00 | 1.500.000,00 | 1.500.000,00 | 1.500.000,00 | 1.500.000,00 |',
+    '| PREMIO TOTALE | NETTO IMPONIBILE | INTERESSE DI FRAZIONAMENTO | DIRITTI | IMPOSTE | PREMIO LORDO |',
+    '| PREMIO ALLA FIRMA | 1.270,10 | 0,00 | 0,00 | 269,90 | 1.540,00 |',
+    '| PREMIO RATA SUCCESSIVA | 1.270,10 | 0,00 | 0,00 | 269,90 | 1.540,00 |',
+  ].join('\n')
+  const subs = splitSubTables(block)
+  assert.equal(subs.length, 2)
+  assert.ok(subs[1].startsWith('| PREMIO TOTALE | NETTO IMPONIBILE |'))
+  const rows = tableRowsWithHeaders(block)
+  const firma = rows.find((r) => r.label === 'PREMIO ALLA FIRMA')
+  assert.ok(firma, 'riga premio alla firma presente')
+  const byHeader = Object.fromEntries(firma.cols.map((c) => [c.header, c.value]))
+  assert.equal(byHeader['IMPOSTE'], '269,90')
+  assert.equal(byHeader['INTERESSE DI FRAZIONAMENTO'], '0,00')
+  assert.equal(byHeader['PREMIO LORDO'], '1.540,00')
+  const repaired = repairTableMarkdown(block)
+  assert.ok(repaired.includes('| PREMIO TOTALE | NETTO IMPONIBILE |'), 'anche il markdown riparato espone l\'intestazione interna')
+  // tutte le righe dati sopravvivono
+  assert.ok(repaired.includes('Fatturato') && repaired.includes('PREMIO RATA SUCCESSIVA'))
+})
+
+test('splitSubTables: tabella senza intestazioni interne resta intera', async () => {
+  const { splitSubTables } = await import('../src/services/ocrLayout.js')
+  const block = ['| A | B | C |', '|---|---|---|', '| r1 | 1,00 | 2,00 |', '| r2 | 3,00 | 4,00 |'].join('\n')
+  assert.deepEqual(splitSubTables(block), [block])
+})
+
+test('sanitizeFieldValue: importo preventivo e tasso di regolazione accettano numeri (la parola "parametro" nella descrizione non li blocca)', async () => {
+  const { sanitizeFieldValue } = await import('../src/services/polizzaService.js')
+  const importo = { id: 'i1', label: 'Importo preventivo parametro regolazione', description: "Importo preventivo annuo del parametro di regolazione: l'importo (in euro)", type: 'number' }
+  assert.equal(sanitizeFieldValue(importo, '1.500.000,00'), '1.500.000,00')
+  const tasso = { id: 't1', label: 'Tasso regolazione ‰ ', description: 'Tasso di regolazione: il tasso espresso per mille (‰) applicato al parametro di regolazione', type: '' }
+  assert.equal(sanitizeFieldValue(tasso, '3,00 ‰'), '3,00')
+  const parametro = { id: 'p1', label: 'Parametro regolazione ', description: 'Parametro utilizzato per la regolazione del premio: il NOME del parametro come TESTO', type: 'text' }
+  assert.equal(sanitizeFieldValue(parametro, '1.500.000,00'), null)
+  assert.equal(sanitizeFieldValue(parametro, 'Fatturato'), 'Fatturato')
+})

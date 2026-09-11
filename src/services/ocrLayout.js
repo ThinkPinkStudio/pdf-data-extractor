@@ -581,6 +581,59 @@ export function extractTableBlocks(text) {
   return blocks
 }
 
+
+/**
+ * Divide un blocco tabella markdown in SOTTO-TABELLE quando una riga del corpo
+ * è in realtà un'intestazione: celle tutte testuali (nessuna cifra) seguite da
+ * una riga di valori (≥2 celle con cifre). È il caso tipico del riepilogo
+ * premi Docling: la tabella "RISCHI ASSICURATI" contiene la riga
+ * "PREMIO TOTALE | NETTO IMPONIBILE | INTERESSE DI FRAZIONAMENTO | DIRITTI |
+ * IMPOSTE | PREMIO LORDO" e SOTTO le righe "PREMIO ALLA FIRMA | 1.270,10 | …".
+ * Con l'header originale (vuoto) il modello vedeva "col4 = 269,90" senza nome
+ * e sbagliava colonna. Criterio STRUTTURALE, nessun nome di colonna
+ * predefinito. Ritorna [block] se non ci sono intestazioni interne.
+ */
+export function splitSubTables(block) {
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const headerIdx = rows.findIndex((l) => !isSep(l))
+  const sepIdx = rows.findIndex(isSep)
+  if (headerIdx < 0 || sepIdx < 0) return [block]
+  const body = rows.slice(sepIdx + 1).filter((l) => !isSep(l))
+  const valueLike = (c) => /\d/.test(c)
+  const isHeaderLike = (i) => {
+    const cells = cellsOf(body[i]).slice(1)
+    const nonEmpty = cells.filter((c) => c !== '')
+    if (nonEmpty.length < 2 || nonEmpty.some(valueLike)) return false
+    const next = body[i + 1] ? cellsOf(body[i + 1]).slice(1) : []
+    return next.filter(valueLike).length >= 2
+  }
+  const cuts = []
+  for (let i = 0; i < body.length; i++) if (isHeaderLike(i)) cuts.push(i)
+  if (!cuts.length) return [block]
+  const mk = (header, dataRows) => {
+    const n = cellsOf(header).length
+    return [header.trim(), `|${'---|'.repeat(Math.max(1, n))}`, ...dataRows.map((r) => r.trim())].join('\n')
+  }
+  const out = []
+  const firstRows = body.slice(0, cuts[0])
+  if (firstRows.length) out.push(mk(rows[headerIdx], firstRows))
+  for (let k = 0; k < cuts.length; k++) {
+    const from = cuts[k] + 1
+    const to = k + 1 < cuts.length ? cuts[k + 1] : body.length
+    const dataRows = body.slice(from, to)
+    if (dataRows.length) out.push(mk(body[cuts[k]], dataRows))
+  }
+  return out.length ? out : [block]
+}
+
 /**
  * Risolve un blocco tabella markdown in RIGHE "posizionali": per ogni riga di
  * dati produce { label, cols } dove cols è un ARRAY posizionale:
@@ -591,6 +644,8 @@ export function extractTableBlocks(text) {
  * Il separatore "\|---|" viene saltato. Ritorna [] se il blocco non è tabella.
  */
 export function tableRowsWithHeaders(block) {
+  const subs = splitSubTables(block)
+  if (subs.length > 1) return subs.flatMap((b) => tableRowsWithHeaders(b))
   const lines = String(block || '').split('\n')
   const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
   if (rows.length < 2) return []
@@ -634,6 +689,8 @@ export function tableRowsWithHeaders(block) {
  * è una tabella riconoscibile, ritorna il blocco originale.
  */
 export function repairTableMarkdown(block) {
+  const subs = splitSubTables(block)
+  if (subs.length > 1) return subs.map((b) => repairTableMarkdown(b)).join('\n\n')
   const lines = String(block || '').split('\n')
   const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
   if (rows.length < 3) return block
