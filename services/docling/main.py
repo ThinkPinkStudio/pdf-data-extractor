@@ -92,7 +92,13 @@ def parse(req: ParseRequest):
         conv = get_converter()
         stream = DocumentStream(name=req.filename, stream=io.BytesIO(raw))
         res = conv.convert(stream)
-        md = res.document.export_to_markdown()
+        # escape_html=False: di default Docling scrive "&amp;", "&lt;"… nel
+        # markdown ("GUFFANTI GROUP &amp; PARTNERS"): il modello ricopia le
+        # entità nei valori e la ricerca letterale dei valori fallisce. Il
+        # markdown va a un LLM, non a un browser: niente escape (né degli
+        # underscore, che diventavano "LUCCA\_VIVIANA").
+        _MD_OPTS = dict(escape_html=False, escape_underscores=False)
+        md = res.document.export_to_markdown(**_MD_OPTS)
         # Markdown PER PAGINA (export_to_markdown(page_no=N), docling-core >= 2.x):
         # il worker allinea pages[i] alla griglia spaziale pdfjs della stessa
         # pagina, così le TABELLE Docling finiscono nel batch della pagina giusta
@@ -106,7 +112,7 @@ def parse(req: ParseRequest):
         try:
             if num_pages and num_pages > 1:
                 for n in range(1, num_pages + 1):
-                    pages.append(res.document.export_to_markdown(page_no=n) or "")
+                    pages.append(res.document.export_to_markdown(page_no=n, **_MD_OPTS) or "")
         except Exception:  # pragma: no cover — API diversa: blocco unico
             pages = []
         if not pages or not any(p.strip() for p in pages):
