@@ -32,9 +32,16 @@ def get_converter():
         # CPU-only: evita il backend EasyOCR (che trascina torch CUDA).
         # Il parsing layout + table funziona comunque; l'OCR di default
         # resta disattivato (i PDF arrivano già con testo estratto).
+        from docling.document_converter import PdfFormatOption  # noqa: E402
         opts = PdfPipelineOptions()
         opts.do_ocr = False
-        _converter = DocumentConverter(pipeline_options=opts)
+        # API Docling >= 2.120: `pipeline_options` NON si passa più come kwarg
+        # al costruttore (TypeError); si passa via format_options. In versioni
+        # precedenti il kwarg diretto era valido: fallback per compatibilità.
+        try:
+            _converter = DocumentConverter(format_options={"pdf": PdfFormatOption(pipeline_options=opts)})
+        except TypeError:
+            _converter = DocumentConverter(pipeline_options=opts)
     return _converter
 
 
