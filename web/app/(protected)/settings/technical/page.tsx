@@ -61,6 +61,13 @@ export default function SettingsTechnicalPage() {
   }, [])
   useEffect(() => { if (s.ollamaUrl) checkOllama(s.ollamaUrl) }, [s.ollamaUrl, checkOllama])
 
+  const [docling, setDocling] = useState<{ connected: boolean; docling?: string | null; error?: string } | null>(null)
+  const checkDocling = useCallback((url: string) => {
+    if (!url) { setDocling(null); return }
+    fetch('/api/settings/docling-status?url=' + encodeURIComponent(url)).then((r) => r.json()).then(setDocling).catch(() => setDocling({ connected: false, error: 'impossibile contattare' }))
+  }, [])
+  useEffect(() => { if (s.doclingUrl) checkDocling(s.doclingUrl) }, [s.doclingUrl, checkDocling])
+
   function up<K extends keyof Settings>(k: K, v: Settings[K]) { setS((p) => ({ ...p, [k]: v })); setSaved(false); setTestResult(null) }
 
   // Chiavi gestite e salvate dagli editor dedicati (PolizzaFieldsEditor / generico):
@@ -228,7 +235,18 @@ export default function SettingsTechnicalPage() {
           </div>
           <div className="form-group">
             <label className="label">Docling (markdown layout-aware)</label>
-            <input value={s.doclingUrl || ''} onChange={(e) => up('doclingUrl', e.target.value)} placeholder="http://host:8101" />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={{ flex: 1 }} value={s.doclingUrl || ''} onChange={(e) => up('doclingUrl', e.target.value)} placeholder="http://host:8101" />
+              <button type="button" className="btn btn-secondary" onClick={() => checkDocling(s.doclingUrl || '')} style={{ flexShrink: 0 }}>{t('set.verify')}</button>
+            </div>
+            {docling && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: docling.connected ? 'var(--c-success)' : 'var(--c-error)' }} />
+                {docling.connected
+                  ? `Docling connesso${docling.docling ? ` · v${docling.docling}` : ''}`
+                  : `Docling non raggiungibile${docling.error ? ` (${docling.error})` : ''}`}
+              </div>
+            )}
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>URL del microservizio Docling (POST /parse). Vuoto = usa @firecrawl/pdf-inspector o OCR.</p>
           </div>
         </div>

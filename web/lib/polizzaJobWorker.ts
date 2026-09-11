@@ -216,38 +216,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // precedenti alla migrazione si calcola al volo (stesso SHA-256).
     const fileHash = files[d].file_hash || hashPdfBase64(files[d].pdf_base64)
 
-    // Cache OCR: lo stesso identico PDF (doppioni tra cartelle, fascicoli
-    // ricaricati, retry) riusa i testi pagina senza rifare render+tesseract.
-    let cachedPages: string[] | null = null
-    try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
-    if (!cachedPages) {
-      // Miss per BUMP DI FORMATO (testo spaziale): dirlo nel log, o in
-      // produzione il ri-OCR di un fascicolo già visto sembra una cache rotta.
-      try {
-        if (await hasStaleOcrCache(fileHash)) {
-          await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
-        }
-      } catch { /* solo log, mai bloccante */ }
-    }
-    if (cachedPages && cachedPages.length) {
-      const docText = cachedPages.filter(Boolean).join('\n')
-      totalPagesProcessed += cachedPages.length
-      pagesWithText += cachedPages.filter((t) => t && t.trim()).length
-      ocrCacheHits++
-      await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
-      await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
-      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
-      docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
-      continue
-    }
-
+    // ── LETTURA LAYOUT-AWARE (Docling → markdown) PRIMA dell'OCR ───────────
+    // Il servizio Docling (impostazione doclingUrl) produce il markdown del PDF
+    // (tabelle strutturate, colonne/righe) che il modello legge come struttura.
+    // GIRA SEMPRE se configurato; se non c'è o fallisce, si ripiega su
+    // @firecrawl/pdf-inspector e infine sulla cache OCR / OCR storico.
     const buf = Buffer.from(files[d].pdf_base64, 'base64')
-    // ── LETTURA LAYOUT-AWARE (Docling → markdown) prima dell'OCR ────────────
-    // Le tabelle e le etichette delle polizze vengono ricostruite in Markdown
-    // strutturato (colonne/righe): il modello legge la tabella premi come
-    // struttura, non come blob spaziato. Il servizio Docling (impostazione
-    // doclingUrl) è il percorso PREFERITO; se non configurato o fallisce,
-    // si ripiega su @firecrawl/pdf-inspector e infine sull'OCR storico.
     let mdDoc = ''
     const doclingUrl = String(settings.doclingUrl || '').trim()
     if (doclingUrl) {
@@ -256,8 +230,10 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         if (mdDoc) await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char)`, logs)
       } catch (err: any) {
         mdDoc = ''
-        await appendLog(job, `Docling fallito per "${docName}", fallback pdf-inspector: ${err.message || err}`, logs)
+        await appendLog(job, `Docling fallito per "${docName}": ${err.message || err}`, logs)
       }
+    } else {
+      await appendLog(job, `Docling NON configurato (doclingUrl vuoto) — fallback OCR per "${docName}"`, logs)
     }
     if (!mdDoc) {
       try {
@@ -267,22 +243,51 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         if (md && md.trim().length > 50) mdDoc = md.trim()
       } catch { /* pdf-inspector non disponibile: fallback OCR */ }
     }
+
+    // Cache OCR: SOLO se il markdown Docling/pdf-inspector non è disponibile.
+    // (PRIMA la cache vinceva su Docling e i PDF già visti non lo usavano mai.)
+    let cachedPages: string[] | null = null
+    if (!mdDoc) {
+      try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
+      if (!cachedPages) {
+        try {
+          if (await hasStaleOcrCache(fileHash)) {
+            await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
+          }
+        } catch { /* solo log, mai bloccante */ }
+      }
+      if (cachedPages && cachedPages.length) {
+        const docText = cachedPages.filter(Boolean).join('\n')
+        totalPagesProcessed += cachedPages.length
+        pagesWithText += cachedPages.filter((t) => t && t.trim()).length
+        ocrCacheHits++
+        await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
+        await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
+        parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+        docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
+        continue
+      }
+    }
+
+    // Se il markdown (Docling/pdf-inspector) c'è, usalo come unico testo del
+    // documento (niente OCR pagina per pagina).
+    if (mdDoc) {
+      const docText = mdDoc
+      const docPages = [mdDoc]
+      totalPagesProcessed += 1
+      pagesWithText++
+      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
+      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
+      // Salva nella cache OCR (stessa chiave) così i prossimi run con Docling
+      // giù riusano il markdown invece di rifare tutto. Non fatale se fallisce.
+      try { await putOcrCache(fileHash, docName, docPages) } catch { /* non fatale */ }
+      continue
+    }
     let doc
     try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
     const totalPages = doc.numPages
     let docText = ''
     const docPages: string[] = []
-    // Se il markdown ha sostanza, usalo come unico "testo" del documento
-    // (il motore staged/embedding ci lavora come struttura, non come OCR riga).
-    if (mdDoc) {
-      docText = mdDoc
-      docPages.push(mdDoc)
-      pagesWithText++
-      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
-      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
-      try { await doc.destroy() } catch { /* già distrutto */ }
-      continue
-    }
     try {
       for (let p = 1; p <= totalPages; p++) {
         if (await isCanceled(job.id)) return
