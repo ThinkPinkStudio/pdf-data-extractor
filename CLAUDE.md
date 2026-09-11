@@ -125,6 +125,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   `test-guffanti.mjs`, `test-docling.mjs`. Prima era copiata in quattro posti:
   "in test funziona, online no" nasceva anche da lì. Le pagine senza text layer
   restano `''` al loro posto (numerazione stabile, OCR selettivo possibile).
+- **Golden dal LOCALE, contro l'Ollama vero** (il container cloud non
+  raggiunge 192.168.37.10 e su CPU un batch costa 10 minuti):
+  `cd web && npm ci && cd .. && ln -sfn web/node_modules node_modules`, poi
+  `node scripts/calibrazione-goldens.mjs` (tutti i fascicoli golden in
+  sequenza, motore a stadi, punteggio per fascicolo; `--only`, `--model`,
+  `--ollama`, `--resolve-only` per il solo controllo chiavi→campi).
 - **Copertura del testo PRIMA del modello**: `node scripts/coverage-check.mjs`
   verifica che ogni valore dei golden sia nel testo che il modello riceve
   (sorgenti `pdfjs`, `pymupdf`, `docling`). Misurato 11/09/2026 sui 6 fascicoli

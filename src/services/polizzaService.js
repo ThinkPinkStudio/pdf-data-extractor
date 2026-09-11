@@ -1194,7 +1194,13 @@ async function getOllamaContextLimit(settings, model) {
 //   - poi: se nessun token arriva per stallMs il run è morto → abort;
 //   - hardCapMs: tetto assoluto contro i loop infiniti.
 // Finché i token arrivano, NESSUN timeout: un batch legittimo può durare 15 min.
-async function ollamaChatStream(url, payload, { firstChunkMs = 480000, stallMs = 120000, hardCapMs = 1800000, cancelFlag = null } = {}) {
+// Limiti sovrascrivibili da ambiente per hardware LENTO (calibrazione su CPU,
+// modello che sborda dalla VRAM): OLLAMA_FIRST_CHUNK_MS (attesa del primo
+// token: lettura prompt), OLLAMA_STALL_MS (silenzio tra token), OLLAMA_HARD_CAP_MS
+// (tetto assoluto). In produzione su GPU i default bastano; senza questi
+// override una CPU a ~9 token/s perdeva ogni batch da >4k token (8 min).
+const envMs = (name, fallback) => { const v = Number(process.env[name]); return Number.isFinite(v) && v > 0 ? v : fallback }
+async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIRST_CHUNK_MS', 480000), stallMs = envMs('OLLAMA_STALL_MS', 120000), hardCapMs = envMs('OLLAMA_HARD_CAP_MS', 1800000), cancelFlag = null } = {}) {
   const ac = new AbortController()
   const startedAt = Date.now()
   let lastChunkAt = null // null = primo chunk non ancora arrivato
@@ -1311,7 +1317,7 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
       num_predict: opts.numPredict || 3000
     }
   }
-  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, 1800000), cancelFlag: settings.__cancelFlag || null })
+  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
     diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
