@@ -4868,7 +4868,7 @@
       {
         "id": "2a8626c3-3d47-4016-b215-4beee15bd6d1",
         "label": "N° Polizza",
-        "description": "Numero identificativo della polizza: una sequenza di cifre (con eventuali prefissi o suffissi alfanumerici) che identifica il contratto. Esempi: 410000880, 0146905092, BL05000049. NON è il nome del fabbricato/condominio né la descrizione del rischio.",
+        "description": "Numero identificativo della polizza: una sequenza di cifre (con eventuali prefissi o suffissi alfanumerici) che identifica il contratto. Esempi: 410000880, 0146905092, 01469AC12900234, BL05000049. È il numero riportato accanto alla dicitura 'POLIZZA N.' o 'NUM. POLIZZA'. NON è il nome del fabbricato/condominio, NON è un frammento del numero ('01469' senza il resto), NON è la descrizione del rischio.",
         "type": "number",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4900,7 +4900,7 @@
       {
         "id": "92993f00-ca85-45eb-acad-40107ffcf2a5",
         "label": "Contraente/Assicurato",
-        "description": "Ragione sociale del contraente/assicurato (es. ADAMANT BIONRG SRL)",
+        "description": "Ragione sociale o nome del contraente/assicurato (es. ADAMANT BIONRG SRL, TAXIBLU SOCIETA' COOPERATIVA, MARCO MOZZANI). È il NOME della persona/azienda assicurata: una parola o più parole con senso compiuto. NON è la dicitura di una sezione del documento (es. 'NATO IL', 'COMUNE', 'CAP', 'TELEFONO', 'CONTRAENTE / ASSICURATO') né il nome di un campo. Se vedi una scritta in MAIUSCOLO che è l'etichetta di un riquadro, NON è il contraente.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4918,7 +4918,7 @@
       {
         "id": "7b2c0be2-4ded-4cd7-8481-f7b9e4a6eeec",
         "label": "P. IVA / Cod. Fiscale",
-        "description": "Partita IVA o codice fiscale del contraente",
+        "description": "Partita IVA o codice fiscale del contraente: una sequenza di 11 cifre (P.IVA) o 16 caratteri alfanumerici (CF), senza lettere di etichette. Esempi: 12790350156, 80186580157. NON è un numero di polizza né un'etichetta (es. 'CODICE FISCALE/PARTITA IVA').",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4932,7 +4932,7 @@
       {
         "id": "b60ccd93-5bce-4944-8e8f-dfc9c3f1617a",
         "label": "Indirizzo",
-        "description": "Indirizzo completo di domicilio o sede legale del contraente/assicurato: via, numero civico, CAP, città (es. VIA LAMBRATE 3, 20131 MILANO). È l'indirizzo associato al NOME del contraente/assicurato e alla sua P.IVA/CF, nello stesso blocco anagrafico. NON è mai l'indirizzo della compagnia assicuratrice, dell'agenzia, del legale o dell'intermediario, anche se compaiono prima nel documento.",
+        "description": "Indirizzo completo di domicilio o sede legale del contraente/assicurato: via, numero civico, CAP, città (es. VIA GALLARATE 249, 20151 MILANO). È l'indirizzo associato al NOME del contraente (stesso blocco anagrafico della P.IVA). NON è l'indirizzo della compagnia/agenzia (quello compare in fondo o in testa), NON è una sola componente (il CAP da solo o la sola città), NON è 'NATO IL' o altre etichette di sezione.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,

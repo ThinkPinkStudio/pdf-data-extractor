@@ -129,7 +129,11 @@ export function isLabelLikeValue(raw) {
   // heading tutto maiuscolo: ≥3 parole e ≥1 parola lunga ≥6 tra quelle
   // maiuscole nell'originale (un'intestazione di sezione, non un dato)
   const words = v.split(/\s+/).filter(Boolean)
-  if (words.length >= 3) {
+  // Una RAGIONE SOCIALE (es. "TAXIBLU SOCIETA' COOPERATIVA", "ADAMANT BIONRG
+  // SRL") NON è una label di sezione anche se è tutta maiuscola: contiene una
+  // forma giuridica. Se c'è, la guardia NOn scarta (è un nome di azienda).
+  const HAS_LEGAL_FORM = /\b(?:societ[ae]|cooperativa|s\.?r\.?l|s\.?p\.?a|s\.?a\.?s|s\.?n\.?c|studio\b|ditta|impresa|azienda)\b/i.test(norm)
+  if (words.length >= 3 && !HAS_LEGAL_FORM) {
     const upperLong = words.filter((w) => /^[A-ZÀ-Ý]+$/.test(w) && w.length >= 6)
     if (upperLong.length && upperLong.length >= words.length * 0.5) return true
   }
@@ -1015,6 +1019,15 @@ export function isRinvioAttivita(value) {
 // ("MILANO 901", "AGENZIA DI ACQUI TERME"), mai una società per azioni.
 export function isCompanyNameAsAgency(value) {
   return /\bs\.?\s*p\.?\s*a\b|\bs\.?\s*r\.?\s*l\b|societa|società|\bassicurazioni\b|\bcompagnia\b/i.test(String(value || ''))
+}
+
+// Un valore che è il NOME DI UNA COMPAGNIA ASSICURATRICE (per distinguerlo dal
+// contraente/agenzia): S.p.A., Limited, Insurance, Difesa Sinistri, Europe
+// Limited, ecc. NON matchano i nomi di aziende/cooperative del contraente
+// ("SRL", "SOCIETA' COOPERATIVA" da soli NON bastano).
+export function isInsurerName(value) {
+  const t = String(value || '')
+  return /\b(s\.?p\.?a\.?|insurance|assicurazioni|difesa\s+automobilistica|europe\s+limited|wexford|\.\s?l\.?t\.?d|inc\.?|societ[ae]?\s+di\s+assicurazion)/i.test(t)
 }
 
 // Un valore che è in realtà un NOME FILE (o un header di batch "[file · pag. N]")

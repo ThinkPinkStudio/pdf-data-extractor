@@ -35,7 +35,7 @@ import {
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
-  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
+  isSuspectStructuralOverride, isRinvioAttivita, isCompanyNameAsAgency, isInsurerName, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
   isOtherCoveragePremiumSource, hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
   stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
@@ -266,13 +266,24 @@ function extractFieldsWithRegex(text) {
   text = collapseSpatial(text)
   const found = {}
 
-  // ── N° Polizza: dopo "POLIZZA", "POLIZZA N°", "POLIZZA R.C. N." ecc.
-  // Accetta anche numerazioni alfanumeriche con prefisso lettere (es. ILI0003005).
-  // Tra le cifre al più UNO spazio: il vecchio [\d\s]{3,15} inghiottiva run di
-  // spazi e CONCATENAVA cifre di colonne diverse → numero inventato plausibile.
-  const polMatch = text.match(/POLIZZA\s+(?:R\.?C\.?\s+)?(?:N[°oO.\s]{0,3})?([A-Z]{0,5}\d(?: ?\d){3,15})/i)
-  if (polMatch) {
-    found.polizza_numero = polMatch[1].replace(/\s+/g, '').trim()
+  // ── N° Polizza: dopo "POLIZZA N°", "NUM. POLIZZA" ecc. ─────────────────────
+  // Il frontespizio ha l'etichetta e il VALORE su righe separate (o con testo
+  // in mezzo: 'NUM. POLIZZA SOSTITUITA ... 01469AC12900234'). Si cercano le
+  // sequenze alfanumeriche nei ~150 char dopo l'etichetta e si sceglie quella
+  // con >=5 CIFRE totali (esclude anni '2016', parole 'Sostituita', righe
+  // 'ED. TAR.') oppure prefisso di lettere + >=4 cifre (BLUE052842, BL05000049).
+  // Niente hardcode di formati: è la STRUTTURA del numero (sequenza alfanumerica
+  // con molte cifre) a qualificarlo.
+  const labelIdx = text.search(/POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA|NUM\.\s*POLIZZA/i)
+  let polizza_numero = null
+  if (labelIdx >= 0) {
+    const head = text.slice(labelIdx, labelIdx + 150)
+    const seqs = head.match(/[A-Z0-9]{2,25}/g) || []
+    const isNumLike = (s) => ((s.match(/\d/g) || []).length >= 5) || (/^[A-Z]{2,8}\d{4,}/.test(s))
+    polizza_numero = seqs.find(isNumLike) || null
+  }
+  if (polizza_numero) {
+    found.polizza_numero = polizza_numero.replace(/\s+/g, '').trim()
   }
 
   // ── P. IVA / Codice Fiscale: prima sequenza di 10+ cifre consecutive dopo il label
@@ -2881,6 +2892,10 @@ const STAGED_GROUP_NOTES = {
     'sulla polizza base. Per decorrenza/scadenza usa il periodo di copertura più RECENTE.\n' +
     'P.IVA/Codice Fiscale: SEMPRE quello del CONTRAENTE/assicurato, MAI quello della compagnia\n' +
     'assicuratrice (la P.IVA nell\'intestazione della compagnia non va usata).\n' +
+    'FRONTESPIZIO: il frontespizio ha spesso le ETICHETTE in maiuscolo su una riga (es.\n' +
+    '"CONTRAENTE / ASSICURATO", "CODICE FISCALE/PARTITA IVA", "NATO IL") e il VALORE sulla riga\n' +
+    'SUBITO SOTTO o accanto. Il valore è la riga con il dato reale (nome, codice, data), MAI\n' +
+    'l\'etichetta stessa: "NATO IL" non è un nome, "COMUNE" non è una città, "CAP" non è un CAP.\n' +
     'Agenzia: è quella indicata come "AGENZIA DI …"/"Agenzia" che gestisce la polizza — una\n' +
     'PIAZZA/località, spesso accanto a "COD. AGENZIA" in testa a quietanze/regolazioni (es.\n' +
     '"001 00 ACQUI TERME" → "ACQUI TERME"). Se l\'agenzia è cambiata negli anni riporta la più\n' +
@@ -3093,6 +3108,18 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // Il confine condiziona SOLO i campi che parlano di "attività" come parola.
     if (/\battivit/i.test(fieldText) && isRinvioAttivita(cleaned)) { counters.guardrail++; note(k, 'guardrail:rinvio-attivita', cleaned); continue }
     if (/agenzia/i.test(fieldText) && isCompanyNameAsAgency(cleaned)) { counters.guardrail++; note(k, 'guardrail:agenzia=compagnia', cleaned); continue }
+    // Il CONTRAENTE non è mai la compagnia assicuratrice stessa: un valore che
+    // è un nome di compagnia (S.p.A./Insurance/Assicurazioni/Difesa Sinistri)
+    // nel campo contraente è un errore di attribuzione (visto su TAXIBLU:
+    // contraente = "D.A.S. Difesa Automobilistica Sinistri S.p.A.").
+    // NON scarta le srl/cooperative del contraente ("SOCIETA' COOPERATIVA" ok).
+    if (/contraente|denominazione|ragione\s+sociale|assicurato/i.test(fieldText) && isInsurerName(cleaned)) { counters.guardrail++; note(k, 'guardrail:contraente=compagnia', cleaned); continue }
+    // Il campo COMPAGNIA non riceve una ragione sociale NON assicurativa
+    // (cooperativa, srl, studio, nome di persona): il modello nel frontespizio
+    // associa il PRIMO nome (es. TAXIBLU per il campo compagnia, che è il
+    // contraente). Le compagnie assicurative hanno "S.p.A./Insurance/Limited/
+    // Assicurazioni/Difesa..." nel nome.
+    if (/compagnia|assicurator/i.test(fieldText) && !isInsurerName(cleaned) && /cooperativ|s\.?r\.?l|societ[ae]|studio|ditta|\b(?:s\.?p\.?a)\b/i.test(cleaned)) { counters.guardrail++; note(k, 'guardrail:compagnia=contraente', cleaned); continue }
     // NOME FILE mai come dato anagrafico: NON è una soglia su un valore — è
     // l'esclusione di un artefatto che la description vieta per costruzione
     // (nessuna description di contraente/indirizzo/compagnia chiede "il nome del
@@ -4016,6 +4043,81 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       diag.push(`Stadio A.7 errore (${err.message}) — i campi restano come dagli altri stadi`)
     }
     diag.push(`Stadio A.7: ${a7Rows} campi proposti dalla tabella — gli altri stadi proseguono comunque (merge, mai sostituzione)`)
+  }
+
+  // ── Stadio A.8: FRONTESPIZIO FOCALIZZATO per l'anagrafica ────────────────
+  // Nei PDF multi-sezione il frontespizio anagrafico (etichette in maiuscolo
+  // e valori su righe consecutive) arriva al modello MESCOLATO con le altre
+  // pagine, e il modello piccolo perde il filo (TAXIBLU: contraente = "NATO IL",
+  // poi la compagnia, poi "01469-broker" — mentre il vero nome è nel testo).
+  // QUI si isola il blocco anagrafico del frontespizio e si chiede UNA chiamata
+  // focalizzata coi SOLI campi anagrafici (stesso pattern di A.7: chiavi kN,
+  // risposta libera, merge non distruttivo). GIRA SEMPRE; se non dà risultati
+  // è comunque un esito valido.
+  const anagFields = (partition.anagrafica || []).filter((f) => f.enabled !== false && !/compagnia|assicurator/i.test(String(f.label || '')))
+  if (anagFields.length) {
+    let a8Rows = 0
+    try {
+      // Blocco anagrafico: cerca il frontespizio (marker generici di layout,
+      // NON hardcode di nomi) — "DATI ANAGRAFICI" o "POLIZZA N."/indirizzo ecc.
+      let frontBlock = ''
+      for (const d of analyzed) {
+        const md = d.pages?.join('\n') || d.text || ''
+        const m = md.match(/(DATI\s+ANAGRAFICI|POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA)[\s\S]{0,1400}/i)
+        if (m) { frontBlock = m[0]; break }
+        const m2 = md.match(/[\s\S]{0,1400}DECORRENZA[\s\S]{0,300}/i)
+        if (m2) { frontBlock = m2[0]; break }
+      }
+      frontBlock = frontBlock.trim()
+      try { writeFileSync('/tmp/a8-block.txt', String(frontBlock).slice(0, 2000)) } catch {}
+      if (frontBlock.length < 50) {
+        diag.push('Stadio A.8: nessun blocco frontespizio trovato — nessun campo anagrafico da frontespizio (esito valido)')
+      } else {
+        const a8Keyed = anagFields.map((f, i) => ({ f, key: `k${i}` }))
+        const fieldLines = a8Keyed
+          .map(({ f, key }, i) => `${i}. ${stripFieldExamples(f.description || '')} [chiave: ${key}]`)
+          .join('\n')
+        const sys = 'Estrai i dati dal FRONTESPIZIO qui sotto. ' +
+          'Le etichette (in MAIUSCOLO) e i loro valori sono su righe consecutive: etichetta, poi il VALORE sulla riga sotto o accanto. ' +
+          'Il valore è il dato reale, MAI l\'etichetta ("NATO IL" non è un nome, "COMUNE" non è una città, "CAP" non è un CAP). ' +
+          'REGOLA CHIAVI: ogni campo ha una chiave tra parentesi [chiave: k0], [chiave: k1]...: usa QUELLA chiave esatta nel JSON, ogni voce {"valore": "...", "riga": "..."}. ' +
+          'Se un campo non ha un valore chiaro, OMETTILO. Non inventare.'
+        const user = `FRONTESPIZIO (etichetta sopra, valore sotto):\n${frontBlock}\n\nCAMPI DA ESTRARRE (chiave tra [ ]):\n${fieldLines}\n\nRispondi SOLO JSON con le chiavi indicate, es. {"k0": {"valore": "...", "riga": "..."}}. OMETTI i campi senza valore.`
+        const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, numPredict: 4096, diag, fields: anagFields, shape: 'staged', format: false })
+        try { writeFileSync('/tmp/a8-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
+        const parsed = parseJsonResponse(raw)
+        const entries2 = Array.isArray(parsed) ? [] : Object.entries(parsed || {})
+        for (const [k, v] of entries2) {
+          if (/^(riga|colonna|documento|nota)$/i.test(String(k).trim())) continue
+          const kIdx = String(k).trim().match(/^k(\d+)(?:_|$)/)
+          const idx = kIdx ? Number(kIdx[1]) : Number(String(k).replace(/\D/g, ''))
+          const f = Number.isFinite(idx) ? anagFields[idx] : null
+          if (!f) continue
+          const valObj = (typeof v === 'string' || typeof v === 'number') ? { valore: String(v) } : (v || {})
+          if (!valObj.valore && v && typeof v === 'object' && !Array.isArray(v)) {
+            const inner = v.valore ?? null
+            if (inner != null) valObj.valore = inner
+          }
+          if (!valObj.valore) continue
+          const z = String(valObj.valore).replace(/[€\s]/g, '')
+          if (/^0(?:,0+)?$/.test(z) && !valObj.riga) continue
+          const cleaned = sanitizeFieldValue(f, valObj.valore)
+          if (!cleaned) continue
+          const cand = {
+            valore: cleaned, effDate: analyzed[0]?.dateStr, docType: analyzed[0]?.type,
+            appendixOrd: analyzed[0]?.appendixOrd, docPos: analyzed[0]?.pos,
+            file: analyzed[0]?.name, page: 1,
+            affinity: 0.9, lex: 0.9, deterministic: false,
+          }
+          best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
+          a8Rows++
+          diag.push(`Frontespizio-focus[${f.label}] = "${cleaned}"`)
+        }
+      }
+    } catch (err) {
+      diag.push(`Stadio A.8 errore (${err.message}) — i campi anagrafici restano come dagli altri stadi`)
+    }
+    diag.push(`Stadio A.8: ${a8Rows} campi anagrafici proposti dal frontespizio — gli altri stadi proseguono comunque (merge, mai sostituzione)`)
   }
 
   // ── Stadio B a CASCATA: dal più nuovo al più vecchio, solo i buchi ─────────
