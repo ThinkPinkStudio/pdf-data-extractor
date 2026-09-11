@@ -426,16 +426,22 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   const precheckMode = settings.polizzaPrecheckMode || 'off'
   // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si degrada al
   // semantico sui field_defs congelati — mai un errore.
-  const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === job.profile_id) || null
-  // Attiva il pre-check di pertinenza quando:
-  //  - lo switch globale è su un metodo (keywords/semantic/llm), OPPURE
-  //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
-  //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
-  //  - oppure è ATTIVA la regola di validità "polizza vera" (default on):
-  //    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
-  const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
-  const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
-  const shouldPrecheck = job.profile_id && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
+// Profilo per il pre-check: quello esplicito del job, altrimenti il profilo
+// ATTIVO globale (i campi congelati nei job senza profile_id derivano da
+// quello). Senza questo fallback i job lanciati dalla pagina bulk senza profilo
+// esplicito (GUFFANTI: fideiussioni/infortuni con i campi globali di TL3)
+// saltavano IL FILTRO e venivano estratti lo stesso.
+const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === (job.profile_id || settings.polizzaActiveProfileId)) || null
+// Attiva il pre-check di pertinenza quando:
+//  - c'è un profilo (esplicito o attivo) e lo switch globale è su un metodo
+//    (keywords/semantic/llm), OPPURE
+//  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
+//    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
+//  - oppure è ATTIVA la regola di validità "polizza vera" (default on):
+//    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
+const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
+const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
+const shouldPrecheck = !!profile && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
