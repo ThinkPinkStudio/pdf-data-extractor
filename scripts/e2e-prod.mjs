@@ -83,7 +83,9 @@ if (status !== 'done') {
 }
 
 console.log(`\n=== DONE in ${secs}s ===`)
-const data = done.data || done.job?.state || {}
+// La API del job risponde `values` (jobSnapshot); `data`/`state` erano i nomi
+// vecchi: con quelli lo script stampava "Campi estratti: 0" anche su job buoni.
+const data = done.values || done.data || done.job?.values || done.job?.state || {}
 const src = done.sources || done.job?.sources || {}
 const entries = Object.entries(data).filter(([, v]) => v != null && v !== '')
 console.log(`Campi estratti: ${entries.length}`)

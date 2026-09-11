@@ -144,10 +144,18 @@ export async function findIdenticalCompletedJob(jobId: string): Promise<{ id: st
 // ─── Cache OCR per hash contenuto ────────────────────────────────────────────
 // L'OCR tesseract di un PDF scansionato costa minuti: lo stesso identico file
 // (doppioni tra cartelle, fascicoli ricaricati, retry) riusa i testi pagina.
-// OCR_FORMAT versiona il FORMATO del testo (2 = griglia spaziale a colonne
-// preservate): al bump le voci vecchie diventano miss e si rigenerano al primo
-// rilancio — senza, i fascicoli in cache non vedrebbero MAI il testo nuovo.
-export const OCR_FORMAT = 2
+// OCR_FORMAT versiona il FORMATO del testo: al bump le voci vecchie diventano
+// miss e si rigenerano al primo rilancio — senza, i fascicoli in cache non
+// vedrebbero MAI il testo nuovo.
+// 2 = griglia spaziale a colonne preservate — MA una versione provvisoria del
+//     worker (428fa06) scriveva qui anche il MARKDOWN Docling (blob unico, mai
+//     una griglia) col format 2: le voci in produzione sono AVVELENATE, e il
+//     ramo mdDoc che legge getOcrCache come spatial le riusa, zittendo per
+//     sempre la griglia pdfjs reale (→ in produzione il modello riceve 1 pagina
+//     da 26k char: A/B locale 09/09/26 = 16/23 col blob, la griglia sale).
+// 3 = invalida tutto: al primo rilancio spatialPages viene rigenerata vera
+//     (pdfjs/tesseract) e solo quella entra in cache.
+export const OCR_FORMAT = 3
 
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {
   const { rows } = await pool.query<{ pages: string[]; format: number }>(

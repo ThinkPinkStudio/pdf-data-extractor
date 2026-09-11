@@ -365,9 +365,15 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // Griglia spaziale: reperita dalla cache OCR se disponibile, altrimenti
       // estratta dal PDF (pdfjs). MAI fatale: se non c'è, si usa solo il markdown
       // (peggio, ma il flusso non si ferma).
+      // Guardia anti-avvelenamento: una versione provvisoria del worker aveva
+      // scritto in cache il MARKDOWN (blob unico) spacciandolo per griglia. Se la
+      // cache è un solo blob e coincide col markdown, NON è una griglia: si
+      // rigenera da pdfjs. (OCR_FORMAT=3 ha già invalidato le voci marce; questa
+      // è difesa in profondità per chi ha una cache scritta da build difettose.)
       let spatial: string[] | null = null
       const cachedRaw = await getOcrCache(fileHash).catch(() => null)
-      if (cachedRaw && cachedRaw.length) spatial = cachedRaw
+      const cacheIsGrid = !!(cachedRaw && cachedRaw.length && !(cachedRaw.length === 1 && String(cachedRaw[0]).trim() === mdDoc.trim()))
+      if (cacheIsGrid) spatial = cachedRaw
       else {
         spatial = await spatialPagesFromPdf(buf)
         if (spatial.length) {
