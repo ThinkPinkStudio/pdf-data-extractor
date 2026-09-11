@@ -83,9 +83,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       promptExtra = settings.polizzaPromptExtra || ''
     }
     const fieldDefs = fields.map((f) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
+    // Il percorso relativo di origine viene conservato insieme al PDF: è l'unico
+    // modo di riconsegnare poi i file del batch in uno ZIP con lo stesso albero
+    // di cartelle (il nome del dossier perde i livelli intermedi dei gruppi uniti).
     const files: JobInputFile[] = await Promise.all(kept.map(async (k) => ({
       file_name: k.file.name,
       pdf_base64: Buffer.from(await k.file.arrayBuffer()).toString('base64'),
+      rel_path: k.relPath || null,
     })))
 
     const jobId = await addDossierToBatch({
