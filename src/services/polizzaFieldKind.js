@@ -264,6 +264,36 @@ export function autoKind(field) {
   }
   const fromDesc = inferKindFromDescription(field.description)
   if (fromDesc) return fromDesc
+  // Descrizione che pone una DOMANDA ("Verifica se sono coperti…", "Indica se
+  // la polizza comprende…"): la risposta è un testo (Sì/No, presente, escluso,
+  // una clausola), MAI un importo nudo — salvo che la stessa descrizione chieda
+  // di riportare massimali/limiti/importi. Sul GUFFANTI/Saporiti l'imposta
+  // 654,40 finiva su sei campi "Verifica se…" perché nessuna regola li
+  // riconosceva come testuali (type 'text' non basta: è il default storico).
+  const dlow = String(field.description || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/^(?:verifica|indica|specifica|controlla|dichiara)\s+se\b/.test(dlow) && !/riport\w*\s+(?:i\s+|il\s+|gli\s+|le\s+|l')?(?:massimal|limit|import|somm|valor)/.test(dlow)) {
+    return 'text'
+  }
+  // TESTO per ESEMPI: la descrizione porta esempi "(es. Retribuzioni o
+  // Fatturato)" fatti di sole PAROLE (nessuna cifra, e non dice "oppure un
+  // importo/numero"): il campo è testuale, un numero puro è il dato sbagliato
+  // (EULIP: "Parametro di regolazione" = 0,41, cioè il tasso).
+  const exWords = dlow.match(/\(es\.?\s*([^)]*)\)/)
+  if (exWords && !/\d/.test(exWords[1]) && /[a-z]{3,}/.test(exWords[1]) && !/import|numer|cifr|somm|valor/.test(exWords[1])) {
+    return 'text'
+  }
+  // NUMERO per DESCRIZIONE: la descrizione parla di un importo/imposta/massimale
+  // e porta un esempio numerico "(es. 49,05)" → è un numero, qualunque sia la
+  // label. Nel profilo RC V3 i campi etichettati "Frazionamento" e "Tacito
+  // Rinnovo" chiedono in realtà premio imponibile e imposte: la lista delle
+  // label li marcava TESTO e i loro importi venivano scartati. La descrizione
+  // vince sulla label (Regola 1). Una descrizione che dice "come TESTO"/"parola"
+  // resta testuale.
+  if (/\b(importo|cifra|somma|massimale|imposta|imposte|imponibile|franchigia|scoperto|fatturato|capitale|premio\s+(?:lordo|netto|imponibile|totale|annuo))\b/.test(dlow)
+      && /\(es\.?\s*[€\s]*\d[\d.,]*\s*\)/.test(dlow)
+      && !/\btesto\b|come testo|\bparola\b|si\/no/.test(dlow)) {
+    return 'number'
+  }
   // Label che si auto-descrive come TESTO testuale (per definizione non
   // numerico): lo "0" e i numeri puri qui sono placeholder, non dati.
   const l = `${field.label || ''}`

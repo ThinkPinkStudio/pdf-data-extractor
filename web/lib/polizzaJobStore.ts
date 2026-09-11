@@ -158,7 +158,11 @@ export async function findIdenticalCompletedJob(jobId: string): Promise<{ id: st
 //     da 26k char: A/B locale 09/09/26 = 16/23 col blob, la griglia sale).
 // 3 = invalida tutto: al primo rilancio spatialPages viene rigenerata vera
 //     (pdfjs/tesseract) e solo quella entra in cache.
-export const OCR_FORMAT = 3
+// 4 = la griglia pdfjs era CAPOVOLTA (pdf.js ha l'asse y verso l'alto: il
+//     piè di pagina usciva per primo e ogni riga di valori precedeva la riga
+//     delle sue etichette). Le voci scritte col formato 3 sono griglie
+//     rovesciate: si rigenerano con l'orientamento corretto.
+export const OCR_FORMAT = 4
 
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {
   const { rows } = await pool.query<{ pages: string[]; format: number }>(

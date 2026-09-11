@@ -21,13 +21,31 @@ import { buildSpatialPage } from './ocrLayout.js'
  * Converte il `textContent` di pdfjs in blocchi/righe/parole con bbox, il
  * formato che `buildSpatialPage` si aspetta (lo stesso dei blocks tesseract).
  */
-export function textContentToBlocks(content) {
+export function textContentToBlocks(content, opts = {}) {
+  // ORIENTAMENTO. pdf.js dà `transform[4..5]` nello spazio PDF: origine in
+  // BASSO a sinistra, y che CRESCE verso l'alto. buildSpatialPage (come
+  // tesseract) vuole y che cresce verso il BASSO. Senza conversione la pagina
+  // usciva CAPOVOLTA: piè di pagina per primo, "POLIZZA N." per ultimo, ogni
+  // riga di VALORI prima della riga delle sue ETICHETTE (decorrenza letta
+  // come scadenza, massimale per anno = massimale per sinistro, ecc.).
+  // `viewport` (page.getViewport({scale:1})) converte anche le pagine ruotate;
+  // in mancanza, `pageHeight` ribalta l'asse; senza nulla si ribalta il segno
+  // (l'ordine relativo delle righe resta corretto).
+  const vp = opts.viewport || null
+  const pageHeight = Number.isFinite(opts.pageHeight) ? opts.pageHeight : null
+  const toTop = (x, y) => {
+    if (vp && typeof vp.convertToViewportPoint === 'function') { const [vx, vy] = vp.convertToViewportPoint(x, y); return [vx, vy] }
+    if (pageHeight != null) return [x, pageHeight - y]
+    return [x, -y]
+  }
   const words = []
   for (const item of content?.items || []) {
     if (!item || typeof item.str !== 'string' || !item.str) continue
     const tr = item.transform || [1, 0, 0, 1, 0, 0]
-    const x0 = tr[4], y0 = tr[5]
     const fs = Math.abs(tr[3]) || Math.abs(tr[0]) || 10
+    // baseline in coordinate "dall'alto": il box del glifo sta SOPRA la baseline
+    const [x0, yBase] = toTop(tr[4], tr[5])
+    const y0 = yBase - fs
     const totW = item.width && item.width > 0 ? item.width : item.str.length * fs * 0.6
     const parts = item.str.match(/\S+/g) || []
     let pos = 0
@@ -80,7 +98,7 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
       try {
         const page = await doc.getPage(p)
         const content = await page.getTextContent({ includeMarkedContent: false })
-        const blocks = textContentToBlocks(content)
+        const blocks = textContentToBlocks(content, { viewport: page.getViewport({ scale: 1 }) })
         spatial = blocks.length ? buildSpatialPage(blocks).trim() : ''
       } catch {
         spatial = '' // pagina illeggibile: resta vuota, la numerazione non slitta

@@ -612,6 +612,11 @@ export function splitSubTables(block) {
     const cells = cellsOf(body[i]).slice(1)
     const nonEmpty = cells.filter((c) => c !== '')
     if (nonEmpty.length < 2 || nonEmpty.some(valueLike)) return false
+    // Un'intestazione ha nomi DIVERSI tra loro; una riga dati con cella unita
+    // ("Attività | Studio associato | Studio associato | …", espansione delle
+    // celle fuse di Docling) ripete lo stesso testo: NON è un'intestazione.
+    const distinct = new Set(nonEmpty.map((c) => c.toLowerCase())).size
+    if (distinct < 2 || distinct * 2 < nonEmpty.length) return false
     const next = body[i + 1] ? cellsOf(body[i + 1]).slice(1) : []
     return next.filter(valueLike).length >= 2
   }
@@ -665,15 +670,41 @@ export function tableRowsWithHeaders(block) {
   for (let k = 1; k < headers.length; k++) {
     if (!headers[k]) headers[k] = headers[k - 1]
   }
+  // Header con TUTTE le celle uguali ("ARTICOLI | ARTICOLI | ARTICOLI": una
+  // cella unita che Docling ripete): non nomina nessuna colonna → senza nome.
+  const distinctHeaders = new Set(headers.filter(Boolean).map((h) => h.toLowerCase()))
+  const headersUnnamed = distinctHeaders.size <= 1 && headers.length > 1
   const out = []
+  // Colonna di NUMERAZIONE: prima cella "1."/"10"/"a)"/"•" e seconda cella di
+  // testo (l'etichetta vera): l'etichetta della riga è "1. Contraente" e i
+  // valori partono dalla terza colonna. Struttura, non nomi: frontespizi
+  // "articolo | voce | dato" (XL/Saporiti) uscivano come righe "9." senza nome.
+  const isNumbering = (c) => /^\s*(?:\d{1,3}[.)]?|[a-z][.)]|[•\-–])\s*$/i.test(String(c || ''))
   for (let i = sepIdx + 1; i < rows.length; i++) {
     const cells = cellsOf(rows[i])
     if (cells.length < 2) continue
-    const label = cells[0] || ''
-    const cols = []
-    for (let k = 1; k < headers.length && k < cells.length; k++) {
-      cols.push({ header: headers[k] || `colonna ${k}`, value: cells[k] ?? '' })
+    let label = cells[0] || ''
+    let start = 1
+    if (cells.length >= 3 && isNumbering(cells[0]) && cells[1] && !/^\s*[\d.,€ ]+\s*$/.test(cells[1])) {
+      label = `${cells[0].trim()} ${cells[1]}`.trim()
+      start = 2
     }
+    let cols = []
+    for (let k = start; k < cells.length; k++) {
+      const h = headersUnnamed ? '' : (headers[k] || '')
+      cols.push({ header: h, value: cells[k] ?? '' })
+    }
+    // CELLA con più coppie "Voce € importo" dentro ("Premio lordo € 800,00
+    // Imposte € 145,60 Premio imponibile € 654,40 Accessori € 0,00 Premio netto
+    // € 654,40"): si espande in colonne con NOME (la voce) e valore (l'importo),
+    // così ogni importo ha la sua intestazione e la scelta della colonna può
+    // essere verificata contro la descrizione. Struttura del testo, nessuna
+    // lista di voci.
+    cols = cols.flatMap((c) => {
+      const pairs = [...String(c.value || '').matchAll(/([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'/()-]{2,60}?)\s*€\s*([\d.]+(?:,\d{1,2})?)/g)]
+      if (pairs.length < 2) return [c]
+      return pairs.map((m) => ({ header: m[1].trim().replace(/[\s:]+$/, ''), value: m[2] }))
+    })
     if (label && cols.length) out.push({ label, cols, raw: rows[i] })
   }
   return out

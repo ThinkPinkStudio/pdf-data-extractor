@@ -877,6 +877,15 @@ export function findValueWindow(docText, value, evidenza, span = 200) {
     if (digits.length < 3) continue
     const atD = norm.indexOf(digits)
     if (atD !== -1) return cut(atD, digits.length)
+    // Importo con decimali che il documento scrive SENZA ("5.000.000,00" vs
+    // "€ 5.000.000"): si cerca la sola parte intera. Senza questo il candidato
+    // giusto restava senza finestra → affinità null → arbitro cieco → perdeva
+    // per recency contro un importo qualsiasi di una quietanza (EULIP).
+    const intPart = String(needle || '').trim().replace(/,\d{1,2}$/, '').replace(/\D/g, '')
+    if (intPart.length >= 4 && intPart !== digits) {
+      const atI = norm.indexOf(intPart)
+      if (atI !== -1) return cut(atI, intPart.length)
+    }
   }
   return null
 }
@@ -981,6 +990,24 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   if (!newC) return oldC
   const a0 = typeof oldC.affinity === 'number' ? oldC.affinity : null
   const a1 = typeof newC.affinity === 'number' ? newC.affinity : null
+  // RIGA DI TABELLA con etichetta che nomina il campo (tableRow, Stadio A.7):
+  // evidenza strutturale. Un candidato dal testo libero la scavalca SOLO con
+  // affinità nettamente superiore (margine di promozione); a parità o per
+  // recency non la batte mai (Cresta: "500.000,00" da una clausola vinceva su
+  // "5. Massimale = 2.500.000,00" per due voti a uno).
+  if (oldC.tableRow === true && newC.tableRow !== true) {
+    return (a0 != null && a1 != null && a1 - a0 > promoteMargin) ? newC : oldC
+  }
+  if (newC.tableRow === true && oldC.tableRow !== true) {
+    return (a0 != null && a1 != null && a0 - a1 > promoteMargin) ? oldC : newC
+  }
+  // Due righe di tabella per lo stesso campo ("Attività" e "Soggetto
+  // assicurato" per "Attività assicurata"): vince l'etichetta che coincide di
+  // più con la testa della descrizione (l'affinità di una riga cresce con la
+  // sovrapposizione lessicale); a parità resta la prima.
+  if (oldC.tableRow === true && newC.tableRow === true && a0 != null && a1 != null) {
+    return a1 > a0 ? newC : oldC
+  }
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2

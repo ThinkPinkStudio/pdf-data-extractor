@@ -1,0 +1,115 @@
+{
+  "id": "rcpm-lucca",
+  "label": "LUCCA VIVIANA RCSPEM00000098 (AmTrust) — golden completo 29 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "RCSPEM00000098",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AmTrust",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "LUCCA VIVIANA",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "03131670345",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "STRADA MULATTIERA SUPERIORE",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "Underwriting Agency",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "30/11/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "30/11/2026",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "26,46",
+      "mode": "amount",
+      "note": "descrizione = imposte alla firma"
+    },
+    "Premio lordo": {
+      "value": "145,36",
+      "mode": "amount"
+    },
+    "Professione dichiarata": {
+      "value": "INFERMIERE",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Retroattività": {
+      "value": "ILLIMITATA",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "text"
+    },
+    "Massimale per sinistro": {
+      "value": "1.000.000",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "3.000.000",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "NESSUNA",
+      "mode": "contains"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Tutela": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Massimale Tutela": {
+      "value": "50.000,00",
+      "mode": "amount"
+    },
+    "Franchigia Tutela": {
+      "value": "SCHEDA TECNICA",
+      "mode": "contains"
+    },
+    "Premio Lordo Tutela": {
+      "value": "50,00",
+      "mode": "amount"
+    },
+    "Frazionamento#10": {
+      "value": "118,90",
+      "mode": "amount",
+      "note": "campo n.10: descrizione = premio netto"
+    },
+    "Frazionamento#28": {
+      "value": "ANNUALE",
+      "mode": "contains"
+    }
+  },
+  "nonVerificati": [
+    "Sottolimiti",
+    "Estensioni operative",
+    "Esclusioni particolari",
+    "Condizioni particolari, aggiuntiive"
+  ],
+  "note": "Il profilo ha due campi 'Frazionamento': #10 (descrizione = premio netto 118,90) e #28 (frazionamento ANNUALE)."
+}

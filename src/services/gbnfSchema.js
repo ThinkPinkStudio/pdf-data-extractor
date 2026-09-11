@@ -78,16 +78,34 @@ export function fieldValueKind(field) {
 export const VALUE_PATTERNS = {
   // GG/MM/AAAA — non valida il calendario (31/02 passa): ci pensa normalizeDateValue.
   date: '^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}$',
-  // Importo italiano: 4.000.000,00 oppure 1800000 oppure 1.800.000
+  // Importo italiano: 4.000.000,00 oppure 1800000 oppure 1.800.000 — OPPURE una
+  // breve PAROLA/locuzione (3-40 lettere): "Illimitato", "Non previsto", "Nessuna".
+  // Prima la grammatica ammetteva SOLO cifre: per "Massimale per anno" la
+  // descrizione dice esplicitamente «oppure la parola "Illimitato"», ma il
+  // modello, obbligato dal pattern, rispondeva un numero qualsiasi della pagina
+  // (il CAP "20146", il massimale per sinistro). Il vincolo non deve mai vietare
+  // ciò che la DESCRIZIONE ammette; ci pensano sanitizer ed evidenza dopo.
   amount: '^([0-9]{1,3}(\\.[0-9]{3})+|[0-9]+)(,[0-9]{1,2})?$',
+  // Importo OPPURE breve parola/locuzione: usato SOLO per i campi la cui
+  // DESCRIZIONE ammette esplicitamente un valore testuale ("Illimitato",
+  // "Nessuna", "Non previsto"). Aperto a tutti gli importi, faceva entrare
+  // frasi qualsiasi nei premi ("Pacchetto sicurezza privacy" come premio lordo).
+  amountOrWord: "^(([0-9]{1,3}(\\.[0-9]{3})+|[0-9]+)(,[0-9]{1,2})?|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,39})$",
   // P.IVA 11 cifre o CF 16 alfanumerici (il checksum resta a sanitizeFieldValue)
   vat: '^([0-9]{11}|[A-Z0-9]{16})$',
   // Tasso per mille: 2,450 / 0.245
   rate: '^[0-9]+([,.][0-9]+)?$',
 }
 
-function stringSchema(kind) {
-  const pattern = VALUE_PATTERNS[kind]
+// La descrizione ammette una PAROLA al posto dell'importo? ("oppure la parola
+// Illimitato", "Nessuna", "non previsto"…). Decide la descrizione, non una lista.
+export function amountAllowsWord(field) {
+  return /illimitat|\bparola\b|nessun[ao]?\b|non\s+previst|senza\s+limit|non\s+indicat/i.test(String(field?.description || ''))
+}
+
+function stringSchema(kind, field = null) {
+  const key = kind === 'amount' && amountAllowsWord(field) ? 'amountOrWord' : kind
+  const pattern = VALUE_PATTERNS[key]
   return pattern ? { type: 'string', pattern } : { type: 'string' }
 }
 
@@ -98,11 +116,11 @@ function gbnfRuleName(id, i) {
 
 // ─── JSON Schema (Ollama `format`) ───────────────────────────────────────────
 
-function entrySchema(kind, { requiredEvidence = false } = {}) {
+function entrySchema(kind, { requiredEvidence = false, field = null } = {}) {
   const props = {
     valore: {
       anyOf: [
-        stringSchema(kind),
+        stringSchema(kind, field),
         { type: 'null' },
       ],
     },
@@ -165,11 +183,19 @@ export function buildJsonSchema(fields, shape = 'staged', opts = {}) {
     }
   }
   const properties = {}
-  for (const [i, f] of list.entries()) properties[`c${i}`] = entrySchema(fieldValueKind(f))
+  for (const [i, f] of list.entries()) properties[`c${i}`] = entrySchema(fieldValueKind(f), { field: f })
+  // TUTTE le chiavi c0..cN OBBLIGATORIE e nell'ordine dell'elenco campi.
+  // Con le chiavi opzionali il modello piccolo le emetteva in SEQUENZA
+  // saltando i campi senza valore ma NON i numeri: da lì in poi ogni valore
+  // finiva sul campo precedente (visto nel dump GUFFANTI: "Tutela Legale
+  // Pacchetto Base" sotto la franchigia, 1.270,10 sotto le garanzie non
+  // operanti, 269,90 sotto i diritti). Con `required` la grammatica impone la
+  // sequenza completa: per i campi assenti il modello scrive "valore": null.
   return {
     $schema: 'https://json-schema.org/draft/07/schema#',
     type: 'object',
     properties,
+    required: Object.keys(properties),
     additionalProperties: false,
   }
 }
@@ -184,23 +210,25 @@ date-body ::= ("0" [1-9] | [12] [0-9] | "3" [01]) "/" ("0" [1-9] | "1" [0-2]) "/
 date ::= "\\"" date-body "\\""
 int-plain ::= [0-9]+
 int-grouped ::= [0-9]{1,3} ("." [0-9]{3})+
+word-body ::= [A-Za-zÀ-ÿ] [A-Za-zÀ-ÿ' ]{2,39}
 amount-body ::= (int-grouped | int-plain) ("," [0-9]{1,2})?
+amount-or-word ::= amount | "\\"" word-body "\\""
 amount ::= "\\"" amount-body "\\""
 vat ::= "\\"" ([0-9]{11} | [A-Z0-9]{16}) "\\""
 rate ::= "\\"" [0-9]+ ([,.] [0-9]+)? "\\""
 null ::= "null"
 `
 
-function gbnfValoreRhs(kind) {
+function gbnfValoreRhs(kind, field = null) {
   if (kind === 'date') return 'date'
-  if (kind === 'amount') return 'amount'
+  if (kind === 'amount') return amountAllowsWord(field) ? 'amount-or-word' : 'amount'
   if (kind === 'vat') return 'vat'
   if (kind === 'rate') return 'rate'
   return 'string'
 }
 
-function gbnfEntryRule(name, kind) {
-  const v = gbnfValoreRhs(kind)
+function gbnfEntryRule(name, kind, field = null) {
+  const v = gbnfValoreRhs(kind, field)
   // Ordine fisso: valore, evidenza opzionale, documento opzionale, data_validita opzionale.
   // Forzare l'ordine aiuta i modelli piccoli; le chiavi extra sono vietate.
   return `${name}_entry ::= "{" ws "\\"valore\\"" ws ":" ws (${v} | null)`
@@ -238,10 +266,12 @@ export function buildGbnfGrammar(fields, shape = 'staged', opts = {}) {
     const lit = JSON.stringify(`c${i}`)
     alts.push(`${name}_kv`)
     rules.push(`${name}_kv ::= ${lit} ws ":" ws ${name}_entry`)
-    rules.push(gbnfEntryRule(name, kind))
+    rules.push(gbnfEntryRule(name, kind, f))
   })
+  // Sequenza FISSA di tutte le chiavi (stessa ragione dello schema JSON:
+  // niente compattamento delle chiavi da parte del modello).
   const items = alts.length
-    ? `root ::= "{" ws items? ws "}"\nitem ::= ${alts.join(' | ')}\nitems ::= item ("," ws item)*`
+    ? `root ::= "{" ws ${alts.join(' ws "," ws ')} ws "}"`
     : 'root ::= "{" ws "}"'
   return `${items}\n${rules.join('\n')}${GBNF_COMMON}`
 }

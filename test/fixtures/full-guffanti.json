@@ -1,0 +1,98 @@
+{
+  "id": "guffanti",
+  "label": "GUFFANTI GROUP (DAS) — golden completo 23 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "01469DAS00086",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "DAS Difesa Automobilistica Sinistri",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "GUFFANTI GROUP & PARTNERS S.R.L.",
+      "mode": "text"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "06457990965",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "VIALE CATERINA DA FORLI",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "04/06/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "04/06/2026",
+      "mode": "date"
+    },
+    "Frazionamento": {
+      "value": "Annua",
+      "mode": "contains"
+    },
+    "Attività assicurata": {
+      "value": "Studio associato",
+      "mode": "contains"
+    },
+    "Massimale per sinistro tutela legale": {
+      "value": "50.000,00",
+      "mode": "amount"
+    },
+    "Massimale per anno tutela legale": {
+      "value": "illimitato",
+      "mode": "contains"
+    },
+    "Parametro regolazione ": {
+      "value": "Fatturato",
+      "mode": "text"
+    },
+    "Importo preventivo parametro regolazione": {
+      "value": "1.500.000,00",
+      "mode": "amount"
+    },
+    "Garanzie scelte/operanti": {
+      "value": "Tutela Legale Pacchetto Base",
+      "mode": "contains"
+    },
+    "Premio imponibile tutela legale": {
+      "value": "1.270,10",
+      "mode": "amount"
+    },
+    "Interessi di frazionamento": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Diritti": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Imposte": {
+      "value": "269,90",
+      "mode": "amount"
+    },
+    "Premio lordo totale tutela legale": {
+      "value": "1.540,00",
+      "mode": "amount"
+    },
+    "Tipologia tutela legale": {
+      "value": "Dichiarazioni inesatte e reticenze",
+      "mode": "contains"
+    },
+    "Tasso regolazione ‰": {
+      "value": null,
+      "mode": "text"
+    },
+    "Franchigia generica o minima": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Garanzie non operanti": {
+      "value": null,
+      "mode": "text"
+    }
+  }
+}
