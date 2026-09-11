@@ -412,6 +412,15 @@ export default function PolizzaJobsPage() {
                                 <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => exportBatch(b.id, b.label)}>
                                   ⬇ {t('jobsDash.exportBatch')}
                                 </button>
+                                {/* PDF originali del batch in uno ZIP, divisi nelle cartelle
+                                    di origine. LINK diretto e non fetch+blob: l'archivio
+                                    arriva in streaming e finisce su disco senza passare
+                                    per la memoria della pagina (un batch pesa gigabyte). */}
+                                <a className="btn btn-secondary" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                  href={`/api/polizza/batch/${b.id}/pdfs`} download
+                                  title={t('jobsDash.downloadPdfsTitle')}>
+                                  🗂 {t('jobsDash.downloadPdfs')}
+                                </a>
                                 {/* Azioni IN BULK sui job spuntati (tutti gli stati):
                                     Rielabora, Rielabora con profilo, Run di test, Riusa,
                                     Procedi comunque, Annulla, Riprova. */}

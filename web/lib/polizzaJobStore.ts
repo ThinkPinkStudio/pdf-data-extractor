@@ -58,7 +58,10 @@ export interface JobRow {
   updated_at: number
 }
 
-export interface JobInputFile { file_name: string; pdf_base64: string }
+// rel_path: percorso relativo di origine (webkitRelativePath, radice inclusa)
+// quando il file arriva dal caricamento di una CARTELLA — serve a ricostruire
+// l'albero nello ZIP dei PDF del batch. Assente per i singoli file.
+export interface JobInputFile { file_name: string; pdf_base64: string; rel_path?: string | null }
 
 const now = () => Math.floor(Date.now() / 1000)
 
@@ -90,8 +93,8 @@ export async function createJob(params: {
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
       await client.query(
-        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash) VALUES ($1,$2,$3,$4,$5)`,
-        [id, i, f.file_name, f.pdf_base64, hashPdfBase64(f.pdf_base64)]
+        `INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash, rel_path) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [id, i, f.file_name, f.pdf_base64, hashPdfBase64(f.pdf_base64), f.rel_path ?? null]
       )
     }
     await client.query('COMMIT')
@@ -417,6 +420,61 @@ export async function getJobFile(id: string, idx: number): Promise<{ file_name: 
   if (!src) return null
   const { rows: fromSrc } = await pool.query(q, [src, idx])
   return fromSrc[0] || null
+}
+
+// ─── ZIP dei PDF di un batch ──────────────────────────────────────────────────
+// Due passaggi apposta: prima i METADATI di tutti i file (senza i byte), poi un
+// PDF alla volta durante lo streaming dell'archivio. Caricare insieme i base64
+// di un intero batch farebbe esplodere la memoria dello stesso processo che fa
+// girare OCR e worker.
+
+export interface BatchPdfEntry {
+  jobId: string
+  filesJobId: string // job che possiede davvero le righe (le run di test le hanno sul sorgente)
+  dossierName: string | null
+  idx: number
+  fileName: string
+  relPath: string | null
+  createdAt: number
+}
+
+export async function listBatchPdfEntries(batchId: string): Promise<BatchPdfEntry[]> {
+  const { rows: jobs } = await pool.query<{ id: string; dossier_name: string | null; source_job_id: string | null; created_at: number }>(
+    'SELECT id, dossier_name, source_job_id, created_at FROM polizza_jobs WHERE batch_id = $1 ORDER BY created_at, id',
+    [batchId]
+  )
+  const out: BatchPdfEntry[] = []
+  const q = 'SELECT idx, file_name, rel_path FROM polizza_job_files WHERE job_id = $1 ORDER BY idx'
+  for (const j of jobs) {
+    let filesJobId = j.id
+    let { rows } = await pool.query<{ idx: number; file_name: string; rel_path: string | null }>(q, [j.id])
+    if (!rows.length && j.source_job_id) {
+      filesJobId = j.source_job_id
+      rows = (await pool.query<{ idx: number; file_name: string; rel_path: string | null }>(q, [j.source_job_id])).rows
+    }
+    for (const r of rows) {
+      out.push({
+        jobId: j.id,
+        filesJobId,
+        dossierName: j.dossier_name,
+        idx: r.idx,
+        fileName: r.file_name,
+        relPath: r.rel_path,
+        createdAt: j.created_at,
+      })
+    }
+  }
+  return out
+}
+
+// Byte di UN pdf (base64 → Buffer) per lo streaming: il chiamante lo scrive e lo
+// lascia andare prima di chiedere il successivo.
+export async function getJobFilePdfBytes(jobId: string, idx: number): Promise<Buffer | null> {
+  const { rows } = await pool.query<{ pdf_base64: string }>(
+    'SELECT pdf_base64 FROM polizza_job_files WHERE job_id = $1 AND idx = $2', [jobId, idx]
+  )
+  if (!rows[0]?.pdf_base64) return null
+  return Buffer.from(rows[0].pdf_base64, 'base64')
 }
 
 // Estrazioni SINGOLE (fuori batch) di tutti gli utenti, per la pagina

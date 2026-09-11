@@ -139,6 +139,12 @@ export async function initDb() {
     ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS file_hash TEXT;
     CREATE INDEX IF NOT EXISTS idx_polizza_job_files_hash ON polizza_job_files(file_hash);
 
+    -- Percorso RELATIVO di origine del file (webkitRelativePath, radice della
+    -- cartella caricata inclusa): serve a riconsegnare i PDF del batch in uno
+    -- ZIP con lo stesso albero di cartelle di partenza. NULL sulle righe
+    -- precedenti alla migrazione: lo ZIP ripiega sul nome del dossier.
+    ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS rel_path TEXT;
+
     -- Cache OCR per hash contenuto: l'OCR (tesseract) di un PDF scansionato costa
     -- minuti; lo stesso identico file ricaricato (doppioni tra cartelle, retry,
     -- fascicoli ricaricati) riusa i testi pagina senza rifare nulla.
