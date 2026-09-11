@@ -52,7 +52,10 @@ function usableMarkdown(md: string): string {
   return clean.length >= 150 ? String(md).trim() : ''
 }
 
-async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<string> {
+// Ritorna il markdown intero e, se il servizio lo produce, il markdown PER
+// PAGINA (allineato alle pagine del PDF): il motore lo affianca alla griglia
+// spaziale pagina per pagina. Un servizio vecchio (pages = [blob]) resta valido.
+async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<{ markdown: string; pages: string[] }> {
   const base = String(doclingUrl).replace(/\/+$/, '')
   const res = await fetch(`${base}/parse`, {
     method: 'POST',
@@ -61,64 +64,33 @@ async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<
     signal: AbortSignal.timeout(300000), // PDF lunghi: Docling può impiegare minuti
   })
   if (!res.ok) throw new Error(`Docling HTTP ${res.status}`)
-  const j = (await res.json()) as { markdown?: string }
+  const j = (await res.json()) as { markdown?: string; pages?: string[] }
   const md = String(j.markdown || '').trim()
   if (md.length <= 50) throw new Error('Docling: markdown vuoto o troppo corto')
-  return md
+  const pages = Array.isArray(j.pages) && j.pages.length > 1 ? j.pages.map((p) => String(p || '')) : [md]
+  return { markdown: md, pages }
 }
 
-// Griglia SPAZIALE per pagina (pdfjs → buildSpatialPage): le colonne/tabelle
-// restano allineate per coordinate REALI. Il motore staged le spezza in batch
-// che entrano nel contesto (8192): il markdown Docling da solo è UN blob unico
-// (decine di KB) che NON ci sta e i dati restano fuori contesto (visto in
-// produzione: recupero che risponde null, 2/23).
-async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[]> {
+// Griglia SPAZIALE per pagina dal text layer (pdfjs → buildSpatialPage): le
+// colonne/tabelle restano allineate per coordinate REALI. Il motore staged le
+// spezza in batch che entrano nel contesto (8192): il markdown Docling da solo
+// è UN blob unico (decine di KB) che NON ci sta e i dati restano fuori
+// contesto (visto in produzione: recupero che risponde null, 2/23).
+// La funzione vive in src/services/pdfTextLayer.js: STESSO codice per worker,
+// script di calibrazione e test (prima era copiato in quattro posti).
+// Ritorna null se il PDF non si apre o nessuna pagina ha text layer (scansione):
+// in quel caso il chiamante NON deve passare spatialPages vuote al motore
+// (pagine vuote = niente prompt), ma usare il markdown o l'OCR.
+async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
   try {
-    const { buildSpatialPage } = await importSharedService<{ buildSpatialPage: (b: any) => string }>('ocrLayout.js')
-    const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
-    const pdfjs = pdfjsMod.default || pdfjsMod
-    if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(pdfBuf), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true, disableFontFace: true }).promise
-    const pages: string[] = []
-    for (let p = 1; p <= doc.numPages; p++) {
-      const page = await doc.getPage(p)
-      const content = await page.getTextContent({ includeMarkedContent: false })
-      const words: { text: string; x0: number; x1: number; y0: number; y1: number; cy: number; h: number; bbox: { x0: number; x1: number; y0: number; y1: number } }[] = []
-      for (const item of content.items) {
-        if (!('str' in item) || !item.str) continue
-        const x0 = (item as any).transform[4], y0 = (item as any).transform[5]
-        const fs = Math.abs((item as any).transform[3]) || Math.abs((item as any).transform[0]) || 10
-        const totW = (item as any).width && (item as any).width > 0 ? (item as any).width : item.str.length * fs * 0.6
-        const parts = item.str.match(/\S+/g) || []
-        let pos = 0
-        const cw = totW / item.str.length
-        for (const w of parts) {
-          const idx = item.str.indexOf(w, pos)
-          pos = idx + w.length
-          const wpx = cw * (w.length + 1.5)
-          words.push({ text: w, x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs, cy: y0 + fs / 2, h: fs, bbox: { x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs } })
-        }
-      }
-      if (!words.length) continue
-      words.sort((a, b) => a.cy - b.cy || a.x0 - b.x0)
-      const rows: { cy: number; h: number; words: typeof words }[] = []
-      let cur: { cy: number; h: number; words: typeof words } | null = null
-      const rowTol = Math.max(1, Math.abs(words[0].h) / 2 || 5)
-      for (const w of words) {
-        if (cur && Math.abs(w.cy - cur.cy) <= rowTol) { cur.words.push(w); cur.cy = (cur.cy + w.cy) / 2 }
-        else { cur = { cy: w.cy, h: w.h, words: [w] }; rows.push(cur) }
-      }
-      const lines = rows.map((r) => {
-        r.words.sort((a, b) => a.x0 - b.x0)
-        return { words: r.words.map((w) => ({ text: w.text, bbox: w.bbox })), rowAttributes: { rowHeight: r.h } }
-      })
-      const blocks = [{ paragraphs: [{ lines }] }]
-      const spatial = buildSpatialPage(blocks)
-      if (spatial.trim()) pages.push(spatial.trim())
-    }
-    return pages
+    const { spatialPagesFromPdf: fromPdf, hasTextLayer } = await importSharedService<{
+      spatialPagesFromPdf: (b: Buffer) => Promise<string[]>
+      hasTextLayer: (p: string[]) => boolean
+    }>('pdfTextLayer.js')
+    const pages = await fromPdf(pdfBuf)
+    return hasTextLayer(pages) ? pages : null
   } catch {
-    return [] // pdfjs non disponibile/fallito → il worker usa solo il markdown
+    return null // pdfjs non disponibile/fallito → il worker usa solo il markdown
   }
 }
 
@@ -304,13 +276,16 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // @firecrawl/pdf-inspector e infine sulla cache OCR / OCR storico.
     const buf = Buffer.from(files[d].pdf_base64, 'base64')
     let mdDoc = ''
+    let mdPages: string[] = [] // markdown per pagina (Docling), se disponibile
     const doclingUrl = String(settings.doclingUrl || '').trim()
     if (doclingUrl) {
       try {
-        const rawMd = await markdownFromDocling(doclingUrl, buf)
+        const { markdown: rawMd, pages: rawPages } = await markdownFromDocling(doclingUrl, buf)
         mdDoc = usableMarkdown(rawMd)
-        if (mdDoc) await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char)`, logs)
-        else if (rawMd) await appendLog(job, `Docling su "${docName}": solo marcatori/nessun testo reale (PDF scansionato?) → fallback OCR`, logs)
+        if (mdDoc) {
+          mdPages = rawPages.length > 1 ? rawPages : []
+          await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char${mdPages.length ? `, ${mdPages.length} pagine` : ''})`, logs)
+        } else if (rawMd) await appendLog(job, `Docling su "${docName}": solo marcatori/nessun testo reale (PDF scansionato?) → fallback OCR`, logs)
       } catch (err: any) {
         mdDoc = ''
         await appendLog(job, `Docling fallito per "${docName}": ${err.message || err}`, logs)
@@ -361,7 +336,11 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // dati restano fuori contesto (recupero null, 2/23 in produzione).
     if (mdDoc) {
       const docText = mdDoc
-      const docPages = [mdDoc]
+      // Pagine markdown: per pagina se Docling le dà (allineate alla griglia
+      // spaziale: le tabelle finiscono nel batch della pagina giusta), altrimenti
+      // il blocco unico. Se il conteggio NON coincide con la griglia si torna al
+      // blocco unico: meglio nessun allineamento che uno sbagliato.
+      let docPages = mdPages.length ? mdPages : [mdDoc]
       // Griglia spaziale: reperita dalla cache OCR se disponibile, altrimenti
       // estratta dal PDF (pdfjs). MAI fatale: se non c'è, si usa solo il markdown
       // (peggio, ma il flusso non si ferma).
@@ -376,11 +355,12 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       if (cacheIsGrid) spatial = cachedRaw
       else {
         spatial = await spatialPagesFromPdf(buf)
-        if (spatial.length) {
+        if (spatial) {
           try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
-        } else spatial = null
+        }
       }
-      totalPagesProcessed += (spatial?.length || 1)
+      if (spatial && docPages.length > 1 && docPages.length !== spatial.length) docPages = [mdDoc]
+      totalPagesProcessed += (spatial?.length || docPages.length)
       pagesWithText++
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
       docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ...(spatial ? { spatialPages: spatial } : {}) })
@@ -443,10 +423,10 @@ const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === (job.
 //    (keywords/semantic/llm), OPPURE
 //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
 //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
-//  - oppure è ATTIVA la regola di validità "polizza vera" (default on):
+//  - oppure è stata ATTIVATA (opt-in) la regola di validità "polizza vera":
 //    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
 const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
-const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
+const requireValidPolicy = settings.polizzaRequireValidPolicy === true
 const shouldPrecheck = !!profile && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
   if (shouldPrecheck) {
     try {

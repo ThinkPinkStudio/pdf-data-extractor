@@ -177,8 +177,8 @@ test('hasPolicyEvidence: frontee "polizza vera" vs solo informativo/quietanza', 
   const tooShort = normalizeForPrecheck('Breve.')
   assert.equal(hasPolicyEvidence(withPol), true)
   assert.equal(hasPolicyEvidence(infoOnly), false)
-  assert.equal(hasPolicyEvidence(tooShort), false) // non giudicabile → non blocca
-  assert.equal(hasPolicyEvidence(''), false)
+  assert.equal(hasPolicyEvidence(tooShort), null) // non giudicabile → null → MAI mismatch
+  assert.equal(hasPolicyEvidence(''), null)
 })
 
 test('decidePrecheck: validità "polizza vera" — mismatch solo per info/quietanza, mai per guasti', () => {
