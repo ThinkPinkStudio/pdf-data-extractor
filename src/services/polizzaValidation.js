@@ -1111,6 +1111,46 @@ export function findValueWindow(docText, value, evidenza, span = 200) {
   return null
 }
 
+/**
+ * TUTTE le finestre (fino a `limit`) attorno alle occorrenze del valore nel
+ * documento: esatte prima, poi per token (valore riordinato). Serve alle
+ * etichette negate: la sede DAS compare come "Sede e Direzione Generale: 37135
+ * Verona - Via Enrico Fermi, 9/B" (etichettata) E come "DAS SpA - Via Enrico
+ * Fermi 9/B - 37135 Verona" (reclami, senza etichetta); la prima occorrenza
+ * esatta era la seconda e l'etichetta non si vedeva mai.
+ */
+export function valueWindows(docText, value, span = 80, limit = 8) {
+  const idx = (docText && typeof docText === 'object' && Array.isArray(docText.map))
+    ? docText : buildNormIndex(docText)
+  const { text, norm, map } = idx
+  const out = []
+  if (!text || !norm) return out
+  const cut = (at, len) => {
+    const start = map[at]
+    const end = map[Math.min(norm.length - 1, at + len - 1)] + 1
+    return text.slice(Math.max(0, start - span), Math.min(text.length, end + span))
+  }
+  const nv = normForMatch(value)
+  if (nv.length >= 3) {
+    let at = norm.indexOf(nv)
+    while (at !== -1 && out.length < limit) { out.push(cut(at, nv.length)); at = norm.indexOf(nv, at + nv.length) }
+  }
+  if (/[a-z]/i.test(String(value || ''))) {
+    const tokens = valueTokens(value)
+    if (tokens.length >= 2) {
+      const anchor = [...tokens].sort((a, b) => b.length - a.length)[0]
+      let at = norm.indexOf(anchor)
+      while (at !== -1 && out.length < limit) {
+        const lo = Math.max(0, at - span), hi = Math.min(norm.length, at + anchor.length + span)
+        const seg = norm.slice(lo, hi)
+        if (tokens.every((t) => seg.includes(t))) { const w = cut(at, anchor.length); if (!out.includes(w)) out.push(w) }
+        at = norm.indexOf(anchor, at + 1)
+      }
+    }
+  }
+  return out
+}
+
 // ─── Guardie di merge (visti sul campo: run EULIP 18:24) ─────────────────────
 // La regola "il documento più recente vince" è giusta quando il documento nuovo
 // RIDEFINISCE davvero il campo (rinnovo con nuovi massimali). Ma un batch di sole

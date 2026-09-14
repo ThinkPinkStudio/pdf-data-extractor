@@ -430,7 +430,39 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   più parole ('Sede e Direzione Generale') per semplice presenza. Nel
   proprietario negato gli importi si confrontano per CIFRA ("3.000.000,00" =
   "3.000.000"): il fatturato uguale al massimale cadeva e tornava con l'altro
-  formato.
+  formato. **Ritirato (misurato)**: per gli importi il proprietario negato
+  NON decide più — il campo proprietario può essere quello sbagliato
+  ("massimale visto leggero" 3.000.000 inventato svuotava il fatturato vero);
+  gli importi doppi restano alla guardia duplicati (lex / riga di tabella).
+- **Annuo < sinistro: ripresa dai candidati** (14/09/2026): quando la
+  coerenza cross-field svuota il massimale annuo (impossibile < sinistro), si
+  riprende tra i candidati che il modello aveva proposto per l'annuo quello
+  coerente (≥ sinistro), il più votato poi il più affine; mai calcolato.
+  BOLCHINI 2025: "20.000,00" (sottolimite) batteva due voti per "1.000.000,00"
+  e l'annuo restava vuoto. Agenzia PANIZZA di BOLCHINI 2025 sta solo nella
+  polizza SCANSIONATA (il testo pdf.js non la contiene): non estraibile senza OCR.
+- **Valore marcato da etichetta negata: fuori ovunque** (14/09/2026): la sede
+  DAS compare in più contesti (sede, reclami, piè di pagina) e solo alcune
+  occorrenze stanno accanto a 'Sede e Direzione Generale'; se anche UNA
+  occorrenza è scartata per etichetta negata, il valore (chiave per token,
+  indipendente dall'ordine: `valueKey`) è marcato per quel campo e dopo il
+  merge si sostituisce con i candidati non marcati (`STAGED_TAINTED`, diag
+  "Etichetta negata, valore marcato"). GUFFANTI TL v9 = 20/23 con l'indirizzo
+  giusto; SPALLINO/BOLCHINI TL lo prendevano ancora da altre pagine.
+- **Seed di ripiego sanitizzati; etichette negate su finestra STRETTA**
+  (14/09/2026): il seed regex di una data aveva catturato la riga "Data di
+  continuità: dalle ore 24.00 del…" e il ripiego la metteva in Decorrenza
+  (BOLCHINI 2025 v10): ogni seed passa da `sanitizeFieldValue` prima di
+  riempire un campo vuoto; per i campi di tipo DATA (testa della descrizione,
+  `fieldValueKind`) solo date. Le etichette negate si cercano in una finestra
+  di ±80 caratteri (`winShort`): con ±200 "Data di continuità" della riga
+  vicina faceva cadere la decorrenza vera del frontespizio.
+- **Etichette negate su TUTTE le occorrenze del valore** (14/09/2026
+  pomeriggio): `valueWindows` restituisce le finestre di ogni occorrenza
+  (esatte e riordinate); la sede DAS sta anche nel paragrafo reclami ("DAS SpA
+  - Via Enrico Fermi 9/B - 37135 Verona", senza etichetta) e la PRIMA
+  occorrenza esatta era quella, così 'Sede e Direzione Generale' non si vedeva
+  mai e SPALLINO/BOLCHINI TL tenevano la sede della compagnia come indirizzo.
 - **Affinità sempre misurabile** (13/09/2026): se il candidato non si localizza
   in un documento (valore solo nella griglia spaziale o in una tabella
   riparata) la finestra si cerca nel CONTESTO della chiamata. Un candidato con

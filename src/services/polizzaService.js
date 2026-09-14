@@ -34,7 +34,7 @@ import {
 import {
   parsePureAmount, isPlaceholderValue, isAbsencePlaceholder, isTextualZeroPlaceholder, isTextualNumericOnly,
   looksLikeJsonFragment, isZeroPlaceholder, isRunningTextInAnyLayer, negatedOwnerFields, descriptionAllowsRunningText,
-  valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels,
+  valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels, valueWindows,
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
@@ -945,6 +945,14 @@ export function sanitizeFieldValue(field, rawValue) {
       if (!asDate) return null
       return asDate
     }
+  }
+
+  // TIPO DATA dalla testa della descrizione (fieldValueKind, lo stesso che
+  // vincola lo schema): un testo ("Data di continuità: dalle ore 24.00 del")
+  // non è mai una data — BOLCHINI 2025 v10, decorrenza testuale dal recupero.
+  if (fieldValueKind(field) === 'date') {
+    const asDate = normalizeDateValue(v) || italianTextualDate(v)
+    return asDate || null
   }
 
   // "0" su un campo di TIPO TESTO (description con prefisso "TESTO"): è un
@@ -3468,6 +3476,17 @@ function matchRealDoc(analyzed, docName) {
 // Registro dei candidati accettati per ogni oggetto `best` (id → [cand]):
 // serve al consenso tra batch. WeakMap: nessuna chiave spuria dentro `best`.
 const STAGED_CANDIDATE_LOG = new WeakMap()
+// Valori MARCATI da un'etichetta negata (best → { fieldId → Set(chiave) }): lo
+// stesso indirizzo della compagnia compare in più contesti (sede, reclami,
+// piè di pagina); se anche UNA occorrenza sta accanto a un'etichetta che la
+// descrizione nega, il VALORE è quello della compagnia ovunque appaia.
+const STAGED_TAINTED = new WeakMap()
+// Chiave di un valore indipendente dall'ordine delle parole ("Via Enrico
+// Fermi 9/B - 37135 Verona" = "37135 Verona - Via Enrico Fermi 9/B").
+function valueKey(v) {
+  const t = valueTokens(v)
+  return t.length >= 2 ? [...t].sort().join('|') : normForMatch(v)
+}
 
 /**
  * CONSENSO tra candidati dello stesso campo: a PARITÀ di data (stesso
@@ -3797,17 +3816,24 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // finestra attorno al valore nel documento (o nel contesto della chiamata).
     {
       const negLabels = negatedQuotedLabels(field.description)
-      const win = affPair && typeof affPair === 'object' && typeof affPair.win === 'string' ? affPair.win : ''
-      if (negLabels.length && win) {
-        const nw = normForMatch(win)
+      const wins = affPair && typeof affPair === 'object' && Array.isArray(affPair.winsShort) ? affPair.winsShort : []
+      if (negLabels.length && wins.length) {
         // Etichetta di UNA parola ('Sinistro'): conta solo se nel testo è
         // davvero un'etichetta, cioè seguita dai due punti ("Sinistro:"); la
         // parola nuda sta ovunque (Sinistri: la definizione di 'Sinistro'
         // svuotava le risposte vere del questionario, SPALLINO v8).
-        const hit = negLabels.find((l) => /\s/.test(l.trim())
+        const hitIn = (win) => { const nw = normForMatch(win); return negLabels.find((l) => /\s/.test(l.trim())
           ? nw.includes(normForMatch(l))
-          : new RegExp(`(?<![\\p{L}])${l.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'iu').test(win))
-        if (hit) { counters.guardrail++; note(k, `etichetta-negata:${hit}`, cleaned); continue }
+          : new RegExp(`(?<![\\p{L}])${l.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'iu').test(win)) }
+        let hit = null
+        for (const w of wins) { hit = hitIn(w); if (hit) break }
+        if (hit) {
+          let tainted = STAGED_TAINTED.get(best)
+          if (!tainted) { tainted = {}; STAGED_TAINTED.set(best, tainted) }
+          if (!tainted[k]) tainted[k] = new Set()
+          tainted[k].add(valueKey(cleaned))
+          counters.guardrail++; note(k, `etichetta-negata:${hit}`, cleaned); continue
+        }
       }
     }
     // ETICHETTA DI LAYOUT: il valore sta sotto/dopo la parola distintiva del
@@ -4621,7 +4647,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // un'edizione) "massimale 25.000" in una cella d'esempio batteva 5 voti
     // per il 50.000,00 della polizza (GUFFANTI TL 9/23).
     try { if (srcDoc.dateStr && fieldValueKind(field) === 'date') lab = valueLabelledByLayout(distinctHead.get(field.id) || [], srcDoc.spatialPages?.length ? srcDoc.spatialPages : srcDoc.pages, cleaned) } catch { lab = { labelled: false } }
-    const extra = { lex, labelled: lab.labelled === true, labelToken: lab.token || null, win }
+    // finestra STRETTA (±80) per le etichette negate: nel frontespizio
+    // "Decorrenza 19/04/2025" e "Data di continuità 19/04/2024" stanno a
+    // poche righe e con ±200 la data vera cadeva per l'etichetta della vicina.
+    // …e TUTTE le occorrenze del valore nel documento: basta una accanto
+    // all'etichetta negata perché il valore sia quello che il campo NON è.
+    let winsShort = []
+    try { winsShort = valueWindows(normIndexOf(srcDoc), cleaned, 80) } catch { winsShort = [] }
+    const extra = { lex, labelled: lab.labelled === true, labelToken: lab.token || null, win, winsShort }
     if (embeddingsOk && descVecCache.has(field.id)) {
       try {
         const key = normForMatch(win).slice(0, 120)
@@ -5666,18 +5699,21 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
         if (!fld || !Array.isArray(cands) || !cands.length) continue
         const owners = negatedOwnerFields(fld, activeFields).filter((g) => best[g]?.valore && normForMatch(String(best[g].valore)).length >= 6)
         if (!owners.length) continue
-        const ownerVals = owners.map((g) => ({ id: g, key: normForMatch(String(best[g].valore)), amt: parsePureAmount(best[g].valore) }))
+        const ownerVals = owners.map((g) => ({ id: g, key: normForMatch(String(best[g].valore)) }))
         const dropped = new Set()
         for (const c of cands) {
           if (!c || c.valore == null) continue
           // Valore UGUALE a quello di un proprietario negato: è il dato di quel
           // campo (N° Polizza = P.IVA del contraente; Compagnia = contraente).
           const ck = normForMatch(String(c.valore))
-          const cAmt = parsePureAmount(c.valore)
-          const same = ck.length >= 4 && ownerVals.find((o) => o.key === ck
-            || (/[a-z]/.test(ck) && ck.length >= 8 && o.key.length >= 8 && (o.key.includes(ck) || ck.includes(o.key)))
-            // importi: stessa cifra anche con formato diverso ("3.000.000,00" / "3.000.000")
-            || (cAmt != null && cAmt > 0 && o.amt != null && cAmt === o.amt))
+          // Solo TESTI (nome, indirizzo, numero di polizza): per gli IMPORTI
+          // uguali tra due campi decide la guardia duplicati (lex/riga di
+          // tabella), non il proprietario negato — il campo proprietario può
+          // essere quello sbagliato (GUFFANTI 2026 v9: "massimale visto leggero"
+          // 3.000.000 inventato svuotava il fatturato 3.000.000 vero).
+          if (parsePureAmount(c.valore) != null && !/[a-z]/i.test(String(c.valore))) continue
+          const same = ck.length >= 6 && ownerVals.find((o) => o.key === ck
+            || (/[a-z]/.test(ck) && ck.length >= 8 && o.key.length >= 8 && (o.key.includes(ck) || ck.includes(o.key))))
           if (same) { c.negatedOwner = same.id; dropped.add(c); continue }
           // La regola "testo corrente accanto al proprietario" vale solo per i
           // campi la cui descrizione NON prevede il dato nell'intestazione/piè
@@ -5721,6 +5757,30 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
         ownerNotes.push(`${fld.label || id}="${String(cur.valore).slice(0, 30)}" è il dato di «${ownerLabel}» → ora "${String(best[id].valore).slice(0, 30)}"`)
       }
       if (ownerNotes.length) diag.push(`Proprietario negato dalla descrizione: ${ownerNotes.join(' · ')}`)
+    }
+    // ── VALORI MARCATI da un'etichetta negata: fuori ovunque compaiano ──────
+    {
+      const tainted = STAGED_TAINTED.get(best) || {}
+      const tNotes = []
+      for (const [id, keys] of Object.entries(tainted)) {
+        const fld = fieldsById[id]
+        if (!fld || !keys?.size) continue
+        const cur = best[id]
+        if (!cur || cur.valore == null || !keys.has(valueKey(cur.valore))) continue
+        const cands = (log[id] || []).filter((c) => c && c.valore != null && !keys.has(valueKey(c.valore)))
+        if (!cands.length) {
+          delete best[id]
+          tNotes.push(`${fld.label || id}="${String(cur.valore).slice(0, 30)}" (stesso valore visto accanto a un'etichetta negata) → svuotato`)
+          continue
+        }
+        let next = null
+        for (const c of cands) next = pickSemanticCandidate(next, c, isStructuralField(fld) ? 'strutturali' : 'anagrafica')
+        const identity = !isStructuralField(fld) && !isPeriodicEconomicField(fld) && fieldValueKind(fld) !== 'date'
+        const r = pickConsensusCandidate(next, cands, { tierBlind: identity })
+        best[id] = r.changed ? r.cand : next
+        tNotes.push(`${fld.label || id}="${String(cur.valore).slice(0, 30)}" (stesso valore visto accanto a un'etichetta negata) → ora "${String(best[id].valore).slice(0, 30)}"`)
+      }
+      if (tNotes.length) diag.push(`Etichetta negata, valore marcato: ${tNotes.join(' · ')}`)
     }
     // Tabella voti (top 2 per campo): rende leggibile PERCHÉ il consenso ha
     // deciso o non ha deciso, senza rileggere centinaia di righe di batch.
@@ -5874,7 +5934,13 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
   {
     const filled = []
     for (const [id, c] of Object.entries(seedBest || {})) {
-      if (!best[id] && c && c.valore != null && c.valore !== '') { best[id] = c; filled.push(`${fieldsById[id]?.label || id}="${String(c.valore).slice(0, 30)}"`) }
+      if (best[id] || !c || c.valore == null || c.valore === '') continue
+      // Anche il seed passa dalla sanitizzazione del campo: un seed "data" che
+      // ha catturato la riga ("Data di continuità: dalle ore 24.00 del…") non
+      // è una data (BOLCHINI 2025 v10, decorrenza testuale dal ripiego).
+      const clean = fieldsById[id] ? sanitizeFieldValue(fieldsById[id], c.valore) : c.valore
+      if (clean == null || clean === '') { diag.push(`Seed di ripiego scartato (non valido per il campo): ${fieldsById[id]?.label || id}="${String(c.valore).slice(0, 30)}"`); continue }
+      best[id] = { ...c, valore: clean }; filled.push(`${fieldsById[id]?.label || id}="${String(clean).slice(0, 30)}"`)
     }
     if (filled.length) diag.push(`Seed di ripiego (campi lasciati vuoti dal modello): ${filled.join(' · ')}`)
   }
@@ -6126,6 +6192,33 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
       hasAnnualPeriodics: analyzed.some((d) => isPeriodicDocName(d.name)),
     })
     for (const n of xfNotes) diag.push(n)
+    // ANNUO svuotato perché < sinistro (impossibile): si RIPRENDE tra i
+    // candidati che il modello ha proposto per l'annuo quello coerente
+    // (≥ sinistro), il più votato e poi il più affine — mai calcolato, sempre
+    // un valore letto con evidenza. BOLCHINI 2025: "20.000,00" (sottolimite)
+    // batteva due voti per "1.000.000,00" e l'annuo restava vuoto.
+    const log = STAGED_CANDIDATE_LOG.get(best) || {}
+    const annuoF = activeFields.filter((f) => structuralNature(f) === 'annuo')
+    const sinF = activeFields.filter((f) => structuralNature(f) === 'per-sinistro')
+    for (let i = 0; i < annuoF.length; i++) {
+      const a = annuoF[i], s0 = sinF[i]
+      if (!a || !s0 || best[a.id] || !best[s0.id]) continue
+      const sAmt = parsePureAmount(best[s0.id].valore)
+      if (sAmt == null || sAmt <= 0) continue
+      const ok = (log[a.id] || []).filter((c) => { const v = parsePureAmount(c?.valore); return v != null && v >= sAmt })
+      if (!ok.length) continue
+      const groups = new Map()
+      for (const c of ok) {
+        const k = normForMatch(c.valore)
+        const g = groups.get(k) || { n: 0, rep: c }
+        g.n++
+        if ((typeof c.affinity === 'number' ? c.affinity : -1) > (typeof g.rep.affinity === 'number' ? g.rep.affinity : -1)) g.rep = c
+        groups.set(k, g)
+      }
+      const top = [...groups.values()].sort((x, y) => y.n - x.n || (typeof y.rep.affinity === 'number' ? y.rep.affinity : -1) - (typeof x.rep.affinity === 'number' ? x.rep.affinity : -1))[0]
+      best[a.id] = top.rep
+      diag.push(`Coerenza massimali: annuo ripreso dai candidati coerenti (≥ sinistro ${best[s0.id].valore}): "${top.rep.valore}" (${top.n} voti)`)
+    }
   }
 
   // ── Uscita ────────────────────────────────────────────────────────────────

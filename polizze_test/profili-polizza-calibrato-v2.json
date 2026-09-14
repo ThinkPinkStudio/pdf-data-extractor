@@ -4021,7 +4021,7 @@
       {
         "id": "b60ccd93-5bce-4944-8e8f-dfc9c3f1617a",
         "label": "Indirizzo",
-        "description": "Indirizzo (via, numero civico, CAP, città) del contraente/assicurato, come scritto accanto a 'Indirizzo del Contraente', 'Indirizzo' o nel blocco anagrafico del contraente (es. VIALE MUGELLO 7, 20137 MILANO (MI)). NON è l'indirizzo della compagnia, dell'intermediario, del broker o del corrispondente (spesso in intestazione o piè di pagina, accanto a 'Sede legale', 'Sede e Direzione Generale', 'Rappresentanza Generale').",
+        "description": "Indirizzo (via, numero civico, CAP, città) del contraente/assicurato, come scritto accanto a 'Indirizzo del Contraente', 'Indirizzo' o nel blocco anagrafico del contraente (es. VIALE MUGELLO 7, 20137 MILANO (MI)). NON è l'indirizzo della compagnia, dell'intermediario, del broker o del corrispondente (spesso in intestazione o piè di pagina, accanto a 'Sede e Direzione Generale', 'Rappresentanza Generale', 'Direzione Generale').",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -4932,7 +4932,7 @@
       {
         "id": "b60ccd93-5bce-4944-8e8f-dfc9c3f1617a",
         "label": "Indirizzo",
-        "description": "Indirizzo completo di domicilio o sede legale del contraente/assicurato: via, numero civico, CAP, città (es. VIA GALLARATE 249, 20151 MILANO). È l'indirizzo associato al NOME del contraente (stesso blocco anagrafico della P.IVA). NON è l'indirizzo della compagnia/agenzia (quello compare in fondo o in testa), NON è una sola componente (il CAP da solo o la sola città), NON è 'NATO IL' o altre etichette di sezione.",
+        "description": "Indirizzo completo di domicilio o sede legale del contraente/assicurato: via, numero civico, CAP, città (es. VIA GALLARATE 249, 20151 MILANO). È l'indirizzo associato al NOME del contraente (stesso blocco anagrafico della P.IVA). NON è l'indirizzo della compagnia/agenzia (quello compare in fondo o in testa), NON è una sola componente (il CAP da solo o la sola città), NON è 'NATO IL' o altre etichette di sezione. NON è l'indirizzo della compagnia o dell'intermediario, spesso in intestazione o piè di pagina accanto a 'Sede e Direzione Generale', 'Rappresentanza Generale', 'Direzione Generale'.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,

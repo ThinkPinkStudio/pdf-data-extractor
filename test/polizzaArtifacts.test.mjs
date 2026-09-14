@@ -253,3 +253,18 @@ test('findValueWindow: valore riordinato dal modello → finestra attorno al tok
   assert.ok(w && normForMatch(w).includes('sedeedirezionegenerale'), w)
   assert.equal(findValueWindow(page, 'Via Roma 123, 00100 Roma', '', 60), null)
 })
+
+test('sanitizeFieldValue: campo DATA per testa di descrizione → solo date, mai testo', () => {
+  const dec = { id: 'dec', label: 'Decorrenza', type: 'date', description: "Data di decorrenza (inizio) della copertura: la data 'Dal' del periodo più recente (es. 19/04/2026)." }
+  assert.equal(sanitizeFieldValue(dec, 'Data di continuità: dalle ore 24.00 del'), null)
+  assert.equal(sanitizeFieldValue(dec, '19/04/2026'), '19/04/2026')
+  assert.equal(sanitizeFieldValue(dec, '19/04/26'), '19/04/2026')
+})
+
+test('valueWindows: tutte le occorrenze del valore (esatte e riordinate), così l\'etichetta negata si vede anche se non è la prima', async () => {
+  const { valueWindows, normForMatch } = await import('../src/services/polizzaValidation.js')
+  const doc = 'Reclami: lettera a DAS SpA - Via Enrico Fermi 9/B - 37135 Verona.\n…\nSede e Direzione Generale: 37135 Verona - Via Enrico Fermi, 9/B Aut. D.M.'
+  const wins = valueWindows(doc, 'Via Enrico Fermi 9/B - 37135 Verona', 80)
+  assert.ok(wins.length >= 2, String(wins.length))
+  assert.ok(wins.some((w) => normForMatch(w).includes('sedeedirezionegenerale')))
+})
