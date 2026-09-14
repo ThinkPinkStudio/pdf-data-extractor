@@ -10,26 +10,32 @@ import {
   fieldValueKind, VALUE_PATTERNS, buildJsonSchema, buildGbnfGrammar, ollamaFormatFor,
 } from '../src/services/gbnfSchema.js'
 
+// La natura la dice la DESCRIZIONE (testa prima dei due punti), mai la label.
 const fields = [
-  { id: 'polizza_numero', label: 'N° Polizza', type: 'text' },
-  { id: 'decorrenza', label: 'Decorrenza', type: 'date' },
-  { id: 'codice_fiscale_iva', label: 'P. IVA', type: 'text' },
-  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', type: 'text' },
-  { id: 'rct_tasso', label: 'Tasso regolazione ‰', type: 'text' },
-  { id: 'attivita', label: 'Attività assicurata', type: 'text' },
+  { id: 'polizza_numero', label: 'N° Polizza', type: 'text', description: 'Numero di polizza: identificativo alfanumerico del contratto' },
+  { id: 'decorrenza', label: 'Decorrenza', type: 'date', description: 'Data di decorrenza della polizza' },
+  { id: 'codice_fiscale_iva', label: 'P. IVA', type: 'text', description: 'Partita IVA o codice fiscale del contraente: 11 cifre o 16 caratteri' },
+  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', type: 'text', description: 'Massimale per sinistro: importo massimo per singolo sinistro' },
+  { id: 'rct_tasso', label: 'Tasso regolazione ‰', type: 'text', description: 'Tasso di regolazione per mille applicato al parametro' },
+  { id: 'attivita', label: 'Attività assicurata', type: 'text', description: 'Attività assicurata: il settore o tipo di attività del contraente' },
 ]
 
 test('fieldValueKind: date / vat / amount / rate / text (type-blind, da label/description)', () => {
   assert.equal(fieldValueKind({ id: 'decorrenza', type: 'date' }), 'date')
-  // L'id NON indica più la natura (ora è un UUID): decide label/description.
-  assert.equal(fieldValueKind({ label: 'P. IVA / Cod. Fiscale' }), 'vat')
-  assert.equal(fieldValueKind({ label: 'Partita IVA' }), 'vat')
-  assert.equal(fieldValueKind({ label: 'Codice fiscale' }), 'vat')
-  assert.equal(fieldValueKind({ label: 'Massimale' }), 'amount')
-  assert.equal(fieldValueKind({ label: 'Imposta' }), 'amount')
-  assert.equal(fieldValueKind({ label: 'Tasso' }), 'rate')
-  assert.equal(fieldValueKind({ label: 'Attività' }), 'text')
-  assert.equal(fieldValueKind({ label: 'Parametro regolazione' }), 'text')
+  // Né id né LABEL indicano la natura: decide la TESTA della descrizione (Regola 1).
+  assert.equal(fieldValueKind({ label: 'X', description: 'Partita IVA o codice fiscale del contraente: 11 cifre o 16 caratteri' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Partita IVA del contraente' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Codice fiscale della persona' }), 'vat')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Massimale per sinistro della polizza' }), 'amount')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Imposte della polizza RC (es. 49,05): cifra della colonna IMPOSTE' }), 'amount')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Limite massimo di indennizzo per singolo sinistro: importo del Punto 5' }), 'amount')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Tasso di regolazione per mille' }), 'rate')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Attività assicurata: il settore o tipo di attività' }), 'text')
+  assert.equal(fieldValueKind({ label: 'X', description: 'Parametro utilizzato per la regolazione del premio: il NOME del parametro come TESTO' }), 'text')
+  // Una P.IVA citata DOPO i due punti non fa del campo un codice fiscale
+  assert.equal(fieldValueKind({ label: 'Indirizzo', description: "Indirizzo completo di domicilio del contraente: via, CAP, città. Stesso blocco anagrafico della P.IVA" }), 'text')
+  // La LABEL da sola non decide nulla
+  assert.equal(fieldValueKind({ label: 'P. IVA / Cod. Fiscale' }), 'text')
   // Un id casuale senza label/description di natura NON produce un pattern:
   // resta testo libero (nessun falso amount/rate dal nome UUID).
   assert.equal(fieldValueKind({ id: '94cbee3c-f83b-5b95-87b8-8b68d02d6d59' }), 'text')
@@ -164,4 +170,20 @@ test('ollamaFormatFor: default schema, spegnibile, gbnf su richiesta', () => {
   assert.equal(typeof g, 'string')
   assert.match(g, /root ::=/)
   assert.equal(ollamaFormatFor([], 'staged', {}), 'json')
+})
+
+test('campi di VERIFICA ("Verifica se…"): evidenza OBBLIGATORIA nello schema JSON e nella GBNF', async () => {
+  const { buildJsonSchema, buildGbnfGrammar } = await import('../src/services/gbnfSchema.js')
+  const fields = [
+    { id: 'a', label: 'ODV / CDA', description: 'Verifica se sono coperti incarichi in ODV ex D.Lgs. 231/2001.' },
+    { id: 'b', label: 'Premio lordo', description: 'Premio lordo annuo totale (es. 269,50)' },
+  ]
+  const js = buildJsonSchema(fields, 'staged')
+  assert.deepEqual(js.properties.c0.required, ['valore', 'evidenza'])
+  assert.deepEqual(js.properties.c1.required, ['valore'])
+  const g = buildGbnfGrammar(fields, 'staged')
+  const ruleA = g.split('\n').find((l) => l.startsWith('f_a_entry'))
+  const ruleB = g.split('\n').find((l) => l.startsWith('f_b_entry'))
+  assert.ok(/"evidenza\\"" ws ":" ws string\) \(","/.test(ruleA) || /string\) \(/.test(ruleA), 'evidenza senza "?" per il campo di verifica: ' + ruleA)
+  assert.ok(/string\)\? \(/.test(ruleB), 'evidenza opzionale per il premio: ' + ruleB)
 })

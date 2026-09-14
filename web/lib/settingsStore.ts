@@ -30,6 +30,16 @@ export interface PolizzaProfile {
   // Parole del CONTENUTO da EVITARE: se una compare nel TESTO OCR, il job viene
   // SCARTATO (status 'mismatch' → "Procedi comunque") senza fare la full run.
   contentExcludeKeywords?: string
+  // COME RICONOSCERLA: testo libero scritto dall'utente che descrive il tipo di
+  // polizza ("tutela legale DAS: spese legali, massimale per sinistro e per
+  // anno, pacchetti…"). Confrontato semanticamente (bge-m3) con le pagine del
+  // fascicolo per scegliere/validare il profilo; se manca, si usano le
+  // descrizioni dei campi. Nessuna soglia: è un confronto tra profili.
+  recognition?: string
+  // ATTIVO (default true se assente: import retrocompatibile). Un profilo non
+  // attivo (in composizione, di test…) è ESCLUSO dal riconoscimento automatico
+  // e dal confronto del pre-controllo; resta selezionabile a mano.
+  enabled?: boolean
   promptExtra?: string
   ocrEnabled?: boolean
   wholeDossier?: boolean
@@ -247,7 +257,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
-    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', false),
+    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

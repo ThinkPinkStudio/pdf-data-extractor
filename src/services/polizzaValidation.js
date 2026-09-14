@@ -45,6 +45,35 @@ const PLACEHOLDER_SET = new Set([
   'x', 'xxx', '?', '??', '???', '...',
 ])
 
+// Sottoinsieme che dice SOLO "non ho il dato" (nessuna informazione sul mondo):
+// resta vuoto anche quando la descrizione del campo cita la parola come
+// risposta possibile ("Rispondi: Sì, No, Non indicato"). Diverso da
+// "nessuna"/"non previsto"/"assente", che possono affermare un fatto (nessuna
+// franchigia, estensione non prevista) e passano se la descrizione li ammette.
+const ABSENCE_SET = new Set([
+  'non specificato', 'non specificata', 'non indicato', 'non indicata',
+  'non presente', 'non disponibile', 'non applicabile', 'non riportato',
+  'non riportata', 'non pervenuto', 'non definito', 'non definita',
+  'non trovato', 'non trovata',
+  'n/d', 'n.d.', 'n.d', 'nd', 'n/a', 'n.a.', 'n.a', 'na',
+  'null', 'none', 'nil', 'undefined', 'sconosciuto', 'sconosciuta',
+  'da definire', 'da compilare', 'da verificare', 'vuoto', 'mancante',
+  'non noto', 'non nota', 'ignoto', 'ignota', 'non rilevato', 'non rilevata',
+  'non determinabile', 'non determinato', 'non determinata', 'non reperibile',
+  'x', 'xxx', '?', '??', '???', '...',
+])
+
+function normPlaceholder(raw) {
+  let v = String(raw ?? '').trim()
+  return v.replace(/^["'«»()[\]{}\s]+|["'«»()[\]{}\s]+$/g, '').replace(/\s+/g, ' ').toLowerCase()
+}
+
+/** true se il valore dichiara solo l'ASSENZA del dato: mai un valore, con qualunque descrizione. */
+export function isAbsencePlaceholder(raw) {
+  const v = normPlaceholder(raw)
+  return !v || ABSENCE_SET.has(v) || /^[-–—_.·\s]+$/.test(v)
+}
+
 /** true se il valore e' un placeholder di assenza e va scartato. */
 export function isPlaceholderValue(raw) {
   if (raw == null) return true
@@ -126,17 +155,11 @@ export function isLabelLikeValue(raw) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim()
   if (!norm) return false
-  // heading tutto maiuscolo: ≥3 parole e ≥1 parola lunga ≥6 tra quelle
-  // maiuscole nell'originale (un'intestazione di sezione, non un dato)
-  const words = v.split(/\s+/).filter(Boolean)
-  // Una RAGIONE SOCIALE (es. "TAXIBLU SOCIETA' COOPERATIVA", "ADAMANT BIONRG
-  // SRL") NON è una label di sezione anche se è tutta maiuscola: contiene una
-  // forma giuridica. Se c'è, la guardia NOn scarta (è un nome di azienda).
-  const HAS_LEGAL_FORM = /\b(?:societ[ae]|cooperativa|s\.?r\.?l|s\.?p\.?a|s\.?a\.?s|s\.?n\.?c|studio\b|ditta|impresa|azienda)\b/i.test(norm)
-  if (words.length >= 3 && !HAS_LEGAL_FORM) {
-    const upperLong = words.filter((w) => /^[A-ZÀ-Ý]+$/.test(w) && w.length >= 6)
-    if (upperLong.length && upperLong.length >= words.length * 0.5) return true
-  }
+  // [12/09/2026] La regola "tutto maiuscolo con ≥3 parole = intestazione" è
+  // stata tolta: era una guardia indovinata e bocciava i NOMI in maiuscolo
+  // ("BOLCHINI ARCH. MARGHERITA", "MARIO ROSSI BIANCHI", "ALZAIA NAV. PAVESE
+  // 104 CONDOMI"): tre chiamate su quattro davano il contraente giusto e il
+  // sanitizer le buttava tutte. Restano SOLO i pattern documentali sotto.
   for (const p of ANTI_LABEL_PATTERNS) {
     if (p.test(norm)) return true
   }
@@ -184,9 +207,191 @@ export function isTextualField(field) {
  */
 export function isTextualZeroPlaceholder(field, raw) {
   if (!isTextualField(field)) return false
+  return isZeroPlaceholder(raw)
+}
+
+/**
+ * true se il valore è uno ZERO puro ("0", "0,00", "€ 0.00"): il segnaposto del
+ * modello per "il dato non è in questa pagina", su qualunque campo. Uno zero
+ * non è mai un dato di polizza (massimale/premio/franchigia 0 non esistono).
+ */
+export function isZeroPlaceholder(raw) {
   if (raw == null) return false
   const s = String(raw).trim().replace(/[€\s]/g, '')
   return /^0+(?:[.,]0+)?$/.test(s)
+}
+
+/**
+ * true se il valore è TESTO CORRENTE del documento (intestazione o piè di
+ * pagina ripetuti): compare su almeno l'80% delle pagine di un documento di
+ * almeno 4 pagine. È una proprietà STRUTTURALE del layout, non del contenuto:
+ * la sede della compagnia e il nome del prodotto ("DAS Professionista") stanno
+ * su ogni pagina e raccoglievano un voto per pagina (12 contro 3 per l'indirizzo
+ * del contraente, che sta solo nel frontespizio). Nel consenso un valore
+ * corrente vale UN voto per documento.
+ * @param {string[]} normPages pagine normalizzate del documento sorgente
+ * @param {string} value valore proposto
+ */
+/**
+ * Token del valore (normalizzati, ≥3 caratteri, unici): il modello riscrive
+ * gli indirizzi cambiando l'ordine ("37135 Verona - Via Enrico Fermi, 9/B" →
+ * "Via Enrico Fermi, 9/B - 37135 Verona"), la stringa intera non si trova più
+ * nel testo ma tutti i suoi token sì, nella stessa pagina.
+ */
+export function valueTokens(value) {
+  const out = []
+  const seen = new Set()
+  for (const t of String(value == null ? '' : value).split(/[^\p{L}\p{N}]+/u)) {
+    const n = normForMatch(t)
+    if (n.length < 3 || seen.has(n)) continue
+    seen.add(n); out.push(n)
+  }
+  return out
+}
+
+/** true se la pagina normalizzata contiene TUTTI i token (almeno due) del valore. */
+export function pageHasValueTokens(normPage, tokens) {
+  if (!normPage || !Array.isArray(tokens) || tokens.length < 2) return false
+  return tokens.every((t) => normPage.includes(t))
+}
+
+export function isRunningTextInDoc(normPages, value) {
+  if (!Array.isArray(normPages) || normPages.length < 4) return false
+  const nv = normForMatch(value)
+  if (nv.length < 6) return false
+  // per token SOLO per testi con lettere (un importo riordinato non esiste)
+  const tokens = /[a-z]/i.test(String(value)) ? valueTokens(value) : []
+  let n = 0
+  for (const p of normPages) if (p && (p.includes(nv) || pageHasValueTokens(p, tokens))) n++
+  return n >= Math.ceil(normPages.length * 0.8)
+}
+
+/**
+ * Come isRunningTextInDoc, ma sul documento intero: pagine PIATTE (normPages)
+ * oppure pagine SPAZIALI (quelle che il modello legge nei prompt): il markdown
+ * Docling spesso omette intestazioni e piè di pagina ripetuti, la griglia
+ * pdf.js no — "A4000060771-LB Guffanti Group & Partners Srl pag. N di 34" in
+ * calce a ogni pagina del contratto dava 28 voti alla compagnia sbagliata.
+ * L'indice normalizzato delle pagine spaziali è calcolato una volta per documento.
+ */
+export function isRunningTextInAnyLayer(doc, value) {
+  if (!doc) return false
+  if (Array.isArray(doc.normPages) && isRunningTextInDoc(doc.normPages, value)) return true
+  const sp = Array.isArray(doc.spatialPages) ? doc.spatialPages : null
+  if (!sp || sp.length < 4) return false
+  if (!Array.isArray(doc._normSpatialPages) || doc._normSpatialPages.length !== sp.length) {
+    doc._normSpatialPages = sp.map((p) => normForMatch(String(p || '')))
+  }
+  return isRunningTextInDoc(doc._normSpatialPages, value)
+}
+
+/**
+ * Campi "PROPRIETARI NEGATI" di un campo: la descrizione di F dice "NON è …
+ * della compagnia, dell'intermediario…"; i campi G del profilo la cui TESTA di
+ * descrizione contiene una di quelle parole sono i proprietari di ciò che F
+ * non deve prendere. Nessuna lista: le parole vengono dalla clausola negata
+ * di F e dalle teste delle descrizioni degli altri campi (≥ 5 lettere).
+ * Esempio: Indirizzo "NON è l'indirizzo della compagnia, dell'intermediario…"
+ * → proprietari = il campo con testa "Compagnia assicuratrice" e quello con
+ * testa "Intermediario che ha collocato…".
+ * @returns {string[]} id dei campi proprietari
+ */
+export function negatedOwnerFields(field, allFields) {
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const desc = norm(field?.description)
+  const words = new Set()
+  for (const m of desc.matchAll(/\bnon\s+(?:e|e'|sono|va|puo)\b([^.;]*)/g)) {
+    for (const w of m[1].split(/[^a-z]+/)) if (w.length >= 5) words.add(w)
+  }
+  if (!words.size) return []
+  // Il CONCETTO di un campo è la prima parola di contenuto della testa della
+  // sua descrizione ("Compagnia assicuratrice…" → compagnia, "Intermediario che
+  // ha collocato…" → intermediario, "Numero di polizza" → numero). Confrontare
+  // tutte le parole della testa era troppo largo: "numero civico" nell'indirizzo
+  // e "polizza" ovunque facevano di ogni campo un proprietario.
+  // Parole "vuote" della testa: articoli/preposizioni e le parole generiche che
+  // introducono un dato ("Nome o ragione sociale del contraente" → il concetto
+  // è "contraente", non "ragione"; "Elenco testuale delle esclusioni" →
+  // "esclusioni"; "Importo del massimale" → "massimale").
+  const STOP = new Set(['il', 'lo', 'la', 'le', 'gli', 'un', 'una', 'uno', 'di', 'del', 'della', 'dello', 'dei', 'degli', 'delle', 'e', 'o', 'ed', 'a', 'al', 'alla', 'in', 'per', 'con', 'da', 'dal', 'dalla', 'che', 'se', 'non',
+    'nome', 'cognome', 'ragione', 'sociale', 'denominazione', 'testo', 'testuale', 'elenco', 'importo', 'data', 'valore', 'verifica', 'indica', 'specifica', 'estrai', 'riporta', 'breve',
+    // "Verifica se la polizza comprende…": il concetto non è "polizza"
+    'polizza', 'fascicolo', 'documento', 'documenti'])
+  const out = []
+  for (const g of allFields || []) {
+    if (!g || g.id === field.id) continue
+    // testa = prima dei due punti O della prima frase (una descrizione senza
+    // ":" non è tutta "testa": conterrebbe le sue stesse clausole negate)
+    const head = norm(g.description).split(/[:.(]/)[0]
+    const concept = head.split(/[^a-z]+/).filter((w) => w && !STOP.has(w))[0]
+    if (concept && concept.length >= 5 && words.has(concept)) out.push(g.id)
+  }
+  return out
+}
+
+/**
+ * true se la parte POSITIVA della descrizione (senza le clausole "NON è…",
+ * "mai…") dice che il dato può stare nell'intestazione o nel piè di pagina
+ * (o "in ogni pagina"): per quel campo il testo corrente NON è rumore e nel
+ * consenso conta per pagina, non una volta per documento.
+ */
+export function descriptionAllowsRunningText(field) {
+  const positive = String(field?.description || '')
+    .replace(/(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|riportar\w*|prender\w*|usar\w*|dedur\w*|copiar\w*)[^.;!?)]*/g, ' ')
+    .replace(/(?:^|[.;:!?]\s*)\s*(?:MAI|mai|né|ne')\s+[^.;!?]*/g, ' ')
+    .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /\bintestazion|\bpie\s+di\s+pagina|\bogni\s+pagina|\btesto\s+corrente/.test(positive)
+}
+
+/**
+ * true se la parte POSITIVA della descrizione nomina il questionario, la
+ * proposta o un modulo come FONTE del dato ("nel questionario o nella
+ * proposta"): per quel campo una pagina di questionario è evidenza valida.
+ * "Un elenco di attività del questionario NON è una copertura" è una clausola
+ * negata e non conta.
+ */
+export function descriptionNamesQuestionnaire(field) {
+  const positive = String(field?.description || '')
+    .replace(/(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|riportar\w*|prender\w*|usar\w*|dedur\w*|copiar\w*)[^.;!?)]*/g, ' ')
+    .replace(/(?:^|[.;:!?]\s*)\s*(?:MAI|mai|né|ne')\s+[^.;!?]*/g, ' ')
+    // frasi con soggetto "elenco/attività del questionario … NON …" (negazione dopo il soggetto)
+    .replace(/[^.;!?]*\bquestionari\w*[^.;!?]*\b(?:NON|non)\b[^.;!?]*/g, ' ')
+    .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /\bquestionari|\bpropost[ae]\b|\bmodul[oi]\b/.test(positive)
+}
+
+/**
+ * ETICHETTE CITATE nelle clausole NEGATE della descrizione: "NON è l'indirizzo
+ * della compagnia (… accanto a 'Sede legale', 'Sede e Direzione Generale')"
+ * → ['Sede legale', 'Sede e Direzione Generale']. Un valore che nel testo sta
+ * accanto a una di quelle etichette è ciò che la descrizione dice che il campo
+ * NON è. Solo citazioni vere (virgoletta preceduta da spazio/parentesi/virgola
+ * e seguita da spazio/virgola/punto/parentesi): gli apostrofi di "l'indirizzo"
+ * e "dell'intermediario" non sono citazioni.
+ */
+export function negatedQuotedLabels(description) {
+  const out = []
+  const seen = new Set()
+  const d = String(description || '')
+  for (const clause of d.matchAll(/(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|prender\w*|copiar\w*)[^.;!?]*/g)) {
+    for (const m of clause[0].matchAll(/(?<=[\s(,])['"«]([^'"«»]{2,40}?)['"»](?=[\s,.;)]|$)/g)) {
+      const k = normForMatch(m[1])
+      if (k.length < 3 || seen.has(k)) continue
+      seen.add(k); out.push(m[1])
+    }
+  }
+  return out
+}
+
+/**
+ * true se il valore è un FRAMMENTO DI JSON e non un dato: 'valore": null,
+ * "documento":"…', '{"valore"', una virgoletta seguita da due punti. Nasce
+ * quando il modello annida un oggetto dentro la stringa del valore; nessun
+ * dato di polizza contiene virgolette+due punti o graffe.
+ */
+export function looksLikeJsonFragment(raw) {
+  const v = String(raw == null ? '' : raw)
+  return /"\s*:|:\s*"|[{}]|\\"/.test(v)
 }
 
 /**
@@ -886,6 +1091,22 @@ export function findValueWindow(docText, value, evidenza, span = 200) {
       const atI = norm.indexOf(intPart)
       if (atI !== -1) return cut(atI, intPart.length)
     }
+    // TESTO riordinato dal modello ("Via Enrico Fermi, 9/B - 37135 Verona" per
+    // "37135 Verona - Via Enrico Fermi, 9/B"): finestra attorno al token più
+    // lungo, purché tutti gli altri token stiano entro la finestra stessa.
+    if (/[a-z]/i.test(String(needle || ''))) {
+      const tokens = valueTokens(needle)
+      if (tokens.length >= 2) {
+        const anchor = [...tokens].sort((a, b) => b.length - a.length)[0]
+        let at = norm.indexOf(anchor)
+        while (at !== -1) {
+          const lo = Math.max(0, at - span), hi = Math.min(norm.length, at + anchor.length + span)
+          const seg = norm.slice(lo, hi)
+          if (tokens.every((t) => seg.includes(t))) return cut(at, anchor.length)
+          at = norm.indexOf(anchor, at + 1)
+        }
+      }
+    }
   }
   return null
 }
@@ -976,6 +1197,129 @@ export function isSuspectStructuralOverride(field, oldValue, newValue, newDocTex
  * 3. affinità comparabili (o non calcolabili): decide la RECENCY — i dati nuovi
  *    sovrascrivono i vecchi, regola invariata.
  */
+/**
+ * ETICHETTA DI LAYOUT (griglia): il valore è "etichettato" per il campo se una
+ * parola DISTINTIVA della testa della descrizione ("decorrenza", "scadenza",
+ * "imposte") sta sulla stessa riga PRIMA del valore, oppure sulla riga sopra
+ * nella STESSA colonna (le griglie pdf.js/OCR tengono etichetta e valore
+ * incolonnati). È la generalizzazione della "riga di tabella" alle pagine a
+ * griglia: "DECORRENZA / 04/06/2025" è evidenza strutturale, "MILANO 14/04/2025
+ * (firma del cliente)" no — quattro voti del modello non la battono.
+ * @param {string[]} distinct  parole distintive (minuscole, senza accenti)
+ * @param {string[]} pages     pagine spaziali (righe con allineamento)
+ * @param {string} value       valore pulito
+ * @returns {{ labelled: boolean, token?: string, line?: string }}
+ */
+export function valueLabelledByLayout(distinct, pages, value) {
+  const toks = (distinct || []).filter((t) => t && t.length >= 2)
+  const v = String(value || '').trim()
+  if (!toks.length || !v || v.length < 2) return { labelled: false }
+  const tokMatch = (w, t) => (t.length >= 4 ? (w === t || w.startsWith(t)) : w === t)
+  const low = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const vLow = low(v)
+  const vDigits = v.replace(/[^\d]/g, '')
+  // data GG/MM/AAAA: nel testo può stare come GG/MM/AA ("Dal 31/01/26 al 31/01/27")
+  const dm = v.match(/^(\d{2})\/(\d{2})\/(\d{2})(\d{2})$/)
+  const vDigits2 = dm ? `${dm[1]}${dm[2]}${dm[4]}` : null
+  const findVal = (line) => {
+    const l = low(line)
+    let i = l.indexOf(vLow)
+    if (i < 0 && vDigits.length >= 4) {
+      // importi/date con varianti di formattazione: cerca la run di cifre
+      const m = [...l.matchAll(/[\d][\d.,/ ]*[\d]/g)].find((x) => { const d = x[0].replace(/[^\d]/g, ''); return d === vDigits || (vDigits2 && d === vDigits2) })
+      if (m) i = m.index
+    }
+    return i
+  }
+  const spans = (line, tok) => {
+    const out = []; const l = low(line); let from = 0
+    while (from <= l.length) { const i = l.indexOf(tok, from); if (i < 0) break; out.push([i, i + tok.length]); from = i + tok.length }
+    return out
+  }
+  // CELLE di griglia: tratti di testo separati da ≥2 spazi (o dai bordi riga).
+  // L'etichetta vale solo se è una CELLA (breve) — non una parola qualunque in
+  // una frase: nel Set Informativo "attività" e "massimale" compaiono ovunque e
+  // "25.000" di un esempio batteva il 50.000,00 della polizza.
+  const cellAt = (line, pos) => {
+    const l = String(line || '')
+    let a = pos, b = pos
+    while (a > 0 && !(l[a - 1] === ' ' && l[a - 2] === ' ')) a--
+    while (b < l.length && !(l[b] === ' ' && l[b + 1] === ' ')) b++
+    return { a, b, text: l.slice(a, b) }
+  }
+  const wordsOf = (t) => low(t).split(/[^a-z0-9]+/).filter(Boolean)
+  for (const page of pages || []) {
+    const lines = String(page || '').split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const c = findVal(lines[i])
+      if (c < 0) continue
+      const vEnd = c + v.length
+      // (1) stessa riga: l'etichetta è il testo PRIMA del valore dentro la
+      // stessa cella, breve (≤ 5 parole) e contenente la parola distintiva
+      // ("Decorrenza ore 24:00 del 19/04/2026", "Contraente: ROSSI").
+      const cell = cellAt(lines[i], c)
+      const preWords = wordsOf(lines[i].slice(cell.a, c))
+      if (preWords.length > 0 && preWords.length <= 5 && !wordsOf(v).some((w) => toks.some((t) => tokMatch(w, t)))) {
+        for (const t of toks) if (preWords.some((w) => tokMatch(w, t))) return { labelled: true, token: t, line: lines[i].trim().slice(0, 80) }
+      }
+      // (2) riga sopra (salta le righe vuote): una CELLA della riga sopra,
+      // breve (≤ 5 parole), che contiene la parola distintiva e si sovrappone
+      // in colonna al valore (± 3 caratteri): intestazione di colonna.
+      let j = i - 1
+      while (j >= 0 && !lines[j].trim()) j--
+      if (j >= 0) {
+        for (const t of toks) {
+          for (const [a] of spans(lines[j], t)) {
+            const hc = cellAt(lines[j], a)
+            const hw = wordsOf(hc.text)
+            if (hw.length === 0 || hw.length > 5) continue
+            if (hc.a <= vEnd + 3 && hc.b >= c - 3) return { labelled: true, token: t, line: lines[j].trim().slice(0, 80) }
+          }
+        }
+      }
+    }
+  }
+  return { labelled: false }
+}
+
+/**
+ * Parole DISTINTIVE della testa della descrizione di ogni campo: quelle che
+ * compaiono nella testa di MENO campi del profilo (frequenza inversa sulle sole
+ * descrizioni del profilo: cambiano le descrizioni, cambiano le parole). Una
+ * parola presente nella testa della maggioranza dei campi ("polizza", "data",
+ * "tutela") non distingue nulla e non conta.
+ * @returns {Map<string, string[]>} id campo → parole distintive
+ */
+export function distinctiveHeadTokens(fields, tokenize) {
+  const heads = new Map()
+  const df = new Map()
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  for (const f of fields || []) {
+    const head = String(f.description || '').split(':')[0]
+    const toks = [...new Set((tokenize ? tokenize(head) : head.toLowerCase().split(/[^a-z0-9àèéìòù]+/)).filter((t) => t.length >= 4))]
+    heads.set(f.id, toks)
+    for (const t of toks) df.set(t, (df.get(t) || 0) + 1)
+  }
+  const n = Math.max(1, (fields || []).length)
+  const out = new Map()
+  for (const [id, toks] of heads) {
+    const eligible = toks.filter((t) => (df.get(t) || 0) * 2 <= n) // mai nella maggioranza dei campi
+    const minDf = eligible.length ? Math.min(...eligible.map((t) => df.get(t))) : null
+    const distinct = eligible.filter((t) => df.get(t) === minDf)
+    // ETICHETTE CITATE dall'utente tra virgolette nella descrizione ("accanto a
+    // 'DECORRENZA'", "il 'Dal' della quietanza", "'al'"): sono le parole che il
+    // documento usa come etichetta — valgono anche se corte ("al") e anche se
+    // stanno nella coda della descrizione. Decide la descrizione.
+    const f = (fields || []).find((x) => x.id === id)
+    const quoted = [...String(f?.description || '').matchAll(/['‘’"«]([^'‘’"»]{2,40})['‘’"»]/g)]
+      .map((m) => norm(m[1]).replace(/[^a-z0-9 ]+/g, ' ').trim())
+      .filter((q) => q && q.split(' ').length <= 3 && !/^\d/.test(q))
+      .map((q) => q.split(' ')[0])
+    out.set(id, [...new Set([...distinct, ...quoted])])
+  }
+  return out
+}
+
 export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   // Margini ASIMMETRICI e prudenti — tarati sul campo: con margine unico 0.06
   // il rumore degli embeddings su finestre corte/numeriche RIBALTAVA la recency
@@ -995,18 +1339,39 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   // affinità nettamente superiore (margine di promozione); a parità o per
   // recency non la batte mai (Cresta: "500.000,00" da una clausola vinceva su
   // "5. Massimale = 2.500.000,00" per due voti a uno).
-  if (oldC.tableRow === true && newC.tableRow !== true) {
+  // …ma SOLO a parità di recency o se la riga è nel documento più recente: una
+  // riga di tabella di un documento VECCHIO (polizza 2020 "Periodo di validità
+  // 31/03/2020-31/03/2021") non batte il valore di un documento PIÙ RECENTE
+  // (appendice di rinnovo 2026). La recency resta la regola prima; la riga di
+  // tabella è uno spareggio strutturale dentro lo stesso livello di data.
+  const ts = (c) => dateStrToTs(c?.effDate)
+  const strictlyNewer = (a, b) => ts(a) != null && ts(b) != null && ts(a) > ts(b)
+  if (oldC.tableRow === true && newC.tableRow !== true && !strictlyNewer(newC, oldC)) {
     return (a0 != null && a1 != null && a1 - a0 > promoteMargin) ? newC : oldC
   }
-  if (newC.tableRow === true && oldC.tableRow !== true) {
+  if (newC.tableRow === true && oldC.tableRow !== true && !strictlyNewer(oldC, newC)) {
     return (a0 != null && a1 != null && a0 - a1 > promoteMargin) ? oldC : newC
   }
   // Due righe di tabella per lo stesso campo ("Attività" e "Soggetto
   // assicurato" per "Attività assicurata"): vince l'etichetta che coincide di
   // più con la testa della descrizione (l'affinità di una riga cresce con la
   // sovrapposizione lessicale); a parità resta la prima.
-  if (oldC.tableRow === true && newC.tableRow === true && a0 != null && a1 != null) {
-    return a1 > a0 ? newC : oldC
+  // Due righe di tabella: prima l'evidenza STRUTTURALE (quanto etichetta di
+  // riga/colonna nominano la testa della descrizione: structLex), poi la sola
+  // etichetta di RIGA (rowLex: "TOTALE" batte "4,245 RC Professionale" per il
+  // premio lordo "totale" — con la stessa intestazione di colonna le due righe
+  // pareggiavano e decideva il rumore dell'embedding: GUFFANTI RC 2025 v5,
+  // premio lordo 2.250,00 della riga componente al posto di 18.000,00), poi
+  // l'affinità; a parità resta la prima.
+  if (oldC.tableRow === true && newC.tableRow === true) {
+    const s0 = typeof oldC.structLex === 'number' ? oldC.structLex : null
+    const s1 = typeof newC.structLex === 'number' ? newC.structLex : null
+    if (s0 != null && s1 != null && s1 !== s0) return s1 > s0 ? newC : oldC
+    const r0 = typeof oldC.rowLex === 'number' ? oldC.rowLex : null
+    const r1 = typeof newC.rowLex === 'number' ? newC.rowLex : null
+    if (r0 != null && r1 != null && r1 !== r0) return r1 > r0 ? newC : oldC
+    if (a0 != null && a1 != null && a1 !== a0) return a1 > a0 ? newC : oldC
+    return oldC
   }
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)
@@ -1182,10 +1547,21 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
   // Le cifre GGMMAAAA devono comparire nel contesto normalizzato.
   const asDate = normalizeDateValue(cleaned)
   if (asDate) {
-    if (normCtx.includes(asDate.replace(/\//g, ''))) return true
+    const full = asDate.replace(/\//g, '')            // GGMMAAAA
+    const short = full.slice(0, 4) + full.slice(6)     // GGMMAA: "Dal 16/12/25 al 16/12/26"
+    if (normCtx.includes(full)) return true
+    // Anno a DUE cifre nel documento (quietanze di rinnovo DAS): il modello
+    // risponde 16/12/2025 e il testo dice "16/12/25". Sul contesto GREZZO si
+    // pretende una data breve intera (confini di parola), non sei cifre dentro
+    // un numero qualsiasi; senza contesto grezzo vale il normalizzato.
+    // SPALLINO TL: decorrenza/scadenza del rinnovo scartate "senza evidenza".
+    const [dd, mm, yyyy] = asDate.split('/')
+    if (rawCtx) {
+      if (new RegExp(`(?<![\\d/])${dd}[/.\\-]${mm}[/.\\-]${yyyy.slice(-2)}(?![\\d/])`).test(rawCtx)) return true
+    } else if (normCtx.includes(short)) return true
     if (evidenza) {
       const ne = normForMatch(evidenza)
-      if (ne && normCtx.includes(ne) && ne.includes(asDate.slice(-4))) return true
+      if (ne && normCtx.includes(ne) && (ne.includes(asDate.slice(-4)) || ne.includes(short))) return true
     }
     return false
   }

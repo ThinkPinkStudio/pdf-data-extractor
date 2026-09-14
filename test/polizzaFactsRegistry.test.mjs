@@ -320,3 +320,12 @@ test('descriptionAsksCheckbox: rileva la description di un campo a selezione', (
   assert.equal(descriptionAsksCheckbox('Numero di polizza'), false)
   assert.equal(descriptionAsksCheckbox(null), false)
 })
+test('isQuestionnaireTitle / hasOptionAmountLine: questionario dal TITOLO, opzione dalla casella con importo sulla riga', async () => {
+  const { isQuestionnaireTitle, hasOptionAmountLine } = await import('../src/services/polizzaFactsRegistry.js')
+  assert.equal(isQuestionnaireTitle('QUESTIONARIO DI RINNOVO LLOYD’S RC PROFESSIONALE DELLE PROFESSIONI TECNICHE\nAVVISO IMPORTANTE'), true)
+  assert.equal(isQuestionnaireTitle('## Questionario /Proposta di Assicurazione Rc Professionale Avvocato'), true)
+  assert.equal(isQuestionnaireTitle('Lloyd’s Insurance Company S.A. Certificato\nL’assicuratore del presente contratto… Si conviene che le informazioni contenute nel Questionario costituiscono la base'), false, 'la parola nel corpo non fa un questionario')
+  assert.equal(hasOptionAmountLine('Massimale richiesto: ☐ 1.000.000,00 ☐ 2.500.000,00'), true)
+  assert.equal(hasOptionAmountLine('- [ ] · sinistro chiuso con liquidazione fino ad € 20.000,00'), true)
+  assert.equal(hasOptionAmountLine('LIMITE DI INDENNIZZO € 5.000.000\nArt. 1 – ESCLUSIONE SI ❑ NO'), false, 'casella senza importo sulla riga: non è un’opzione di importo')
+})

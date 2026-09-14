@@ -76,6 +76,20 @@ Esempio VIETATO nel prompt:
   stato `done`), poi la successiva. Mai più di un processo Ollama attivo.
 - Se vedi più run insieme: è un bug del lock, ferma e verifica `ollama ps`.
 
+## Regola 4 — LA MISURA È SUL PROFILO COMPLETO (non derogabile)
+
+- Ogni misura di qualità dell'estrazione si fa su **TUTTI i campi del profilo**, nessuno
+  escluso: il denominatore è la dimensione del profilo (es. 35 per "Rc Professionale V3",
+  23 per "Tutela Legale 3"). Un "15/19" su un profilo da 35 campi **non è un risultato**:
+  è una selezione, e le selezioni sono vietate.
+- Il golden di un fascicolo ha una **verità per ogni campo** del profilo: un valore
+  letto dai documenti, oppure **vuoto** quando il dato non c'è nei documenti (vuoto è
+  una verità come le altre). Campi "non verificati" non esistono: se manca la verità
+  si legge il documento e la si scrive, prima di misurare.
+- Un valore sbagliato vale quanto un valore mancante. Si riporta sempre `giusti/N`
+  con N = campi del profilo, mai `giusti/verificati`.
+- Vale per ogni agente, script, tabella di confronto e messaggio all'utente.
+
 ## Note operative per gli agenti
 
 - Dopo ogni modifica a codice/profili: `node --test test/*.test.mjs` (445+ test) e

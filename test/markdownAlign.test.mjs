@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normalizeStagedDocInput, alignMarkdownToPages, splitPageAtBoundaries, splitTextByLines, buildGroupBatches,
+  normalizeStagedDocInput, alignMarkdownToPages, splitPageAtBoundaries, splitTextByLines, buildGroupBatches, sanitizeFieldValue,
 } from '../src/services/polizzaService.js'
 import { usefulLength } from '../src/services/ocrLayout.js'
 
@@ -127,15 +127,30 @@ test('buildGroupBatches: con la griglia nei prompt (POLIZZA_MD_PROMPT=0) le tabe
   } finally { if (prev == null) delete process.env.POLIZZA_MD_PROMPT; else process.env.POLIZZA_MD_PROMPT = prev }
 })
 
-test('normalizeStagedDocInput (default): il markdown allineato È il testo dei prompt, la tabella premi sta nella pagina 2', () => {
-  const r = normalizeStagedDocInput({ pages: [mdBlob], spatialPages: [grid1, grid2, grid3] })
-  assert.equal(r.spatialPages.length, 3)
-  assert.ok(r.spatialPages[1].includes('| PREMIO ANNUO | 1.270,10 |'), 'prompt pagina 2 = markdown con la tabella')
-  assert.ok(/markdown nei prompt/.test(r.textMode))
-  const batches = buildGroupBatches([{ name: 'polizza.pdf', ...r }], 260)
-  const withRow = batches.filter((b) => b.text.includes('| PREMIO ANNUO | 1.270,10 |'))
-  assert.ok(withRow.length >= 1)
-  for (const b of withRow) assert.ok(b.text.includes('· pag. 2]'), 'la riga premi sta solo nei batch della pagina 2')
+test('normalizeStagedDocInput (default 12/09): la GRIGLIA è il testo dei prompt e le tabelle Docling si aggiungono alla pagina giusta', () => {
+  const prev = process.env.POLIZZA_MD_PROMPT
+  delete process.env.POLIZZA_MD_PROMPT
+  try {
+    const r = normalizeStagedDocInput({ pages: [mdBlob], spatialPages: [grid1, grid2, grid3] })
+    assert.equal(r.spatialPages.length, 3)
+    assert.equal(r.spatialPages[1], grid2, 'prompt pagina 2 = griglia pdf.js')
+    assert.ok(/griglia\+markdown/.test(r.textMode))
+    assert.ok(r.pages[1].includes('| PREMIO ANNUO | 1.270,10 |'), 'il markdown allineato resta il testo piatto della pagina 2')
+    const batches = buildGroupBatches([{ name: 'polizza.pdf', ...r }], 260)
+    const withRow = batches.filter((b) => b.text.includes('| PREMIO ANNUO | 1.270,10 |'))
+    assert.ok(withRow.length >= 1, 'la tabella Docling (riparata) entra nel batch')
+    for (const b of withRow) assert.ok(b.text.includes('· pag. 2]'), 'la riga premi sta solo nei batch della pagina 2')
+  } finally { if (prev != null) process.env.POLIZZA_MD_PROMPT = prev }
+})
+
+test('normalizeStagedDocInput (POLIZZA_MD_PROMPT=1): il markdown allineato È il testo dei prompt', () => {
+  const prev = process.env.POLIZZA_MD_PROMPT
+  process.env.POLIZZA_MD_PROMPT = '1'
+  try {
+    const r = normalizeStagedDocInput({ pages: [mdBlob], spatialPages: [grid1, grid2, grid3] })
+    assert.ok(r.spatialPages[1].includes('| PREMIO ANNUO | 1.270,10 |'), 'prompt pagina 2 = markdown con la tabella')
+    assert.ok(/markdown nei prompt/.test(r.textMode))
+  } finally { if (prev == null) delete process.env.POLIZZA_MD_PROMPT; else process.env.POLIZZA_MD_PROMPT = prev }
 })
 
 test('sanitizeFieldValue: una DATA proposta per un campo IMPORTO viene scartata, un importo vero passa', async () => {
@@ -471,4 +486,161 @@ test('pickConsensusCandidate: due voti non bastano contro un corrente con un vot
   const cur = mk('2.699,39', 0.67)
   assert.equal(pickConsensusCandidate(cur, [cur, mk('500.000,00', 0.59), mk('500.000,00', 0.59)]).changed, false)
   assert.equal(pickConsensusCandidate(cur, [cur, mk('500.000,00', 0.59), mk('500.000,00', 0.59), mk('500.000,00', 0.59)]).changed, true)
+})
+
+test('sanitizeFieldValue: "Non indicato"/"da verificare" restano vuoti anche se la descrizione li cita; "NESSUNA" ammessa resta', () => {
+  const imposte = { id: 'f1', label: 'Tacito Rinnovo', description: "Imposte della polizza RC (es. 49,05): è la cifra nella colonna 'IMPOSTE'. Indica se è previsto tacito rinnovo. Rispondi: Sì, No, Non indicato." }
+  assert.equal(sanitizeFieldValue(imposte, 'Non indicato'), null)
+  assert.equal(sanitizeFieldValue(imposte, 'da verificare'), null)
+  assert.equal(sanitizeFieldValue(imposte, 'n/d'), null)
+  assert.equal(sanitizeFieldValue(imposte, '137,67'), '137,67')
+  const franchigia = { id: 'f2', label: 'Franchigia', description: "Franchigia per sinistro come da scheda (es. 1.000,00 oppure 'NESSUNA' se la scheda lo dice)" }
+  assert.equal(sanitizeFieldValue(franchigia, 'NESSUNA'), 'NESSUNA')
+  assert.equal(sanitizeFieldValue({ id: 'f3', label: 'X', description: 'Franchigia (es. 500,00)' }, 'nessuna'), null)
+})
+
+test('normalizeTableOrientation: tabella di una riga con celle "Voce importo" (AIG "Composizione del Premio") → intestazioni + riga dati', async () => {
+  const { normalizeTableOrientation, tableRowsWithHeaders } = await import('../src/services/ocrLayout.js')
+  const t = [
+    '| Rata alla firma fino al   | 19/04/2027   | Premio Netto 562,50   | Addizionali 56,25   | Premio Imponibile 618,75   | Imposta 137,67   | Premio Lordo 756,42   |',
+    '|---|---|---|---|---|---|---|',
+  ].join('\n')
+  const rows = tableRowsWithHeaders(t)
+  assert.equal(rows.length, 1)
+  const by = Object.fromEntries(rows[0].cols.map((c) => [c.header, c.value]))
+  assert.equal(by['Imposta'], '137,67')
+  assert.equal(by['Premio Imponibile'], '618,75')
+  assert.equal(by['Premio Lordo'], '756,42')
+  assert.ok(/Rata alla firma fino al 19\/04\/2027/.test(rows[0].label))
+  assert.ok(normalizeTableOrientation(t).startsWith('|  | Premio Netto | Addizionali |'))
+})
+
+test('normalizeTableOrientation: intestazione SOTTO i valori (AIG proposta 2025) → riga testuale = intestazione, allineata da destra', async () => {
+  const { tableRowsWithHeaders, repairTableMarkdown } = await import('../src/services/ocrLayout.js')
+  const t = [
+    '| Rata alla firma fino al   | 19/04/2026   | 562,50       | 56,25       | 618,75            | 137,67   | Premio 756,42   |',
+    '|---|---|---|---|---|---|---|',
+    '|                           |              | Premio Netto | Addizionali | Premio Imponibile | Imposta  | Lordo           |',
+  ].join('\n')
+  const rows = tableRowsWithHeaders(t)
+  assert.equal(rows.length, 1)
+  const by = Object.fromEntries(rows[0].cols.map((c) => [c.header, c.value]))
+  assert.equal(by['Imposta'], '137,67')
+  assert.equal(by['Lordo'], '756,42', 'la parola davanti all\'importo non resta nel valore')
+  assert.equal(by['Premio Netto'], '562,50')
+  assert.ok(repairTableMarkdown(t).includes('| Premio Netto | Addizionali | Premio Imponibile | Imposta | Lordo |'))
+  // una tabella normale non cambia
+  const ok = ['| A | B | C |', '|---|---|---|', '| r1 | 1,00 | 2,00 |', '| r2 | 3,00 | 4,00 |'].join('\n')
+  const { normalizeTableOrientation } = await import('../src/services/ocrLayout.js')
+  assert.equal(normalizeTableOrientation(ok), ok)
+})
+
+test('pickPeriodPair: decorrenza ≥ scadenza → coppia coerente con più voti, spareggio per affinità (non min/max)', async () => {
+  const { pickPeriodPair } = await import('../src/services/polizzaService.js')
+  const decs = [{ valore: '19/04/2027', affinity: 0.52 }, { valore: '19/04/2027', affinity: 0.5 }, { valore: '19/04/2026', affinity: 0.52 }, { valore: '19/04/2024', affinity: 0.46 }]
+  const scas = [{ valore: '19/04/2027', affinity: 0.53 }, { valore: '19/04/2027', affinity: 0.5 }, { valore: '19/04/2024', affinity: 0.4 }]
+  const pair = pickPeriodPair(decs, scas, { valore: '19/04/2027', affinity: 0.52 }, { valore: '19/04/2027', affinity: 0.53 })
+  assert.ok(pair)
+  assert.equal(pair.dec.valore, '19/04/2026', 'la "data di continuità" 2024 (1 voto, meno affine) non batte il 2026')
+  assert.equal(pair.sca.valore, '19/04/2027')
+  assert.equal(pickPeriodPair([{ valore: '01/01/2026' }], [{ valore: '01/01/2025' }], null, null), null, 'nessuna coppia coerente → null')
+})
+
+test('isLabelLikeValue: i NOMI in maiuscolo con titolo/abbreviazione non sono intestazioni', async () => {
+  const { isLabelLikeValue } = await import('../src/services/polizzaValidation.js')
+  for (const v of ['BOLCHINI ARCH. MARGHERITA', 'MARIO ROSSI BIANCHI', 'ALZAIA NAV. PAVESE 104 CONDOMI', 'GUFFANTI GROUP & PARTNERS S.R.L.']) assert.equal(isLabelLikeValue(v), false, v)
+  for (const v of ['IL CONTRAENTE', 'Condizioni particolari']) assert.equal(isLabelLikeValue(v), true, v)
+})
+
+test('isDegenerateOutput: corsa di ≥40 caratteri identici = loop del decoding vincolato', async () => {
+  const { isDegenerateOutput } = await import('../src/services/polizzaService.js')
+  assert.equal(isDegenerateOutput('{\n  "c0": {"valore":"' + '0'.repeat(200)), true)
+  assert.equal(isDegenerateOutput('{"c0":{"valore":"1.000.000,00"},"c1":{"valore":null}}'), false)
+})
+
+test('pickSemanticCandidate: la riga di tabella di un documento VECCHIO non batte il valore di un documento più recente', async () => {
+  const { pickSemanticCandidate } = await import('../src/services/polizzaValidation.js')
+  const oldRow = { valore: '31/03/2020', effDate: '31/03/2021', tableRow: true, affinity: 0.55 }
+  const newer = { valore: '31/03/2026', effDate: '31/03/2027', affinity: 0.59 }
+  assert.equal(pickSemanticCandidate(oldRow, newer, 'date').valore, '31/03/2026')
+  assert.equal(pickSemanticCandidate(newer, oldRow, 'date').valore, '31/03/2026')
+  // stesso livello di data: la riga di tabella resta protetta
+  const sameTier = { valore: '31/03/2019', effDate: '31/03/2021', affinity: 0.6 }
+  assert.equal(pickSemanticCandidate(oldRow, sameTier, 'date').valore, '31/03/2020')
+})
+
+test('pickConsensusCandidate tierBlind: per i campi d\'identità i voti contano su tutti i documenti', async () => {
+  const { pickConsensusCandidate } = await import('../src/services/polizzaService.js')
+  const cur = { valore: 'ASSITA', srcDate: '31/03/2027', affinity: 0.40 }
+  const cands = [cur, { valore: 'ASSITA S.p.A.', srcDate: '31/03/2027', affinity: 0.41 },
+    ...Array.from({ length: 5 }, () => ({ valore: 'AIG Europe S.A.', srcDate: '31/03/2021', affinity: 0.49 }))]
+  assert.equal(pickConsensusCandidate(cur, cands).changed, false, 'con il solo livello più recente ASSITA resta')
+  const r = pickConsensusCandidate(cur, cands, { tierBlind: true })
+  assert.equal(r.changed, true); assert.equal(r.cand.valore, 'AIG Europe S.A.'); assert.equal(r.votes, 5)
+})
+
+test('joinSplitNumbers: ricompone i numeri spezzati dal kerning, non unisce importi distinti', async () => {
+  const { joinSplitNumbers } = await import('../src/services/pdfTextLayer.js')
+  assert.equal(joinSplitNumbers('€ 5 .0 00.000   € 5 .0 0 0.000'), '€ 5.000.000   € 5.000.000')
+  assert.equal(joinSplitNumbers('€ 1 0 .000 per sinistro'), '€ 10.000 per sinistro')
+  assert.equal(joinSplitNumbers('€ 2 .768.544  € 1.500.000'), '€ 2.768.544  € 1.500.000')
+  assert.equal(joinSplitNumbers('562,50 56,25 618,75'), '562,50 56,25 618,75')
+  assert.equal(joinSplitNumbers('Tel. 045 8372611'), 'Tel. 045 8372611')
+  assert.equal(joinSplitNumbers('_ 10 .202 3 A4000060771-LB'), '_ 10 .202 3 A4000060771-LB')
+  assert.equal(joinSplitNumbers('inserire il fatturato consolidato. 54 . 383 ,00 euro'), 'inserire il fatturato consolidato. 54.383,00 euro')
+})
+
+test('etichetta di layout: il valore sotto la parola distintiva del campo nella griglia è etichettato, la data di firma no', async () => {
+  const { valueLabelledByLayout, distinctiveHeadTokens } = await import('../src/services/polizzaValidation.js')
+  const page = ['MILANO 14/04/2025                             (firma del cliente)', '', '      DECORRENZA   SCADENZA     FRAZIONAMENTO', '     04/06/2025    04/06/2026   Annuale', '     DOCUMENTO EMESSO A               IL', '     MILANO                           14/04/2025'].join('\n')
+  assert.equal(valueLabelledByLayout(['decorrenza'], [page], '04/06/2025').labelled, true)
+  assert.equal(valueLabelledByLayout(['decorrenza'], [page], '14/04/2025').labelled, false)
+  assert.equal(valueLabelledByLayout(['scadenza'], [page], '04/06/2026').labelled, true)
+  assert.equal(valueLabelledByLayout(['scadenza'], [page], '04/06/2025').labelled, false)
+  assert.equal(valueLabelledByLayout(['frazionamento'], [page], 'Annuale').labelled, true)
+  const d = distinctiveHeadTokens([
+    { id: 'a', description: 'Data di decorrenza della polizza: da cui inizia' }, { id: 'b', description: 'Data di scadenza della polizza: fine' },
+    { id: 'c', description: 'Numero identificativo della polizza: cifre' }, { id: 'd', description: 'Imposte COMPLESSIVE sul premio della polizza: importo' },
+  ])
+  assert.deepEqual(d.get('a'), ['decorrenza']); assert.deepEqual(d.get('b'), ['scadenza'])
+  assert.ok(!d.get('d').includes('polizza'), '"polizza" sta nella maggioranza delle teste: non distingue')
+})
+
+test('etichetta di layout: solo CELLE brevi di griglia, non parole in una frase; consenso identità: gli undated non votano contro i datati', async () => {
+  const { valueLabelledByLayout } = await import('../src/services/polizzaValidation.js')
+  const { pickConsensusCandidate } = await import('../src/services/polizzaService.js')
+  const prose = ["Il massimale per sinistro è pari a 25.000 euro per ogni assicurato nell'ambito dell'attività professionale svolta."]
+  assert.equal(valueLabelledByLayout(['massimale'], prose, '25.000').labelled, false, 'frase: nessuna etichetta')
+  assert.equal(valueLabelledByLayout(['attivita'], prose, 'attività professionale').labelled, false, 'il valore contiene la parola: nessuna etichetta')
+  const form = ['          Contraente: BOLCHINI ARCH. MARGHERITA                                 Attività: ARCHITETTO']
+  assert.equal(valueLabelledByLayout(['contraente'], form, 'BOLCHINI ARCH. MARGHERITA').labelled, true)
+  assert.equal(valueLabelledByLayout(['attivita'], form, 'ARCHITETTO').labelled, true)
+  const cur = { valore: 'Via Enrico Fermi 9/B Verona', srcDate: '', affinity: 0.5 }
+  const cands = [cur, cur, cur, cur, { valore: 'VIALE CATERINA DA FORLI 32', srcDate: '04/06/2026', affinity: 0.5 }, { valore: 'VIALE CATERINA DA FORLI 32', srcDate: '04/06/2026', affinity: 0.5 }]
+  const r = pickConsensusCandidate(cur, cands, { tierBlind: true })
+  assert.equal(r.changed, true); assert.equal(r.cand.valore, 'VIALE CATERINA DA FORLI 32')
+})
+
+test('consenso identità: maggioranza chiara (≥ 1,5× i voti del corrente), non stretta', async () => {
+  const { pickConsensusCandidate } = await import('../src/services/polizzaService.js')
+  const mk = (v, n, d = '16/12/2025') => Array.from({ length: n }, () => ({ valore: v, srcDate: d, affinity: 0.5 }))
+  const cur = { valore: '01469DAS00037', srcDate: '16/12/2025', affinity: 0.5 }
+  assert.equal(pickConsensusCandidate(cur, [...mk('01469DAS00037', 6), ...mk('GJ009XD', 8)], { tierBlind: true }).changed, false, '8 contro 6 non basta')
+  assert.equal(pickConsensusCandidate({ valore: 'da altre società', srcDate: '28/04/2026', affinity: 0.44 }, [...mk('da altre società', 2, '28/04/2026'), ...mk('Fatturato', 3, '28/04/2026')], { tierBlind: true }).changed, true, '3 contro 2 basta')
+})
+
+test('etichette citate nella descrizione ("Dal", "al") e date a 2 cifre: la quietanza "Dal 31/01/26 al 31/01/27" etichetta decorrenza e scadenza', async () => {
+  const { valueLabelledByLayout, distinctiveHeadTokens } = await import('../src/services/polizzaValidation.js')
+  const fields = [
+    { id: 'dec', description: "Data di decorrenza della polizza: la data accanto a 'DECORRENZA' nel frontespizio, oppure il 'Dal' della quietanza di rinnovo" },
+    { id: 'sca', description: "Data di scadenza della polizza: la data accanto a 'SCADENZA', oppure l''al' della quietanza di rinnovo" },
+    { id: 'num', description: 'Numero identificativo della polizza: sequenza' },
+  ]
+  const d = distinctiveHeadTokens(fields)
+  assert.ok(d.get('dec').includes('dal') && d.get('dec').includes('decorrenza'), JSON.stringify(d.get('dec')))
+  assert.ok(d.get('sca').includes('al'), JSON.stringify(d.get('sca')))
+  const page = ['Premio dovuto per il periodo   Frazionamento   Agenzia', 'Dal 31/01/26 al 31/01/27 ANNUALE 01469', 'Il pagamento è stato effettuato in data: 14.01.2026']
+  assert.equal(valueLabelledByLayout(d.get('dec'), [page.join('\n')], '31/01/2026').labelled, true)
+  assert.equal(valueLabelledByLayout(d.get('sca'), [page.join('\n')], '31/01/2027').labelled, true)
+  assert.equal(valueLabelledByLayout(d.get('dec'), [page.join('\n')], '14/01/2026').labelled, false)
 })

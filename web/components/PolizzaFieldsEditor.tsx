@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useConfirmPanel } from './ConfirmPanel'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Cell { sheet: string; cell: string }
@@ -24,6 +25,10 @@ interface Profile {
   // Parole del contenuto (testo OCR, pre-check di pertinenza): da cercare e da evitare.
   contentKeywords?: string
   contentExcludeKeywords?: string
+  // Come riconoscere il tipo di polizza (testo libero, confronto semantico col contenuto).
+  recognition?: string
+  // Attivo (default true): i non attivi non entrano nel riconoscimento automatico.
+  enabled?: boolean
 }
 
 const FIELD_TYPE_OPTIONS: { value: string; key: string }[] = [
@@ -57,6 +62,9 @@ export default function PolizzaFieldsEditor() {
   const [profileMatchExcludeKeywords, setProfileMatchExcludeKeywords] = useState('')
   const [profileContentKeywords, setProfileContentKeywords] = useState('')
   const [profileContentExcludeKeywords, setProfileContentExcludeKeywords] = useState('')
+  const [profileRecognition, setProfileRecognition] = useState('')
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
+  const [importMsg, setImportMsg] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   // Verifica/qualità (usati dal servizio condiviso): modello fascicolo intero,
@@ -145,9 +153,10 @@ export default function PolizzaFieldsEditor() {
       matchExcludeKeywords: profileMatchExcludeKeywords.trim(),
       contentKeywords: profileContentKeywords.trim(),
       contentExcludeKeywords: profileContentExcludeKeywords.trim(),
+      recognition: profileRecognition.trim(),
     }]
     setProfiles(next); setProfileName(''); setProfileKeywords('')
-    setProfileMatchExcludeKeywords(''); setProfileContentKeywords(''); setProfileContentExcludeKeywords('')
+    setProfileMatchExcludeKeywords(''); setProfileContentKeywords(''); setProfileContentExcludeKeywords(''); setProfileRecognition('')
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ polizzaProfiles: next }) })
   }
   // Parole chiave di CONTENUTO di un profilo (pre-check di pertinenza: cercate
@@ -157,6 +166,12 @@ export default function PolizzaFieldsEditor() {
   }
   function setProfileContentExcludeKw(id: string, value: string) {
     setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, contentExcludeKeywords: value } : p)))
+  }
+  function setProfileEnabled(id: string, value: boolean) {
+    setProfiles((prev) => { const next = prev.map((p) => (p.id === id ? { ...p, enabled: value } : p)); void persistProfiles(next); return next })
+  }
+  function setProfileRecognitionText(id: string, value: string) {
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, recognition: value } : p)))
   }
   // Modifica in linea delle parole di abbinamento di un profilo esistente (usate nel
   // bulk per pre-filtro e auto-riconoscimento). Persiste su blur.
@@ -205,7 +220,7 @@ export default function PolizzaFieldsEditor() {
   async function delProfile(profile: Profile) {
     // Conferma esplicita: il pulsante era etichettato «Annulla» e cancellava
     // senza chiedere — un click sbagliato buttava via il profilo.
-    if (!window.confirm(t('set.confirmDeleteProfile', { name: profile.name }))) return
+    if (!(await askConfirm(t('set.confirmDeleteProfile', { name: profile.name }), { okLabel: t('set.deleteProfile'), danger: true }))) return
     const next = profiles.filter((p) => p.id !== profile.id)
     setProfiles(next)
     if (activeProfileId === profile.id) {
@@ -219,28 +234,45 @@ export default function PolizzaFieldsEditor() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'profili-polizza.json'; a.click()
   }
   async function importProfiles(file: File) {
+    let arr: Profile[]
     try {
       const parsed = JSON.parse(await file.text())
-      const arr: Profile[] = Array.isArray(parsed) ? parsed : [parsed]
-      // NON ristampare più gli id: si conservano quelli importati (se mancanti,
-      // si genera un UUID). L'id è un identificatore stabile, non una chiave di
-      // estrazione (mai nei prompt).
-      const stamped = arr.map((p, i) => ({ ...p, id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + i)) }))
-      const next = [...profiles, ...stamped]
-      setProfiles(next)
-      // Applica l'ultimo profilo e PERSISTE campi+prompt insieme ai profili (come desktop),
-      // così l'import non viene perso uscendo dalla pagina.
-      const last = stamped[stamped.length - 1]
-      const appliedFields = last?.fields?.length ? last.fields.map((f) => ({ ...f, cells: [...(f.cells || [])] })) : fields
-      const appliedPrompt = last?.promptExtra ?? promptExtra
-      if (last?.fields?.length) { setFields(appliedFields); setPromptExtra(appliedPrompt || '') }
-      setActiveProfileId(last?.id ?? null)
-      setSaved(true); setTimeout(() => setSaved(false), 2500)
-      await fetch('/api/settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ polizzaProfiles: next, polizzaFields: appliedFields, polizzaPromptExtra: appliedPrompt || '', polizzaActiveProfileId: last?.id ?? null }),
-      })
-    } catch { /* file non valido */ }
+      arr = Array.isArray(parsed) ? parsed : [parsed]
+    } catch { setImportMsg(t('set.importInvalid')); return }
+    // NON ristampare più gli id: si conservano quelli importati (se mancanti,
+    // si genera un UUID). L'id è un identificatore stabile, non una chiave di
+    // estrazione (mai nei prompt).
+    const stamped = arr.filter((p) => p && typeof p === 'object').map((p, i) => ({ ...p, id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + i)) }))
+    if (!stamped.length) { setImportMsg(t('set.importInvalid')); return }
+    // SOSTITUZIONE per id: un profilo importato con lo stesso id di uno esistente
+    // lo RIMPIAZZA al suo posto (si correggono le descrizioni senza cancellare
+    // tutto); gli id nuovi si aggiungono in coda. Anteprima in un pannello
+    // interno, mai un dialogo del browser.
+    const byId = new Map(profiles.map((p) => [p.id, p]))
+    const updated = stamped.filter((p) => byId.has(p.id))
+    const added = stamped.filter((p) => !byId.has(p.id))
+    const details = (
+      <>
+        {updated.length > 0 && <div>{t('set.importUpdated', { n: updated.length })}: {updated.map((p) => p.name).join(', ')}</div>}
+        {added.length > 0 && <div>{t('set.importNew', { n: added.length })}: {added.map((p) => p.name).join(', ')}</div>}
+      </>
+    )
+    if (!(await askConfirm(t('set.importPreview', { n: stamped.length }), { okLabel: t('set.importApply'), title: t('set.importJson'), details }))) return
+    const incoming = new Map(stamped.map((p) => [p.id, p]))
+    const next = [...profiles.map((p) => incoming.get(p.id) ?? p), ...added]
+    setProfiles(next)
+    // Se il profilo ATTIVO è tra quelli aggiornati, i campi/prompt applicati si
+    // riallineano alla nuova versione; altrimenti nulla cambia nel resto.
+    const active = activeProfileId ? incoming.get(activeProfileId) : null
+    const appliedFields = active?.fields?.length ? active.fields.map((f) => ({ ...f, cells: [...(f.cells || [])] })) : fields
+    const appliedPrompt = active ? (active.promptExtra ?? '') : promptExtra
+    if (active?.fields?.length) { setFields(appliedFields); setPromptExtra(appliedPrompt || '') }
+    setSaved(true); setTimeout(() => setSaved(false), 2500)
+    setImportMsg(`${t('set.importUpdated', { n: updated.length })} · ${t('set.importNew', { n: added.length })}`)
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ polizzaProfiles: next, ...(active ? { polizzaFields: appliedFields, polizzaPromptExtra: appliedPrompt || '' } : {}) }),
+    })
   }
 
   if (loading) return <span className="spinner" />
@@ -383,7 +415,10 @@ export default function PolizzaFieldsEditor() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
             {profiles.map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--c-bg-card-alt)', borderRadius: 'var(--r-sm)', border: p.id === activeProfileId ? '1px solid var(--c-accent)' : '1px solid var(--c-border)' }}>
-                <span style={{ flex: '1 1 140px', fontSize: 13 }}>{p.name} {p.id === activeProfileId ? <span style={{ color: 'var(--c-accent)', fontSize: 11 }}>●</span> : null} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
+                <label title={t('set.profileEnabledHelp')} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={p.enabled !== false} onChange={(e) => setProfileEnabled(p.id, e.target.checked)} /> {t('set.profileEnabled')}
+                </label>
+                <span style={{ flex: '1 1 140px', fontSize: 13, opacity: p.enabled === false ? 0.6 : 1 }}>{p.name} {p.id === activeProfileId ? <span style={{ color: 'var(--c-accent)', fontSize: 11 }}>●</span> : null} <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({p.fields?.length || 0} campi)</span></span>
                 <input value={p.matchKeywords || ''} onChange={(e) => setProfileKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileKeywords')} title={t('set.profileKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <input value={p.matchExcludeKeywords || ''} onChange={(e) => setProfileMatchExcludeKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
@@ -392,6 +427,8 @@ export default function PolizzaFieldsEditor() {
                   placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <input value={p.contentExcludeKeywords || ''} onChange={(e) => setProfileContentExcludeKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
+                <input value={p.recognition || ''} onChange={(e) => setProfileRecognitionText(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                  placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} style={{ flex: '2 1 220px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} title={t('set.duplicateProfile')} onClick={() => dupProfile(p)}>⧉ {t('set.duplicateProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--c-error)' }} title={t('set.deleteProfile')} onClick={() => delProfile(p)}>🗑 {t('set.deleteProfile')}</button>
@@ -405,11 +442,14 @@ export default function PolizzaFieldsEditor() {
           <input value={profileMatchExcludeKeywords} onChange={(e) => setProfileMatchExcludeKeywords(e.target.value)} placeholder={t('set.profileMatchExcludeKeywords')} title={t('set.profileMatchExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <input value={profileContentKeywords} onChange={(e) => setProfileContentKeywords(e.target.value)} placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <input value={profileContentExcludeKeywords} onChange={(e) => setProfileContentExcludeKeywords(e.target.value)} placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
+          <input value={profileRecognition} onChange={(e) => setProfileRecognition(e.target.value)} placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} style={{ flex: '2 1 220px', fontSize: 13 }} />
           <button type="button" className="btn btn-secondary" onClick={saveProfile} disabled={!profileName.trim()}>{t('set.saveProfile')}</button>
           <button type="button" className="btn btn-secondary" onClick={exportProfiles} disabled={!profiles.length}>{t('set.exportJson')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}>{t('set.importJson')}</button>
           <input ref={importRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) importProfiles(f); e.target.value = '' }} />
+          {importMsg && <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{importMsg}</span>}
+          {confirmPanel}
         </div>
       </div>
     </div>

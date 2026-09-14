@@ -593,7 +593,84 @@ export function extractTableBlocks(text) {
  * e sbagliava colonna. Criterio STRUTTURALE, nessun nome di colonna
  * predefinito. Ritorna [block] se non ci sono intestazioni interne.
  */
+/**
+ * Normalizza l'ORIENTAMENTO di una tabella markdown prima di leggerla:
+ *  (a) tabella di UNA riga con le celle "Voce importo" ("Premio Netto 562,50 |
+ *      Imposta 137,67 | Premio Lordo 756,42"): la voce diventa l'intestazione
+ *      della colonna e l'importo la riga dati; le celle iniziali senza numero
+ *      ("Rata alla firma fino al | 19/04/2027") formano l'etichetta della riga;
+ *  (b) intestazione SOTTO i valori (riga 1 numerica, riga 2 tutta testuale
+ *      "Premio Netto | Addizionali | … | Lordo"): la riga testuale è
+ *      l'intestazione, quella numerica la riga dati; se le celle non
+ *      coincidono si allineano da DESTRA (le colonne nominate sono le ultime)
+ *      e le celle iniziali avanzate formano l'etichetta della riga.
+ * Struttura del testo (dove stanno lettere e cifre), nessun nome di colonna
+ * predefinito. Ritorna il blocco invariato se non riconosce nessuno dei due casi.
+ */
+export function normalizeTableOrientation(block) {
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const body = rows.filter((l) => !isSep(l))
+  if (!body.length) return block
+  const NUM = /^(?:€\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$|^(?:€\s*)?\d+(?:,\d{1,2})?$/
+  const isNum = (c) => NUM.test(String(c || '').trim())
+  const isText = (c) => /[A-Za-zÀ-ÿ]/.test(c) && !/\d/.test(c)
+  const build = (headers, dataRows) => [
+    `| ${headers.join(' | ')} |`,
+    `|${'---|'.repeat(headers.length)}`,
+    ...dataRows.map((r) => `| ${r.join(' | ')} |`),
+  ].join('\n')
+  // (a) una sola riga: celle "Voce importo"
+  if (body.length === 1) {
+    const cells = cellsOf(body[0])
+    const PAIR = /^([A-Za-zÀ-ÿ][^|]*?[A-Za-zÀ-ÿ.)])\s+((?:€\s*)?\d[\d.]*(?:,\d{1,2})?)$/
+    const pairs = cells.map((c) => c.match(PAIR))
+    const nPairs = pairs.filter(Boolean).length
+    if (nPairs >= 2) {
+      let firstPair = pairs.findIndex(Boolean)
+      const labelCells = cells.slice(0, firstPair).filter(Boolean)
+      const headers = ['', ...cells.slice(firstPair).map((c, i) => (pairs[firstPair + i] ? pairs[firstPair + i][1].trim() : ''))]
+      const values = [labelCells.join(' '), ...cells.slice(firstPair).map((c, i) => (pairs[firstPair + i] ? pairs[firstPair + i][2].trim() : c))]
+      return build(headers, [values])
+    }
+    return block
+  }
+  // (b) intestazione sotto i valori
+  const first = cellsOf(body[0]); const second = cellsOf(body[1])
+  const firstNums = first.filter(isNum).length
+  const secondTexts = second.filter(isText).length
+  const secondHasNums = second.some((c) => /\d/.test(c))
+  if (firstNums >= 2 && secondTexts >= 2 && !secondHasNums && firstNums >= first.length / 2) {
+    const named = second.filter(Boolean)
+    // allineamento da destra: le ultime `named.length` celle della riga valori
+    // stanno sotto le colonne nominate; le celle avanzate a sinistra sono
+    // l'etichetta della riga.
+    const k = Math.min(named.length, first.length)
+    // "Premio 756,42" sotto la colonna "Lordo": resta l'importo
+    const bare = (c) => { const m = String(c || '').match(/^[A-Za-zÀ-ÿ][^|]*?\s+((?:€\s*)?\d[\d.]*(?:,\d{1,2})?)$/); return m ? m[1].trim() : c }
+    const vals = first.slice(first.length - k).map(bare)
+    const lead = first.slice(0, first.length - k).filter(Boolean)
+    const headers = ['', ...named.slice(named.length - k)]
+    const dataRows = [[lead.join(' '), ...vals]]
+    for (const r of body.slice(2)) {
+      const c = cellsOf(r)
+      const cv = c.slice(Math.max(0, c.length - k)).map(bare); const cl = c.slice(0, Math.max(0, c.length - k)).filter(Boolean)
+      dataRows.push([cl.join(' '), ...cv])
+    }
+    return build(headers, dataRows)
+  }
+  return block
+}
+
 export function splitSubTables(block) {
+  block = normalizeTableOrientation(block)
   const lines = String(block || '').split('\n')
   const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
   const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
@@ -649,6 +726,7 @@ export function splitSubTables(block) {
  * Il separatore "\|---|" viene saltato. Ritorna [] se il blocco non è tabella.
  */
 export function tableRowsWithHeaders(block) {
+  block = normalizeTableOrientation(block)
   const subs = splitSubTables(block)
   if (subs.length > 1) return subs.flatMap((b) => tableRowsWithHeaders(b))
   const lines = String(block || '').split('\n')
@@ -720,6 +798,7 @@ export function tableRowsWithHeaders(block) {
  * è una tabella riconoscibile, ritorna il blocco originale.
  */
 export function repairTableMarkdown(block) {
+  block = normalizeTableOrientation(block)
   const subs = splitSubTables(block)
   if (subs.length > 1) return subs.map((b) => repairTableMarkdown(b)).join('\n\n')
   const lines = String(block || '').split('\n')

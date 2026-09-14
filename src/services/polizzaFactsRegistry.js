@@ -230,6 +230,25 @@ export function detectOptionLikeText(text) {
   return OPTION_MARKER_RE.test(String(text || ''))
 }
 
+/**
+ * Il documento È un questionario/proposta: lo dice il suo TITOLO (le prime
+ * righe della prima pagina con testo), non una parola qualunque nel corpo. Un
+ * contratto di 34 pagine che cita "il Questionario è parte integrante della
+ * polizza" NON è un questionario: con la parola cercata ovunque i suoi
+ * massimali (scheda di copertura) finivano vetati come "opzioni".
+ */
+export function isQuestionnaireTitle(firstPageText) {
+  const head = String(firstPageText || '').replace(/\s+/g, ' ').trim().slice(0, 120).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /questionario|modulo di proposta|proposta di assicurazione|proposta\s*\/\s*questionario/.test(head)
+}
+
+/** Riga con una CASELLA e un IMPORTO: l'importo è un'opzione tra più scelte. */
+const OPTION_LINE_RE = /(?:[\u2610\u2611\u2612\u2751\u2752\u25EF\u20DD\u25CB\u25A1]|\[[ xX]\])[^\n]*\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d{1,3}(?:\.\d{3})+(?:,\d{2})?[^\n]*(?:[\u2610\u2611\u2612\u2751\u2752\u25EF\u20DD\u25CB\u25A1]|\[[ xX]\])/
+export function hasOptionAmountLine(pageText) {
+  return String(pageText || '').split('\n').some((l) => OPTION_LINE_RE.test(l))
+}
+
 // ─── CHECKBOX / SELEZIONI (lettura, non solo rivelazione di "opzioni") ───────
 // C'è una classe di campi in cui il dato NON è scritto ma SPIUNTATO su una
 // tabella a checkbox (es. "Tipologia tutela legale": [x] Azienda, [ ] Studente,

@@ -92,8 +92,20 @@ export function latestDateExcludingEmission(text) {
   let bestTs = -Infinity
   for (const rawLine of String(text).split(/\r?\n/)) {
     if (EMISSION_LINE_RE.test(rawLine)) continue
-    for (const m of rawLine.matchAll(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/g)) {
-      const s = `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`
+    // Anche gli anni a DUE cifre delle quietanze ("Dal 16/12/25 al 16/12/26"):
+    // senza, la quietanza di rinnovo restava "senza data" e perdeva per recency
+    // contro la polizza dell'anno prima (SPALLINO TL: 16/12/2024 al posto di 2025).
+    // L'anno a 2 cifre vale SOLO in una riga di PERIODO ("Dal … al", "dalle ore
+    // 24 del"): senza questo vincolo "045 8300010" o "00/84/90" di un piè di
+    // pagina davano al Set Informativo la data 00/84/2090 e lo rendevano il
+    // documento "più recente" del fascicolo (GUFFANTI TL da 87% a 35%).
+    const periodLine = /\b(?:dal|al|dalle|alle|periodo|decorrenza|scadenza)\b/i.test(rawLine)
+    for (const m of rawLine.matchAll(/(?<![\d/.])(\d{1,2})[/.](\d{1,2})[/.](20\d{2}|\d{2})(?![\d/.])/g)) {
+      if (m[3].length === 2 && !periodLine) continue
+      const dd = +m[1], mm = +m[2]
+      if (dd < 1 || dd > 31 || mm < 1 || mm > 12) continue // non è una data
+      const yy = m[3].length === 2 ? `20${m[3]}` : m[3]
+      const s = `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}`
       const ts = dateStrToTs(s)
       if (ts != null && ts > bestTs) { bestTs = ts; best = s }
     }
@@ -157,13 +169,20 @@ export function extractDocumentDate(text) {
 export function normalizeDateValue(raw) {
   const v = String(raw).trim()
   let d, m, y
-  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/)
-  if (match) { d = +match[1]; m = +match[2]; y = +match[3] }
-  else {
+  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4}|\d{2})$/)
+  if (match) {
+    d = +match[1]; m = +match[2]; y = +match[3]
+    // Anno a due cifre ("Dal 31/01/26 al 31/01/27" sulle quietanze): 00-79 → 20xx,
+    // 80-99 → 19xx. Con il pattern vincolato a 4 cifre il modello completava
+    // "31/01/26" con le cifre successive del testo ("31/01/2631").
+    if (match[3].length === 2) y += y < 80 ? 2000 : 1900
+  } else {
     match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
     if (match) { y = +match[1]; m = +match[2]; d = +match[3] }
   }
   if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
+  // Anni fuori da ogni contratto possibile (2631, 0026): non è una data.
+  if (y < 1900 || y > 2100) return null
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
 }
 

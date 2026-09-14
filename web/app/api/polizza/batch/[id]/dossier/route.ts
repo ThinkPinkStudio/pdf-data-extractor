@@ -69,10 +69,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const profile = profileId
       ? (settings.polizzaProfiles || []).find((p) => p.id === profileId) || null
       : null
+    // Profilo AUTOMATICO ("auto"): il worker, letto il testo, classifica i
+    // profili salvati per affinità semantica con le loro descrizioni dei campi e
+    // adotta il più affine; qui il job nasce senza campi congelati.
+    const autoProfile = profileId === 'auto'
     let fields: { id: string; label: string; description?: string; type?: string; sheet?: string; enabled?: boolean }[]
     let wholeDossier: boolean
     let promptExtra: string
-    if (profile) {
+    if (autoProfile) {
+      fields = []
+      wholeDossier = true
+      promptExtra = ''
+    } else if (profile) {
       fields = (profile.fields || []).filter((f) => f.enabled !== false)
       wholeDossier = !!profile.wholeDossier
       promptExtra = profile.promptExtra || ''
@@ -96,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       batchId: params.id, email: session.email, wholeDossier, fieldDefs, dossierName, files, promptExtra,
       // Identità del profilo persistita nel job: serve al pre-check di
       // pertinenza e ai suoi messaggi ("non pertinente al profilo X").
-      profileId: profile?.id, profileName: profile?.name,
+      profileId: autoProfile ? 'auto' : profile?.id, profileName: autoProfile ? 'Automatico (semantico)' : profile?.name,
     })
 
     startBatch(params.id) // idempotente: avvia/mantiene l'orchestratore del batch

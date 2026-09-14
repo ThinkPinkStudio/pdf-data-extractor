@@ -255,6 +255,46 @@ export function inferKindFromDescription(description) {
  * Ritorna una chiave canonica di FIELD_KINDS o null. MAI 'text' a default pieno:
  * 'text' di default lascerebbe i numeri passare sui campi di anagrafica.
  */
+/**
+ * La descrizione pone una DOMANDA di verifica ("Verifica se sono coperti…",
+ * "Indica se è previsto…"): la risposta è un giudizio Sì/No che non compare
+ * letteralmente nel testo. Per questi campi l'unica prova possibile è la
+ * citazione ("evidenza") della clausola: lo schema la rende OBBLIGATORIA e il
+ * controllo di evidenza la pretende nel testo. Decide la descrizione.
+ */
+export function descriptionAsksVerification(description) {
+  const dlow = String(description || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /^(?:verifica|indica|specifica|controlla|dichiara|riporta)\s+se\b/.test(dlow)
+}
+
+/**
+ * Risposte AMMESSE da una descrizione di VERIFICA ("Verifica se…"): le parole
+ * singole citate tra virgolette ('Sì', 'No', 'presente', 'escluso'), nell'ordine
+ * e nella grafia della descrizione; vuoto (null) è sempre ammesso. Lista vuota
+ * se la descrizione non pone una verifica o non cita risposte. Solo parole di
+ * 2-12 lettere: gli apostrofi del testo ("oggetto dell'assicurazione") non
+ * sono citazioni.
+ */
+export function verificationAnswers(description) {
+  if (!descriptionAsksVerification(description)) return []
+  const out = []
+  const seen = new Set()
+  for (const m of String(description || '').matchAll(/['"«]([A-Za-zÀ-ÿ]{2,12})['"»]/g)) {
+    const k = m[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (seen.has(k)) continue
+    seen.add(k); out.push(m[1])
+  }
+  return out
+}
+
+/** Grafia canonica (della descrizione) di una risposta di verifica, o null se non ammessa. */
+export function canonicalVerificationAnswer(description, value) {
+  const answers = verificationAnswers(description)
+  if (!answers.length) return undefined
+  const k = String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return answers.find((a) => a.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === k) || null
+}
+
 export function autoKind(field) {
   if (field == null) return null
   const hasType = field.type != null && String(field.type).trim() !== ''
@@ -289,23 +329,18 @@ export function autoKind(field) {
   // label li marcava TESTO e i loro importi venivano scartati. La descrizione
   // vince sulla label (Regola 1). Una descrizione che dice "come TESTO"/"parola"
   // resta testuale.
+  // Esempio numerico anche in ELENCO: "(es. 49,05, 137,67)", "(es. 2.500.000,00,
+  // 5.000.000)". Prima serviva un solo numero e con due la regola non scattava:
+  // il campo cadeva nella vecchia lista di label e "137,67" veniva scartato.
   if (/\b(importo|cifra|somma|massimale|imposta|imposte|imponibile|franchigia|scoperto|fatturato|capitale|premio\s+(?:lordo|netto|imponibile|totale|annuo))\b/.test(dlow)
-      && /\(es\.?\s*[€\s]*\d[\d.,]*\s*\)/.test(dlow)
+      && /\(es\.?\s*[€\s]*\d[\d.,\s€]*\)/.test(dlow)
       && !/\btesto\b|come testo|\bparola\b|si\/no/.test(dlow)) {
     return 'number'
   }
-  // Label che si auto-descrive come TESTO testuale (per definizione non
-  // numerico): lo "0" e i numeri puri qui sono placeholder, non dati.
-  const l = `${field.label || ''}`
-  const low = ' ' + l.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
-  // Label che si auto-descrive come un campo NON-numerico (natura testuale/
-  // elenco/domanda): lo "0" e i numeri puri qui sono placeholder, non dati.
-  // Lista STRETTA: i tipi di campo RC visti nei profili reali senza prefisso
-  // TESTO (Tacito Rinnovo, Frazionamento, Esclusioni, Condizioni, Visto
-  // leggero, attività, sottolimiti, retroattività, sinistri).
-  if (/(frazionamento|esclusioni|condizioni|tacito rinnovo|sottolimiti|estensioni|attivita|professione|retroattivita|sinistri|clausole|visto leggero|garanzie|prestazioni|scoperti|opzioni|elenco)/.test(low)) {
-    return 'text'
-  }
+  // [13/09/2026] Tolta la lista di LABEL ("frazionamento", "tacito rinnovo",
+  // "esclusioni"…) che marcava il campo come testuale: la label non guida mai
+  // l'estrazione (Regola 1) e in RC V3 le label "Frazionamento"/"Tacito
+  // Rinnovo" chiedono imponibile e imposte. Decide solo la descrizione.
   return null
 }
 

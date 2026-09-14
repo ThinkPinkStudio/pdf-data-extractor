@@ -7,6 +7,7 @@
 // punti e li aggiorna (upsert deterministico) — qui si cancella, non si rifà.
 
 import { useCallback, useEffect, useState } from 'react'
+import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,6 +28,7 @@ export default function DataAdminPage() {
   const [delBatchId, setDelBatchId] = useState('')
   const [qJobId, setQJobId] = useState('')
   const [qPolizza, setQPolizza] = useState('')
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
 
   const load = useCallback(async () => {
     try { setStats(await (await fetch('/api/admin/maintenance')).json()) } catch { setStats(null) }
@@ -34,7 +36,7 @@ export default function DataAdminPage() {
   useEffect(() => { load() }, [load])
 
   async function run(action: string, params: Record<string, string> = {}, confirmText?: string) {
-    if (confirmText && !window.confirm(confirmText)) return
+    if (confirmText && !(await askConfirm(confirmText, { danger: true }))) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/admin/maintenance', {
@@ -52,6 +54,7 @@ export default function DataAdminPage() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
+      {confirmPanel}
       <h1 className="page-title">{t('data.title')}</h1>
       <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 8 }}>{t('data.subtitle')}</p>
       <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 16 }}>{t('data.overwriteNote')}</p>

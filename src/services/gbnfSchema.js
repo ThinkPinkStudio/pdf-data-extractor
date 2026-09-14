@@ -22,7 +22,7 @@
  * "SÌ/NO", "PERCENTUALE…") e infine id/label. `fieldKind` centralizza la regola.
  */
 
-import { fieldKind } from './polizzaFieldKind.js'
+import { fieldKind, descriptionAsksVerification } from './polizzaFieldKind.js'
 
 // ─── Classificazione del valore ──────────────────────────────────────────────
 
@@ -66,18 +66,26 @@ export function fieldValueKind(field) {
   // amount/rate, altrimenti il modello è COSTRETTO a rispondere con un numero
   // (visto sul campo: rcp_imposta → 1,32; rct_tasso → 75,00).
   if (/TESTO/.test(String(field.description || ''))) return 'text'
-  const blob = `${field.label || ''} ${field.description || ''}`
+  // SOLO la DESCRIZIONE, e la sua TESTA (prima dei due punti): è lì che il campo
+  // dice la sua natura. Con label+descrizione intera l'"Indirizzo" di Tutela
+  // Legale 3 ("…stesso blocco anagrafico della P.IVA") prendeva il pattern
+  // P.IVA/CF e il modello era COSTRETTO a rispondere 16 caratteri:
+  // "VIAALESSANDROVOL". Mai la label (Regola 1).
+  const descAll = String(field.description || '')
+  const head = descAll.includes(':') ? descAll.split(':')[0] : descAll
+  const blob = head.trim().length >= 12 ? head : descAll
   if (/p\s*\.?\s*iva|cod\.?\s*fiscale|codice fiscale|partita iva/i.test(blob)) return 'vat'
   if (/\btasso\b/i.test(blob)) return 'rate'
-  if (/massimale|premio|imposta|importo|scoperto|franchig/i.test(blob)) {
+  if (/massimale|premio|impost[ae]|importo|scoperto|franchig|limite\s+(?:massimo|di\s+indennizzo)|somma\s+assicurata|diritti|interessi|fatturato/i.test(blob)) {
     return 'amount'
   }
   return 'text'
 }
 
 export const VALUE_PATTERNS = {
-  // GG/MM/AAAA — non valida il calendario (31/02 passa): ci pensa normalizeDateValue.
-  date: '^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}$',
+  // GG/MM/AAAA o GG/MM/AA (quietanze "Dal 31/01/26 al 31/01/27"): non valida il
+  // calendario (31/02 passa) e non espande l'anno: ci pensa normalizeDateValue.
+  date: '^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/([0-9]{4}|[0-9]{2})$',
   // Importo italiano: 4.000.000,00 oppure 1800000 oppure 1.800.000 — OPPURE una
   // breve PAROLA/locuzione (3-40 lettere): "Illimitato", "Non previsto", "Nessuna".
   // Prima la grammatica ammetteva SOLO cifre: per "Massimale per anno" la
@@ -85,12 +93,13 @@ export const VALUE_PATTERNS = {
   // modello, obbligato dal pattern, rispondeva un numero qualsiasi della pagina
   // (il CAP "20146", il massimale per sinistro). Il vincolo non deve mai vietare
   // ciò che la DESCRIZIONE ammette; ci pensano sanitizer ed evidenza dopo.
-  amount: '^([0-9]{1,3}(\\.[0-9]{3})+|[0-9]+)(,[0-9]{1,2})?$',
+  // Niente zeri iniziali: "06457990965" (una P.IVA) non è un importo.
+  amount: '^([1-9][0-9]{0,2}(\\.[0-9]{3})+|[1-9][0-9]*|0)(,[0-9]{1,2})?$',
   // Importo OPPURE breve parola/locuzione: usato SOLO per i campi la cui
   // DESCRIZIONE ammette esplicitamente un valore testuale ("Illimitato",
   // "Nessuna", "Non previsto"). Aperto a tutti gli importi, faceva entrare
   // frasi qualsiasi nei premi ("Pacchetto sicurezza privacy" come premio lordo).
-  amountOrWord: "^(([0-9]{1,3}(\\.[0-9]{3})+|[0-9]+)(,[0-9]{1,2})?|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,39})$",
+  amountOrWord: "^(([1-9][0-9]{0,2}(\\.[0-9]{3})+|[1-9][0-9]*|0)(,[0-9]{1,2})?|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,39})$",
   // P.IVA 11 cifre o CF 16 alfanumerici (il checksum resta a sanitizeFieldValue)
   vat: '^([0-9]{11}|[A-Z0-9]{16})$',
   // Tasso per mille: 2,450 / 0.245
@@ -104,6 +113,11 @@ export function amountAllowsWord(field) {
 }
 
 function stringSchema(kind, field = null) {
+  // NB (14/09/2026, misurato): NIENTE enum Sì/No sui campi di verifica. Con
+  // {enum:['Sì','No']} | null il modello sceglieva "Sì" quasi sempre (BOLCHINI
+  // RC 2025: 6 verifiche su 8 a "Sì" con verità vuota, 30/35 → 23/35). Lasciato
+  // libero, scrive "non indicato"/testo e i segnaposto cadono da soli; la
+  // canonizzazione delle risposte resta in sanitizeFieldValue.
   const key = kind === 'amount' && amountAllowsWord(field) ? 'amountOrWord' : kind
   const pattern = VALUE_PATTERNS[key]
   return pattern ? { type: 'string', pattern } : { type: 'string' }
@@ -183,7 +197,9 @@ export function buildJsonSchema(fields, shape = 'staged', opts = {}) {
     }
   }
   const properties = {}
-  for (const [i, f] of list.entries()) properties[`c${i}`] = entrySchema(fieldValueKind(f), { field: f })
+  // Campi di VERIFICA ("Verifica se…"): la risposta (Sì/No) non è nel testo,
+  // la prova è la citazione → "evidenza" obbligatoria (poi verificata nel testo).
+  for (const [i, f] of list.entries()) properties[`c${i}`] = entrySchema(fieldValueKind(f), { field: f, requiredEvidence: descriptionAsksVerification(f.description) })
   // TUTTE le chiavi c0..cN OBBLIGATORIE e nell'ordine dell'elenco campi.
   // Con le chiavi opzionali il modello piccolo le emetteva in SEQUENZA
   // saltando i campi senza valore ma NON i numeri: da lì in poi ogni valore
@@ -206,10 +222,10 @@ const GBNF_COMMON = `
 ws ::= [ \\t\\n]*
 char ::= [^"\\\\] | "\\\\" (["\\\\/bfnrt] | "u" [0-9a-fA-F]{4})
 string ::= "\\"" char* "\\""
-date-body ::= ("0" [1-9] | [12] [0-9] | "3" [01]) "/" ("0" [1-9] | "1" [0-2]) "/" [0-9]{4}
+date-body ::= ("0" [1-9] | [12] [0-9] | "3" [01]) "/" ("0" [1-9] | "1" [0-2]) "/" [0-9]{2} [0-9]{2}?
 date ::= "\\"" date-body "\\""
-int-plain ::= [0-9]+
-int-grouped ::= [0-9]{1,3} ("." [0-9]{3})+
+int-plain ::= "0" | [1-9] [0-9]*
+int-grouped ::= [1-9] [0-9]{0,2} ("." [0-9]{3})+
 word-body ::= [A-Za-zÀ-ÿ] [A-Za-zÀ-ÿ' ]{2,39}
 amount-body ::= (int-grouped | int-plain) ("," [0-9]{1,2})?
 amount-or-word ::= amount | "\\"" word-body "\\""
@@ -229,10 +245,12 @@ function gbnfValoreRhs(kind, field = null) {
 
 function gbnfEntryRule(name, kind, field = null) {
   const v = gbnfValoreRhs(kind, field)
-  // Ordine fisso: valore, evidenza opzionale, documento opzionale, data_validita opzionale.
+  // Ordine fisso: valore, evidenza (obbligatoria per i campi di VERIFICA,
+  // altrimenti opzionale), documento opzionale, data_validita opzionale.
   // Forzare l'ordine aiuta i modelli piccoli; le chiavi extra sono vietate.
+  const evOpt = field && descriptionAsksVerification(field.description) ? '' : '?'
   return `${name}_entry ::= "{" ws "\\"valore\\"" ws ":" ws (${v} | null)`
-    + ` ("," ws "\\"evidenza\\"" ws ":" ws string)?`
+    + ` ("," ws "\\"evidenza\\"" ws ":" ws string)${evOpt}`
     + ` ("," ws "\\"documento\\"" ws ":" ws string)?`
     + ` ("," ws "\\"data_validita\\"" ws ":" ws (date | null))? ws "}"`
 }

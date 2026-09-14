@@ -82,6 +82,31 @@ export function textContentToBlocks(content, opts = {}) {
  * @param {{ password?: string }} [opts]
  * @returns {Promise<string[]>}
  */
+/**
+ * Ricompone i NUMERI spezzati dal kerning del text layer: pdf.js restituisce
+ * "€ 5 .0 00.000", "€ 1 0 .000", "€ 2 .768.544" (frammenti separati da spazi)
+ * dove il PDF mostra "€ 5.000.000". Si uniscono SOLO i frammenti contigui
+ * fatti di cifre/punti/virgole quando almeno uno NON è un numero ben formato
+ * da solo e l'unione è un importo ben formato (migliaia col punto e/o
+ * decimali con virgola): due importi veri affiancati ("562,50 56,25") restano
+ * separati perché l'unione non è ben formata. Struttura del testo, nessuna
+ * soglia.
+ */
+export function joinSplitNumbers(line) {
+  const WELL = /^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/
+  const FRAG = /^[\d.,]+$/
+  // La run parte da una CIFRA non preceduta da lettera/punto: prima il punto
+  // finale di "consolidato. 54 . 383 ,00" entrava nella run (".54.383,00") e
+  // il fatturato del questionario restava spezzato.
+  return String(line || '').replace(/(?<![\w.,])\d[\d.,]*(?: [\d.,]+)+/g, (run) => {
+    const frags = run.split(' ')
+    if (frags.length < 2 || !frags.every((f) => FRAG.test(f))) return run
+    if (frags.every((f) => WELL.test(f))) return run
+    const joined = frags.join('')
+    return WELL.test(joined) && /[.,]/.test(joined) ? joined : run
+  })
+}
+
 export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
   const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
   const pdfjs = pdfjsMod.default || pdfjsMod
@@ -99,7 +124,7 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
         const page = await doc.getPage(p)
         const content = await page.getTextContent({ includeMarkedContent: false })
         const blocks = textContentToBlocks(content, { viewport: page.getViewport({ scale: 1 }) })
-        spatial = blocks.length ? buildSpatialPage(blocks).trim() : ''
+        spatial = blocks.length ? buildSpatialPage(blocks).trim().split('\n').map(joinSplitNumbers).join('\n') : ''
       } catch {
         spatial = '' // pagina illeggibile: resta vuota, la numerazione non slitta
       }

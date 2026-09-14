@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useConfirmPanel } from './ConfirmPanel'
 
 // Pannello «Profili salvati» del Comparatore, condiviso dalle pagine ma NON
 // condiviso nei contenuti: ogni pagina passa la propria chiave di impostazioni
@@ -28,6 +29,7 @@ export default function CompareProfiles<T>({
   const [profiles, setProfiles] = useState<Record<string, T>>({})
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2500) }
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function CompareProfiles<T>({
     if (!n) return
     const snap = snapshot()
     if (!snap) return
-    if (profiles[n] && !window.confirm(`Sovrascrivere il profilo «${n}»?`)) return
+    if (profiles[n] && !(await askConfirm(`Sovrascrivere il profilo «${n}»?`, { okLabel: 'Sovrascrivi' }))) return
     await persist({ ...profiles, [n]: snap })
     setName('')
     flash(`Profilo «${n}» salvato.`)
@@ -71,7 +73,7 @@ export default function CompareProfiles<T>({
   }
 
   async function remove(n: string) {
-    if (!window.confirm(`Eliminare il profilo «${n}»?`)) return
+    if (!(await askConfirm(`Eliminare il profilo «${n}»?`, { okLabel: 'Elimina', danger: true }))) return
     const next = { ...profiles }
     delete next[n]
     await persist(next)
@@ -112,6 +114,7 @@ export default function CompareProfiles<T>({
 
   return (
     <div className="card" style={{ marginBottom: 16 }}>
+      {confirmPanel}
       <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: hint ? 4 : 14 }}>Profili salvati</h2>
       {hint && <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>{hint}</p>}
       <div style={{ display: 'flex', gap: 8, marginBottom: names.length ? 12 : 0, flexWrap: 'wrap' }}>

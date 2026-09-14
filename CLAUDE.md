@@ -5,7 +5,9 @@
 > run alla volta (anche in produzione, con lock condiviso), **NESSUN guardrail
 > "indovinato" (soglie/valori inventati)**: si estrae associando l'etichetta al
 > valore adiacente nel layout (testo o tabella), vuoto se non trovato. Vincolante
-> per ogni agente.
+> per ogni agente. **Regola 4**: ogni misura è su TUTTI i campi del profilo
+> (denominatore = dimensione del profilo), con una verità per ogni campo (valore o
+> vuoto): niente "verificati", niente selezioni.
 
 Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
 
@@ -151,6 +153,292 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   ora converte un PDF minimo (stessa config di `main.py`); prima l'immagine
   "pre-scaricata" non conteneva i modelli e il primo `/parse` scaricava a
   runtime (o falliva 500 offline).
+
+- **Testo dei prompt = GRIGLIA pdf.js + tabelle Docling** (12/09/2026, definitivo
+  salvo misure contrarie): `normalizeStagedDocInput` mette nei prompt la griglia
+  spaziale e aggiunge per pagina le tabelle Docling riparate; il markdown
+  allineato resta il testo piatto (regex/affinità/embeddings). Il markdown da
+  solo scompone i frontespizi a modulo (AIG: data di decorrenza dieci righe
+  sotto l'etichetta, "AIG E UROPE S. A ." a lettere staccate → decorrenza =
+  data di continuità, compagnia mai trovata). `POLIZZA_MD_PROMPT=1` solo per A/B.
+- **Ogni stadio verifica l'EVIDENZA**: anche A.7 (tabella) e A.8 (frontespizio)
+  passano da `passesStagedEvidence` sul blocco inviato. Prima entravano
+  candidati inventati con documento/pagina/affinità ("Agenzia Assicurativa
+  Roma", "Sì, massimale 5.000.000 €" su otto campi di verifica) e battevano i
+  batch per incumbency. I campi di VERIFICA ("Verifica se…", decisi dalla
+  descrizione: `descriptionAsksVerification`) hanno "evidenza" OBBLIGATORIA
+  nello schema/GBNF: senza frase citata nel testo, vuoto.
+- **Natura dei massimali dalla TESTA della descrizione** (`structuralNature`,
+  mai id/label): "per singolo sinistro … per i Danni cagionati" è per-sinistro,
+  non "danni"; massimale per sinistro = annuo è il caso normale (esente dalle
+  guardie duplicati/anti-spill). Riga di tabella di un documento VECCHIO non
+  batte un documento più recente (tableRow cede alla recency stretta).
+- **Campi d'IDENTITÀ: consenso su TUTTI i documenti** (`pickConsensusCandidate`
+  con `tierBlind` per i campi né strutturali né economici periodici): compagnia,
+  contraente, P.IVA, indirizzo non cambiano col periodo, quindi i voti contano
+  su tutto il fascicolo, non solo sul livello di data più recente (SPALLINO:
+  "AIG Europe S.A." 12 volte perdeva contro "ASSITA" 2 volte dall'appendice).
+  Per date/premi/massimali la recency resta sovrana. Lo stadio tabella applica
+  anche il veto fonte-opzioni (tabella "polizze precedenti" del questionario).
+- **Documento-questionario = lo dice il TITOLO** (`isQuestionnaireTitle` sulle
+  prime righe della prima pagina); pagina-opzione = pagina di un questionario o
+  riga con CASELLA e importo (`hasOptionAmountLine`). Prima bastava la parola
+  "questionario" ovunque: il contratto Lloyd's (34 pagine) era un questionario
+  e la sua scheda di copertura (5.000.000 / 10.000) veniva vetata come opzione.
+- **Numeri spezzati dal kerning del text layer** ("€ 5 .0 00.000", "€ 1 0 .000"):
+  `joinSplitNumbers` (pdfTextLayer) ricompone SOLO frammenti cifre/punti la cui
+  unione è un importo ben formato; due importi veri affiancati restano separati.
+- **Copie identiche scartate** (stesso testo normalizzato: "quietanzata" e
+  "quietanzata firmata", appendici caricate tre volte) prima dell'estrazione:
+  niente chiamate doppie, niente voti moltiplicati (GUFFANTI RC 2025: 9 file
+  per 4 documenti distinti, 562 chiamate, 62 minuti).
+- **Cartella senza polizza principale → ACCANTONATA con la ragione** (12/09/2026,
+  richiesta dell'utente): `polizzaRequireValidPolicy` ora è ATTIVO di default
+  (`false` per spegnerlo); `policyEvidenceReport` dice cosa manca (nessuna voce
+  di polizza / nessun importo strutturale) e il worker scrive "Accantonato — …
+  Documenti letti: …" (etichetta «Accantonato» nella pagina Elaborazioni,
+  stesso «Procedi comunque»). Ogni scarto di pertinenza spiega il PERCHÉ
+  (parole del profilo non trovate, affinità a confronto, termini rilevati) e,
+  se un altro profilo attivo è più affine, lo PROPONE («Profilo suggerito»):
+  la classifica semantica gira su ogni scarto, non solo nel modo semantico.
+  **Motivazione anche quando ACCETTATO** (`precheck.summary`: verdetto, ragione,
+  parole trovate, termini rilevati, classifica dei primi 3 profili, avviso
+  «possibile falso positivo» se un altro profilo è più affine): visibile sotto
+  lo stato nella pagina Elaborazioni, nel log del job e nella colonna
+  «Pertinenza» dell'export xlsx.
+- **Tipo di valore vincolato dalla TESTA della descrizione** (`fieldValueKind`,
+  mai label né descrizione intera): l'"Indirizzo" TL3 che cita la P.IVA di
+  passaggio prendeva il pattern P.IVA/CF e il modello era costretto a 16
+  caratteri ("VIAALESSANDROVOL"). Controllo di colonna dello stadio tabella con
+  `headerLex` (frazione delle parole dell'INTESTAZIONE presenti nella
+  descrizione, token unici): "IMPOSTE 42,78" veniva scartato per "PREMIO LORDO"
+  perché "premio" compariva cinque volte nella descrizione. Colonna sbagliata
+  ma riga giusta → si prende il valore della colonna la cui intestazione nomina
+  il campo (stessa riga), mai vuoto. Datazione dei documenti anche con anni a 2
+  cifre ("Dal 16/12/25 al 16/12/26"): la quietanza di rinnovo era "senza data". **Solo in righe di periodo e con giorno/mese validi**: senza questo
+  vincolo "045 8300010"/"00/84/90" di un piè di pagina davano al Set
+  Informativo la data 00/84/2090, ne facevano il documento "più recente" e il
+  suo testo esplicativo vinceva su tutto (GUFFANTI TL da 87% a 35%: la causa
+  vera del crollo dei tutela legale del 13/09).
+- **Etichetta di LAYOUT** (`valueLabelledByLayout` + `distinctiveHeadTokens`): un
+  valore che nella griglia sta dopo, o sotto nella stessa colonna, la parola
+  DISTINTIVA della testa della descrizione ("DECORRENZA / 04/06/2025") è
+  evidenza strutturale come una riga di tabella (tableRow, affinità ≥ 0.70):
+  quattro voti per la data di firma del profilo cliente ("MILANO 14/04/2025")
+  non la battono. Le parole distintive vengono dalla frequenza inversa sulle
+  teste delle descrizioni del profilo (mai liste: "polizza" sta ovunque e non
+  distingue). Diag: `ok·etichetta:<parola>`. **Limiti (13/09)**: vale SOLO per
+  celle brevi di griglia (≤ 5 parole, separate da ≥2 spazi) e SOLO da documenti
+  DATATI — un esempio del Set Informativo ("massimale 25.000") batteva il
+  50.000,00 della polizza e "attività professionale" in una frase batteva
+  "Servizi vari" (GUFFANTI TL 9/23). Nel consenso dei campi d'identità i
+  documenti senza data votano solo se nessun candidato è datato. **Dal 13/09 pomeriggio l'etichetta di layout vale SOLO per i campi
+  DATA** (`fieldValueKind === 'date'`): per importi e testi le tabelle le legge
+  A.7 con le intestazioni vere, e nel Set Informativo (datato dall'edizione)
+  "massimale 25.000" in una cella d'esempio batteva 5 voti per il 50.000,00
+  della polizza (GUFFANTI TL 9/23 sia con la griglia sia col markdown).
+- **Stadio A.7 in JSON garantito** (`format:'json'`, oggetto `{"voci":[…]}`):
+  con la risposta libera un JSON malformato spegneva tutto lo stadio tabella
+  (4 run su 15 senza proposte) e senza la protezione tableRow le cifre in prosa
+  del Set Informativo, semanticamente più affini, battevano le celle della
+  tabella premi. Consenso dei campi d'identità a maggioranza CHIARA (≥ 1,5× i
+  voti del corrente): la stretta faceva vincere la targa GJ009XD (8) sul numero
+  di polizza (6).
+- **Import profili SOSTITUISCE per id** (13/09/2026): un profilo importato con lo
+  stesso `id` di uno esistente lo rimpiazza al suo posto (si correggono le
+  descrizioni senza cancellare nulla); gli id nuovi si aggiungono. Anteprima
+  ("N aggiornati, M nuovi") in un pannello interno. Se il profilo attivo è tra
+  gli aggiornati, campi e prompt applicati si riallineano; altrimenti nulla
+  cambia. **Niente `window.confirm`/`alert`** nell'app: ogni conferma passa da
+  `useConfirmPanel` (`web/components/ConfirmPanel.tsx`), pannellino fisso in
+  basso a destra.
+- **Profili: si toccano SOLO le descrizioni** (decisione dell'utente): la
+  versione con le descrizioni riscritte è `polizze_test/profili-polizza-
+  calibrato-v2.json` (stessi id, stesse label; Compagnia/Agenzia/Contraente/
+  Indirizzo/Decorrenza/Scadenza/imposte/imponibile/fatturato/sinistri e i campi
+  "Verifica se…" con regola Sì/No/vuoto e citazione; TL3: date dal rinnovo più
+  recente, parametro/importo di regolazione dalla tabella RISCHI ASSICURATI,
+  garanzie non operanti e tipologia dai soli elementi barrati). Si importa dalla
+  pagina Impostazioni e sostituisce i profili con lo stesso id.
+- **Tipo automatico SOLO dalla descrizione** (13/09/2026): tolta la lista di
+  label ("frazionamento", "tacito rinnovo", "esclusioni"…) che marcava un campo
+  come testuale; l'esempio numerico vale anche in elenco "(es. 49,05, 137,67)".
+  Con le descrizioni v2 "Tacito Rinnovo"/"Frazionamento" (imposte/imponibile)
+  cadevano nella lista di label e 137,67 / 618,75 venivano scartati. Nella
+  somiglianza lessicale (lex, headerLex) le clausole NEGATE della descrizione
+  ("NON è il premio lordo", "non confondere…", "mai…") non contano
+  (`positiveDescriptionText`): "PREMIO LORDO" batteva la colonna "IMPOSTA".
+- **Placeholder di ASSENZA sempre vuoti** ("non indicato", "da verificare",
+  n/d — `isAbsencePlaceholder`) anche se la descrizione li cita come risposta;
+  "NESSUNA"/"non previsto" restano dati se la descrizione li ammette. Date a 2
+  cifre ("Dal 31/01/26") accettate da pattern e normalizzatore (prima il modello
+  completava "31/01/2631"). Output degenere del decoding vincolato ("000…") →
+  retry in JSON libero. Niente più regola "tutto maiuscolo = intestazione".
+- **Filtro profilo↔fascicolo SEMANTICO, senza soglie** (`rankProfilesForDocs`):
+  classifica TUTTI i profili per affinità descrizioni dei campi ↔ pagine
+  (bge-m3, solo descrizioni senza esempi); il pre-check 'semantic' passa se il
+  profilo del job è il più affine. Nel bulk il tipo «Automatico» (`profile_id`
+  'auto') fa adottare al worker il profilo più affine e congela i suoi campi.
+  Le parole del contenuto (`contentKeywords`, del profilo) restano un secondo
+  cancello. Verità = le descrizioni dei profili, modificabili dall'utente.
+  Campo del profilo **«Come riconoscerla»** (`recognition`, testo libero): se
+  TUTTI i profili in gara lo hanno, la classifica si fa su quello (definizione
+  del TIPO, un descrittore per profilo); altrimenti sulle descrizioni dei campi
+  (che parlano dei DATI e sono in gran parte comuni a tutti i profili). Mai le
+  due scale mescolate. Flag del profilo **«Attivo»** (`enabled`, assente =
+  attivo: export/import retrocompatibili): un profilo non attivo (in
+  composizione, di test) è escluso dal riconoscimento automatico, dal
+  confronto del pre-controllo e dall'auto-riconoscimento da nome cartella;
+  resta selezionabile a mano.
+
+- **Nome file MAI nei prompt** (13/09/2026): i marcatori di pagina sono
+  `[Documento N · pag. P]` (`stagedDocTag`, `d.ord` assegnato dopo la
+  deduplica); il modello risponde `"documento": "Documento N"` e `matchRealDoc`
+  risolve l'ordinale. Col nome file nel contesto il modello lo copiava nei
+  campi (GUFFANTI RC 2025: "GUFFANTI GROUP", prefisso di tutti i file, 21 voti
+  come compagnia; numero di appendice e "proroga fino al 30 06 2025" letti dal
+  nome). Un valore presente solo nel nome file ora non ha evidenza e cade.
+- **Guardie "di concetto" sul testo del campo RIMOSSE** (13/09/2026):
+  `agenzia=compagnia`, `contraente=compagnia`, `compagnia=contraente`,
+  `rinvio-attivita` (scartava OGNI valore sotto 12 caratteri, quindi "Sì"/"No")
+  e `premio-copertura-diversa` (per NOME file). Erano regex su id+label+
+  descrizione: con descrizioni che nominano gli altri concetti per escluderli
+  ("NON è l'intermediario") colpivano il campo sbagliato e buttavano i valori
+  giusti (Lloyd's scartato 15 volte dalla compagnia, Guffanti Group 30 volte
+  dal contraente). Restano solo esclusioni di ARTEFATTI: nome file, frammento
+  JSON (`looksLikeJsonFragment`), "Documento N", importo con zeri iniziali
+  (pattern JSON Schema/GBNF e sanitize: "06457990965" non è un importo).
+- **"Sì"/"No" solo dove la descrizione lo chiede** (13/09/2026): un valore
+  Sì/No passa `sanitizeFieldValue` solo se la descrizione pone una verifica
+  ("Verifica se…", `descriptionAsksVerification`) o nomina Sì/No come risposte;
+  un campo che chiede un elenco testuale non riceve "Sì" (SPALLINO RC:
+  Esclusioni particolari = "Sì").
+- **Zero dal testo libero = segnaposto** (13/09/2026): nei batch di gruppo e nel
+  recupero uno "0"/"0,00" senza etichetta di layout non entra nel merge
+  (`placeholder:zero`): il modello lo scrive per "non è in questa pagina" (95
+  voti su 102 per un massimale; "Tasso 0" come valore finale su GUFFANTI TL).
+  Le celle di tabella dello Stadio A.7 ("Interessi 0,00", "Diritti 0,00" delle
+  quietanze TL, attesi dai golden) restano dati: A.7 non passa da lì.
+- **Consenso: testo corrente = un voto per documento; varianti di testo
+  sommate** (13/09/2026 sera): un valore che sta su ≥80% delle pagine di un
+  documento di ≥4 pagine (`isRunningTextInDoc`: sede della compagnia nel piè
+  di pagina, nome prodotto "DAS Professionista" nell'intestazione) è
+  `boilerplate` e nel consenso conta UNA volta per documento, non una per
+  pagina (GUFFANTI/BOLCHINI TL: 12 voti contro 3 per l'indirizzo del
+  contraente, che sta solo nel frontespizio). Le varianti dello stesso TESTO
+  ("VIALE CATERINA DA FORLI' 32" / "… 32 - 20146 MILANO") sommano i voti nel
+  gruppo del testo contenuto (solo valori con lettere: gli importi restano
+  esatti). Un valore uguale a una chiave del formato ("valore", "evidenza") è
+  un'eco e non un dato.
+- **Evidenza delle date con anno a 2 cifre** (13/09/2026 sera): il modello
+  risponde "16/12/2025" e la quietanza di rinnovo dice "Dal 16/12/25 al
+  16/12/26"; `passesStagedEvidence` accetta la data breve intera sul contesto
+  GREZZO (confini di parola, mai sei cifre dentro un telefono). SPALLINO TL:
+  decorrenza/scadenza del rinnovo scartate "senza evidenza", periodo fermo al
+  2024-2025.
+- **Testo identico su ≥3 campi = eco** (13/09/2026 sera): dopo il merge, lo
+  stesso testo libero (≥6 caratteri, non Sì/No, non campi di verifica) su tre
+  o più campi resta solo dove l'evidenza è migliore (riga di tabella, poi
+  affinità); gli altri si svuotano. ALZAIA TL: "Tutela Legale" risposto ad
+  attività, parametro, garanzie non operanti e tipologia.
+- **Due righe di tabella per lo stesso campo** (14/09/2026 notte): vince
+  l'evidenza strutturale (`structLex`), poi la sola etichetta di RIGA
+  (`rowLex`: "TOTALE" batte "4,245 RC Professionale" per un premio "totale"),
+  poi l'affinità; a parità resta la prima. Con la stessa intestazione di
+  colonna le due righe pareggiavano e decideva il rumore dell'embedding
+  (GUFFANTI RC 2025 v5: premio lordo 2.250,00 della riga componente invece di
+  18.000,00 della riga TOTALE, poi scavalcato da 500.000,00 di una clausola).
+  Il diag di A.7 ora dice "sostituisce"/"NON sostituisce". Il testo corrente
+  (`boilerplate`) si cerca ANCHE nelle pagine spaziali (`isRunningTextInAnyLayer`):
+  il markdown Docling omette i piè di pagina ripetuti, la griglia no.
+- **Campi di VERIFICA: risposte canonizzate dalla descrizione, MAI enum nello
+  schema** (14/09/2026 notte, misurato): `verificationAnswers` legge le parole
+  citate ('Sì', 'No', 'presente', 'escluso') di una descrizione "Verifica
+  se…" e `sanitizeFieldValue` canonizza la grafia ("SI" → "Sì") e scarta il
+  resto ("ARCHITETTI" per ODV/CDA, "presente" su un Sì/No). L'enum nello
+  JSON Schema/GBNF è stato provato e TOLTO: costretto a Sì/No/null il modello
+  sceglieva "Sì" quasi sempre (BOLCHINI RC 2025: 6 verifiche a "Sì" con verità
+  vuota, 30/35 → 23/35); libero, scrive "non indicato" e il segnaposto cade.
+- **Proprietario NEGATO dalla descrizione** (14/09/2026 notte): la clausola
+  "NON è … della compagnia, dell'intermediario" di un campo F individua i campi
+  G del profilo la cui testa di descrizione contiene quelle parole
+  (`negatedOwnerFields`, nessuna lista). Dopo il consenso, un candidato di F
+  che è TESTO CORRENTE (boilerplate) e la cui finestra contiene il valore
+  estratto di un G appartiene a G: "Via Enrico Fermi 9/B, Verona" nel piè di
+  pagina accanto a "D.A.S. Difesa Automobilistica Sinistri" è la sede della
+  compagnia (GUFFANTI/BOLCHINI/SPALLINO TL, tutti e tre). Si ripete la scelta
+  tra i candidati rimasti. Le DATE non sono campi d'identità: il consenso su
+  tutti i documenti non vale per decorrenza/scadenza (SPALLINO TL: la polizza
+  vecchia batteva la quietanza di rinnovo col voto cieco).
+- **Seed P.IVA: campo per TESTA di descrizione** (14/09/2026 notte): il campo
+  P.IVA/CF del seed si trova sulla testa della descrizione, non su
+  label+descrizione intera ("NON è … la partita IVA della compagnia" nella
+  descrizione del numero di polizza faceva finire lì il ripiego: N° Polizza =
+  codice fiscale dei Lloyd's). Il testo corrente NON conta come rumore per i
+  campi la cui descrizione (parte positiva) prevede il dato "nell'intestazione
+  di ogni pagina" (`descriptionAllowsRunningText`): il numero di polizza in
+  testa a ogni pagina è il dato, e collassato a un voto perdeva dal "Quote Id".
+- **Domanda di modulo ≠ evidenza** (14/09/2026 notte): per un campo di
+  verifica, una citazione che contiene TUTTE le risposte ammesse dalla
+  descrizione ("…incarichi di Amministratore di Stabili? Sì No", "Richiesta di
+  Risarcimento SI X NO") è la domanda del questionario con le sue opzioni:
+  scartata (`isFormQuestionEvidence`, diag `evidenza:domanda-di-modulo`).
+  SPALLINO RC: Sindaco/ODV/Progettazione/Merloni "Sì" con quella prova.
+- **Testi riordinati dal modello: confronto per TOKEN** (14/09/2026 notte): il
+  modello riscrive "37135 Verona - Via Enrico Fermi, 9/B" come "Via Enrico
+  Fermi, 9/B - 37135 Verona"; la stringa intera non è più nel testo e il
+  candidato restava senza sorgente (né data, né testo corrente, né proprietario
+  negato: l'indirizzo DAS vinceva in 3 TL su 3). Ora `findStagedSource`,
+  `isRunningTextInDoc` e il controllo del proprietario negato usano anche
+  "tutti i token del valore (≥3 caratteri) nella stessa pagina"
+  (`valueTokens`/`pageHasValueTokens`), solo per valori con lettere.
+- **Valore uguale a quello di un proprietario negato = suo dato** (14/09/2026
+  mattina): nel controllo del proprietario negato un candidato di F il cui
+  valore coincide (o si contiene, per testi ≥ 8 caratteri) con il valore
+  estratto di un campo G proprietario negato viene scartato a prescindere dal
+  testo corrente (N° Polizza = P.IVA del contraente; Compagnia = contraente,
+  ora esplicito nella descrizione v2). Il flag `boilerplate` resta sempre
+  calcolato; l'esenzione "intestazione di ogni pagina" agisce solo sul
+  conteggio dei voti (`runningTextAllowed`). Parole vuote della testa estese
+  ("Nome o ragione sociale del contraente" → concetto "contraente").
+- **Evidenza da pagina di questionario per una VERIFICA** (14/09/2026
+  mattina): scartata (`evidenza:pagina-questionario`) se la descrizione del
+  campo non nomina questionario/proposta come fonte nella parte positiva
+  (`descriptionNamesQuestionnaire`; "un elenco di attività del questionario
+  NON è una copertura" è negazione). Sinistri, che dice "nel questionario o
+  nella proposta", la accetta. SPALLINO RC: "Incarichi di Sindaco/Revisore dei
+  Conti" (riga dell'elenco attività) citata come prova di "Sì". La regola
+  "testo corrente accanto al proprietario" vale solo per i campi che non
+  prevedono il dato in intestazione/piè di pagina (`runningTextAllowed`):
+  "AIG Europe S.A." in testa a ogni pagina era scartato come dato del
+  contraente perché la finestra del frontespizio contiene anche il contraente.
+- **Etichette NEGATE dalla descrizione** (14/09/2026 mattina): le citazioni
+  dentro una clausola "NON è…" ("accanto a 'Sede legale', 'Sede e Direzione
+  Generale', 'Rappresentanza Generale'") sono etichette di ciò che il campo NON
+  è (`negatedQuotedLabels`, solo virgolette vere, mai gli apostrofi di
+  "l'indirizzo"); un candidato la cui finestra nel documento contiene una di
+  quelle etichette è scartato (`etichetta-negata:<etichetta>`). Nasce dai TL
+  DAS: la sede "Sede e Direzione Generale: 37135 Verona - Via Enrico Fermi 9/B"
+  sta su 4 pagine su 6 (non è testo corrente) e il nome della compagnia non
+  le sta accanto: solo l'etichetta la distingue. `findValueWindow` trova anche
+  i testi RIORDINATI dal modello (finestra attorno al token più lungo con tutti
+  gli altri dentro), così affinità ed etichette funzionano anche lì.
+- **Etichetta negata di UNA parola solo con i due punti** (14/09/2026): la
+  citazione 'Sinistro' nella clausola "NON considerare … la definizione di
+  'Sinistro'" svuotava le risposte vere di Sinistri (la parola sta ovunque);
+  un'etichetta di una parola conta solo come "Sinistro:" nel testo, quelle di
+  più parole ('Sede e Direzione Generale') per semplice presenza. Nel
+  proprietario negato gli importi si confrontano per CIFRA ("3.000.000,00" =
+  "3.000.000"): il fatturato uguale al massimale cadeva e tornava con l'altro
+  formato.
+- **Affinità sempre misurabile** (13/09/2026): se il candidato non si localizza
+  in un documento (valore solo nella griglia spaziale o in una tabella
+  riparata) la finestra si cerca nel CONTESTO della chiamata. Un candidato con
+  affinità `null` era cieco per l'arbitro e vetato dal consenso anche con 5 voti.
+- **Sorgente di un importo con decimali** (13/09/2026): `findStagedSource`
+  prova anche la sola parte intera ("5.000.000,00" vs "€ 5.000.000"), come già
+  `findValueWindow`; senza, il candidato giusto restava senza documento (né
+  data né affinità) e 5 voti perdevano contro un importo letto una volta.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
