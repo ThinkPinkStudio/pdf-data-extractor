@@ -275,7 +275,9 @@ export default function PolizzaJobsPage() {
   async function exportJobExcel(j: JobSnapshot) {
     const res = await fetch('/api/polizza/export-new', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: j.values || {}, suggestedName: (j.dossierName || 'polizza').split('/').pop() }),
+      // i campi del JOB: l'Excel segue il profilo con cui è stato estratto il
+      // dossier, non quello attivo nelle Impostazioni (usciva vuoto se diverso)
+      body: JSON.stringify({ data: j.values || {}, fields: j.fieldDefs || [], suggestedName: (j.dossierName || 'polizza').split('/').pop() }),
     })
     if (res.ok) downloadBlob(await res.blob(), `${(j.dossierName || 'polizza').split('/').pop()}.xlsx`)
   }

@@ -431,7 +431,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // chiamata LLM di estrazione). Solo per i job con un profilo scelto; salta
   // se l'utente ha già premuto "Procedi comunque" (precheck.override).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
-  const precheckMode = settings.polizzaPrecheckMode || 'off'
+  const precheckMode = settings.polizzaPrecheckMode || 'semantic'
   // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si degrada al
   // semantico sui field_defs congelati — mai un errore.
 // Profilo per il pre-check: quello esplicito del job, altrimenti il profilo
@@ -507,7 +507,10 @@ const shouldPrecheck = !!profile && !(job.precheck as any)?.override && (prechec
         profileName: job.profile_name || profile?.name || '',
         // Profilo appena scelto dalla classifica semantica: il confronto è già
         // fatto (restano attive le parole del contenuto del profilo, se ci sono).
-        mode: autoAssigned && precheckMode === 'semantic' ? 'off' : precheckMode,
+        // Anche col profilo scelto dalla classifica semantica il controllo gira
+        // (è lo stesso confronto: passa per costruzione) così la motivazione
+        // in «Pertinenza» è sempre un verdetto, mai "senza controllo".
+        mode: precheckMode,
         settings,
         // Il verdetto semantico è un CONFRONTO tra tutti i profili salvati.
         allProfiles: (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false),

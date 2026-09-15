@@ -75,8 +75,8 @@ export default function PolizzaFieldsEditor() {
   const [consensusPasses, setConsensusPasses] = useState(3)
   // Strategia motore a stadi: false = gruppi (default), true = cascata dal più recente
   const [stagedCascade, setStagedCascade] = useState(false)
-  // Pre-check di pertinenza profilo↔fascicolo: off (default) / keywords / semantic / llm
-  const [precheckMode, setPrecheckMode] = useState('off')
+  // Pre-check di pertinenza profilo↔fascicolo: semantic (default) / keywords / llm / off
+  const [precheckMode, setPrecheckMode] = useState('semantic')
   const dragIndex = useRef<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -94,7 +94,7 @@ export default function PolizzaFieldsEditor() {
       setVerificaModel(s.polizzaVerificaModel || '')
       setConsensusPasses(s.polizzaConsensusPasses || 3)
       setStagedCascade(s.polizzaStagedCascade === true)
-      setPrecheckMode(s.polizzaPrecheckMode || 'off')
+      setPrecheckMode(s.polizzaPrecheckMode || 'semantic')
       setActiveProfileId(s.polizzaActiveProfileId || null)
       setLoading(false)
     })

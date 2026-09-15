@@ -256,7 +256,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaAutoVerify: bool('polizzaAutoVerify', false),
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
-    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
+    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'semantic') as WebSettings['polizzaPrecheckMode'],
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),

@@ -106,7 +106,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   univoco, chiavi ≥8) li recupera in `absorbStagedEntries` invece di buttare
   valori validi.
 - **Pre-check di pertinenza** (profilo↔contenuto): switch `polizzaPrecheckMode`
-  (default **off**; keywords/semantic/llm da confrontare sul campo). Blocca il
+  (default **semantic** dal 15/09/2026 — richiesta dell'utente: «di default
+  devono essere attivi»; prima era off e ogni polizza usciva «accettato senza
+  controllo»; keywords/llm/off restano selezionabili in Impostazioni. Un valore
+  salvato nel DB vince sul default. Col profilo scelto dalla classifica
+  semantica il controllo gira lo stesso: passa per costruzione, ma la
+  motivazione in «Pertinenza» è un verdetto vero). Blocca il
   job in status `mismatch` con "Procedi comunque" in UI (override persistito in
   `precheck.override`). Solo job con `profile_id`; ogni guasto infrastrutturale
   → `skipped`, MAI mismatch. Parte pura in `polizzaPrecheck.js` (soglie
@@ -471,6 +476,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   prova anche la sola parte intera ("5.000.000,00" vs "€ 5.000.000"), come già
   `findValueWindow`; senza, il candidato giusto restava senza documento (né
   data né affinità) e 5 voti perdevano contro un importo letto una volta.
+
+- **Excel del singolo dossier con i campi del JOB** (15/09/2026): il pulsante
+  «Excel» della pagina Elaborazioni manda a `/api/polizza/export-new` anche
+  `fields: job.field_defs`; prima `exportNewExcel` usava sempre il profilo
+  ATTIVO nelle Impostazioni e un dossier RC esportato con attivo un profilo
+  Tutela Legale usciva con 23 righe vuote (le chiavi dei valori sono gli id
+  dei campi del job). L'export di batch usava già i `field_defs` dei job.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
