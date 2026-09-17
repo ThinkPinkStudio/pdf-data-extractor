@@ -1,0 +1,31 @@
+{
+  "id": "golden-taxitutela",
+  "label": "TAXIBLU TUT. LEGALE AUTO (verita dal PDF, text layer)",
+  "source": "TAXIBLU_TAXIBLU TUT. LEGALE AUTO FL592TG_POLIZZA BASE_TAXIBLU - FIAT PANDA DJ665KG.pdf",
+  "note": "Golden costruito leggendo il PDF. Tabella premi: PREMIO ANNUO 24,00 imponibile / 0,00 / 0,00 / 3,00 imposte / 27,00 lordo. Il '27' qui e il PREMIO LORDO (non massimale). Valori correggibili.",
+  "fields": {
+    "N° Polizza": { "value": null, "mode": "exact" },
+    "Compagnia": { "value": "D.A.S. Difesa Automobilistica Sinistri SpA", "mode": "contains" },
+    "Contraente/Assicurato": { "value": "TAXIBLU SOCIETA' COOPERATIVA", "mode": "contains" },
+    "P. IVA / Cod. Fiscale": { "value": "12790350156", "mode": "vat" },
+    "Indirizzo": { "value": null, "mode": "text" },
+    "Decorrenza": { "value": null, "mode": "date" },
+    "Scadenza": { "value": null, "mode": "date" },
+    "Frazionamento": { "value": null, "mode": "text" },
+    "Attività assicurata": { "value": null, "mode": "text" },
+    "Massimale per sinistro tutela legale": { "value": "15000,00", "mode": "amount" },
+    "Massimale per anno tutela legale": { "value": "illimitato", "mode": "contains" },
+    "Parametro regolazione ": { "value": null, "mode": "text" },
+    "Importo preventivo parametro regolazione": { "value": null, "mode": "amount" },
+    "Tasso regolazione ‰ ": { "value": null, "mode": "text" },
+    "Franchigia generica o minima": { "value": null, "mode": "amount" },
+    "Garanzie scelte/operanti": { "value": null, "mode": "text" },
+    "Garanzie non operanti": { "value": null, "mode": "text" },
+    "Premio imponibile tutela legale": { "value": "24,00", "mode": "amount" },
+    "Interessi di frazionamento": { "value": "0,00", "mode": "amount" },
+    "Diritti": { "value": "0,00", "mode": "amount" },
+    "Imposte": { "value": "3,00", "mode": "amount" },
+    "Premio lordo totale tutela legale": { "value": "27,00", "mode": "amount" },
+    "Tipologia tutela legale": { "value": null, "mode": "text" }
+  }
+}

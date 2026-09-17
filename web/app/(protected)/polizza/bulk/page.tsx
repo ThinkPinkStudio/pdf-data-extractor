@@ -249,6 +249,7 @@ export default function PolizzaBulkPage() {
   function detectProfile(label: string): string {
     const path = label.toLowerCase()
     for (const p of profiles) {
+      if (p.enabled === false) continue // profilo non attivo: mai riconosciuto in automatico
       if (profileKeywords(p).some((k) => path.includes(k))) return p.id
     }
     return ''
@@ -308,6 +309,9 @@ export default function PolizzaBulkPage() {
   // riempie il filtro "parole da accettare" → l'elenco mostra solo le cartelle di quel tipo.
   function applyDefaultType(id: string) {
     setDefaultType(id)
+    // "auto": nessuna parola di filtro sul nome cartella — decide il contenuto
+    // (classifica semantica dei profili nel worker).
+    if (id === 'auto') { setIncludeText(''); return }
     const p = profiles.find((x) => x.id === id)
     if (p) setIncludeText(profileKeywords(p).join(', '))
   }
@@ -521,7 +525,8 @@ export default function PolizzaBulkPage() {
                 <label className="label" htmlFor="bulk-type">{t('bulk.defaultType')}</label>
                 <select id="bulk-type" value={defaultType} onChange={(e) => applyDefaultType(e.target.value)}>
                   <option value="">{t('bulk.noType')}</option>
-                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="auto">{t('bulk.autoProfile')}</option>
+                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.enabled === false ? ` ${t('bulk.profileInactive')}` : ''}</option>)}
                 </select>
                 <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('bulk.defaultTypeHelp')}</p>
               </div>
@@ -665,7 +670,8 @@ export default function PolizzaBulkPage() {
                             <td style={{ fontSize: 12 }}>
                               <select value={profileOf[gid] || ''} disabled={!inc} onChange={(e) => chooseProfile(gid, e.target.value)} style={{ fontSize: 11, padding: '2px 4px', maxWidth: 160 }}>
                                 <option value="">{t('bulk.globalFields')}</option>
-                                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                <option value="auto">{t('bulk.autoProfile')}</option>
+                                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.enabled === false ? ` ${t('bulk.profileInactive')}` : ''}</option>)}
                               </select>
                             </td>
                           )}

@@ -19,6 +19,7 @@ interface BatchSummary {
 }
 
 interface JobSnapshot {
+  precheck?: Record<string, unknown> | null
   jobId: string
   batchId?: string | null
   owner?: string
@@ -274,7 +275,9 @@ export default function PolizzaJobsPage() {
   async function exportJobExcel(j: JobSnapshot) {
     const res = await fetch('/api/polizza/export-new', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: j.values || {}, suggestedName: (j.dossierName || 'polizza').split('/').pop() }),
+      // i campi del JOB: l'Excel segue il profilo con cui è stato estratto il
+      // dossier, non quello attivo nelle Impostazioni (usciva vuoto se diverso)
+      body: JSON.stringify({ data: j.values || {}, fields: j.fieldDefs || [], suggestedName: (j.dossierName || 'polizza').split('/').pop() }),
     })
     if (res.ok) downloadBlob(await res.blob(), `${(j.dossierName || 'polizza').split('/').pop()}.xlsx`)
   }
@@ -290,6 +293,9 @@ export default function PolizzaJobsPage() {
   // evitare è stata trovata nel testo: lo distingue l'errore scritto dal worker
   // ("Scartato — …"). Il motivo è esplicito nella colonna stato.
   const isDiscarded = (j: JobSnapshot) => j.status === 'mismatch' && (j.error || '').startsWith('Scartato')
+  // "Accantonato — …": cartella senza polizza principale (niente da estrarre);
+  // resta in stato 'mismatch' (stesso flusso "Procedi comunque"), etichetta sua.
+  const isSetAside = (j: JobSnapshot) => j.status === 'mismatch' && (j.error || '').startsWith('Accantonato')
   const statusLabel = (s: string) => (
     s === 'running' ? t('jobsDash.statusRunning')
       : s === 'error' ? t('jobsDash.statusError')
@@ -412,6 +418,15 @@ export default function PolizzaJobsPage() {
                                 <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => exportBatch(b.id, b.label)}>
                                   ⬇ {t('jobsDash.exportBatch')}
                                 </button>
+                                {/* PDF originali del batch in uno ZIP, divisi nelle cartelle
+                                    di origine. LINK diretto e non fetch+blob: l'archivio
+                                    arriva in streaming e finisce su disco senza passare
+                                    per la memoria della pagina (un batch pesa gigabyte). */}
+                                <a className="btn btn-secondary" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                  href={`/api/polizza/batch/${b.id}/pdfs`} download
+                                  title={t('jobsDash.downloadPdfsTitle')}>
+                                  🗂 {t('jobsDash.downloadPdfs')}
+                                </a>
                                 {/* Azioni IN BULK sui job spuntati (tutti gli stati):
                                     Rielabora, Rielabora con profilo, Run di test, Riusa,
                                     Procedi comunque, Annulla, Riprova. */}
@@ -499,8 +514,13 @@ export default function PolizzaJobsPage() {
                                             {j.dossierName || '—'}
                                           </td>
                                           <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
-                                            {isDiscarded(j) ? t('jobsDash.statusDiscarded') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
+                                            {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                                             {j.error ? ` — ${j.error}` : ''}
+                                            {typeof (j.precheck as any)?.summary === 'string' && (
+                                              <span title={(j.precheck as any).summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                                                {String((j.precheck as any).summary).slice(0, 220)}
+                                              </span>
+                                            )}
                                             {j.status === 'running' && j.progress?.docName && (
                                               <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
                                                 {j.progress.docName}
@@ -710,8 +730,13 @@ export default function PolizzaJobsPage() {
                       </td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{j.owner || ''}</td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
-                        {isDiscarded(j) ? t('jobsDash.statusDiscarded') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
+                        {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
                         {j.error ? ` — ${j.error.slice(0, 120)}` : ''}
+                        {typeof (j.precheck as any)?.summary === 'string' && (
+                          <span title={(j.precheck as any).summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                            {String((j.precheck as any).summary).slice(0, 160)}
+                          </span>
+                        )}
                         {!!j.duplicateOf && (
                           <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
                             ⧉ {t('jobsDash.duplicateOf')}

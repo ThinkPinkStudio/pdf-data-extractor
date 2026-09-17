@@ -17,6 +17,10 @@
 // coordinate (parole ruotate, bbox impazzite). Il padding si tronca qui.
 const MAX_COLS = 600
 
+// Checklist/selezione: riusiamo i glifi della classificazione checkbox (puro,
+// senza dipendenza inversa: polizzaFactsRegistry non importa ocrLayout).
+import { CHECKBOX_CHECKED_RE, CHECKBOX_EMPTY_RE, detectCheckedRow } from './polizzaFactsRegistry.js'
+
 function median(nums) {
   if (!nums.length) return 0
   const s = [...nums].sort((a, b) => a - b)
@@ -243,6 +247,8 @@ function acceptable(p) {
 
 // Un token è un VALORE se ha la forma di data/numero/importo; le parole brevi
 // alfanumeriche ("ACQUI", "TERME") NON lo sono (niente cifre).
+// ECCEZIONE CHECKBOX: un token che inizia con un glifo di selezione esplicito
+// ("[x] Azienda", "☒ Studio") è il valore di una checklist (anche senza cifre).
 function isValueLike(tok) {
   const t = String(tok || '').trim()
   if (!t) return false
@@ -251,6 +257,8 @@ function isValueLike(tok) {
   if (/^[+-]?\d{1,3}(\.\d{3})*(,\d+)?[€¢]?$/.test(t)) return true
   if (/^[+-]?\d+(,\d+)?[ ]?[€%]?$/.test(t)) return true
   if (/\d/.test(t) && t.replace(/[0-9.,:€%/+ -]/g, '').length <= 1) return true
+  // glifo di selezione in testa → è un valore di checkbox (es. "[x] Studio")
+  if (/^\[[xX✓✔\s_]+\]|^☒|^☐/u.test(t)) return true
   return false
 }
 
@@ -303,17 +311,29 @@ function badLabel(label) {
 }
 
 // Un valore è scartabile se vuoto, troppo lungo/multitoken o senza cifre.
+// ECCEZIONE CHECKBOX: una riga di selezione (glifo spuntato/vuoto in testa) può
+// portare un valore breve SENZA cifre ("Azienda", "Studio professionale") —
+// è il valore di una checklist, non un numero. Richiede un glifo ESPLICITO
+// ([[x]], ☒, [ ], ☐) — una "X" nuda non basta (potrebbe essere testo).
+// Un valore è scartabile se vuoto, troppo lungo/multitoken o senza cifre.
+// ECCEZIONE CHECKBOX: una riga di selezione (glifo spuntato/vuoto in testa) può
+// portare un valore breve SENZA cifre ("Azienda", "Studio professionale") —
+// è il valore di una checklist, non un numero. Richiede un glifo ESPLICITO
+// ([x], ☒, [ ], ☐) — una "X" nuda non basta (potrebbe essere testo).
 function badValue(value) {
   const t = String(value || '').trim()
   if (!t) return true
   if (t.length > MAX_VAL_CHARS) return true
   const nTok = t.split(/\s+/).length
   if (nTok > MAX_VAL_TOKENS) return true
-  if (!/\d/.test(t)) return true
+  if (!/\d/.test(t)) {
+    // senza cifre: valido solo se in testa c'è un glifo di selezione esplicito
+    return /^\s*(?:\[[xX✓✔\s_]+\]|☒|☐)\b/u.test(t) ? false : true
+  }
   return false
 }
 
-// Toglie i ':' finali (e le estetiche) da una label; trims.
+
 function cleanLabel(l) {
   return String(l || '').replace(/:+$/g, '').trim()
 }
@@ -343,4 +363,495 @@ function prunePairs(pairs) {
     if (out.length >= MAX_PAIRS_PAGE) break
   }
   return out
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ASSOCIAZIONE ETICHETTA ⟶ VALORE ADIACENTE (per la description di un campo).
+//
+// Il metodo "etichetta-adiacente" (REGOLE_AGENTI): per ogni campo, si estraggono
+// i TERMINI-ETICHETTA dalla description (n-grammi non-stopword già normalizzati)
+// e si cerca nel testo SPAZIALE la riga che li contiene; poi si prende il VALORE
+// ADIACENTE:
+//   - stessa riga: i token value-like subito DOPO l'etichetta (dopo i ":" o,
+//     nei layout a celle, nella cella successiva separata da gap);
+//   - riga sotto: se l'etichetta chiude la riga e la riga seguente inizia con un
+//     valore (tabella con intestazione sopra).
+// Ritorna il valore trovato (stringa) o null. Il risultato è un SEED
+// COMPETITIVO per il campo (mai blindato): il modello conferma/rifiuta.
+// TIPO-BLIND: nessuna ipotesi su cosa sia il valore, solo adiacenza spaziale.
+
+// Stopword per estrarre i termini-etichetta dalla description.
+const LABEL_STOP = new Set([
+  'della', 'delle', 'dello', 'degli', 'dei', 'del', 'di', 'per', 'con', 'una', 'un',
+  'che', 'non', 'il', 'lo', 'la', 'le', 'i', 'gli', 'e', 'o', 'sono', 'sia', 'anche',
+  'piu', 'più', 'es', 'esempio', 'valore', 'campo', 'campi', 'ma', 'se', 'quando', 'come',
+  'estrai', 'prendi', 'riporta', 'cerca', 'indicare', 'del', 'della', 'nel', 'nella',
+  'nelle', 'sul', 'sulla', 'sulle', 'in', 'a', 'da', 'su', 'tra', 'fra', 'numero', 'data',
+])
+const normWord = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+
+export function extractLabelTerms(description) {
+  const words = normWord(description).split(' ').filter((w) => w.length >= 4 && !LABEL_STOP.has(w))
+  // n-grammi 2-3 tokens (frasi) più le parole singole lunghe (>=6).
+  const grams = []
+  for (let n = 2; n <= 3; n++) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const g = words.slice(i, i + n).join(' ').trim()
+      if (g.length >= 6) grams.push(g)
+    }
+  }
+  for (const w of words) if (w.length >= 6) grams.push(w)
+  return [...new Set(grams)]
+}
+
+// Token value-like: riusa isValueLike (definita in questo modulo).
+export function extractLabelValueForField(pages, description) {
+  const terms = extractLabelTerms(description)
+  if (!terms.length) return null
+  const isVal = (t) => isValueLike(t)
+  const lines = Array.isArray(pages) ? pages : String(pages || '').split('\n')
+
+  // 1) Coppie etichetta→valore per COLONNA (detectLabelValuePairs): è il metodo
+  //    che allinea l'intestazione (es. "PREMIO LORDO") col valore sotto la stessa
+  //    colonna (255,00) — la forma tabellare vera. Cerco la coppia la cui label
+  //    (normalizzata) contiene uno dei termini-etichetta della description.
+  const pairs = detectLabelValuePairs(lines)
+  if (pairs.length) {
+    for (const p of pairs) {
+      const nl = normWord(p.label)
+      if (terms.some((t) => nl.includes(t))) return p.value
+    }
+  }
+
+  // 2) Stessa riga: primo token value-like subito dopo l'etichetta.
+  for (const raw of lines) {
+    const line = String(raw || '')
+    const n = normWord(line)
+    // la riga deve contenere almeno UN termine-etichetta in forma di frase o parola
+    if (!terms.some((t) => n.includes(t))) continue
+    const toks = tokenizeLine(line)
+    // trova l'indice del token che chiude l'etichetta (l'ultimo token prima del primo valore)
+    let valIdx = -1
+    for (let i = 0; i < toks.length; i++) {
+      if (isVal(toks[i].text)) { valIdx = i; break }
+    }
+    if (valIdx <= 0) continue
+    // UN campo = UN valore: prendo il PRIMO token value-like dopo l'etichetta
+    // (per i campi economici in tabella il modello confermerà col resto).
+    const val = toks[valIdx].text
+    if (val && val.length <= 50) return val
+  }
+  // Fallback "riga sotto": l'etichetta su una riga e il valore sulla riga successiva
+  // (tabella con intestazione sopra, es. "MASSIMALE PER SINISTRO EURO" / "31.000,00").
+  for (let i = 0; i < lines.length - 1; i++) {
+    const n = normWord(lines[i])
+    if (!terms.some((t) => n.includes(t))) continue
+    const next = lines[i + 1]
+    const nextToks = tokenizeLine(next)
+    const firstVal = nextToks.find((t) => isVal(t.text))
+    if (firstVal) return firstVal.text
+  }
+  return null
+}
+
+/**
+ * Estrae il valore di una TABELLA per COLONNA, allineando l'intestazione al
+ * valore adiacente in verticale.
+ *
+ * Il layout spaziale mantiene le colonne: l'intestazione (es. "PREMIO LORDO") e
+ * il valore (es. "255,00") stanno su RIGHE DIVERSE ma ALLA STESSA posizione-x.
+ * Questa funzione trova la riga che contiene il termine-etichetta, e nelle righe
+ * adiacenti (sopra o sotto) il token value-like che inizia alla stessa colonna.
+ *
+ * @param {string[]|string} pages  righe spaziali
+ * @param {string} labelTerm  n-gramma/parola dell'etichetta (es. "premio lordo")
+ * @returns {string|null} il valore allineato per colonna
+ */
+export function extractTableValueByColumn(pages, labelTerm) {
+  const term = normWord(labelTerm)
+  if (!term) return null
+  const lines = Array.isArray(pages) ? pages : String(pages || '').split('\n')
+  const words = term.split(' ').filter((w) => w.length >= 4)
+  // chiave di colonna: la parola più SIGNIFICATIVA del termine — per le
+  // intestazioni multi-parola ("PREMIO LORDO", "NETTO IMPONIBILE") l'allineamento
+  // è con l'ULTIMA parola (LORDO, IMPONIBILE); per quelle singole basta la prima.
+  const key = words.length > 1 ? words[words.length - 1] : words[0]
+  if (!key) return null
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || '')
+    const nLine = normWord(line)
+    if (!nLine.includes(key)) continue
+    const labelToks = tokenizeLine(line)
+    let startIdx = labelToks.findIndex((t) => normWord(t.text).startsWith(key))
+    if (startIdx < 0) continue
+    const col = labelToks[startIdx].x + Math.floor(labelToks[startIdx].text.length / 2)
+    // righe ±2 con un valore nella stessa colonna (tabella: intestazione sopra/sotto valori)
+    for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
+      if (j === i) continue
+      const valToks = tokenizeLine(lines[j])
+      const best = valToks.filter((t) => isValueLike(t.text) && Math.abs(t.x - col) <= 8)
+      if (best.length) {
+        best.sort((a, b) => Math.abs(a.x - col) - Math.abs(b.x - col))
+        return best[0].text
+      }
+    }
+    // stessa riga: salta le parole non-value ("EURO" ...) fino al primo valore
+    // (layout "ETICHETTA  EURO  31.000,00"); accetta anche il valore TESTUALE
+    // "Illimitato" (massimali senza cifra) — non è value-like ma è il dato vero.
+    for (let a = startIdx + 1; a < labelToks.length; a++) {
+      const tt = labelToks[a].text
+      if (isValueLike(tt) || /^illimitat/i.test(tt)) return tt
+      if (a - startIdx > 3) break
+    }
+    break
+  }
+  return null
+}
+
+/**
+ * Estrae da MARKDOWN TABELLARE (es. da Docling/pdf-inspector) le coppie
+ * INTESTAZIONE → VALORE per colonna.
+ *
+ * Il markdown di Docling presenta le tabelle come righe `| a | b | ... |`:
+ * una riga di intestazioni e una (o più) righe di valori allineate per colonna.
+ * Questa funzione, per ogni riga di intestazioni che contiene ≥2 celle testuali
+ * e per la riga di valori immediatamente sotto, associa ciascun valore alla
+ * propria intestazione di colonna. NON usa liste predefinite: le intestazioni
+ * sono quelle reali del documento.
+ *
+ * @param {string} text  il testo (markdown) del documento
+ * @returns {Array<{label:string, value:string, row:number}>}
+ */
+export function extractMarkdownColumns(text) {
+  const out = []
+  const lines = String(text || '').split('\n')
+  // mantiene le celle VUOTE (l'allineamento di colonna dipende dalla posizione);
+  // la riga "|-----|" è separatore di colonna nel markdown e va saltata.
+  const isSep = (l) => /^\|?[\s:\-|]+\|?$/.test(String(l || '').trim())
+  const cellsOf = (l) => String(l || '').split('|').map((c) => c.trim())
+  for (let i = 0; i < lines.length; i++) {
+    if (isSep(lines[i])) continue
+    const heads = cellsOf(lines[i])
+    if (heads.length < 2) continue
+    // la riga di intestazioni NON deve contenere valori numerici
+    if (heads.some((h) => isValueLike(h))) continue
+    // riga valori: subito dopo, o dopo il separatore
+    const valRow = !isSep(lines[i + 1]) ? lines[i + 1] : lines[i + 2]
+    if (!valRow) continue
+    const vals = cellsOf(valRow)
+    if (vals.length < 2) continue
+    const max = Math.min(heads.length, vals.length)
+    for (let c = 0; c < max; c++) {
+      const v = vals[c]?.trim()
+      if (v && isValueLike(v)) {
+        out.push({ label: heads[c].trim(), value: v, row: i + 1 })
+      }
+    }
+  }
+  const seen = new Set()
+  return out.filter((p) => {
+    const k = `${p.label}|${p.value}`
+    if (seen.has(k)) return false
+    seen.add(k); return true
+  })
+}
+
+/**
+ * Estrae i BLOCCHI TABELLA REALI di un testo markdown (righe contigue che
+ * iniziano con `|`, incluso il separatore `| --- |`). Ritorna le righe del
+ * blocco come array di stringhe già presenti nel documento: il benchmark per
+ * il MODELLO è il markdown ORIGINALE, nessuna lista/etichetta inventata dal
+ * codice. Una tabella = un elemento dell'array.
+ */
+export function extractTableBlocks(text) {
+  const lines = String(text || '').split('\n')
+  const blocks = []
+  let cur = null
+  for (const l of lines) {
+    const isRow = /^\s*\|.*\|\s*$/.test(l)
+    if (isRow) {
+      if (!cur) cur = []
+      cur.push(l)
+    } else if (cur) {
+      if (cur.length >= 2) blocks.push(cur.join('\n'))
+      cur = null
+    }
+  }
+  if (cur && cur.length >= 2) blocks.push(cur.join('\n'))
+  return blocks
+}
+
+
+/**
+ * Divide un blocco tabella markdown in SOTTO-TABELLE quando una riga del corpo
+ * è in realtà un'intestazione: celle tutte testuali (nessuna cifra) seguite da
+ * una riga di valori (≥2 celle con cifre). È il caso tipico del riepilogo
+ * premi Docling: la tabella "RISCHI ASSICURATI" contiene la riga
+ * "PREMIO TOTALE | NETTO IMPONIBILE | INTERESSE DI FRAZIONAMENTO | DIRITTI |
+ * IMPOSTE | PREMIO LORDO" e SOTTO le righe "PREMIO ALLA FIRMA | 1.270,10 | …".
+ * Con l'header originale (vuoto) il modello vedeva "col4 = 269,90" senza nome
+ * e sbagliava colonna. Criterio STRUTTURALE, nessun nome di colonna
+ * predefinito. Ritorna [block] se non ci sono intestazioni interne.
+ */
+/**
+ * Normalizza l'ORIENTAMENTO di una tabella markdown prima di leggerla:
+ *  (a) tabella di UNA riga con le celle "Voce importo" ("Premio Netto 562,50 |
+ *      Imposta 137,67 | Premio Lordo 756,42"): la voce diventa l'intestazione
+ *      della colonna e l'importo la riga dati; le celle iniziali senza numero
+ *      ("Rata alla firma fino al | 19/04/2027") formano l'etichetta della riga;
+ *  (b) intestazione SOTTO i valori (riga 1 numerica, riga 2 tutta testuale
+ *      "Premio Netto | Addizionali | … | Lordo"): la riga testuale è
+ *      l'intestazione, quella numerica la riga dati; se le celle non
+ *      coincidono si allineano da DESTRA (le colonne nominate sono le ultime)
+ *      e le celle iniziali avanzate formano l'etichetta della riga.
+ * Struttura del testo (dove stanno lettere e cifre), nessun nome di colonna
+ * predefinito. Ritorna il blocco invariato se non riconosce nessuno dei due casi.
+ */
+export function normalizeTableOrientation(block) {
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const body = rows.filter((l) => !isSep(l))
+  if (!body.length) return block
+  const NUM = /^(?:€\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$|^(?:€\s*)?\d+(?:,\d{1,2})?$/
+  const isNum = (c) => NUM.test(String(c || '').trim())
+  const isText = (c) => /[A-Za-zÀ-ÿ]/.test(c) && !/\d/.test(c)
+  const build = (headers, dataRows) => [
+    `| ${headers.join(' | ')} |`,
+    `|${'---|'.repeat(headers.length)}`,
+    ...dataRows.map((r) => `| ${r.join(' | ')} |`),
+  ].join('\n')
+  // (a) una sola riga: celle "Voce importo"
+  if (body.length === 1) {
+    const cells = cellsOf(body[0])
+    const PAIR = /^([A-Za-zÀ-ÿ][^|]*?[A-Za-zÀ-ÿ.)])\s+((?:€\s*)?\d[\d.]*(?:,\d{1,2})?)$/
+    const pairs = cells.map((c) => c.match(PAIR))
+    const nPairs = pairs.filter(Boolean).length
+    if (nPairs >= 2) {
+      let firstPair = pairs.findIndex(Boolean)
+      const labelCells = cells.slice(0, firstPair).filter(Boolean)
+      const headers = ['', ...cells.slice(firstPair).map((c, i) => (pairs[firstPair + i] ? pairs[firstPair + i][1].trim() : ''))]
+      const values = [labelCells.join(' '), ...cells.slice(firstPair).map((c, i) => (pairs[firstPair + i] ? pairs[firstPair + i][2].trim() : c))]
+      return build(headers, [values])
+    }
+    return block
+  }
+  // (b) intestazione sotto i valori
+  const first = cellsOf(body[0]); const second = cellsOf(body[1])
+  const firstNums = first.filter(isNum).length
+  const secondTexts = second.filter(isText).length
+  const secondHasNums = second.some((c) => /\d/.test(c))
+  if (firstNums >= 2 && secondTexts >= 2 && !secondHasNums && firstNums >= first.length / 2) {
+    const named = second.filter(Boolean)
+    // allineamento da destra: le ultime `named.length` celle della riga valori
+    // stanno sotto le colonne nominate; le celle avanzate a sinistra sono
+    // l'etichetta della riga.
+    const k = Math.min(named.length, first.length)
+    // "Premio 756,42" sotto la colonna "Lordo": resta l'importo
+    const bare = (c) => { const m = String(c || '').match(/^[A-Za-zÀ-ÿ][^|]*?\s+((?:€\s*)?\d[\d.]*(?:,\d{1,2})?)$/); return m ? m[1].trim() : c }
+    const vals = first.slice(first.length - k).map(bare)
+    const lead = first.slice(0, first.length - k).filter(Boolean)
+    const headers = ['', ...named.slice(named.length - k)]
+    const dataRows = [[lead.join(' '), ...vals]]
+    for (const r of body.slice(2)) {
+      const c = cellsOf(r)
+      const cv = c.slice(Math.max(0, c.length - k)).map(bare); const cl = c.slice(0, Math.max(0, c.length - k)).filter(Boolean)
+      dataRows.push([cl.join(' '), ...cv])
+    }
+    return build(headers, dataRows)
+  }
+  return block
+}
+
+export function splitSubTables(block) {
+  block = normalizeTableOrientation(block)
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const headerIdx = rows.findIndex((l) => !isSep(l))
+  const sepIdx = rows.findIndex(isSep)
+  if (headerIdx < 0 || sepIdx < 0) return [block]
+  const body = rows.slice(sepIdx + 1).filter((l) => !isSep(l))
+  const valueLike = (c) => /\d/.test(c)
+  const isHeaderLike = (i) => {
+    const cells = cellsOf(body[i]).slice(1)
+    const nonEmpty = cells.filter((c) => c !== '')
+    if (nonEmpty.length < 2 || nonEmpty.some(valueLike)) return false
+    // Un'intestazione ha nomi DIVERSI tra loro; una riga dati con cella unita
+    // ("Attività | Studio associato | Studio associato | …", espansione delle
+    // celle fuse di Docling) ripete lo stesso testo: NON è un'intestazione.
+    const distinct = new Set(nonEmpty.map((c) => c.toLowerCase())).size
+    if (distinct < 2 || distinct * 2 < nonEmpty.length) return false
+    const next = body[i + 1] ? cellsOf(body[i + 1]).slice(1) : []
+    return next.filter(valueLike).length >= 2
+  }
+  const cuts = []
+  for (let i = 0; i < body.length; i++) if (isHeaderLike(i)) cuts.push(i)
+  if (!cuts.length) return [block]
+  const mk = (header, dataRows) => {
+    const n = cellsOf(header).length
+    return [header.trim(), `|${'---|'.repeat(Math.max(1, n))}`, ...dataRows.map((r) => r.trim())].join('\n')
+  }
+  const out = []
+  const firstRows = body.slice(0, cuts[0])
+  if (firstRows.length) out.push(mk(rows[headerIdx], firstRows))
+  for (let k = 0; k < cuts.length; k++) {
+    const from = cuts[k] + 1
+    const to = k + 1 < cuts.length ? cuts[k + 1] : body.length
+    const dataRows = body.slice(from, to)
+    if (dataRows.length) out.push(mk(body[cuts[k]], dataRows))
+  }
+  return out.length ? out : [block]
+}
+
+/**
+ * Risolve un blocco tabella markdown in RIGHE "posizionali": per ogni riga di
+ * dati produce { label, cols } dove cols è un ARRAY posizionale:
+ * [{ header: <nome colonna reale>, value: <valore cella> }, ...] — le posizioni
+ * vengono PRESERVATE anche quando l'header ha colonne ripetute (due celle header
+ * uguali NON collassano: restano due voci con lo stesso header). Nessun nome
+ * inventato: gli header sono quelli del documento, le celle vuote restano vuote.
+ * Il separatore "\|---|" viene saltato. Ritorna [] se il blocco non è tabella.
+ */
+export function tableRowsWithHeaders(block) {
+  block = normalizeTableOrientation(block)
+  const subs = splitSubTables(block)
+  if (subs.length > 1) return subs.flatMap((b) => tableRowsWithHeaders(b))
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  if (rows.length < 2) return []
+  const cellsOf = (l) => {
+    const parts = String(l || '').split('|')
+    if (parts.length >= 2 && parts[0].trim() === '') parts.shift()
+    if (parts.length >= 2 && parts[parts.length - 1].trim() === '') parts.pop()
+    return parts.map((c) => c.trim())
+  }
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const headerRow = rows.find((l) => !isSep(l))
+  const sepIdx = rows.findIndex(isSep)
+  if (!headerRow || sepIdx < 0) return []
+  const headers = cellsOf(headerRow)
+  // celle header vuote (header multi-livello): ereditano il nome della cella
+  // NON vuota immediatamente prima (come fa il documento)
+  for (let k = 1; k < headers.length; k++) {
+    if (!headers[k]) headers[k] = headers[k - 1]
+  }
+  // Header con TUTTE le celle uguali ("ARTICOLI | ARTICOLI | ARTICOLI": una
+  // cella unita che Docling ripete): non nomina nessuna colonna → senza nome.
+  const distinctHeaders = new Set(headers.filter(Boolean).map((h) => h.toLowerCase()))
+  const headersUnnamed = distinctHeaders.size <= 1 && headers.length > 1
+  const out = []
+  // Colonna di NUMERAZIONE: prima cella "1."/"10"/"a)"/"•" e seconda cella di
+  // testo (l'etichetta vera): l'etichetta della riga è "1. Contraente" e i
+  // valori partono dalla terza colonna. Struttura, non nomi: frontespizi
+  // "articolo | voce | dato" (XL/Saporiti) uscivano come righe "9." senza nome.
+  const isNumbering = (c) => /^\s*(?:\d{1,3}[.)]?|[a-z][.)]|[•\-–])\s*$/i.test(String(c || ''))
+  for (let i = sepIdx + 1; i < rows.length; i++) {
+    const cells = cellsOf(rows[i])
+    if (cells.length < 2) continue
+    let label = cells[0] || ''
+    let start = 1
+    if (cells.length >= 3 && isNumbering(cells[0]) && cells[1] && !/^\s*[\d.,€ ]+\s*$/.test(cells[1])) {
+      label = `${cells[0].trim()} ${cells[1]}`.trim()
+      start = 2
+    }
+    let cols = []
+    for (let k = start; k < cells.length; k++) {
+      const h = headersUnnamed ? '' : (headers[k] || '')
+      cols.push({ header: h, value: cells[k] ?? '' })
+    }
+    // CELLA con più coppie "Voce € importo" dentro ("Premio lordo € 800,00
+    // Imposte € 145,60 Premio imponibile € 654,40 Accessori € 0,00 Premio netto
+    // € 654,40"): si espande in colonne con NOME (la voce) e valore (l'importo),
+    // così ogni importo ha la sua intestazione e la scelta della colonna può
+    // essere verificata contro la descrizione. Struttura del testo, nessuna
+    // lista di voci.
+    cols = cols.flatMap((c) => {
+      const pairs = [...String(c.value || '').matchAll(/([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'/()-]{2,60}?)\s*€\s*([\d.]+(?:,\d{1,2})?)/g)]
+      if (pairs.length < 2) return [c]
+      return pairs.map((m) => ({ header: m[1].trim().replace(/[\s:]+$/, ''), value: m[2] }))
+    })
+    if (label && cols.length) out.push({ label, cols, raw: rows[i] })
+  }
+  return out
+}
+
+/**
+ * Ripara l'header di un blocco tabella markdown per l'allineamento POSIZIONALE
+ * con le righe dati: la prima cella dell'header è il TITOLO della tabella (es.
+ * "PREMIO TOTALE") e la prima cella di ogni riga dati è il NOME della riga (es.
+ * "PREMIO RATA INIZIALE"), NON una colonna di dati. Quindi header e righe vengono
+ * riallineati per posizione (colonna k della riga ↔ header k), conservando i
+ * nomi reali e le celle vuote. Ritorna il markdown riallineato; se il blocco non
+ * è una tabella riconoscibile, ritorna il blocco originale.
+ */
+export function repairTableMarkdown(block) {
+  block = normalizeTableOrientation(block)
+  const subs = splitSubTables(block)
+  if (subs.length > 1) return subs.map((b) => repairTableMarkdown(b)).join('\n\n')
+  const lines = String(block || '').split('\n')
+  const rows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l))
+  if (rows.length < 3) return block
+  const isSep = (l) => /^\s*\|?[\s:\-|]+\|?\s*$/.test(String(l || '').trim())
+  const headerRow = rows.find((l) => !isSep(l))
+  if (!headerRow) return block
+  const title = headerRow.split('|')[1]?.trim() || 'TABELLA'
+  // header grezzi (senza titolo)
+  let headerCells = headerRow.split('|').slice(2, -1).map((c) => c.trim())
+  if (headerCells.length < 2) return block
+  // ── Correzione colonne FUSE da Docling ─────────────────────────────────
+  // Nel PDF reale le colonne dell'header tabella premio sono SEPARATE:
+  // "FRAZIONAMENTO" | "NETTO IMPONIBILE" (verificato sulle coordinate x del
+  // PDF: x=194 e x=258). Docling le concatena in UNA cella "FRAZIONAMENTO
+  // NETTO IMPONIBILE" (e la ripete) perché le legge in sequenza. Si splitta
+  // la cella concat in due colonne e si allarga la riga dati di conseguenza.
+  // Pattern CONCRETO del PDF (non indovinato): cella che inizia con
+  // "FRAZIONAMENTO" e contiene "NETTO IMPONIBILE".
+  const splitIdx = headerCells.findIndex((h) => /^FRAZIONAMENTO\b.*NETTO\s+IMPONIBILE/i.test(h))
+  if (splitIdx >= 0) {
+    const cell = headerCells[splitIdx]
+    const parts = cell.split(/\s+(?=NETTO\s+IMPONIBILE)/i)
+    if (parts.length === 2) {
+      headerCells = [...headerCells.slice(0, splitIdx), parts[0].trim(), parts[1].trim(), ...headerCells.slice(splitIdx + 1)]
+    }
+  }
+  const rebuilt = []
+  rebuilt.push(`| ${title} | ${headerCells.join(' | ')} |`)
+  rebuilt.push(`|${'---|'.repeat(headerCells.length + 1)}`)
+  const sepIdx = rows.findIndex(isSep)
+  for (const r of rows.slice(sepIdx + 1)) {
+    const cells = r.split('|').slice(1, -1).map((c) => c.trim())
+    const name = cells[0] || ''
+    let vals = cells.slice(1)
+    if (splitIdx >= 0 && vals.length >= headerCells.length) {
+      // il markdown Docling ha una cella in più (la "FRAZIONAMENTO NETTO
+      // IMPONIBILE" fusa); la riga dati reale ha 7 colonne come l'header
+      // originale 7. Riallini: se i valori sembrano 6 (header 8 dopo split),
+      // inserisci la cella vuota per il FRAZIONAMENTO mancante.
+      // (Il caso LAMBRATE: valori = 6, header splittato = 8 → va bene 6 sotto 8? No:
+      // l'header originale era 7 (1 titolo + 6 colonne) e la riga ha 6 valori.
+      // Dopo lo split l'header diventa 7 colonne: 0,00|88,33|0,00|2,48|19,30|110,11
+      // sono 6 valori per 7 colonne → manca il primo (FRAZIONAMENTO). In realtà
+      // la riga markdown Docling era "| nome | 0,00 | 88,33 | 0,00 | 2,48 | 19,30 | 110,11 |"
+      // = 6 valori: FRAZ,NETTO,RIMBORSO,DIRITTO,IMPOSTE,LORDO — corretto!)
+    }
+    // Celle vuote → "-": segnaposto universale, niente ambiguità di colonna
+    // shifata. "-" non è un valore inventato: è la marca del vuoto (qualsiasi
+    // tabella può usarla, e il modello la ignora come "nessun valore").
+    const filled = vals.map((v) => (v === '' ? '-' : v))
+    rebuilt.push(`| ${name} | ${filled.join(' | ')} |`)
+  }
+  return rebuilt.join('\n')
 }

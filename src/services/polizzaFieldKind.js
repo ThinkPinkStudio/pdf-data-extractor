@@ -255,6 +255,46 @@ export function inferKindFromDescription(description) {
  * Ritorna una chiave canonica di FIELD_KINDS o null. MAI 'text' a default pieno:
  * 'text' di default lascerebbe i numeri passare sui campi di anagrafica.
  */
+/**
+ * La descrizione pone una DOMANDA di verifica ("Verifica se sono coperti…",
+ * "Indica se è previsto…"): la risposta è un giudizio Sì/No che non compare
+ * letteralmente nel testo. Per questi campi l'unica prova possibile è la
+ * citazione ("evidenza") della clausola: lo schema la rende OBBLIGATORIA e il
+ * controllo di evidenza la pretende nel testo. Decide la descrizione.
+ */
+export function descriptionAsksVerification(description) {
+  const dlow = String(description || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return /^(?:verifica|indica|specifica|controlla|dichiara|riporta)\s+se\b/.test(dlow)
+}
+
+/**
+ * Risposte AMMESSE da una descrizione di VERIFICA ("Verifica se…"): le parole
+ * singole citate tra virgolette ('Sì', 'No', 'presente', 'escluso'), nell'ordine
+ * e nella grafia della descrizione; vuoto (null) è sempre ammesso. Lista vuota
+ * se la descrizione non pone una verifica o non cita risposte. Solo parole di
+ * 2-12 lettere: gli apostrofi del testo ("oggetto dell'assicurazione") non
+ * sono citazioni.
+ */
+export function verificationAnswers(description) {
+  if (!descriptionAsksVerification(description)) return []
+  const out = []
+  const seen = new Set()
+  for (const m of String(description || '').matchAll(/['"«]([A-Za-zÀ-ÿ]{2,12})['"»]/g)) {
+    const k = m[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (seen.has(k)) continue
+    seen.add(k); out.push(m[1])
+  }
+  return out
+}
+
+/** Grafia canonica (della descrizione) di una risposta di verifica, o null se non ammessa. */
+export function canonicalVerificationAnswer(description, value) {
+  const answers = verificationAnswers(description)
+  if (!answers.length) return undefined
+  const k = String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return answers.find((a) => a.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === k) || null
+}
+
 export function autoKind(field) {
   if (field == null) return null
   const hasType = field.type != null && String(field.type).trim() !== ''
@@ -264,18 +304,43 @@ export function autoKind(field) {
   }
   const fromDesc = inferKindFromDescription(field.description)
   if (fromDesc) return fromDesc
-  // Label che si auto-descrive come TESTO testuale (per definizione non
-  // numerico): lo "0" e i numeri puri qui sono placeholder, non dati.
-  const l = `${field.label || ''}`
-  const low = ' ' + l.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
-  // Label che si auto-descrive come un campo NON-numerico (natura testuale/
-  // elenco/domanda): lo "0" e i numeri puri qui sono placeholder, non dati.
-  // Lista STRETTA: i tipi di campo RC visti nei profili reali senza prefisso
-  // TESTO (Tacito Rinnovo, Frazionamento, Esclusioni, Condizioni, Visto
-  // leggero, attività, sottolimiti, retroattività, sinistri).
-  if (/(frazionamento|esclusioni|condizioni|tacito rinnovo|sottolimiti|estensioni|attivita|professione|retroattivita|sinistri|clausole|visto leggero|garanzie|prestazioni|scoperti|opzioni|elenco)/.test(low)) {
+  // Descrizione che pone una DOMANDA ("Verifica se sono coperti…", "Indica se
+  // la polizza comprende…"): la risposta è un testo (Sì/No, presente, escluso,
+  // una clausola), MAI un importo nudo — salvo che la stessa descrizione chieda
+  // di riportare massimali/limiti/importi. Sul GUFFANTI/Saporiti l'imposta
+  // 654,40 finiva su sei campi "Verifica se…" perché nessuna regola li
+  // riconosceva come testuali (type 'text' non basta: è il default storico).
+  const dlow = String(field.description || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/^(?:verifica|indica|specifica|controlla|dichiara)\s+se\b/.test(dlow) && !/riport\w*\s+(?:i\s+|il\s+|gli\s+|le\s+|l')?(?:massimal|limit|import|somm|valor)/.test(dlow)) {
     return 'text'
   }
+  // TESTO per ESEMPI: la descrizione porta esempi "(es. Retribuzioni o
+  // Fatturato)" fatti di sole PAROLE (nessuna cifra, e non dice "oppure un
+  // importo/numero"): il campo è testuale, un numero puro è il dato sbagliato
+  // (EULIP: "Parametro di regolazione" = 0,41, cioè il tasso).
+  const exWords = dlow.match(/\(es\.?\s*([^)]*)\)/)
+  if (exWords && !/\d/.test(exWords[1]) && /[a-z]{3,}/.test(exWords[1]) && !/import|numer|cifr|somm|valor/.test(exWords[1])) {
+    return 'text'
+  }
+  // NUMERO per DESCRIZIONE: la descrizione parla di un importo/imposta/massimale
+  // e porta un esempio numerico "(es. 49,05)" → è un numero, qualunque sia la
+  // label. Nel profilo RC V3 i campi etichettati "Frazionamento" e "Tacito
+  // Rinnovo" chiedono in realtà premio imponibile e imposte: la lista delle
+  // label li marcava TESTO e i loro importi venivano scartati. La descrizione
+  // vince sulla label (Regola 1). Una descrizione che dice "come TESTO"/"parola"
+  // resta testuale.
+  // Esempio numerico anche in ELENCO: "(es. 49,05, 137,67)", "(es. 2.500.000,00,
+  // 5.000.000)". Prima serviva un solo numero e con due la regola non scattava:
+  // il campo cadeva nella vecchia lista di label e "137,67" veniva scartato.
+  if (/\b(importo|cifra|somma|massimale|imposta|imposte|imponibile|franchigia|scoperto|fatturato|capitale|premio\s+(?:lordo|netto|imponibile|totale|annuo))\b/.test(dlow)
+      && /\(es\.?\s*[€\s]*\d[\d.,\s€]*\)/.test(dlow)
+      && !/\btesto\b|come testo|\bparola\b|si\/no/.test(dlow)) {
+    return 'number'
+  }
+  // [13/09/2026] Tolta la lista di LABEL ("frazionamento", "tacito rinnovo",
+  // "esclusioni"…) che marcava il campo come testuale: la label non guida mai
+  // l'estrazione (Regola 1) e in RC V3 le label "Frazionamento"/"Tacito
+  // Rinnovo" chiedono imponibile e imposte. Decide solo la descrizione.
   return null
 }
 
@@ -330,6 +395,14 @@ export function fieldNatura(field) {
     .split(/\b(?:non\s+confonder\w*|non\s+riutilizz\w*|non\s+deve\w*|non\s+pu[oò]\w*|non\s+[èe]\b|mai\b|evitare\b|es\.|esempi\w*)\b/i)[0]
   const blob = `${String(field.label || '')} ${descCut}`
   const low = ' ' + String(blob).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+  const labelLow = ' ' + String(field.label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+
+  // FRANCHIGIA / SCOPERTO: la LABEL è il segnale primario. Un campo la cui
+  // label dice "Franchigia"/"Scoperto" è franchigia/scoperto anche se la
+  // descrizione cita "massimale" in contrapposizione ("NON il massimale"):
+  // la citazione negativa NON deve riclassificarlo come massimale.
+  if (/franchig/i.test(labelLow)) return 'franchigia'
+  if (/scopert/i.test(labelLow)) return 'scoperto'
 
   // Massimali: la grandezza specifica vince sul generico "massimale".
   if (low.includes('massimale')) {
@@ -341,10 +414,13 @@ export function fieldNatura(field) {
       ['per prestatore', 'massimale_prestatore'],
       ['prestatore', 'massimale_prestatore'],
       ['danni materiali', 'massimale_danni'],
-      ['danni', 'massimale_danni'],
+      // "per sinistro"/"singolo sinistro"/"ogni sinistro" PRIMA del "danni"
+      // nudo: una descrizione di un massimale PER SINISTRO può citare i
+      // "danni cagionati dagli Assicurati" e NON è un massimale danni.
       ['per sinistro', 'massimale_sinistro'],
       ['singolo sinistro', 'massimale_sinistro'],
       ['ogni sinistro', 'massimale_sinistro'],
+      ['danni', 'massimale_danni'],
     ]
     for (const [pat, kind] of spec) {
       if (low.includes(pat)) return kind
@@ -353,18 +429,41 @@ export function fieldNatura(field) {
     return 'massimale'
   }
 
+  // PREMI / IMPOSTA / ATTIVITÀ: la LABEL è il segnale primario.
+  // Un campo la cui label dice "Imposte/Imposta" è imposta anche se la
+  // descrizione cita il "PREMIO TOTALE" della tabella del premio (GUFFANTI:
+  // "Imposte … nella tabella 'PREMIO TOTALE NETTO IMPONIBILE …'"). Allo stesso
+  // modo un campo "Premio lordo/totale" resta premio_totale anche se la
+  // descrizione cita "imposte". Solo se la label non è parlante si ricade
+  // sulla descrizione, e SOLO per i prefissi chiari (mai una citazione di
+  // contesto). Questo evita che la presenza delle parole "imposte"/"attività"
+  // nella descrizione riclassifichi un campo di natura diversa.
+  if (/\bimpost/i.test(labelLow)) return 'imposta'
+  if (/premio\s+imponib/i.test(labelLow)) return 'premio_imponibile'
+  if (/premio\s+(?:lordo|totale|annuo)/i.test(labelLow)) return 'premio_totale'
+  // Descrizione con prefisso ESPLICITO (all'inizio): "PREMIO IMPONIBILE…",
+  // "PREMIO LORDO…" → natura premio. Una citazione a metà ("la colonna
+  // 'PREMIO TOTALE'") NON è un prefisso e non deve riclassificare.
+  if (/^[^.,;:]*premio\s+imponib/i.test(low)) return 'premio_imponibile'
+  if (/^[^.,;:]*premio\s+(?:lordo|totale|annuo)/i.test(low)) return 'premio_totale'
+  if (/\bimpost/i.test(low)) return 'imposta'
   if (/franchig/i.test(low)) return 'franchigia'
   if (/scopert/i.test(low)) return 'scoperto'
-
-  if (/premio\s+(?:lordo|totale|annuo)/i.test(low)) return 'premio_totale'
-  if (/premio\s+imponib/i.test(low)) return 'premio_imponibile'
-
-  if (/\bimpost/i.test(low)) return 'imposta'
   if (/\btass/i.test(low)) return 'tasso'
   if (/parametro\s+regolaz/i.test(low) || /\bparametro\b/i.test(low)) return 'parametro'
   if (/importo\s+preventiv/i.test(low) || /preventiv/i.test(low)) return 'importo_preventivo'
   if (/fatturat/i.test(low)) return 'fatturato'
-  if (/attivit|professione/i.test(low)) return 'attivita'
+  // ATTIVITÀ / BISOGNI: la LABEL è il segnale primario. Un campo la cui label
+  // dice "Bisogni assicurativi" NON è "attività" anche se la descrizione
+  // elenca "Tutela della propria attività professionale" tra i bisogni
+  // (GUFFANTI: campo_j3byrdl). Allo stesso modo una label "Garanzie scelte"
+  // non è "attività". La descrizione conta solo per i campi la cui label
+  // dichiara esplicitamente l'attività/professione.
+  if (/\bbisogn/i.test(labelLow)) return 'bisogni'
+  if (/\battivit|professione/i.test(labelLow)) return 'attivita'
+  // "attività" con confine di PAROLA: NON deve matchare "Retroattività" né
+  // "Data retroattività" (che sono la retroattività, non l'attività assicurata).
+  if (/\battivit|professione/i.test(low)) return 'attivita'
 
   return null
 }

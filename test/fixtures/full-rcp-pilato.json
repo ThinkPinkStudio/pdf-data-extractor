@@ -1,0 +1,141 @@
+{
+  "id": "rcp-pilato",
+  "label": "Pilato Franco BL05000049 (XL) — golden completo 35 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "BL05000049",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "XL Insurance Company SE",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "Pilato Franco",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "02698680150",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "Via G.B. Pirelli",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "Assita",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "09/11/2017",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "09/11/2018",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "600,61",
+      "mode": "amount",
+      "note": "descrizione del campo = imposte"
+    },
+    "Premio lordo": {
+      "value": "3.300,00",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "2.699,39",
+      "mode": "amount",
+      "note": "descrizione del campo = premio imponibile"
+    },
+    "Professione dichiarata": {
+      "value": "Avvocato",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "text"
+    },
+    "Massimale per sinistro": {
+      "value": "2.500.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "2.500.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "1.500,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sottolimiti": {
+      "value": "150.000",
+      "mode": "contains"
+    },
+    "Estensioni operative": {
+      "value": "Perdita di Documenti",
+      "mode": "contains"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Progettazione / DL": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Custodia documenti / valori": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Incarichi giudiziari": {
+      "value": "Sì",
+      "mode": "yes"
+    }
+  },
+  "nonVerificati": [
+    "Esclusioni particolari",
+    "Condizioni particolari",
+    "Visto leggero"
+  ]
+}

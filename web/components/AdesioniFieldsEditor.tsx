@@ -22,7 +22,7 @@ export default function AdesioniFieldsEditor({
   const t = useT()
   const upd = (i: number, patch: Partial<AdesioniField>) => onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)))
   const del = (i: number) => onChange(fields.filter((_, j) => j !== i))
-  const add = () => onChange([...fields, { id: `campo_${Date.now()}`, label: t('ad.fieldsEditor.newField'), group: 'contraente', type: 'text', enabled: true, flussoCol: '', trackCol: '', docx: '' }])
+  const add = () => onChange([...fields, { id: (crypto.randomUUID ? crypto.randomUUID() : `campo_${Date.now()}`), label: t('ad.fieldsEditor.newField'), group: 'contraente', type: 'text', enabled: true, flussoCol: '', trackCol: '', docx: '' }])
 
   const parseOptions = (text: string): AdesioniOption[] =>
     text.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {

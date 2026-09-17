@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useConfirmPanel } from './ConfirmPanel'
 
-// Pannello «Profili salvati» del Comparatore, condiviso dalle pagine ma NON
-// condiviso nei contenuti: ogni pagina passa la propria chiave di impostazioni
-// e il proprio snapshot. La Comparazione salva chiavi di abbinamento + fuzzy,
-// il Confronto righe le condizioni di abbinamento/filtro. Caricare un profilo
-// di una pagina non tocca mai i criteri dell'altra.
+// Pannello «Profili salvati» del Comparatore (blocco unico in Configurazione).
+// Chi lo usa passa la chiave di impostazioni e lo snapshot dei criteri. Con
+// `legacyKey` + `convertLegacy` mostra anche i profili di una chiave storica
+// (es. quelli del vecchio Confronto righe) convertiti: alla prima modifica
+// della lista finiscono salvati sotto `settingsKey`, nessuno va perso.
 export default function CompareProfiles<T>({
   settingsKey,
   fileName,
@@ -14,6 +15,10 @@ export default function CompareProfiles<T>({
   onLoad,
   parseSingle,
   hint,
+  legacyKey,
+  convertLegacy,
+  legacySuffix = ' (vecchio profilo)',
+  showJson = true,
 }: {
   settingsKey: string
   fileName: string
@@ -24,10 +29,16 @@ export default function CompareProfiles<T>({
   // di profili (es. export del desktop). Restituisce il profilo o null.
   parseSingle?: (parsed: unknown) => T | null
   hint?: string
+  legacyKey?: string
+  convertLegacy?: (legacy: unknown) => T | null
+  legacySuffix?: string
+  // false = niente «Esporta JSON» / «Importa JSON» (nascosti in Configurazione)
+  showJson?: boolean
 }) {
   const [profiles, setProfiles] = useState<Record<string, T>>({})
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2500) }
 
   useEffect(() => {
@@ -37,11 +48,22 @@ export default function CompareProfiles<T>({
       .then((d: Record<string, unknown>) => {
         if (!alive) return
         const p = d[settingsKey]
-        if (p && typeof p === 'object') setProfiles(p as Record<string, T>)
+        const own = p && typeof p === 'object' ? (p as Record<string, T>) : {}
+        const merged: Record<string, T> = { ...own }
+        const legacy = legacyKey ? d[legacyKey] : null
+        if (legacy && typeof legacy === 'object' && convertLegacy) {
+          for (const [n, lp] of Object.entries(legacy as Record<string, unknown>)) {
+            const conv = convertLegacy(lp)
+            if (!conv) continue
+            const name = merged[n] ? n + legacySuffix : n
+            if (!merged[name]) merged[name] = conv
+          }
+        }
+        setProfiles(merged)
       })
       .catch(() => {})
     return () => { alive = false }
-  }, [settingsKey])
+  }, [settingsKey, legacyKey, convertLegacy, legacySuffix])
 
   async function persist(next: Record<string, T>) {
     setProfiles(next)
@@ -57,7 +79,7 @@ export default function CompareProfiles<T>({
     if (!n) return
     const snap = snapshot()
     if (!snap) return
-    if (profiles[n] && !window.confirm(`Sovrascrivere il profilo «${n}»?`)) return
+    if (profiles[n] && !(await askConfirm(`Sovrascrivere il profilo «${n}»?`, { okLabel: 'Sovrascrivi' }))) return
     await persist({ ...profiles, [n]: snap })
     setName('')
     flash(`Profilo «${n}» salvato.`)
@@ -71,7 +93,7 @@ export default function CompareProfiles<T>({
   }
 
   async function remove(n: string) {
-    if (!window.confirm(`Eliminare il profilo «${n}»?`)) return
+    if (!(await askConfirm(`Eliminare il profilo «${n}»?`, { okLabel: 'Elimina', danger: true }))) return
     const next = { ...profiles }
     delete next[n]
     await persist(next)
@@ -112,6 +134,7 @@ export default function CompareProfiles<T>({
 
   return (
     <div className="card" style={{ marginBottom: 16 }}>
+      {confirmPanel}
       <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: hint ? 4 : 14 }}>Profili salvati</h2>
       {hint && <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>{hint}</p>}
       <div style={{ display: 'flex', gap: 8, marginBottom: names.length ? 12 : 0, flexWrap: 'wrap' }}>
@@ -123,11 +146,15 @@ export default function CompareProfiles<T>({
           style={{ flex: 1, minWidth: 180 }}
         />
         <button className="btn btn-secondary" onClick={saveAs} disabled={!name.trim()}>Salva come profilo</button>
-        <button className="btn btn-secondary" onClick={exportJson} disabled={!names.length}>Esporta JSON</button>
-        <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-          Importa JSON
-          <input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => { importJson(e.target.files?.[0]); e.target.value = '' }} />
-        </label>
+        {showJson && (
+          <>
+            <button className="btn btn-secondary" onClick={exportJson} disabled={!names.length}>Esporta JSON</button>
+            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+              Importa JSON
+              <input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => { importJson(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+          </>
+        )}
       </div>
       {names.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

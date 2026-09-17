@@ -209,3 +209,20 @@ test('OCR: il massimale del documento scansionato 2025 vince sul testo 2023', ()
   assert.equal(shouldReplaceValue('31/12/2023', visionDate), true)  // 2025 > 2023 → sostituisce
   assert.equal(shouldReplaceValue('31/12/2025', '31/12/2023'), false) // e non torna indietro
 })
+
+test('normalizeDateValue: anno a due cifre (quietanze "Dal 31/01/26 al 31/01/27") e anni impossibili', () => {
+  assert.equal(normalizeDateValue('31/01/26'), '31/01/2026')
+  assert.equal(normalizeDateValue('31.01.26'), '31/01/2026')
+  assert.equal(normalizeDateValue('01/01/99'), '01/01/1999')
+  // "31/01/2631": il modello completava l'anno a 4 cifre con le cifre successive del testo
+  assert.equal(normalizeDateValue('31/01/2631'), null)
+  assert.equal(normalizeDateValue('31/01/0026'), null)
+  assert.equal(normalizeDateValue('16/12/2024'), '16/12/2024')
+})
+
+test('latestDateExcludingEmission: anno a 2 cifre solo in righe di periodo, mai da numeri di telefono o codici', () => {
+  assert.equal(latestDateExcludingEmission('Premio dovuto per il periodo\nDal              al 16/12/25 16/12/26'), '16/12/2026')
+  assert.equal(latestDateExcludingEmission('Tel. 045 8372611 - Fax 045 8300010\ncodice 00/84/90 sez. I'), null)
+  assert.equal(latestDateExcludingEmission('DECORRENZA 04/06/2025 SCADENZA 04/06/2026'), '04/06/2026')
+  assert.equal(latestDateExcludingEmission('pratica 12/34/26 e riferimento 99/99/2026'), null, 'giorno/mese fuori calendario non sono date')
+})

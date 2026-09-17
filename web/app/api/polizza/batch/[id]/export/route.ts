@@ -34,6 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     { header: 'Dossier', key: '_dossier', width: 42 },
     { header: 'Stato', key: '_status', width: 14 },
     { header: 'Errore', key: '_error', width: 30 },
+    { header: 'Pertinenza', key: '_precheck', width: 48 },
     ...fieldOrder.map((id) => ({ header: labelById.get(id) || id, key: id, width: 24 })),
   ]
   ws.getRow(1).font = { bold: true }
@@ -44,6 +45,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       _dossier: j.dossier_name || j.id,
       _status: j.status,
       _error: j.error || '',
+      _precheck: typeof (j.precheck as any)?.summary === 'string' ? (j.precheck as any).summary : '',
     }
     for (const id of fieldOrder) row[id] = values[id] ?? ''
     ws.addRow(row)

@@ -30,6 +30,16 @@ export interface PolizzaProfile {
   // Parole del CONTENUTO da EVITARE: se una compare nel TESTO OCR, il job viene
   // SCARTATO (status 'mismatch' → "Procedi comunque") senza fare la full run.
   contentExcludeKeywords?: string
+  // COME RICONOSCERLA: testo libero scritto dall'utente che descrive il tipo di
+  // polizza ("tutela legale DAS: spese legali, massimale per sinistro e per
+  // anno, pacchetti…"). Confrontato semanticamente (bge-m3) con le pagine del
+  // fascicolo per scegliere/validare il profilo; se manca, si usano le
+  // descrizioni dei campi. Nessuna soglia: è un confronto tra profili.
+  recognition?: string
+  // ATTIVO (default true se assente: import retrocompatibile). Un profilo non
+  // attivo (in composizione, di test…) è ESCLUSO dal riconoscimento automatico
+  // e dal confronto del pre-controllo; resta selezionabile a mano.
+  enabled?: boolean
   promptExtra?: string
   ocrEnabled?: boolean
   wholeDossier?: boolean
@@ -95,6 +105,11 @@ export interface WebSettings {
   // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
   // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
+  // un fascicolo senza frontespizio di polizza reale (solo informativo/
+  // quietanza) va in 'mismatch'. Usa marcatori hardcoded, quindi resta spenta
+  // salvo scelta esplicita: polizzaRequireValidPolicy=true la attiva.
+  polizzaRequireValidPolicy?: boolean
   // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
   // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):
   // non cambia il comportamento del motore. true = abilitata.
@@ -121,6 +136,9 @@ export interface WebSettings {
   qdrantApiKey?: string
   qdrantCollection?: string
   embeddingModel?: string
+  // Servizio Docling (PDF → markdown strutturato, layout-aware). Vuoto = usa
+  // @firecrawl/pdf-inspector o OCR come prima. Es. http://192.168.37.10:8101
+  doclingUrl?: string
   // Portafoglio Compare (sezione separata: confronto di due Excel). Nessun LLM.
   compareMatchKeys?: MatchKey[]
   compareFuzzyEnabled?: boolean
@@ -128,6 +146,8 @@ export interface WebSettings {
   compareFuzzyIgnoreWords?: string
   compareFuzzyBroadEnabled?: boolean
   compareFuzzyMinOverlapBroad?: number
+  compareFuzzyThresholdLow?: number
+  compareFuzzyThresholdHigh?: number
   compareSearchConditions?: Condition[]
   compareBothMatchConditions?: Condition[]
   compareBothFilterConditions?: Condition[]
@@ -171,7 +191,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled', 'polizzaRequireValidPolicy'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
@@ -218,7 +238,12 @@ export async function getSettings(): Promise<WebSettings> {
     ollamaVisionModel: map.ollamaVisionModel || (isCloudModel(llmModel) ? '' : llmModel) || '',
     polizzaOcrEnabled: bool('polizzaOcrEnabled', true),
     polizzaWholeDossier: bool('polizzaWholeDossier', false),
-    polizzaPerField: bool('polizzaPerField', true),
+    // Motore per-campo (RAG, una domanda per campo) OPT-IN: il default è il
+    // motore a stadi "Gruppi a copertura totale" (CLAUDE.md: vincitore dell'A/B
+    // sul campo; è quello degli script di calibrazione e dei golden). Con il
+    // vecchio default `true` produzione e test giravano su DUE MOTORI DIVERSI
+    // senza che nessuno lo avesse scelto.
+    polizzaPerField: bool('polizzaPerField', false),
     polizzaConstrainedJson: bool('polizzaConstrainedJson', true),
     polizzaWholeDossierModel: map.polizzaWholeDossierModel || '',
     polizzaPromptExtra: map.polizzaPromptExtra ?? '',
@@ -229,11 +254,12 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
-    polizzaBatchContext: map.polizzaBatchContext ? parseInt(map.polizzaBatchContext, 10) || 24576 : 24576,
+    polizzaBatchContext: map.polizzaBatchContext ? Math.min(parseInt(map.polizzaBatchContext, 10) || 8192,  8192) : 8192,
     polizzaAutoVerify: bool('polizzaAutoVerify', false),
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
-    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'off') as WebSettings['polizzaPrecheckMode'],
+    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'semantic') as WebSettings['polizzaPrecheckMode'],
+    polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
@@ -247,6 +273,8 @@ export async function getSettings(): Promise<WebSettings> {
     qdrantApiKey: map.qdrantApiKey ?? (process.env.QDRANT_API_KEY || ''),
     qdrantCollection: map.qdrantCollection || 'documenti',
     embeddingModel: map.embeddingModel || 'bge-m3',
+    // Servizio Docling (PDF → markdown). Vuoto = fallback pdf-inspector/OCR.
+    doclingUrl: map.doclingUrl || (process.env.DOCLING_URL || ''),
     // Portafoglio Compare — tutta configurazione persistita nel DB (nessun default env).
     compareMatchKeys: json<MatchKey[]>('compareMatchKeys'),
     compareFuzzyEnabled: bool('compareFuzzyEnabled', true),
@@ -254,6 +282,8 @@ export async function getSettings(): Promise<WebSettings> {
     compareFuzzyIgnoreWords: map.compareFuzzyIgnoreWords || '',
     compareFuzzyBroadEnabled: bool('compareFuzzyBroadEnabled', true),
     compareFuzzyMinOverlapBroad: map.compareFuzzyMinOverlapBroad ? parseInt(map.compareFuzzyMinOverlapBroad, 10) || 6 : 6,
+    compareFuzzyThresholdLow: map.compareFuzzyThresholdLow ? (Number.isFinite(parseInt(map.compareFuzzyThresholdLow, 10)) ? parseInt(map.compareFuzzyThresholdLow, 10) : 50) : 50,
+    compareFuzzyThresholdHigh: map.compareFuzzyThresholdHigh ? (Number.isFinite(parseInt(map.compareFuzzyThresholdHigh, 10)) ? parseInt(map.compareFuzzyThresholdHigh, 10) : 80) : 80,
     compareSearchConditions: json<Condition[]>('compareSearchConditions'),
     compareBothMatchConditions: json<Condition[]>('compareBothMatchConditions'),
     compareBothFilterConditions: json<Condition[]>('compareBothFilterConditions'),

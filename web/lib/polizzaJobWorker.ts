@@ -35,6 +35,65 @@ async function appendLog(job: JobRow, line: string, logs: string[]) {
   await updateJob(job.id, { logs })
 }
 
+// Chiama il microservizio Docling (POST /parse) e ritorna il markdown estratto
+// dal PDF. Lancia se Docling non risponde o non produce testo.
+// Testo REALE del markdown: tolte immagini-marcatori (<!-- image -->), sintassi
+// markdown (#, |, ---), spazi. Un PDF SCANSIONATO con Docling do_ocr=False
+// produce solo marcatori: "length > 50" lo scambiava per testo (con do_ocr=False
+// e PDF scansionati è il caso normale) → OCR saltato → precheck che vede vuoto e
+// blocca ("rilevato: image" / "cartella senza polizza valida" su scansionati).
+// Richiede una quantità minima di testo vero; sotto quella, si degrada a OCR.
+function usableMarkdown(md: string): string {
+  const clean = String(md || '')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/[#>*|_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return clean.length >= 150 ? String(md).trim() : ''
+}
+
+// Ritorna il markdown intero e, se il servizio lo produce, il markdown PER
+// PAGINA (allineato alle pagine del PDF): il motore lo affianca alla griglia
+// spaziale pagina per pagina. Un servizio vecchio (pages = [blob]) resta valido.
+async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<{ markdown: string; pages: string[] }> {
+  const base = String(doclingUrl).replace(/\/+$/, '')
+  const res = await fetch(`${base}/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: 'documento.pdf', content_base64: pdfBuf.toString('base64') }),
+    signal: AbortSignal.timeout(300000), // PDF lunghi: Docling può impiegare minuti
+  })
+  if (!res.ok) throw new Error(`Docling HTTP ${res.status}`)
+  const j = (await res.json()) as { markdown?: string; pages?: string[] }
+  const md = String(j.markdown || '').trim()
+  if (md.length <= 50) throw new Error('Docling: markdown vuoto o troppo corto')
+  const pages = Array.isArray(j.pages) && j.pages.length > 1 ? j.pages.map((p) => String(p || '')) : [md]
+  return { markdown: md, pages }
+}
+
+// Griglia SPAZIALE per pagina dal text layer (pdfjs → buildSpatialPage): le
+// colonne/tabelle restano allineate per coordinate REALI. Il motore staged le
+// spezza in batch che entrano nel contesto (8192): il markdown Docling da solo
+// è UN blob unico (decine di KB) che NON ci sta e i dati restano fuori
+// contesto (visto in produzione: recupero che risponde null, 2/23).
+// La funzione vive in src/services/pdfTextLayer.js: STESSO codice per worker,
+// script di calibrazione e test (prima era copiato in quattro posti).
+// Ritorna null se il PDF non si apre o nessuna pagina ha text layer (scansione):
+// in quel caso il chiamante NON deve passare spatialPages vuote al motore
+// (pagine vuote = niente prompt), ma usare il markdown o l'OCR.
+async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
+  try {
+    const { spatialPagesFromPdf: fromPdf, hasTextLayer } = await importSharedService<{
+      spatialPagesFromPdf: (b: Buffer) => Promise<string[]>
+      hasTextLayer: (p: string[]) => boolean
+    }>('pdfTextLayer.js')
+    const pages = await fromPdf(pdfBuf)
+    return hasTextLayer(pages) ? pages : null
+  } catch {
+    return null // pdfjs non disponibile/fallito → il worker usa solo il markdown
+  }
+}
+
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)
@@ -189,6 +248,17 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // Pagine per documento (testo OCR): servono all'indice vettoriale, che salva
   // ogni chunk con file+pagina come metadati.
   const docsForIndex: { name: string; pages: string[]; hash?: string }[] = []
+  // Testo PIATTO per il pre-check (filtro parole chiave): SEPARATO da
+  // docsForIndex. L'estrazione usa il markdown Docling (struttura), il filtro
+  // deve vedere il testo PIANO (senza "<!-- image -->", "#", "|"): com'era
+  // prima dell'introduzione del markdown nel worker.
+  const docsFlat: { name: string; pages: string[] }[] = []
+  const toFlat = (pg: string) => String(pg || '')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/^\s{0,4}#{1,6}\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
   let totalPagesProcessed = 0
   let pagesWithText = 0
   let ocrCacheHits = 0
@@ -199,42 +269,136 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // precedenti alla migrazione si calcola al volo (stesso SHA-256).
     const fileHash = files[d].file_hash || hashPdfBase64(files[d].pdf_base64)
 
-    // Cache OCR: lo stesso identico PDF (doppioni tra cartelle, fascicoli
-    // ricaricati, retry) riusa i testi pagina senza rifare render+tesseract.
-    let cachedPages: string[] | null = null
-    try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
-    if (!cachedPages) {
-      // Miss per BUMP DI FORMATO (testo spaziale): dirlo nel log, o in
-      // produzione il ri-OCR di un fascicolo già visto sembra una cache rotta.
+    // ── LETTURA LAYOUT-AWARE (Docling → markdown) PRIMA dell'OCR ───────────
+    // Il servizio Docling (impostazione doclingUrl) produce il markdown del PDF
+    // (tabelle strutturate, colonne/righe) che il modello legge come struttura.
+    // GIRA SEMPRE se configurato; se non c'è o fallisce, si ripiega su
+    // @firecrawl/pdf-inspector e infine sulla cache OCR / OCR storico.
+    const buf = Buffer.from(files[d].pdf_base64, 'base64')
+    let mdDoc = ''
+    let mdPages: string[] = [] // markdown per pagina (Docling), se disponibile
+    const doclingUrl = String(settings.doclingUrl || '').trim()
+    if (doclingUrl) {
       try {
-        if (await hasStaleOcrCache(fileHash)) {
-          await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
-        }
-      } catch { /* solo log, mai bloccante */ }
+        const { markdown: rawMd, pages: rawPages } = await markdownFromDocling(doclingUrl, buf)
+        mdDoc = usableMarkdown(rawMd)
+        if (mdDoc) {
+          mdPages = rawPages.length > 1 ? rawPages : []
+          await appendLog(job, `Markdown Docling per "${docName}" (${mdDoc.length} char${mdPages.length ? `, ${mdPages.length} pagine` : ''})`, logs)
+        } else if (rawMd) await appendLog(job, `Docling su "${docName}": solo marcatori/nessun testo reale (PDF scansionato?) → fallback OCR`, logs)
+      } catch (err: any) {
+        mdDoc = ''
+        await appendLog(job, `Docling fallito per "${docName}": ${err.message || err}`, logs)
+      }
+    } else {
+      await appendLog(job, `Docling NON configurato (doclingUrl vuoto) — fallback OCR per "${docName}"`, logs)
     }
-    if (cachedPages && cachedPages.length) {
-      const docText = cachedPages.filter(Boolean).join('\n')
-      totalPagesProcessed += cachedPages.length
-      pagesWithText += cachedPages.filter((t) => t && t.trim()).length
-      ocrCacheHits++
-      await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
-      await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
-      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
-      docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
-      continue
+    if (!mdDoc) {
+      try {
+        const { processPdf } = await import('@firecrawl/pdf-inspector')
+        const pdfRes = await processPdf(buf)
+        const md = usableMarkdown(pdfRes?.markdown || '')
+        if (md) mdDoc = md
+      } catch { /* pdf-inspector non disponibile: fallback OCR */ }
     }
 
-    const buf = Buffer.from(files[d].pdf_base64, 'base64')
-    let doc
-    try { doc = await loadPdfServer(buf) } catch (err: any) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
-    const totalPages = doc.numPages
+    // Cache OCR: SOLO se il markdown Docling/pdf-inspector non è disponibile.
+    // (PRIMA la cache vinceva su Docling e i PDF già visti non lo usavano mai.)
+    let cachedPages: string[] | null = null
+    if (!mdDoc) {
+      try { cachedPages = await getOcrCache(fileHash) } catch { /* cache mai bloccante */ }
+      if (!cachedPages) {
+        try {
+          if (await hasStaleOcrCache(fileHash)) {
+            await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
+          }
+        } catch { /* solo log, mai bloccante */ }
+      }
+      if (cachedPages && cachedPages.length) {
+        const docText = cachedPages.filter(Boolean).join('\n')
+        totalPagesProcessed += cachedPages.length
+        pagesWithText += cachedPages.filter((t) => t && t.trim()).length
+        ocrCacheHits++
+        await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
+        await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
+        parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
+        docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash })
+        docsFlat.push({ name: docName, pages: cachedPages.map(toFlat) })
+        continue
+      }
+    }
+
+    // Se il markdown (Docling/pdf-inspector) c'è, usalo come struttura. Come nei
+    // test di calibrazione: pages = markdown Docling, spatialPages = griglia
+    // spaziale pdfjs per pagina (le colonne/tabelle allineate per coordinate).
+    // Il motore staged spezza la griglia in batch che entrano nel contesto
+    // (8192) — il markdown da solo (decine di KB in una pagina) NON ci sta e i
+    // dati restano fuori contesto (recupero null, 2/23 in produzione).
+    if (mdDoc) {
+      const docText = mdDoc
+      // Pagine markdown: per pagina se Docling le dà, altrimenti il blocco unico.
+      // In entrambi i casi il MOTORE (normalizeStagedDocInput) le allinea alla
+      // griglia spaziale per contenuto quando il conteggio non coincide: il
+      // blocco unico viene spezzato su confini strutturali (tabelle intere) e
+      // ogni unità va alla pagina della griglia che la contiene. Prima il blob
+      // restava UNA pagina: gate semantico sui primi 2000 char, tutte le tabelle
+      // incollate alla pagina 1 del prompt.
+      const docPages = mdPages.length ? mdPages : [mdDoc]
+      // Griglia spaziale: reperita dalla cache OCR se disponibile, altrimenti
+      // estratta dal PDF (pdfjs). MAI fatale: se non c'è, si usa solo il markdown
+      // (peggio, ma il flusso non si ferma).
+      // Guardia anti-avvelenamento: una versione provvisoria del worker aveva
+      // scritto in cache il MARKDOWN (blob unico) spacciandolo per griglia. Se la
+      // cache è un solo blob e coincide col markdown, NON è una griglia: si
+      // rigenera da pdfjs. (OCR_FORMAT=3 ha già invalidato le voci marce; questa
+      // è difesa in profondità per chi ha una cache scritta da build difettose.)
+      let spatial: string[] | null = null
+      const cachedRaw = await getOcrCache(fileHash).catch(() => null)
+      const cacheIsGrid = !!(cachedRaw && cachedRaw.length && !(cachedRaw.length === 1 && String(cachedRaw[0]).trim() === mdDoc.trim()))
+      if (cacheIsGrid) spatial = cachedRaw
+      else {
+        spatial = await spatialPagesFromPdf(buf)
+        if (spatial) {
+          try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
+        }
+      }
+      totalPagesProcessed += (spatial?.length || docPages.length)
+      pagesWithText++
+      parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
+      docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ...(spatial ? { spatialPages: spatial } : {}) })
+      docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
+      continue
+    }
+    // ── Senza markdown: STESSO percorso testo dei test (pdfjs → griglia) ──────
+    // Il text layer del PDF, quando c'è, è il testo migliore: esatto, con le
+    // colonne allineate per coordinate, e costa millisecondi. L'OCR Tesseract
+    // (minuti, cifre storpiate) si fa SOLO sulle pagine che non hanno testo
+    // (scansioni). Prima, senza Docling, il worker mandava a Tesseract anche i
+    // PDF digitali: in locale i test leggevano il text layer, online no.
+    const textLayer = await spatialPagesFromPdf(buf)
+    const needOcr = textLayer ? textLayer.map((t, i) => (t && t.trim() ? -1 : i + 1)).filter((p) => p > 0) : null
+    let doc: Awaited<ReturnType<typeof loadPdfServer>> | null = null
+    if (!textLayer || needOcr!.length) {
+      try { doc = await loadPdfServer(buf) } catch (err: any) {
+        if (!textLayer) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
+        await appendLog(job, `"${docName}": ${needOcr!.length} pagine senza testo restano vuote (apertura per OCR fallita: ${err.message})`, logs)
+      }
+    }
+    const totalPages = textLayer ? textLayer.length : (doc?.numPages || 0)
     let docText = ''
     const docPages: string[] = []
+    if (textLayer) {
+      const nText = textLayer.filter((t) => t && t.trim()).length
+      await appendLog(job, `Text layer pdfjs per "${docName}": ${nText}/${textLayer.length} pagine con testo${needOcr!.length ? `, ${needOcr!.length} in OCR` : ''}`, logs)
+    }
     try {
       for (let p = 1; p <= totalPages; p++) {
         if (await isCanceled(job.id)) return
         totalPagesProcessed++
         await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: p, pageTotal: totalPages, docName, totalPagesProcessed, receivedAt: Date.now() } })
+        const layer = textLayer ? textLayer[p - 1] : ''
+        if (layer && layer.trim()) { docPages.push(layer); docText += '\n' + layer; pagesWithText++; continue }
+        if (!doc) { docPages.push(''); continue }
         let png: string
         try { png = await doc.renderPage(p) } catch (err: any) { await appendLog(job, `SKIP pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push(''); continue }
         try {
@@ -244,7 +408,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         } catch (err: any) { await appendLog(job, `OCR pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push('') }
       }
     } finally {
-      await doc.destroy()
+      if (doc) await doc.destroy()
     }
     // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
     // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
@@ -253,6 +417,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash })
+    docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
   }
   if (ocrCacheHits) await appendLog(job, `Cache OCR: ${ocrCacheHits}/${files.length} documenti riusati (contenuto identico già elaborato)`, logs)
 
@@ -266,33 +431,113 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // chiamata LLM di estrazione). Solo per i job con un profilo scelto; salta
   // se l'utente ha già premuto "Procedi comunque" (precheck.override).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
-  const precheckMode = settings.polizzaPrecheckMode || 'off'
+  const precheckMode = settings.polizzaPrecheckMode || 'semantic'
   // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si degrada al
   // semantico sui field_defs congelati — mai un errore.
-  const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === job.profile_id) || null
-  // Attiva il pre-check di pertinenza quando:
-  //  - lo switch globale è su un metodo (keywords/semantic/llm), OPPURE
-  //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
-  //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off'.
-  const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
-  const shouldPrecheck = job.profile_id && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords)
+// Profilo per il pre-check: quello esplicito del job, altrimenti il profilo
+// ATTIVO globale (i campi congelati nei job senza profile_id derivano da
+// quello). Senza questo fallback i job lanciati dalla pagina bulk senza profilo
+// esplicito (GUFFANTI: fideiussioni/infortuni con i campi globali di TL3)
+// saltavano IL FILTRO e venivano estratti lo stesso.
+// ── PROFILO AUTOMATICO (semantico) ─────────────────────────────────────────
+// Il job è nato dalla pagina bulk col tipo «Automatico»: si classificano i
+// profili salvati per affinità tra le loro DESCRIZIONI dei campi e il testo
+// del fascicolo e si adotta il più affine (le descrizioni sono la verità:
+// cambiano i profili, cambia la classifica; nessuna soglia, nessuna parola
+// fissa). Senza classifica (embeddings giù, nessun profilo) si prosegue coi
+// campi globali, mai un errore.
+let autoAssigned = false
+if (job.profile_id === 'auto') {
+  try {
+    const pcSvc = await importSharedService<{
+      rankProfilesForDocs: (p: any) => Promise<{ id: string; name: string; score: number | null }[]>
+    }>('polizzaPrecheckService.js')
+    // Solo i profili ATTIVI (enabled !== false; assente = attivo, import retrocompatibile).
+    const activeProfiles = (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false)
+    const ranking = await pcSvc.rankProfilesForDocs({ docs: docsFlat, profiles: activeProfiles, settings })
+    const best = ranking.find((r) => typeof r.score === 'number')
+    const chosen = best ? (settings.polizzaProfiles || []).find((p: any) => p.id === best.id) : null
+    const rankStr = ranking.filter((r) => typeof r.score === 'number').map((r) => `${r.name} ${(r.score as number).toFixed(2)}`).join(' · ')
+    if (chosen && best) {
+      const fieldDefs = (chosen.fields || []).filter((f: any) => f.enabled !== false)
+        .map((f: any) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
+      job.profile_id = chosen.id
+      job.profile_name = chosen.name
+      job.field_defs = fieldDefs as any
+      job.prompt_extra = chosen.promptExtra || ''
+      settings.polizzaFields = fieldDefs.map((f: any) => ({ ...f, description: f.description ?? '' }))
+      settings.polizzaPromptExtra = chosen.promptExtra || ''
+      await updateJob(job.id, {
+        profile_id: chosen.id, profile_name: chosen.name, field_defs: fieldDefs, prompt_extra: chosen.promptExtra || '',
+        precheck: { verdict: 'ok', mode: 'semantic', score: best.score, threshold: null, reason: `profilo scelto automaticamente: il più affine al contenuto (${rankStr})`, ranking, at: Math.floor(Date.now() / 1000) },
+      })
+      await appendLog(job, `Profilo automatico (semantico, su ${(ranking[0] as any)?.signal || 'descrizioni dei campi'}): adottato «${chosen.name}» — classifica: ${rankStr}`, logs)
+      autoAssigned = true
+    } else {
+      await appendLog(job, `Profilo automatico: nessuna classifica disponibile (${ranking.length ? 'punteggi assenti' : 'nessun profilo o embeddings non disponibili'}) — si procede coi campi globali`, logs)
+    }
+  } catch (err: any) {
+    await appendLog(job, `Profilo automatico non eseguibile (${err.message}) — si procede coi campi globali`, logs)
+  }
+}
+const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === (job.profile_id || settings.polizzaActiveProfileId)) || null
+// Attiva il pre-check di pertinenza quando:
+//  - c'è un profilo (esplicito o attivo) e lo switch globale è su un metodo
+//    (keywords/semantic/llm), OPPURE
+//  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
+//    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
+//  - oppure è stata ATTIVATA (opt-in) la regola di validità "polizza vera":
+//    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
+const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
+// Default ATTIVO (12/09/2026): senza polizza principale la cartella si accantona con la ragione.
+const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
+const shouldPrecheck = !!profile && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; matched?: string[]; excludeMatched?: string[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null } | null; ranking?: { id: string; name: string; score: number | null }[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
       const pre = await pcSvc.runPrecheck({
-        docs: docsForIndex, fieldDefs: job.field_defs || [], profile,
-        profileName: job.profile_name || profile?.name || '', mode: precheckMode, settings,
+        // FILTRO ed ESTRAZIONE SEPARATI: il filtro parole chiave vede il TESTO
+        // PIATTO (docsFlat), l'estrazione il markdown Docling (docsForIndex).
+        // Il markdown inizia con "<!-- image -->" e metadati → il classificatore
+        // rispondeva "image" e bloccava tutto.
+        docs: docsFlat,
+        fieldDefs: job.field_defs || [], profile,
+        profileName: job.profile_name || profile?.name || '',
+        // Profilo appena scelto dalla classifica semantica: il confronto è già
+        // fatto (restano attive le parole del contenuto del profilo, se ci sono).
+        // Anche col profilo scelto dalla classifica semantica il controllo gira
+        // (è lo stesso confronto: passa per costruzione) così la motivazione
+        // in «Pertinenza» è sempre un verdetto, mai "senza controllo".
+        mode: precheckMode,
+        settings,
+        // Il verdetto semantico è un CONFRONTO tra tutti i profili salvati.
+        allProfiles: (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false),
       })
-      await updateJob(job.id, { precheck: { ...pre, at: Math.floor(Date.now() / 1000) } })
       const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
       const kwsStr = pre.matched?.length ? ` · parole chiave trovate: ${pre.matched.join(', ')}` : ''
-      await appendLog(job, `Pre-check pertinenza [${pre.mode}]: ${pre.verdict}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}`, logs)
+      // MOTIVAZIONE SEMPRE, anche quando il fascicolo è accettato: il perché
+      // (parole trovate, affinità a confronto, classifica dei profili) resta nel
+      // job (precheck.summary), nella pagina Elaborazioni e nell'export, così un
+      // falso positivo si vede e si corregge.
+      const rankStr = (pre.ranking || []).filter((r) => typeof r.score === 'number').slice(0, 3).map((r) => `${r.name} ${(r.score as number).toFixed(2)}`).join(' · ')
+      const falsePos = pre.verdict !== 'mismatch' && pre.suggestion ? ` ⚠ un altro profilo è più affine al contenuto: «${pre.suggestion.name}» — possibile falso positivo` : ''
+      const verdictIt = pre.verdict === 'ok' ? 'accettato' : pre.verdict === 'mismatch' ? 'scartato' : 'accettato senza controllo'
+      const summary = `Pertinenza [${pre.mode}]: ${verdictIt}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}${rankStr ? ` · classifica profili: ${rankStr}` : ''}${falsePos}`
+      await updateJob(job.id, { precheck: { ...pre, summary, at: Math.floor(Date.now() / 1000) } })
+      await appendLog(job, summary, logs)
       if (pre.verdict === 'mismatch') {
+        // Il PERCHÉ, sempre: quali documenti c'erano, cosa manca o quali parole
+        // mancano, e — se esiste — il profilo attivo più affine da usare.
+        const docNames = docsFlat.map((d) => d.name.replace(/^.*[\\/]/, '')).slice(0, 8).join(', ') + (docsFlat.length > 8 ? ` (+${docsFlat.length - 8})` : '')
+        const sugg = pre.suggestion ? ` Profilo suggerito: «${pre.suggestion.name}»${typeof pre.suggestion.score === 'number' && typeof pre.score === 'number' ? ` (affinità ${pre.suggestion.score.toFixed(2)} contro ${pre.score.toFixed(2)})` : ''}.` : ''
+        const missingKw = pre.missing?.length ? ` Parole del profilo non trovate: ${pre.missing.slice(0, 6).join(', ')}.` : ''
         const scarto = pre.excludeMatched?.length
-          ? `Scartato — ${pre.reason}`
-          : `Contenuto non pertinente al profilo "${job.profile_name || job.profile_id}"${detStr ? ` — rilevato: ${detStr}` : ''}. Verifica il profilo o premi "Procedi comunque".`
+          ? `Scartato — ${pre.reason}. Documenti letti: ${docNames}.`
+          : pre.setAside
+            ? `Accantonato — ${pre.reason}. Documenti letti: ${docNames}.${sugg} Se la polizza c'è ma non è stata riconosciuta, premi "Procedi comunque".`
+            : `Non pertinente al profilo "${job.profile_name || job.profile_id}" — ${pre.reason}.${missingKw}${detStr ? ` Rilevato nel testo: ${detStr}.` : ''}${sugg} Documenti letti: ${docNames}. Cambia profilo o premi "Procedi comunque".`
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
           error: scarto,

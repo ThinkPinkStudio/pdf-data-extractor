@@ -1,0 +1,138 @@
+{
+  "id": "rcp-cresta",
+  "label": "Cresta & Associati BLUE053434 (AIG) — golden completo 35 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "BLUE053434",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AIG",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "Cresta",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "11640070014",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "Acaja",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "Assita",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "30/01/2017",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "30/01/2018",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "251,17",
+      "mode": "amount",
+      "note": "descrizione del campo = imposte"
+    },
+    "Premio lordo": {
+      "value": "1.380,00",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "1.128,83",
+      "mode": "amount",
+      "note": "descrizione del campo = premio imponibile"
+    },
+    "Professione dichiarata": {
+      "value": "Avvocato",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "text"
+    },
+    "Massimale per sinistro": {
+      "value": "2.500.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "2.500.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "1.000,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sottolimiti": {
+      "value": "150.000",
+      "mode": "contains"
+    },
+    "Estensioni operative": {
+      "value": "Perdita",
+      "mode": "contains"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Progettazione / DL": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Custodia documenti / valori": {
+      "value": "Sì",
+      "mode": "yes"
+    }
+  },
+  "nonVerificati": [
+    "Esclusioni particolari",
+    "Condizioni particolari",
+    "Visto leggero",
+    "Incarichi giudiziari"
+  ]
+}

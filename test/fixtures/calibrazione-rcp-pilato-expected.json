@@ -1,0 +1,19 @@
+{
+  "id": "rcp-pilato",
+  "label": "Rc Professionale V3 — Pilato Franco (BL05000049)",
+  "fields": {
+    "polizza_numero": { "value": "BL05000049", "mode": "exact" },
+    "compagnia": { "value": "XL Insurance Company SE", "mode": "contains" },
+    "contraente": { "value": "Pilato Franco", "mode": "contains" },
+    "codice_fiscale_iva": { "value": "02698680150", "mode": "vat" },
+    "indirizzo": { "value": "Via G.B. Pirelli", "mode": "contains" },
+    "decorrenza": { "value": "09/11/2017", "mode": "date" },
+    "scadenza": { "value": "09/11/2018", "mode": "date" },
+    "attivita": { "value": "Avvocato", "mode": "contains" },
+    "rcp_massimale_sinistro": { "value": "2.500.000,00", "mode": "amount" },
+    "rcp_massimale_annuo": { "value": "2.500.000,00", "mode": "amount" },
+    "rcp_premio_imponibile": { "value": "2.699,39", "mode": "amount" },
+    "rcp_imposta": { "value": "600,61", "mode": "amount" },
+    "rcp_premio_totale": { "value": "3.300,00", "mode": "amount" }
+  }
+}
