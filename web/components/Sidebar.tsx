@@ -132,9 +132,9 @@ const NAV_EXTRACTOR: NavItem[] = [
 
 const NAV_COMPARE: NavItem[] = [
   { href: '/compare', key: 'nav.cmpCompare', icon: <IconCompare /> },
-  // «Ricerca» e «In Entrambi» sono FUSE in «Confronto righe» (/compare/both):
-  // stessa operazione, due viste (esito per riga / dettaglio corrispondenze).
-  { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconSearch /> },
+  // «Confronto righe» (/compare/both) è confluito nella Comparazione come
+  // modalità «Uguale a»: voce nascosta, la pagina resta nel codice.
+  // { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconSearch /> },
   { href: '/compare/settings', key: 'nav.cmpSettings', icon: <IconSettings /> },
   { href: '/compare/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]

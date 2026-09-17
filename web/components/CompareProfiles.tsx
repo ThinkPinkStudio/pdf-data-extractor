@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useConfirmPanel } from './ConfirmPanel'
 
-// Pannello «Profili salvati» del Comparatore, condiviso dalle pagine ma NON
-// condiviso nei contenuti: ogni pagina passa la propria chiave di impostazioni
-// e il proprio snapshot. La Comparazione salva chiavi di abbinamento + fuzzy,
-// il Confronto righe le condizioni di abbinamento/filtro. Caricare un profilo
-// di una pagina non tocca mai i criteri dell'altra.
+// Pannello «Profili salvati» del Comparatore (blocco unico in Configurazione).
+// Chi lo usa passa la chiave di impostazioni e lo snapshot dei criteri. Con
+// `legacyKey` + `convertLegacy` mostra anche i profili di una chiave storica
+// (es. quelli del vecchio Confronto righe) convertiti: alla prima modifica
+// della lista finiscono salvati sotto `settingsKey`, nessuno va perso.
 export default function CompareProfiles<T>({
   settingsKey,
   fileName,
@@ -15,6 +15,9 @@ export default function CompareProfiles<T>({
   onLoad,
   parseSingle,
   hint,
+  legacyKey,
+  convertLegacy,
+  legacySuffix = ' (vecchio profilo)',
 }: {
   settingsKey: string
   fileName: string
@@ -25,6 +28,9 @@ export default function CompareProfiles<T>({
   // di profili (es. export del desktop). Restituisce il profilo o null.
   parseSingle?: (parsed: unknown) => T | null
   hint?: string
+  legacyKey?: string
+  convertLegacy?: (legacy: unknown) => T | null
+  legacySuffix?: string
 }) {
   const [profiles, setProfiles] = useState<Record<string, T>>({})
   const [name, setName] = useState('')
@@ -39,11 +45,22 @@ export default function CompareProfiles<T>({
       .then((d: Record<string, unknown>) => {
         if (!alive) return
         const p = d[settingsKey]
-        if (p && typeof p === 'object') setProfiles(p as Record<string, T>)
+        const own = p && typeof p === 'object' ? (p as Record<string, T>) : {}
+        const merged: Record<string, T> = { ...own }
+        const legacy = legacyKey ? d[legacyKey] : null
+        if (legacy && typeof legacy === 'object' && convertLegacy) {
+          for (const [n, lp] of Object.entries(legacy as Record<string, unknown>)) {
+            const conv = convertLegacy(lp)
+            if (!conv) continue
+            const name = merged[n] ? n + legacySuffix : n
+            if (!merged[name]) merged[name] = conv
+          }
+        }
+        setProfiles(merged)
       })
       .catch(() => {})
     return () => { alive = false }
-  }, [settingsKey])
+  }, [settingsKey, legacyKey, convertLegacy, legacySuffix])
 
   async function persist(next: Record<string, T>) {
     setProfiles(next)
