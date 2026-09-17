@@ -18,6 +18,7 @@ export default function CompareProfiles<T>({
   legacyKey,
   convertLegacy,
   legacySuffix = ' (vecchio profilo)',
+  showJson = true,
 }: {
   settingsKey: string
   fileName: string
@@ -31,6 +32,8 @@ export default function CompareProfiles<T>({
   legacyKey?: string
   convertLegacy?: (legacy: unknown) => T | null
   legacySuffix?: string
+  // false = niente «Esporta JSON» / «Importa JSON» (nascosti in Configurazione)
+  showJson?: boolean
 }) {
   const [profiles, setProfiles] = useState<Record<string, T>>({})
   const [name, setName] = useState('')
@@ -143,11 +146,15 @@ export default function CompareProfiles<T>({
           style={{ flex: 1, minWidth: 180 }}
         />
         <button className="btn btn-secondary" onClick={saveAs} disabled={!name.trim()}>Salva come profilo</button>
-        <button className="btn btn-secondary" onClick={exportJson} disabled={!names.length}>Esporta JSON</button>
-        <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-          Importa JSON
-          <input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => { importJson(e.target.files?.[0]); e.target.value = '' }} />
-        </label>
+        {showJson && (
+          <>
+            <button className="btn btn-secondary" onClick={exportJson} disabled={!names.length}>Esporta JSON</button>
+            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+              Importa JSON
+              <input type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => { importJson(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+          </>
+        )}
       </div>
       {names.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
