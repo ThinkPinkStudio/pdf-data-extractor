@@ -116,6 +116,7 @@ export default function CompareSettingsPage() {
           legacyKey="compareBothProfiles"
           convertLegacy={convertRowsProfile}
           legacySuffix=" (da Confronto righe)"
+          showJson={false}
         />
 
         {/* Match keys */}
