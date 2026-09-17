@@ -146,6 +146,8 @@ export interface WebSettings {
   compareFuzzyIgnoreWords?: string
   compareFuzzyBroadEnabled?: boolean
   compareFuzzyMinOverlapBroad?: number
+  compareFuzzyThresholdLow?: number
+  compareFuzzyThresholdHigh?: number
   compareSearchConditions?: Condition[]
   compareBothMatchConditions?: Condition[]
   compareBothFilterConditions?: Condition[]
@@ -280,6 +282,8 @@ export async function getSettings(): Promise<WebSettings> {
     compareFuzzyIgnoreWords: map.compareFuzzyIgnoreWords || '',
     compareFuzzyBroadEnabled: bool('compareFuzzyBroadEnabled', true),
     compareFuzzyMinOverlapBroad: map.compareFuzzyMinOverlapBroad ? parseInt(map.compareFuzzyMinOverlapBroad, 10) || 6 : 6,
+    compareFuzzyThresholdLow: map.compareFuzzyThresholdLow ? (Number.isFinite(parseInt(map.compareFuzzyThresholdLow, 10)) ? parseInt(map.compareFuzzyThresholdLow, 10) : 50) : 50,
+    compareFuzzyThresholdHigh: map.compareFuzzyThresholdHigh ? (Number.isFinite(parseInt(map.compareFuzzyThresholdHigh, 10)) ? parseInt(map.compareFuzzyThresholdHigh, 10) : 80) : 80,
     compareSearchConditions: json<Condition[]>('compareSearchConditions'),
     compareBothMatchConditions: json<Condition[]>('compareBothMatchConditions'),
     compareBothFilterConditions: json<Condition[]>('compareBothFilterConditions'),

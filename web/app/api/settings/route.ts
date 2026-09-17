@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyEnabled', 'compareFuzzyMinOverlap', 'compareFuzzyIgnoreWords',
-    'compareFuzzyBroadEnabled', 'compareFuzzyMinOverlapBroad', 'compareSearchConditions', 'compareBothMatchConditions',
+    'compareFuzzyBroadEnabled', 'compareFuzzyMinOverlapBroad', 'compareFuzzyThresholdLow', 'compareFuzzyThresholdHigh', 'compareSearchConditions', 'compareBothMatchConditions',
     'compareBothFilterConditions', 'compareProfiles', 'compareBothProfiles',
     'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniDateOffsetDays',
     'adesioniExportNotify', 'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',

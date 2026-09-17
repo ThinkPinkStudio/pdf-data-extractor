@@ -484,6 +484,19 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Tutela Legale usciva con 23 righe vuote (le chiavi dei valori sono gli id
   dei campi del job). L'export di batch usava già i `field_defs` dei job.
 
+- **Portafoglio Compare: «Uguale a» dentro Comparazione, fuzzy a soglie %**
+  (17/09/2026, richiesta dell'utente): la Comparazione ha DUE bottoni,
+  «Differenze» (storica) e «Uguale a» (ex Confronto righe, sulle chiavi: basta
+  una chiave uguale). Confronto righe, modalità Contiene/Diverso/Non contiene,
+  filtri, nome chiave e «Stessa colonna» sono spariti dalla UI ma restano nel
+  codice. Profili = blocco unico in Configurazione (i vecchi del Confronto
+  righe compaiono convertiti). Trasformazione predefinita «Solo lettere».
+  Somiglianza (`similarity` in `web/lib/compare/engine.ts`) = lettere coperte
+  da tratti comuni di almeno N caratteri consecutivi ÷ lunghezza del valore più
+  lungo, ordine dei pezzi indifferente; sotto la soglia bassa (50) scartata,
+  tra le due «Da verificare», dalla alta (80) «Accettate». Abbinamento 1:1 per
+  punteggio migliore. Test: `test/compareEngine.test.mjs`.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
