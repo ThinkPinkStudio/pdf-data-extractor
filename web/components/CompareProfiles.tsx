@@ -40,6 +40,9 @@ export default function CompareProfiles<T>({
   // lo stesso (grigi, non caricabili) invece di farli sparire senza dirlo.
   const [legacyBroken, setLegacyBroken] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  // Lettura fallita (sessione scaduta, API giù): va DETTA, se no un errore e
+  // «nessun profilo» si vedono uguali e sembra che i profili siano spariti.
+  const [loadError, setLoadError] = useState('')
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
   const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
@@ -48,7 +51,10 @@ export default function CompareProfiles<T>({
   useEffect(() => {
     let alive = true
     fetch('/api/settings')
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(r.status === 401 ? 'sessione scaduta, rientra nell\'app' : `risposta ${r.status}`)
+        return (await r.json()) as Record<string, unknown>
+      })
       .then((d: Record<string, unknown>) => {
         if (!alive) return
         const p = d[settingsKey]
@@ -67,7 +73,7 @@ export default function CompareProfiles<T>({
         setLegacyBroken(broken)
         setProfiles(merged)
       })
-      .catch(() => {})
+      .catch((err: Error) => { if (alive) setLoadError(err.message || 'errore di rete') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [settingsKey, legacyKey, convertLegacy, legacySuffix])
@@ -180,9 +186,15 @@ export default function CompareProfiles<T>({
           </div>
         ))}
         {!names.length && !legacyBroken.length && (
-          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', margin: 0 }}>
-            {loading ? 'Carico i profili…' : 'Nessun profilo salvato: scrivi un nome qui sopra e premi «Salva come profilo» per mettere da parte i criteri attuali.'}
-          </p>
+          loadError ? (
+            <p style={{ fontSize: 12, color: 'var(--c-danger, #f87171)', margin: 0 }}>
+              Non sono riuscito a leggere i profili salvati ({loadError}). Non sono stati cancellati: ricarica la pagina.
+            </p>
+          ) : (
+            <p style={{ fontSize: 12, color: 'var(--c-text-muted)', margin: 0 }}>
+              {loading ? 'Carico i profili…' : 'Nessun profilo salvato in questo ambiente: scrivi un nome qui sopra e premi «Salva come profilo» per mettere da parte i criteri attuali.'}
+            </p>
+          )
         )}
       </div>
       {msg && <div className="alert alert-success" style={{ marginTop: 12 }}>{msg}</div>}
