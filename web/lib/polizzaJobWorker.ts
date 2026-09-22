@@ -432,7 +432,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
   // se l'utente ha già premuto "Procedi comunque" (precheck.override) o ▶ su
   // un abbinamento riuscito (precheck.confirmed).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
-  const precheckMode = settings.polizzaPrecheckMode || 'semantic'
+  const precheckMode = settings.polizzaPrecheckMode || 'llm'
   // «Solo abbinamento» (pagina Bulk / Riabbina): dopo la pertinenza il job si
   // ferma in 'matched' e l'estrazione aspetta il ▶ dell'utente.
   const precheckBase: Record<string, any> = { ...((job.precheck as any) || {}) }

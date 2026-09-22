@@ -526,6 +526,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   skipped → review (`degradeWithoutRecognition`); `effectivePrecheckMode` è
   l'unica regola del modo effettivo (prima modo semantic + parole → «accettato
   senza controllo»). Niente «punteggio» nelle motivazioni (numeri solo nel log).
+  **Impostazioni GLOBALI in Impostazioni tecniche** (22/09/2026, richiesta
+  dell'utente): la card «Verifica e qualità estrazione» (modello fascicolo
+  intero, passate di consenso, campi da verificare, modello arbitro, strategia
+  a stadi `polizzaStagedCascade`, pre-controllo `polizzaPrecheckMode`) sta in
+  `settings/technical` e si salva col pulsante della pagina (tolta da
+  `EDITOR_KEYS` lì); non è più nella card dei campi polizza, dove sembrava
+  una proprietà del profilo. **Default del pre-controllo = `llm`**
+  («Classificazione col modello AI»); il valore salvato nel DB vince.
   Bozze dei testi in `polizze_test/profili-polizza-riconoscimento.json`
   (import per id). Misura: `node scripts/pertinenza-eval.mjs` contro
   `test/fixtures/pertinenza-expected.json` (13 posizioni; `--no-recognition

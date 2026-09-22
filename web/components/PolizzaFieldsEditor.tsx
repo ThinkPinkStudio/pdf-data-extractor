@@ -67,16 +67,8 @@ export default function PolizzaFieldsEditor() {
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
-  // Verifica/qualità (usati dal servizio condiviso): modello fascicolo intero,
-  // campi da verificare, passate di consenso, modello arbitro.
-  const [wholeDossierModel, setWholeDossierModel] = useState('')
-  const [verificaCampi, setVerificaCampi] = useState('')
-  const [verificaModel, setVerificaModel] = useState('')
-  const [consensusPasses, setConsensusPasses] = useState(3)
-  // Strategia motore a stadi: false = gruppi (default), true = cascata dal più recente
-  const [stagedCascade, setStagedCascade] = useState(false)
-  // Pre-check di pertinenza profilo↔fascicolo: semantic (default) / keywords / llm / off
-  const [precheckMode, setPrecheckMode] = useState('semantic')
+  // Verifica/qualità, strategia e pre-controllo: impostazioni GLOBALI, dal
+  // 22/09/2026 stanno in Impostazioni tecniche (qui sembravano del profilo).
   const dragIndex = useRef<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -89,12 +81,6 @@ export default function PolizzaFieldsEditor() {
       setFields((f.fields && f.fields.length ? f.fields : f.defaultFields) || [])
       setPromptExtra(s.polizzaPromptExtra || '')
       setProfiles(s.polizzaProfiles || [])
-      setWholeDossierModel(s.polizzaWholeDossierModel || '')
-      setVerificaCampi(s.polizzaVerificaCampi || '')
-      setVerificaModel(s.polizzaVerificaModel || '')
-      setConsensusPasses(s.polizzaConsensusPasses || 3)
-      setStagedCascade(s.polizzaStagedCascade === true)
-      setPrecheckMode(s.polizzaPrecheckMode || 'semantic')
       setActiveProfileId(s.polizzaActiveProfileId || null)
       setLoading(false)
     })
@@ -135,9 +121,6 @@ export default function PolizzaFieldsEditor() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         polizzaFields: fields, polizzaPromptExtra: promptExtra,
-        polizzaWholeDossierModel: wholeDossierModel, polizzaVerificaCampi: verificaCampi,
-        polizzaVerificaModel: verificaModel, polizzaConsensusPasses: consensusPasses,
-        polizzaStagedCascade: stagedCascade,
         polizzaProfiles: nextProfiles,
       }),
     })
@@ -289,77 +272,6 @@ export default function PolizzaFieldsEditor() {
           placeholder={t('set.promptExtraPlaceholder')} style={{ resize: 'vertical', fontSize: 13 }} />
       </div>
 
-      {/* Verifica / qualità estrazione */}
-      <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--c-separator)' }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{t('set.qualityTitle')}</h3>
-        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 10 }}>{t('set.qualitySubtitle')}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="label">{t('set.wholeDossierModel')}</label>
-            <input value={wholeDossierModel} onChange={(e) => { setWholeDossierModel(e.target.value); setSaved(false) }}
-              placeholder="qwen2.5:7b-instruct" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="label">{t('set.consensusPasses')}</label>
-            <input type="number" min={2} max={5} value={consensusPasses}
-              onChange={(e) => { setConsensusPasses(Math.max(2, Math.min(5, parseInt(e.target.value, 10) || 3))); setSaved(false) }}
-              style={{ fontSize: 12 }} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="label">{t('set.verificaCampi')}</label>
-            <input value={verificaCampi} onChange={(e) => { setVerificaCampi(e.target.value); setSaved(false) }}
-              placeholder={t('set.verificaCampiPlaceholder')} style={{ fontSize: 12 }} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="label">{t('set.verificaModel')}</label>
-            <input value={verificaModel} onChange={(e) => { setVerificaModel(e.target.value); setSaved(false) }}
-              placeholder="claude-sonnet-4-6" style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }} />
-          </div>
-          <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
-            <label className="label">{t('set.stagedStrategy')}</label>
-            <select value={stagedCascade ? 'cascade' : 'groups'}
-              onChange={(e) => {
-                const v = e.target.value === 'cascade'
-                setStagedCascade(v)
-                // Persistenza IMMEDIATA: lo switch vive in questa card ma l'utente
-                // può premere il "Salva impostazioni" della pagina (che non invia
-                // questa chiave) — il valore sembrava non salvarsi mai. Ora si
-                // salva da solo al cambio, senza dipendere da alcun pulsante.
-                fetch('/api/settings', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ polizzaStagedCascade: v }),
-                }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
-              }}
-              style={{ fontSize: 12 }}>
-              <option value="groups">{t('set.stagedStrategyGroups')}</option>
-              <option value="cascade">{t('set.stagedStrategyCascade')}</option>
-            </select>
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('set.stagedStrategyHint')}</p>
-          </div>
-          <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
-            <label className="label">{t('set.precheckMode')}</label>
-            <select value={precheckMode}
-              onChange={(e) => {
-                const v = e.target.value
-                setPrecheckMode(v)
-                // Persistenza immediata al cambio, come lo switch strategia qui
-                // sopra (il "Salva impostazioni" della pagina non invia questa chiave).
-                fetch('/api/settings', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ polizzaPrecheckMode: v }),
-                }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
-              }}
-              style={{ fontSize: 12 }}>
-              <option value="off">{t('set.precheckModeOff')}</option>
-              <option value="keywords">{t('set.precheckModeKeywords')}</option>
-              <option value="semantic">{t('set.precheckModeSemantic')}</option>
-              <option value="llm">{t('set.precheckModeLlm')}</option>
-            </select>
-            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 4 }}>{t('set.precheckModeHint')}</p>
-          </div>
-        </div>
-      </div>
-
       {/* Profilo attuale — "Salva campi polizza" sovrascrive questo profilo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-muted)', textTransform: 'uppercase' }}>{t('set.currentProfile')}</span>
@@ -435,13 +347,14 @@ export default function PolizzaFieldsEditor() {
                     cinque: impossibile scriverci una definizione). Salva su blur
                     come le altre; export/import lo portano già con sé. */}
                 <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
-                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: (p.recognition || '').trim() ? 'var(--c-text-muted)' : 'var(--c-warning, #d97706)' }} title={t('set.profileRecognitionHelp')}>
+                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--c-text-muted)' }} title={t('set.profileRecognitionHelp')}>
                     {(p.recognition || '').trim() ? '●' : '○'} {t('set.profileRecognitionLabel')}
                   </label>
                   <textarea value={p.recognition || ''} onChange={(e) => setProfileRecognitionText(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                     placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} rows={Math.min(8, Math.max(2, Math.ceil((p.recognition || '').length / 110) + 1))}
                     style={{ width: '100%', fontSize: 12, resize: 'vertical', lineHeight: 1.4 }} />
-                  <span style={{ fontSize: 10, color: (p.recognition || '').trim() ? 'var(--c-text-muted)' : 'var(--c-warning, #d97706)' }}>
+                  {/* Nota discreta anche quando è vuoto: l'arancione su ogni profilo era un pugno in un occhio. */}
+                  <span style={{ fontSize: 10, color: 'var(--c-text-muted)', fontStyle: (p.recognition || '').trim() ? 'normal' : 'italic' }}>
                     {(p.recognition || '').trim() ? t('set.profileRecognitionActive') : t('set.profileRecognitionEmpty')}
                   </span>
                 </div>

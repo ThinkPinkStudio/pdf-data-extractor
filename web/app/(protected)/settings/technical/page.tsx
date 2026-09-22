@@ -22,6 +22,14 @@ interface Settings {
   qdrantCollection?: string
   embeddingModel?: string
   doclingUrl?: string
+  // Verifica e qualità estrazione (GLOBALI, salvate col pulsante della pagina:
+  // stavano nella card dei campi polizza e sembravano proprietà del profilo).
+  polizzaWholeDossierModel?: string
+  polizzaVerificaCampi?: string
+  polizzaVerificaModel?: string
+  polizzaConsensusPasses?: number
+  polizzaStagedCascade?: boolean
+  polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
 }
 
 const DEFAULTS: Settings = {
@@ -72,14 +80,12 @@ export default function SettingsTechnicalPage() {
 
   // Chiavi gestite e salvate dagli editor dedicati (PolizzaFieldsEditor / generico):
   // vanno escluse dal salvataggio della pagina per non sovrascriverle con valori stale.
+  // Le chiavi di «Verifica e qualità» (modello fascicolo, consenso, arbitro,
+  // strategia, pre-controllo) sono di QUESTA pagina dal 22/09/2026: si salvano
+  // col pulsante come le altre.
   const EDITOR_KEYS = new Set([
-    'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles', 'polizzaWholeDossierModel',
-    'polizzaActiveProfileId',
-    'polizzaVerificaCampi', 'polizzaVerificaModel', 'polizzaConsensusPasses', 'extractions', 'profiles',
-    // Switch strategia (card campi polizza, persiste da solo al cambio): senza
-    // questa esclusione il "Salva impostazioni" della pagina lo sovrascriveva
-    // col valore stantio caricato al mount → "torna sempre a gruppi".
-    'polizzaStagedCascade',
+    'polizzaPromptExtra', 'polizzaFields', 'polizzaProfiles',
+    'polizzaActiveProfileId', 'extractions', 'profiles',
   ])
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -175,6 +181,52 @@ export default function SettingsTechnicalPage() {
                   ? <span style={{ color: 'var(--c-warning, #f0ad4e)' }}>{t('set.batchContextWarn')}</span>
                   : null}
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Verifica e qualità estrazione: impostazioni GLOBALI (valgono per ogni
+            profilo e ogni job), spostate qui dalla card dei campi polizza. */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('set.qualityTitle')}</h2>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>{t('set.qualitySubtitle')}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.wholeDossierModel')}</label>
+              <input value={s.polizzaWholeDossierModel ?? ''} onChange={(e) => up('polizzaWholeDossierModel', e.target.value)}
+                placeholder="qwen2.5:7b-instruct" style={{ fontFamily: 'var(--font-mono)' }} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.consensusPasses')}</label>
+              <input type="number" min={2} max={5} value={s.polizzaConsensusPasses ?? 3}
+                onChange={(e) => up('polizzaConsensusPasses', Math.max(2, Math.min(5, parseInt(e.target.value, 10) || 3)))} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.verificaCampi')}</label>
+              <input value={s.polizzaVerificaCampi ?? ''} onChange={(e) => up('polizzaVerificaCampi', e.target.value)} placeholder={t('set.verificaCampiPlaceholder')} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.verificaModel')}</label>
+              <input value={s.polizzaVerificaModel ?? ''} onChange={(e) => up('polizzaVerificaModel', e.target.value)}
+                placeholder="claude-sonnet-4-6" style={{ fontFamily: 'var(--font-mono)' }} />
+            </div>
+            <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+              <label className="label">{t('set.stagedStrategy')}</label>
+              <select value={s.polizzaStagedCascade ? 'cascade' : 'groups'} onChange={(e) => up('polizzaStagedCascade', e.target.value === 'cascade')}>
+                <option value="groups">{t('set.stagedStrategyGroups')}</option>
+                <option value="cascade">{t('set.stagedStrategyCascade')}</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.stagedStrategyHint')}</p>
+            </div>
+            <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+              <label className="label">{t('set.precheckMode')}</label>
+              <select value={s.polizzaPrecheckMode ?? 'llm'} onChange={(e) => up('polizzaPrecheckMode', e.target.value as Settings['polizzaPrecheckMode'])}>
+                <option value="llm">{t('set.precheckModeLlm')}</option>
+                <option value="semantic">{t('set.precheckModeSemantic')}</option>
+                <option value="keywords">{t('set.precheckModeKeywords')}</option>
+                <option value="off">{t('set.precheckModeOff')}</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.precheckModeHint')}</p>
             </div>
           </div>
         </div>

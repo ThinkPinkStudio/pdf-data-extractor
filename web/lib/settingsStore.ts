@@ -261,7 +261,9 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaAutoVerify: bool('polizzaAutoVerify', false),
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
-    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'semantic') as WebSettings['polizzaPrecheckMode'],
+    // Default 'llm' (22/09/2026, richiesta dell'utente): con «Come riconoscerla»
+    // il controllo è comunque l'operatività; 'llm' è il ripiego per i profili senza.
+    polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
