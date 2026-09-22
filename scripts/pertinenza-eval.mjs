@@ -122,9 +122,11 @@ async function pagesOf(filePath) {
     try {
       const pngs = await renderPngs(buf, empty)
       for (const [n, png] of pngs) pages[n - 1] = await svc.ocrPageText(png, settings)
+      // Una pagina vuota DOPO l'OCR è una pagina bianca (o un'immagine senza
+      // testo): è un risultato, si mette in cache. Non in cache solo se l'OCR
+      // non è stato eseguito (eccezione o disattivato).
       const still = empty.filter((n) => !(pages[n - 1] || '').trim()).length
-      console.log(`   OCR: ${empty.length} pagine senza text layer${still ? ` (${still} ancora vuote)` : ''}`)
-      if (still) complete = false
+      console.log(`   OCR: ${empty.length} pagine senza text layer${still ? ` (${still} senza testo anche dopo l'OCR)` : ''}`)
     } catch (err) {
       complete = false
       console.warn(`   OCR non eseguito (${err.message}): ${empty.length} pagine restano vuote — testo NON messo in cache`)
@@ -164,12 +166,14 @@ for (const c of spec.cases || []) {
   // altrimenti un Ollama spento darebbe punti pieni sui negativi.
   const infra = /non eseguibile|non leggibile|nessuna pagina|nessun batch/i.test(pre.reason || '')
   const blocked = pre.verdict === 'mismatch' || (pre.verdict === 'review' && !infra)
-  const correct = c.expected === 'operante' ? pre.verdict === 'ok' : blocked
+  const correct = c.expected === 'operante' ? pre.verdict === 'ok'
+    : c.expected === 'accantonata' ? (pre.verdict === 'mismatch' && !!pre.setAside)
+      : blocked
   const op = pre.operativita
-  console.log(`   → ${correct ? 'GIUSTO' : 'SBAGLIATO'}: verdetto ${pre.verdict} [${pre.mode}] in ${secs}s — ${pre.reason}`)
+  console.log(`   → ${correct ? 'GIUSTO' : 'SBAGLIATO'}: verdetto ${pre.verdict}${pre.setAside ? ' (accantonata)' : ''} [${pre.mode}] in ${secs}s — ${pre.reason}`)
   if (op?.evidenza) console.log(`     prova: Documento ${op.documento ?? '?'} pag. ${op.pagina ?? '?'} «${String(op.evidenza).slice(0, 160)}»${op.docName ? ` (${op.docName})` : ''}`)
   if (pre.suggestion) console.log(`     profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal ? ` (${pre.suggestion.signal})` : ''}`)
-  results.push({ id: c.id, expected: c.expected, verdict: pre.verdict, mode: pre.mode, correct, secs: Number(secs), reason: pre.reason, evidenza: op?.evidenza || null, documento: op?.docName || null, pagina: op?.pagina || null, suggestion: pre.suggestion?.name || null })
+  results.push({ id: c.id, expected: c.expected, verdict: pre.setAside ? 'accantonata' : pre.verdict, mode: pre.mode, correct, secs: Number(secs), reason: pre.reason, evidenza: op?.evidenza || null, documento: op?.docName || null, pagina: op?.pagina || null, suggestion: pre.suggestion?.name || null })
 }
 
 const done = results.filter((r) => !r.skipped)
@@ -181,3 +185,6 @@ for (const r of results) {
 }
 console.log(`\nPertinenza: ${right}/${done.length} posizioni giuste${results.length > done.length ? ` (${results.length - done.length} saltate: cartelle mancanti)` : ''} — profilo «${profile.name}», modo ${MODE}${NO_RECOG ? ' (senza «Come riconoscerla»)' : ''}, modello ${MODEL}`)
 if (JSON_OUT) { writeFileSync(JSON_OUT, JSON.stringify({ profile: profile.name, mode: MODE, model: MODEL, noRecognition: NO_RECOG, right, total: done.length, results }, null, 2)); console.log(`Salvato in ${JSON_OUT}`) }
+// Il worker Tesseract terrebbe vivo il processo per sempre: chiudere ed uscire.
+await svc.closeOcrWorker()
+process.exit(0)

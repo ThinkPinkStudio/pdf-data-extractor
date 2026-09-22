@@ -238,6 +238,8 @@ export function decidePrecheck(p) {
   if (operative) {
     if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
     const op = p.operativita
+    // 'setaside' (copertura operante ma sole quietanze): Accantonato, forzabile.
+    if (op && op.verdict === 'setaside') return { verdict: 'mismatch', setAside: true, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
     if (op && op.verdict) return { verdict: op.verdict, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
     return { verdict: 'review', mode: 'operativita', score: null, threshold: null, reason: 'controllo di operatività non eseguito' }
   }

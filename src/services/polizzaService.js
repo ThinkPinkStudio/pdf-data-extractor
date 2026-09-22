@@ -1617,6 +1617,18 @@ function tessLangOptions() {
 }
 let _ocrWorker = null
 let _ocrUnavailable = false
+/**
+ * Chiude il worker Tesseract. Nel server web il worker vive quanto il
+ * processo; negli SCRIPT (pertinenza-eval, calibrazione) il worker tiene vivo
+ * l'event loop e il processo non termina mai: la misura del 22/09 aveva finito
+ * in 5 minuti e il processo è rimasto appeso per due ore (0% CPU) — scambiato
+ * per un'estrazione infinita.
+ */
+export async function closeOcrWorker() {
+  const w = _ocrWorker
+  _ocrWorker = null
+  if (w) { try { await w.terminate() } catch { /* già chiuso */ } }
+}
 async function ocrImageToText(base64DataUrl, lang = 'ita') {
   if (_ocrUnavailable) return ''
   try {

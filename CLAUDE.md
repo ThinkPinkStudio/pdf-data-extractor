@@ -562,6 +562,25 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (griglia + coppie etichetta→valore), come nell'estrazione. La misura è
   fragile alla composizione dei batch (stessa pagina, esito diverso con
   compagni diversi): ogni ritocco va rimisurato, mai dedotto.
+  **Sole quietanze → ACCANTONATA, forzabile** (decisione dell'utente,
+  22/09/2026): la regola regex «polizza vera» (`policyEvidenceReport`: voce di
+  polizza + parola di importo) passa anche una cartella di sole quietanze (DAS
+  Alzaia: «Polizza n. …», «Premio lordo»). Perciò dopo un «operante» si fa una
+  DOMANDA A PARTE al modello (`buildContrattoPrompt`: c'è il contratto —
+  frontespizio, scheda, appendice con le garanzie — o solo quietanze/
+  informativa/condizioni?), sugli stessi blocchi; si continua a leggere i
+  batch finché non vede il contratto; se ogni batch interrogato dice
+  «assente» → `setaside` → stato «Accantonato» con «Procedi comunque» (mai
+  estratta da sola, mai scartata). La domanda NON va nello stesso prompt
+  dell'operatività: messa lì, il 7B ribaltava DAS («ESCLUSA» → esclusione).
+  Misurato 22/09: 10/10 con DAS Alzaia «accantonata» (fixture `expected:
+  'accantonata'`). Il verificatore la voleva estratta: l'operatore la forza.
+  **Gli script che fanno OCR NON terminano da soli**: il worker Tesseract
+  (`_ocrWorker` in polizzaService) tiene vivo l'event loop; la misura del
+  22/09 aveva finito in 5 minuti e il processo è rimasto appeso 2 ore a 0%
+  CPU (scambiato per un'estrazione infinita). `pertinenza-eval` chiude il
+  worker (`closeOcrWorker`) e fa `process.exit`; `calibrazione-run` no —
+  se resta appeso dopo «Salvato in», è quello.
 - **Abbinamento separato dall'estrazione** (21/09/2026): stato **`matched`
   «Abbinato»** (`precheck.matchOnly`: bulk «🔍 Solo abbinamento», route
   `dossier` campo `matchOnly`; «🔁 Riabbina» = `resetJobForRetry({matchOnly})`,

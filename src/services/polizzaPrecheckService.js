@@ -20,6 +20,7 @@ import { usefulLength } from './ocrLayout.js'
 import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
+  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, MAX_BATCH_CTX_8GB, computeSafeContextBudget, withPairs } from './polizzaService.js'
@@ -189,6 +190,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     let remaining = candidates
     const results = []
     const pagesSent = []
+    let needContract = false
     for (let b = 0; b < maxBatches && remaining.length; b++) {
       const blocks = selectOperativitaPages(remaining, { budgetChars, lexTokens })
       if (!blocks.length) break
@@ -203,9 +205,23 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
       const decision = decideOperativita({ answer, evidence, excludeMatched })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
+      // Dopo un «operante»: c'è il CONTRATTO tra le pagine lette (domanda a
+      // parte, breve)? Con sole quietanze si continua a cercare il frontespizio
+      // nei batch successivi; se nessun batch lo mostra → Accantonata.
+      if (decision.verdict === 'ok') needContract = true
+      if (needContract) {
+        const cq = buildContrattoPrompt({ blocks })
+        const rawC = await callOllamaRolling(settings, cq.system, cq.user, { numCtx: MAX_BATCH_CTX_8GB, timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
+        const ca = parseContrattoAnswer(rawC)
+        decision.contratto = ca?.contratto || 'non determinabile'
+        log(`Operatività «${profile?.name || ''}» batch ${b + 1}: contratto ${decision.contratto}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''}`)
+      }
       results.push(decision)
       pagesSent.push(...blocks.map((x) => ({ ord: x.ord, page: x.page, score: x.score, batch: b + 1 })))
-      if (decision.verdict === 'ok') break
+      // Operante già ottenuto: ci si ferma appena il CONTRATTO è stato visto
+      // (anche in un batch successivo, il cui esito non conta più: BOIARDO
+      // leggeva 6 batch dopo l'«operante» del primo).
+      if (needContract && results.some((r) => r.contratto === 'presente')) break
       // Operante + parola da evitare = contraddizione già certa: inutile leggere oltre.
       if (decision.verdict === 'review' && answer?.esito === 'operante' && excludeMatched.length) break
     }

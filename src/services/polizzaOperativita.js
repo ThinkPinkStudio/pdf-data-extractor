@@ -22,6 +22,8 @@ import { normForMatch, valueTokens, distinctiveHeadTokens } from './polizzaValid
 import { usefulLength } from './ocrLayout.js'
 
 export const OPERATIVITA_ESITI = ['operante', 'non operante', 'non determinabile']
+/** Il CONTRATTO (frontespizio/scheda di polizza, appendice con le garanzie) è tra le pagine lette? */
+export const OPERATIVITA_CONTRATTO = ['presente', 'assente', 'non determinabile']
 /** Caratteri NORMALIZZATI minimi perché una citazione valga come prova. */
 export const OPERATIVITA_MIN_EVIDENCE = 12
 /** Caratteri utili massimi di una singola pagina nel prompt (si tiene l'inizio: i frontespizi sono in testa). */
@@ -163,6 +165,10 @@ export function operativitaSchema() {
   return {
     $schema: 'https://json-schema.org/draft/07/schema#',
     type: 'object',
+    // NIENTE altre domande qui dentro: aggiungere «c'è il contratto?» allo
+    // stesso prompt faceva ribaltare l'esito del 7B sulla quietanza DAS
+    // («ESCLUSA» tornava un'esclusione). La domanda sul contratto è una
+    // chiamata a parte (buildContrattoPrompt), solo quando serve.
     properties: {
       esito: { type: 'string', enum: OPERATIVITA_ESITI },
       documento: { type: 'string' },
@@ -276,6 +282,56 @@ export function buildOperativitaPrompt({ recognition, contentKeywords = [], cont
     pages,
   ].join('\n')
   return { system, user }
+}
+
+/**
+ * DOMANDA SEPARATA: tra le pagine lette c'è il CONTRATTO (frontespizio, scheda
+ * di polizza, appendice con garanzie e premi) o solo quietanze / informativa /
+ * condizioni? Si chiede SOLO dopo un «operante» (cartella di sole quietanze →
+ * Accantonata, forzabile: decisione dell'utente del 22/09/2026). Chiamata a
+ * parte per non toccare il prompt di operatività, misurato.
+ */
+export function buildContrattoPrompt({ blocks = [] }) {
+  const system = 'Sei un verificatore di polizze assicurative italiane. Rispondi SOLO con un oggetto JSON, senza testo prima o dopo, senza markdown.'
+  const pages = blocks.map((b) => `${operativitaPageTag(b.ord, b.page)}\n${b.text}`).join('\n\n')
+  const user = [
+    'Le pagine qui sotto vengono da un fascicolo assicurativo.',
+    'DOMANDA: tra queste pagine c\'è il CONTRATTO vero e proprio — frontespizio o scheda di polizza, appendice o atto con le garanzie e i premi — oppure ci sono SOLTANTO quietanze di pagamento del premio, set informativo, DIP, questionari o condizioni generali?',
+    '',
+    'Rispondi con un oggetto JSON con queste chiavi:',
+    '{"contratto": "presente" | "assente" | "non determinabile",',
+    ' "documento": "Documento N" (dove sta il contratto, se presente),',
+    ' "pagina": numero della pagina,',
+    ' "motivo": "una frase: che tipo di pagine sono"}',
+    '',
+    'PAGINE:',
+    pages,
+  ].join('\n')
+  return { system, user }
+}
+
+export function contrattoSchema() {
+  return {
+    $schema: 'https://json-schema.org/draft/07/schema#',
+    type: 'object',
+    properties: { contratto: { type: 'string', enum: OPERATIVITA_CONTRATTO }, documento: { type: 'string' }, pagina: { type: 'integer' }, motivo: { type: 'string' } },
+    required: ['contratto', 'documento', 'pagina', 'motivo'],
+    additionalProperties: false,
+  }
+}
+
+/** Legge la risposta alla domanda sul contratto. null se illeggibile. */
+export function parseContrattoAnswer(raw) {
+  const m = String(raw || '').match(/\{[\s\S]*\}/)
+  if (!m) return null
+  let obj
+  try { obj = JSON.parse(m[0]) } catch { return null }
+  if (!obj || typeof obj !== 'object') return null
+  const cRaw = String(obj.contratto || '').toLowerCase().trim()
+  const contratto = cRaw.startsWith('presente') || cRaw === 'si' || cRaw === 'sì' ? 'presente' : cRaw.startsWith('assente') || cRaw === 'no' ? 'assente' : 'non determinabile'
+  const docNum = String(obj.documento ?? '').match(/\d+/)
+  const pag = parseInt(String(obj.pagina ?? '').replace(/\D+/g, ''), 10)
+  return { contratto, documento: docNum ? parseInt(docNum[0], 10) : null, pagina: Number.isFinite(pag) && pag > 0 ? pag : null, motivo: typeof obj.motivo === 'string' ? obj.motivo.trim().slice(0, 300) : '' }
 }
 
 /** Legge la risposta del modello (JSON, anche sporco). null se illeggibile. */
@@ -410,17 +466,26 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
 export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   const list = (results || []).filter(Boolean)
   if (!list.length) return decideOperativita({ error: 'nessun batch eseguito' })
+  const contractSeen = list.some((r) => r.contratto === 'presente')
+  const contractAnswers = list.map((r) => r.contratto).filter(Boolean)
   const okIdx = list.findIndex((r) => r.verdict === 'ok')
   if (okIdx >= 0) {
     const ok = list[okIdx]
     const earlierNo = list.slice(0, okIdx).find((r) => r.verdict === 'mismatch')
     if (earlierNo) {
       return {
-        ...ok, verdict: 'review', batches: list.length,
+        ...ok, verdict: 'review', batches: list.length, contratto: contractSeen ? 'presente' : ok.contratto,
         reason: `esiti contraddittori tra i batch di pagine: prima «non operante» (${earlierNo.evidenza ? `«${String(earlierNo.evidenza).slice(0, 120)}»` : earlierNo.reason}), poi «operante» (${ok.evidenza ? `«${String(ok.evidenza).slice(0, 120)}»` : ok.reason})`,
       }
     }
-    return { ...ok, batches: list.length }
+    // SOLE QUIETANZE (decisione dell'utente, 22/09/2026): copertura operante ma
+    // nessuna pagina letta è il contratto (frontespizio/scheda/appendice) →
+    // ACCANTONATA, bloccata ma forzabile con «Procedi comunque». Il verdetto
+    // 'setaside' è mappato da decidePrecheck su mismatch+setAside.
+    if (!contractSeen && contractAnswers.length && contractAnswers.every((c) => c === 'assente')) {
+      return { ...ok, verdict: 'setaside', batches: list.length, contratto: 'assente', reason: `copertura operante ma senza polizza principale: nelle pagine lette solo quietanze, informativa o condizioni, nessun frontespizio o scheda di polizza${ok.motivo ? ` (${ok.motivo})` : ''}` }
+    }
+    return { ...ok, batches: list.length, contratto: contractSeen ? 'presente' : ok.contratto }
   }
   if (list.every((r) => r.verdict === 'mismatch')) {
     // «Non operante» vale come scarto solo se TUTTE le pagine che nominano la
@@ -435,5 +500,5 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
 
 /** Esito in italiano per motivazioni e UI. */
 export function operativitaVerdictLabel(verdict) {
-  return verdict === 'ok' ? 'abbinato' : verdict === 'mismatch' ? 'non pertinente' : verdict === 'review' ? 'da verificare' : 'accettato senza controllo'
+  return verdict === 'ok' ? 'abbinato' : verdict === 'mismatch' ? 'non pertinente' : verdict === 'review' ? 'da verificare' : verdict === 'setaside' ? 'accantonato' : 'accettato senza controllo'
 }

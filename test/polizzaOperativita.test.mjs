@@ -13,6 +13,7 @@ import {
   verifyOperativitaEvidence, decideOperativita, cutUseful, operativitaPageTag, OPERATIVITA_MIN_EVIDENCE,
   combineOperativitaBatches, OPERATIVITA_MAX_BATCHES, recognitionDistinctiveTokens, namesCoverage,
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
+  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
 } from '../src/services/polizzaOperativita.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
 
@@ -304,4 +305,31 @@ test('decideOperativita: "operante" con prova su pagina SENZA riga copertura+imp
   // esaurite le strutturali, il batch dopo prende il resto
   const next = selectOperativitaPages(cands.filter((c) => c.page !== 1), { budgetChars: 100000, lexTokens: nm })
   assert.deepEqual(next.map((b) => `${b.ord}.${b.page}`), ['1.7'])
+})
+
+test('sole quietanze: operante senza contratto visto → accantonata (forzabile); con contratto → ok', () => {
+  const okQ = { verdict: 'ok', reason: 'copertura operante', esito: 'operante', contratto: 'assente', evidenza: 'Tutela Legale ESCLUSA 31.000,00', motivo: 'premio 746' }
+  const okC = { verdict: 'ok', reason: 'copertura operante', esito: 'operante', contratto: 'presente', evidenza: 'TUTELA LEGALE Imponibile annuo € 249,06' }
+  const mmQ = { verdict: 'mismatch', reason: 'copertura non operante', esito: 'non operante', contratto: 'assente' }
+  const sa = combineOperativitaBatches([okQ])
+  assert.equal(sa.verdict, 'setaside'); assert.match(sa.reason, /sole quietanze|senza polizza principale/)
+  assert.equal(combineOperativitaBatches([okC]).verdict, 'ok')
+  assert.equal(combineOperativitaBatches([okQ, { ...mmQ, contratto: 'presente' }]).verdict, 'ok', 'il contratto visto in un batch successivo sblocca')
+  assert.equal(combineOperativitaBatches([okQ, { verdict: 'review', reason: 'x', contratto: 'non determinabile' }]).verdict, 'ok', 'non determinabile non accantona')
+  assert.equal(combineOperativitaBatches([mmQ]).verdict, 'mismatch', 'non operante resta non operante')
+  // decidePrecheck: setaside → mismatch + setAside (stato «Accantonato», Procedi comunque)
+  const d = decidePrecheck({ mode: 'semantic', hasProfile: true, hasRecognition: true, operativita: sa })
+  assert.equal(d.verdict, 'mismatch'); assert.equal(d.setAside, true); assert.equal(d.mode, 'operativita')
+  // batch con «operante» ma domanda sul contratto non fatta ai batch precedenti: contano solo le risposte date
+  assert.equal(combineOperativitaBatches([okQ, { ...mmQ, contratto: undefined }]).verdict, 'setaside')
+  assert.equal(combineOperativitaBatches([{ verdict: 'review', reason: 'x' }, { ...okC, contratto: 'non determinabile' }]).verdict, 'ok')
+  // domanda separata sul contratto: prompt, schema, parser
+  const cq = buildContrattoPrompt({ blocks: [{ ord: 1, page: 1, text: 'QUIETANZA DI PAGAMENTO DEL PREMIO Polizza n. 0146905119' }] })
+  assert.match(cq.user, /CONTRATTO vero e proprio/); assert.ok(cq.user.includes('[Documento 1 · pag. 1]'))
+  assert.deepEqual(contrattoSchema().required, ['contratto', 'documento', 'pagina', 'motivo'])
+  assert.deepEqual(parseContrattoAnswer('{"contratto":"ASSENTE","documento":"Documento 1","pagina":1,"motivo":"solo quietanza"}'), { contratto: 'assente', documento: 1, pagina: 1, motivo: 'solo quietanza' })
+  assert.equal(parseContrattoAnswer('{"contratto":"boh"}').contratto, 'non determinabile')
+  assert.equal(parseContrattoAnswer('niente'), null)
+  // il prompt di operatività NON contiene la domanda sul contratto (misurato: la ribaltava)
+  assert.ok(!/CONTRATTO/.test(buildOperativitaPrompt({ recognition: 'x', blocks: [] }).user))
 })
