@@ -197,11 +197,13 @@ export function clampThresholds(low: unknown, high: unknown): { low: number; hig
 }
 
 // Profilo storico del Confronto righe → profilo della Comparazione: ogni
-// condizione «Uguale a» completa diventa una chiave. null se non ce n'è nessuna.
+// condizione con entrambe le colonne diventa una chiave (le modalità non
+// esistono più: un profilo salvato con «Contiene» resta comunque caricabile,
+// con le sue colonne). null solo se non c'è nessuna condizione completa.
 export function comparisonProfileFromRows(p: Partial<RowsProfile> | null | undefined): ComparisonProfile | null {
   const conds = p && Array.isArray(p.bothMatchConditions) ? p.bothMatchConditions : []
   const keys = conds
-    .filter((c) => c && c.mode === 'equals' && c.columnA && c.columnB)
+    .filter((c) => c && c.columnA && c.columnB)
     .map((c) => normaliseKey({ label: '', columnA: c.columnA, columnB: c.columnB, sheetA: c.sheetA || '', sheetB: c.sheetB || '', sameColumn: false, enabled: true, transform: c.transform || DEFAULT_TRANSFORM }))
   if (!keys.length) return null
   return comparisonProfileFrom({ ...defaultCompareConfig(), matchKeys: keys })
