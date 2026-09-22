@@ -108,6 +108,8 @@ export interface WebSettings {
   // semantic), 'semantic' (classifica dei profili per embeddings), 'llm'
   // (breve classificazione col modello), 'off' (nessun controllo).
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
+  navHiddenExtractor?: string[]
   // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
   // un fascicolo senza frontespizio di polizza reale (solo informativo/
   // quietanza) va in 'mismatch'. Usa marcatori hardcoded, quindi resta spenta
@@ -197,7 +199,7 @@ const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled', 'polizzaRequireValidPolicy'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
-  'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles',
+  'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles', 'navHiddenExtractor',
   'compareMatchKeys', 'compareSearchConditions', 'compareBothMatchConditions',
   'compareBothFilterConditions', 'compareProfiles', 'compareBothProfiles',
   'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniExportNotify',
@@ -265,6 +267,7 @@ export async function getSettings(): Promise<WebSettings> {
     // il controllo è comunque l'operatività; 'llm' è il ripiego per i profili senza.
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
+    navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

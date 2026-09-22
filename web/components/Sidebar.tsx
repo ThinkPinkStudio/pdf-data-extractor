@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
+import { NAV_EXTRACTOR_ITEMS, visibleExtractorNav } from '@/lib/navExtractor'
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || ''
 
@@ -114,21 +115,24 @@ const IconHome = () => (
 type NavItem = { href: string; key: string; icon: React.ReactNode }
 type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'hub'
 
-const NAV_EXTRACTOR: NavItem[] = [
-  { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
-  { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
-  { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
-  { href: '/polizza/jobs', key: 'nav.jobsDash', icon: <IconHistory /> },
-  { href: '/batch', key: 'nav.batch', icon: <IconBatch /> },
-  { href: '/archive', key: 'nav.archive', icon: <IconSearch /> },
-  { href: '/chat', key: 'nav.chat', icon: <IconSearch /> },
-  { href: '/maintenance', key: 'nav.data', icon: <IconBatch /> },
-  { href: '/history', key: 'nav.history', icon: <IconHistory /> },
-  { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },
-  { href: '/settings/technical', key: 'nav.settingsTech', icon: <IconActivity /> },
-  { href: '/diagnostics', key: 'nav.security', icon: <IconActivity /> },
-  { href: '/contacts', key: 'nav.contacts', icon: <IconUser /> },
-]
+// Icone delle voci PDF Extractor: la LISTA (href + chiave) sta in
+// lib/navExtractor.ts, condivisa con gli switch delle Impostazioni tecniche.
+const EXTRACTOR_ICONS: Record<string, React.ReactNode> = {
+  '/extractor': <IconPDF />,
+  '/polizza': <IconShield />,
+  '/polizza/bulk': <IconBatch />,
+  '/polizza/jobs': <IconHistory />,
+  '/batch': <IconBatch />,
+  '/archive': <IconSearch />,
+  '/chat': <IconSearch />,
+  '/maintenance': <IconBatch />,
+  '/history': <IconHistory />,
+  '/settings': <IconSettings />,
+  '/settings/technical': <IconActivity />,
+  '/diagnostics': <IconActivity />,
+  '/contacts': <IconUser />,
+}
+const NAV_EXTRACTOR: NavItem[] = NAV_EXTRACTOR_ITEMS.map((i) => ({ ...i, icon: EXTRACTOR_ICONS[i.href] }))
 
 const NAV_COMPARE: NavItem[] = [
   { href: '/compare', key: 'nav.cmpCompare', icon: <IconCompare /> },
@@ -175,7 +179,7 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email }: { email: string }) {
+export default function Sidebar({ email, navHidden }: { email: string; navHidden?: string[] }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
@@ -183,7 +187,9 @@ export default function Sidebar({ email }: { email: string }) {
 
   const section = sectionFor(pathname)
   const meta = SECTION_META[section]
-  const NAV = meta.nav
+  // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
+  const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
+  const NAV = visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.

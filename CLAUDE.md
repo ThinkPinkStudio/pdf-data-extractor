@@ -602,6 +602,40 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «prova» / motivo). Export batch: colonna «Profilo» + un foglio per profilo
   (valori di profili diversi mai sotto le stesse intestazioni).
 
+- **Elaborazioni riorganizzata** (22/09/2026, dalle 4 proposte UI scelte
+  dall'utente: D come struttura, A e B come viste): `/polizza/jobs` = lista a
+  CARD per batch (barra segmentata, «N polizze aspettano una tua decisione») +
+  card «Estrazioni singole» = batch VIRTUALE `singole` che apre la STESSA
+  pagina; `/polizza/jobs/[id]` = pagina del batch con URL proprio: striscia
+  KPI = unico filtro, switch «Tabella | Coda» (ultima scelta in
+  `localStorage.jobsView`, default Tabella; stato in query `vista/stato/
+  polizza`, così un link apre esattamente quella polizza). Tabella = riga a
+  44 px, pillola di stato, motivo in UNA riga, un'azione primaria per stato +
+  menu ⋯, pannello laterale «Dettaglio polizza» (Pertinenza/Valori/File/Log)
+  con ◀ ▶; sotto 960 px di larghezza la tabella nasconde Motivo e Campi. Coda
+  = lista + lo STESSO dettaglio in linea, tastiera ↑↓ P R O. «Schema
+  cartelle» = FINESTRA a parte di sola lettura (`FolderSchema.tsx`): le
+  cartelle esplorate dal bulk con i conteggi per stato e le polizze come
+  foglie con un puntino; niente azioni né livelli da navigare (l'utente:
+  «solo uno schema, non milioni di livelli»). Nome della polizza =
+  CARTELLA FINALE (`splitName`), il resto del percorso su una riga sotto
+  (richiesta dell'utente). Motivo: una riga con ellissi, click sulla cella lo
+  apre per esteso; interruttore «Motivi per esteso» in toolbar
+  (`localStorage.jobsReasonFull`). Codice in
+  `web/components/jobs/`: `actionSet.tsx` è l'UNICA regola stato→azioni,
+  `useJobActions.tsx` l'unico posto delle chiamate (per le singole le azioni
+  collettive sono una chiamata per job, non c'è `/batch/[id]/bulk`),
+  `model.ts` le regole pure (stato di interfaccia, filtri, riga di motivo).
+  Niente emoji nei pulsanti: icone SVG in `Icons.tsx`.
+- **Voci di menu PDF Extractor con switch** (22/09/2026): card «Voci di menu»
+  in Impostazioni tecniche, una per voce; `settings.navHiddenExtractor` (href
+  nascosti), lista condivisa in `web/lib/navExtractor.ts`, letta dal layout
+  server e passata alla Sidebar (`router.refresh()` dopo il salvataggio);
+  «Impostazioni tecniche» mai nascondibile. Favicon in `web/app/icon.svg` +
+  `icon.png`/`apple-icon.png` (il middleware lascia passare `/icon*` e
+  `/apple-icon*`); i PNG si rigenerano dallo SVG con `qlmanage -t -s 512` su
+  una copia con width/height 512 e poi `sips -z`.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
@@ -616,4 +650,10 @@ hash: i rilanci non lo ripagano.
 - L'utente lavora in italiano; UI bilingue IT/EN (`web/lib/i18n/messages.ts`).
 - Test: `node --test test/*.test.mjs` (45+). Web: `npx tsc --noEmit` +
   `npx next build` prima di ogni PR.
+- Anteprima UI in locale SENZA Postgres: `next dev` muore in
+  `instrumentation.ts` (initDb). Ricetta usata il 22/09/2026: pagina
+  temporanea sotto `/auth/login-…` (path pubblico per il middleware) che monta
+  le pagine vere con `window.fetch` simulato + try/catch TEMPORANEO su
+  `initDb`; `.claude/launch.json` ha `web-dev` (porta 3005). Tutto da togliere
+  prima del commit (`git checkout web/instrumentation.ts`).
 - Flusso: branch di lavoro → PR su `main` → squash merge → Coolify deploya.

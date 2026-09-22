@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { NAV_EXTRACTOR_ITEMS, NAV_ALWAYS_VISIBLE } from '@/lib/navExtractor'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import GenericFieldsEditor from '@/components/GenericFieldsEditor'
 
@@ -30,6 +32,8 @@ interface Settings {
   polizzaConsensusPasses?: number
   polizzaStagedCascade?: boolean
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Voci del menu PDF Extractor nascoste nella sidebar (href).
+  navHiddenExtractor?: string[]
 }
 
 const DEFAULTS: Settings = {
@@ -37,16 +41,16 @@ const DEFAULTS: Settings = {
   polizzaOcrEnabled: true, polizzaWholeDossier: false,
 }
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1 }}>
       <span style={{
         width: 38, height: 22, borderRadius: 999, position: 'relative', flexShrink: 0,
         background: checked ? 'var(--c-accent)' : 'var(--c-bg-card-alt)', border: '1px solid var(--c-border)', transition: 'background .2s',
       }}>
         <span style={{ position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: checked ? '#fff' : 'var(--c-text-muted)', transition: 'left .2s' }} />
       </span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ display: 'none' }} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} style={{ display: 'none' }} />
       <span style={{ fontSize: 14 }}>{label}</span>
     </label>
   )
@@ -54,6 +58,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 
 export default function SettingsTechnicalPage() {
   const { t } = useI18n()
+  const router = useRouter()
   const [s, setS] = useState<Settings>(DEFAULTS)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -93,6 +98,9 @@ export default function SettingsTechnicalPage() {
     for (const [k, v] of Object.entries(s as unknown as Record<string, unknown>)) if (!EDITOR_KEYS.has(k)) rest[k] = v
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rest) })
     setSaved(true)
+    // La sidebar è nel layout server: senza refresh le voci di menu
+    // nascoste/mostrate cambierebbero solo al prossimo caricamento.
+    router.refresh()
   }
   async function handleTest() {
     setTesting(true); setTestResult(null)
@@ -115,6 +123,26 @@ export default function SettingsTechnicalPage() {
           e il prompt vivono qui — prima 620px, poi 1200, ma su schermi larghi
           restava comunque metà monitor vuota. Le card seguono la colonna. */}
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* Voci di menu della sidebar PDF Extractor: uno switch per voce
+            (22/09/2026, richiesta dell'utente). «Impostazioni tecniche» non
+            si può nascondere: è la pagina da cui si riaccendono le altre. */}
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('set.navSection')}</h2>
+          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>{t('set.navHint')}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+            {NAV_EXTRACTOR_ITEMS.map((item) => {
+              const locked = NAV_ALWAYS_VISIBLE.has(item.href)
+              const hidden = s.navHiddenExtractor || []
+              const on = locked || !hidden.includes(item.href)
+              return (
+                <Toggle key={item.href} checked={on} disabled={locked}
+                  label={locked ? `${t(item.key)} (${t('set.navLocked')})` : t(item.key)}
+                  onChange={(v) => up('navHiddenExtractor', v ? hidden.filter((h) => h !== item.href) : [...hidden.filter((h) => h !== item.href), item.href])} />
+              )
+            })}
+          </div>
+        </div>
 
         {/* Provider LLM — SOLO Ollama (locale) */}
         <div className="card">

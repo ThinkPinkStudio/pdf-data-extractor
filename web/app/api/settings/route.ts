@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
     'polizzaStagedCascade',
     // Pre-check di pertinenza profilo↔fascicolo (off/keywords/semantic/llm).
     'polizzaPrecheckMode',
+    // Voci di menu nascoste nella sidebar PDF Extractor (Impostazioni tecniche).
+    'navHiddenExtractor',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyEnabled', 'compareFuzzyMinOverlap', 'compareFuzzyIgnoreWords',
