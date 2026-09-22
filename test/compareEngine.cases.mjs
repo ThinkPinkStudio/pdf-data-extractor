@@ -109,3 +109,29 @@ test('profili: storico Comparazione e storico Confronto righe', () => {
   assert.equal(e.comparisonProfileFromRows({ bothMatchConditions: [] }), null)
   assert.deepEqual(e.clampThresholds(90, 40), { low: 40, high: 90 })
 })
+
+const merge = await import(pathToFileURL(join(here, '..', 'web', 'lib', 'compare', 'profilesMerge.ts')).href)
+
+test('lista profili: i propri si vedono anche se i vecchi fanno saltare la conversione', () => {
+  const settings = { compareProfiles: { Mio: { matchKeys: [] } }, compareBothProfiles: { Vecchio: { bothMatchConditions: [] } } }
+  const boom = () => { throw new Error('profilo storico malformato') }
+  const r = merge.mergeProfileLists(settings, 'compareProfiles', 'compareBothProfiles', boom)
+  assert.deepEqual(Object.keys(r.own), ['Mio'])
+  assert.deepEqual(r.broken, ['Vecchio'])
+})
+
+test('lista profili: vecchi convertiti, senza rubare il nome ai propri', () => {
+  const settings = {
+    compareProfiles: { Mio: { matchKeys: ['a'] } },
+    compareBothProfiles: { Mio: { bothMatchConditions: [] }, Altro: { bothMatchConditions: [] } },
+  }
+  const conv = () => ({ matchKeys: ['convertito'] })
+  const r = merge.mergeProfileLists(settings, 'compareProfiles', 'compareBothProfiles', conv, ' (vecchio)')
+  assert.deepEqual(r.own.Mio.matchKeys, ['a'])
+  assert.deepEqual(Object.keys(r.converted).sort(), ['Altro', 'Mio (vecchio)'])
+})
+
+test('lista profili: impostazioni vuote o chiave assente → liste vuote, niente eccezioni', () => {
+  assert.deepEqual(merge.mergeProfileLists({}, 'compareProfiles'), { own: {}, converted: {}, broken: [] })
+  assert.deepEqual(merge.mergeProfileLists({ compareProfiles: 'rotto' }, 'compareProfiles').own, {})
+})

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useConfirmPanel } from './ConfirmPanel'
+import { mergeProfileLists } from '@/lib/compare/profilesMerge'
 
 // Pannello «Profili salvati» del Comparatore (blocco unico in Configurazione).
 // Chi lo usa passa la chiave di impostazioni e lo snapshot dei criteri. Con
@@ -57,21 +58,11 @@ export default function CompareProfiles<T>({
       })
       .then((d: Record<string, unknown>) => {
         if (!alive) return
-        const p = d[settingsKey]
-        const own = p && typeof p === 'object' ? (p as Record<string, T>) : {}
-        const merged: Record<string, T> = { ...own }
-        const legacy = legacyKey ? d[legacyKey] : null
-        const broken: string[] = []
-        if (legacy && typeof legacy === 'object' && convertLegacy) {
-          for (const [n, lp] of Object.entries(legacy as Record<string, unknown>)) {
-            const conv = convertLegacy(lp)
-            if (!conv) { broken.push(n); continue }
-            const name = merged[n] ? n + legacySuffix : n
-            if (!merged[name]) merged[name] = conv
-          }
-        }
+        // I profili della chiave propria si mostrano SEMPRE: la conversione dei
+        // vecchi è un extra che non può nasconderli (vedi profilesMerge.ts).
+        const { own, converted, broken } = mergeProfileLists<T>(d, settingsKey, legacyKey, convertLegacy, legacySuffix)
+        setProfiles({ ...converted, ...own })
         setLegacyBroken(broken)
-        setProfiles(merged)
       })
       .catch((err: Error) => { if (alive) setLoadError(err.message || 'errore di rete') })
       .finally(() => { if (alive) setLoading(false) })
