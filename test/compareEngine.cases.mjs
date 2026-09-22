@@ -101,9 +101,11 @@ test('profili: storico Comparazione e storico Confronto righe', () => {
     { columnA: 'Premio', columnB: 'Premio', mode: 'not_equals' },
   ], bothFilterConditions: [] }
   const conv = e.comparisonProfileFromRows(rows)
-  assert.equal(conv.matchKeys.length, 1)
+  // ogni condizione COMPLETA diventa una chiave, qualunque fosse la modalità
+  assert.equal(conv.matchKeys.length, 2)
   assert.equal(conv.matchKeys[0].columnB, 'Descrizione Cliente')
   assert.equal(e.applyComparisonProfile(base, rows).matchKeys[0].columnA, 'Cliente')
-  assert.equal(e.comparisonProfileFromRows({ bothMatchConditions: [{ columnA: 'a', columnB: 'b', mode: 'contains' }] }), null)
+  assert.equal(e.comparisonProfileFromRows({ bothMatchConditions: [{ columnA: 'a', mode: 'equals' }] }), null)
+  assert.equal(e.comparisonProfileFromRows({ bothMatchConditions: [] }), null)
   assert.deepEqual(e.clampThresholds(90, 40), { low: 40, high: 90 })
 })

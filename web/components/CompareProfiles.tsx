@@ -36,6 +36,10 @@ export default function CompareProfiles<T>({
   showJson?: boolean
 }) {
   const [profiles, setProfiles] = useState<Record<string, T>>({})
+  // Profili della chiave storica che non si riesce a convertire: si elencano
+  // lo stesso (grigi, non caricabili) invece di farli sparire senza dirlo.
+  const [legacyBroken, setLegacyBroken] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
   const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
@@ -51,17 +55,20 @@ export default function CompareProfiles<T>({
         const own = p && typeof p === 'object' ? (p as Record<string, T>) : {}
         const merged: Record<string, T> = { ...own }
         const legacy = legacyKey ? d[legacyKey] : null
+        const broken: string[] = []
         if (legacy && typeof legacy === 'object' && convertLegacy) {
           for (const [n, lp] of Object.entries(legacy as Record<string, unknown>)) {
             const conv = convertLegacy(lp)
-            if (!conv) continue
+            if (!conv) { broken.push(n); continue }
             const name = merged[n] ? n + legacySuffix : n
             if (!merged[name]) merged[name] = conv
           }
         }
+        setLegacyBroken(broken)
         setProfiles(merged)
       })
       .catch(() => {})
+      .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [settingsKey, legacyKey, convertLegacy, legacySuffix])
 
@@ -137,7 +144,7 @@ export default function CompareProfiles<T>({
       {confirmPanel}
       <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: hint ? 4 : 14 }}>Profili salvati</h2>
       {hint && <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 14 }}>{hint}</p>}
-      <div style={{ display: 'flex', gap: 8, marginBottom: names.length ? 12 : 0, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -156,17 +163,28 @@ export default function CompareProfiles<T>({
           </>
         )}
       </div>
-      {names.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {names.map((n) => (
-            <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ flex: 1, fontSize: 14 }}>{n}</span>
-              <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => load(n)}>Carica</button>
-              <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => remove(n)}>Elimina</button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {names.map((n) => (
+          <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ flex: 1, fontSize: 14 }}>{n}</span>
+            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => load(n)}>Carica</button>
+            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => remove(n)}>Elimina</button>
+          </div>
+        ))}
+        {/* Vecchi profili senza nulla da convertire: si vedono comunque, così
+            è chiaro che esistono e perché non si possono caricare. */}
+        {legacyBroken.map((n) => (
+          <div key={'old-' + n} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.6 }}>
+            <span style={{ flex: 1, fontSize: 14 }}>{n}</span>
+            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>vecchio profilo senza colonne da riusare</span>
+          </div>
+        ))}
+        {!names.length && !legacyBroken.length && (
+          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', margin: 0 }}>
+            {loading ? 'Carico i profili…' : 'Nessun profilo salvato: scrivi un nome qui sopra e premi «Salva come profilo» per mettere da parte i criteri attuali.'}
+          </p>
+        )}
+      </div>
       {msg && <div className="alert alert-success" style={{ marginTop: 12 }}>{msg}</div>}
     </div>
   )
