@@ -332,6 +332,8 @@ export default function PolizzaJobsPage() {
   // "Accantonato — …": cartella senza polizza principale (niente da estrarre);
   // resta in stato 'mismatch' (stesso flusso "Procedi comunque"), etichetta sua.
   const isSetAside = (j: JobSnapshot) => j.status === 'mismatch' && (j.error || '').startsWith('Accantonato')
+  // Il testo dell'errore ripete l'etichetta di stato («Da verificare — Da verificare — …»): via il prefisso.
+  const errorText = (j: JobSnapshot) => (j.error || '').replace(/^(?:Accantonato|Scartato|Da verificare)\s+—\s+/, '')
   const statusLabel = (s: string) => (
     s === 'running' ? t('jobsDash.statusRunning')
       : s === 'error' ? t('jobsDash.statusError')
@@ -431,13 +433,22 @@ export default function PolizzaJobsPage() {
       // Esito del MODELLO + verdetto finale quando non coincidono (prova non
       // trovata/generica, batch contraddittori, parola da evitare): «Operante»
       // in grassetto su una riga «Da verificare» confondeva.
-      const esitoBase = op.esito === 'operante' ? t('jobsDash.opOperante') : op.esito === 'non operante' ? t('jobsDash.opNonOperante') : t('jobsDash.opDubbio')
-      const esito = pc.verdict === 'review' ? `${esitoBase} · ${t('jobsDash.chipReview').toLowerCase()}` : esitoBase
+      // In grassetto il VERDETTO del controllo, mai la risposta grezza del
+      // modello: «Operante» su una riga ferma sembrava un abbinamento (la
+      // prova era stata respinta). La risposta del modello resta, in grigio.
+      const esitoModello = op.esito === 'operante' ? t('jobsDash.opOperante') : op.esito === 'non operante' ? t('jobsDash.opNonOperante') : t('jobsDash.opDubbio')
+      const verdetto = pc.verdict === 'ok' ? t('jobsDash.opOperante')
+        : pc.verdict === 'review' ? t('jobsDash.chipReview')
+          : pc.setAside ? t('jobsDash.chipSetAside')
+            : t('jobsDash.opNonOperante')
+      const rejected = pc.verdict !== 'ok' && op.esito === 'operante'
       const where = op.documento ? ` — ${t('jobsDash.evidenceAt', { doc: op.documento, page: op.pagina || '?' })}` : ''
       return (
         <span title={summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
-          <span style={{ fontWeight: 600 }}>{esito}</span>{where}{op.evidenza ? `: «${String(op.evidenza).slice(0, 160)}»` : ''}
-          {op.motivo ? <span style={{ display: 'block', color: 'var(--c-text-muted)' }}>{String(op.motivo).slice(0, 160)}</span> : null}
+          <span style={{ fontWeight: 600 }}>{verdetto}</span>{where}{op.evidenza ? `: «${String(op.evidenza).slice(0, 160)}»` : ''}
+          <span style={{ display: 'block', color: 'var(--c-text-muted)' }}>
+            {rejected ? `${t('jobsDash.modelSaid', { esito: esitoModello.toLowerCase() })} — ` : ''}{String(op.motivo || '').slice(0, 160)}
+          </span>
         </span>
       )
     }
@@ -699,7 +710,7 @@ export default function PolizzaJobsPage() {
                                           <td style={{ fontSize: 11 }}>{profileCell(j, active)}</td>
                                           <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                                             {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
-                                            {j.error ? <span title={j.error}>{` — ${j.status === 'review' ? j.error.slice(0, 260) : j.error}`}</span> : ''}
+                                            {j.error ? <span title={j.error}>{` — ${j.status === 'review' ? errorText(j).slice(0, 260) : errorText(j)}`}</span> : ''}
                                             {precheckLines(j, 220)}
                                             {j.status === 'running' && j.progress?.docName && (
                                               <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
@@ -924,7 +935,7 @@ export default function PolizzaJobsPage() {
                       <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{j.owner || ''}</td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                         {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
-                        {j.error ? <span title={j.error}>{` — ${j.error.slice(0, 120)}`}</span> : ''}
+                        {j.error ? <span title={j.error}>{` — ${errorText(j).slice(0, 120)}`}</span> : ''}
                         {precheckLines(j, 160)}
                         {!!j.duplicateOf && (
                           <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>

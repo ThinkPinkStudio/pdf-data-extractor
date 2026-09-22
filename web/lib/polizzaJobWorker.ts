@@ -366,7 +366,13 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       pagesWithText++
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
       docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ...(spatial ? { spatialPages: spatial } : {}) })
-      docsFlat.push({ name: docName, pages: docPages.map(toFlat) })
+      // PRE-CONTROLLO sullo STESSO testo della misura locale (griglia pdf.js
+      // collassata), non sul markdown Docling: col markdown il regex «polizza
+      // vera» accantonava la quietanza DAS («nessuna voce di polizza») che in
+      // locale passava, e pagine/embedding non coincidevano con quanto
+      // misurato (22/09/2026: «i risultati in produzione sono diversi»). Il
+      // markdown resta il testo dell'ESTRAZIONE (docsForIndex).
+      docsFlat.push({ name: docName, pages: spatial ? spatial.map(toFlat) : docPages.map(toFlat) })
       continue
     }
     // ── Senza markdown: STESSO percorso testo dei test (pdfjs → griglia) ──────
