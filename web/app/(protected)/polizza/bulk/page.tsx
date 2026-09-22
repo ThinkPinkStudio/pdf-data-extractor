@@ -106,6 +106,9 @@ export default function PolizzaBulkPage() {
 
   const [batchId, setBatchId] = useState<string | null>(null)
   const [phase, setPhase] = useState<'select' | 'uploading' | 'started'>('select')
+  // «Solo abbinamento»: OCR + riconoscimento del profilo, poi ogni dossier si
+  // ferma in «Abbinato» e l'estrazione parte dal ▶ della pagina Elaborazioni.
+  const [matchOnly, setMatchOnly] = useState(false)
   const [dossierStatus, setDossierStatus] = useState<Record<string, DossierStatus>>({})
   const [dossierError, setDossierError] = useState<Record<string, string>>({})
   const [finishing, setFinishing] = useState(false)
@@ -345,6 +348,7 @@ export default function PolizzaBulkPage() {
     })
   }
 
+  const matchOnlyRef = useRef(false)
   async function uploadDossier(id: string, d: FinalDossier) {
     setDossierStatus((p) => ({ ...p, [d.gid]: 'uploading' }))
     try {
@@ -354,6 +358,7 @@ export default function PolizzaBulkPage() {
       // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
       form.append('includeWords', includeText)
       form.append('excludeWords', excludeText)
+      if (matchOnlyRef.current) form.append('matchOnly', '1')
       const pid = d.profileId !== undefined ? d.profileId : profileOf[d.gid]
       if (pid) form.append('profileId', pid) // profilo/tipo scelto per questo dossier
       for (const idx of d.fileIndexes) {
@@ -391,8 +396,9 @@ export default function PolizzaBulkPage() {
     return out
   }
 
-  async function handleStartUpload() {
+  async function handleStartUpload(onlyMatch = false) {
     if (!finalDossiers.length) return
+    setMatchOnly(onlyMatch); matchOnlyRef.current = onlyMatch
     const list = expandSplits(finalDossiers)
     setUploadList(list)
     setPhase('uploading'); setPickError(null)
@@ -709,9 +715,22 @@ export default function PolizzaBulkPage() {
                 n: finalDossiers.reduce((n, d) => n + (splitOf.has(d.gid) && d.fileIndexes.length > 1 ? d.fileIndexes.length : 1), 0),
                 m: selectedFiles,
               })}</p>
-              <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={handleStartUpload} disabled={finalDossiers.length === 0}>
-                {t('bulk.startBtn')}
-              </button>
+              {/* Due avvii: «Abbina ed estrai» (tutto in un colpo, com'era) e
+                  «Solo abbinamento» (OCR + pertinenza, poi ▶ da Elaborazioni). */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                <div>
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => handleStartUpload(false)} disabled={finalDossiers.length === 0} title={t('bulk.startBtnHelp')}>
+                    {t('bulk.startBtn')}
+                  </button>
+                  <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6, marginBottom: 0 }}>{t('bulk.startBtnHelp')}</p>
+                </div>
+                <div>
+                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => handleStartUpload(true)} disabled={finalDossiers.length === 0} title={t('bulk.matchOnlyHelp')}>
+                    {t('bulk.startMatchOnlyBtn')}
+                  </button>
+                  <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6, marginBottom: 0 }}>{t('bulk.matchOnlyHelp')}</p>
+                </div>
+              </div>
             </div>
           )}
         </>
@@ -769,8 +788,8 @@ export default function PolizzaBulkPage() {
 
       {phase === 'started' && (
         <div className="card" style={{ padding: 24 }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-success)', marginBottom: 6 }}>{t('bulk.startedTitle')}</p>
-          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 16 }}>{t('bulk.startedText')}</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-success)', marginBottom: 6 }}>{matchOnly ? t('bulk.startedTitleMatchOnly') : t('bulk.startedTitle')}</p>
+          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 16 }}>{matchOnly ? t('bulk.startedTextMatchOnly') : t('bulk.startedText')}</p>
           <Link href="/polizza/jobs" className="btn btn-primary">{t('bulk.goToDashboard')}</Link>
         </div>
       )}

@@ -414,7 +414,7 @@ export default function PolizzaFieldsEditor() {
         {profiles.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
             {profiles.map((p) => (
-              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--c-bg-card-alt)', borderRadius: 'var(--r-sm)', border: p.id === activeProfileId ? '1px solid var(--c-accent)' : '1px solid var(--c-border)' }}>
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '6px 10px', background: 'var(--c-bg-card-alt)', borderRadius: 'var(--r-sm)', border: p.id === activeProfileId ? '1px solid var(--c-accent)' : '1px solid var(--c-border)' }}>
                 <label title={t('set.profileEnabledHelp')} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, whiteSpace: 'nowrap' }}>
                   <input type="checkbox" checked={p.enabled !== false} onChange={(e) => setProfileEnabled(p.id, e.target.checked)} /> {t('set.profileEnabled')}
                 </label>
@@ -427,11 +427,24 @@ export default function PolizzaFieldsEditor() {
                   placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
                 <input value={p.contentExcludeKeywords || ''} onChange={(e) => setProfileContentExcludeKw(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
                   placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 12 }} />
-                <input value={p.recognition || ''} onChange={(e) => setProfileRecognitionText(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
-                  placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} style={{ flex: '2 1 220px', fontSize: 12 }} />
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => applyProfile(p)}>{t('set.applyProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} title={t('set.duplicateProfile')} onClick={() => dupProfile(p)}>⧉ {t('set.duplicateProfile')}</button>
                 <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--c-error)' }} title={t('set.deleteProfile')} onClick={() => delProfile(p)}>🗑 {t('set.deleteProfile')}</button>
+                {/* «Come riconoscerla» = IL FILTRO di pertinenza: riga propria a
+                    larghezza piena (era un input a riga singola stretto fra altri
+                    cinque: impossibile scriverci una definizione). Salva su blur
+                    come le altre; export/import lo portano già con sé. */}
+                <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: (p.recognition || '').trim() ? 'var(--c-text-muted)' : 'var(--c-warning, #d97706)' }} title={t('set.profileRecognitionHelp')}>
+                    {(p.recognition || '').trim() ? '●' : '○'} {t('set.profileRecognitionLabel')}
+                  </label>
+                  <textarea value={p.recognition || ''} onChange={(e) => setProfileRecognitionText(p.id, e.target.value)} onBlur={() => persistProfiles(profiles)}
+                    placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} rows={Math.min(8, Math.max(2, Math.ceil((p.recognition || '').length / 110) + 1))}
+                    style={{ width: '100%', fontSize: 12, resize: 'vertical', lineHeight: 1.4 }} />
+                  <span style={{ fontSize: 10, color: (p.recognition || '').trim() ? 'var(--c-text-muted)' : 'var(--c-warning, #d97706)' }}>
+                    {(p.recognition || '').trim() ? t('set.profileRecognitionActive') : t('set.profileRecognitionEmpty')}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -442,7 +455,7 @@ export default function PolizzaFieldsEditor() {
           <input value={profileMatchExcludeKeywords} onChange={(e) => setProfileMatchExcludeKeywords(e.target.value)} placeholder={t('set.profileMatchExcludeKeywords')} title={t('set.profileMatchExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <input value={profileContentKeywords} onChange={(e) => setProfileContentKeywords(e.target.value)} placeholder={t('set.profileContentKeywords')} title={t('set.profileContentKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
           <input value={profileContentExcludeKeywords} onChange={(e) => setProfileContentExcludeKeywords(e.target.value)} placeholder={t('set.profileContentExcludeKeywords')} title={t('set.profileContentExcludeKeywordsHelp')} style={{ flex: '1 1 140px', fontSize: 13 }} />
-          <input value={profileRecognition} onChange={(e) => setProfileRecognition(e.target.value)} placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} style={{ flex: '2 1 220px', fontSize: 13 }} />
+          <textarea value={profileRecognition} onChange={(e) => setProfileRecognition(e.target.value)} placeholder={t('set.profileRecognition')} title={t('set.profileRecognitionHelp')} rows={2} style={{ flex: '1 1 100%', fontSize: 13, resize: 'vertical' }} />
           <button type="button" className="btn btn-secondary" onClick={saveProfile} disabled={!profileName.trim()}>{t('set.saveProfile')}</button>
           <button type="button" className="btn btn-secondary" onClick={exportProfiles} disabled={!profiles.length}>{t('set.exportJson')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}>{t('set.importJson')}</button>

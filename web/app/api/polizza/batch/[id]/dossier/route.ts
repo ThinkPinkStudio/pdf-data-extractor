@@ -31,6 +31,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const relPaths = formData.getAll('path').map((p) => String(p))
   const dossierName = String(formData.get('dossierName') || 'Polizza')
   const profileId = formData.get('profileId') ? String(formData.get('profileId')) : null
+  // «Solo abbinamento»: OCR + pertinenza, poi il job si ferma in 'matched'
+  // (l'estrazione parte dal ▶ della pagina Elaborazioni).
+  const matchOnly = String(formData.get('matchOnly') || '') === '1'
   if (pdfFiles.length === 0 || relPaths.length !== pdfFiles.length) {
     return NextResponse.json({ error: 'File o percorsi mancanti' }, { status: 400 })
   }
@@ -105,6 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Identità del profilo persistita nel job: serve al pre-check di
       // pertinenza e ai suoi messaggi ("non pertinente al profilo X").
       profileId: autoProfile ? 'auto' : profile?.id, profileName: autoProfile ? 'Automatico (semantico)' : profile?.name,
+      matchOnly,
     })
 
     startBatch(params.id) // idempotente: avvia/mantiene l'orchestratore del batch

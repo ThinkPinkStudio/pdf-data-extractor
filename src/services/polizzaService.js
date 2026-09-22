@@ -60,7 +60,7 @@ import {
 // bloccato in "Stopping..."). Qualsiasi batch/chiamata singola viene cappata
 // a questo valore (non è hardcode di una polizza: è il limite fisico del modello
 // sull'hardware. Se un giorno si cambia GPU/modello, si alza questa costante).
-const MAX_BATCH_CTX_8GB = 8192
+export const MAX_BATCH_CTX_8GB = 8192
 // Affinità minima di un valore letto da una RIGA DI TABELLA la cui etichetta
 // nomina il campo (vedi Stadio A.7): sopra i candidati tipici del testo libero
 // (0.4-0.67), sotto la soglia di promozione dei candidati eccellenti (≥0.85).
@@ -1440,7 +1440,7 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
  * Variante Ollama ottimizzata per rolling: num_ctx 8192 (vs 65536 standard).
  * Ogni batch è piccolo → contesto ridotto → risparmio RAM massiccio su macchine 8-16 GB.
  */
-async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) {
+export async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) {
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   // num_ctx/timeout sovrascrivibili: il "fascicolo intero" invia prompt molto più
   // grandi di un batch da 3 pagine e ha bisogno di contesto e tempi maggiori.
@@ -1484,7 +1484,11 @@ async function callOllamaRolling(settings, systemPrompt, userPrompt, opts = {}) 
     // (la guida dei campi o parte del testo NON sono mai arrivate al modello).
     // L'euristica è CALIBRATA sul reale (~2,6 char/token misurato) così il warn
     // resta una SENTINELLA di vero troncamento, non un rumore di falsi positivi.
-    const estPromptTokens = estimateOllamaTokens(systemPrompt.length + userPrompt.length)
+    // Lunghezza UTILE (usefulLength): le run di spazi della griglia spaziale
+    // costano ~0 token; misurate 1:1 facevano scattare l'allarme di
+    // troncamento anche con prompt letti per intero (operatività, 8 pagine di
+    // griglia: "letti 3932 su ~5670 stimati").
+    const estPromptTokens = estimateOllamaTokens(usefulLength(systemPrompt) + usefulLength(userPrompt))
     if (promptEval != null && estPromptTokens > 2048 && promptEval < estPromptTokens * 0.7) {
       diag.push(`ATTENZIONE: prompt probabilmente TRONCATO dal server Ollama ` +
         `(letti ${promptEval} token su ~${estPromptTokens} stimati). ` +
@@ -2329,7 +2333,7 @@ const RECENCY_SYSTEM_EXPLICIT =
  * queste vengono anteposte come "ESTRATTI STRUTTURATI", seguite sempre dal
  * testo grezzo (spaziale o piatto) sotto.
  */
-function withPairs(pageText) {
+export function withPairs(pageText) {
   const t = String(pageText || '')
   // NIENTE liste hardcoded: le intuizioni vengono SOLO dal documento (blocchi
   // tabella markdown Docling/pdf-inspector + coppie etichetta→valore dal

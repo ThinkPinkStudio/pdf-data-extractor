@@ -234,3 +234,10 @@ test('policyEvidenceReport + decidePrecheck: la cartella senza polizza principal
   const ok = policyEvidenceReport(normalizeForPrecheck('Polizza n. 01469DAS00074 Contraente BOLCHINI MARGHERITA Massimale per sinistro 25.000,00 Premio lordo 244,00 ' + 'y'.repeat(30)))
   assert.equal(ok.ok, true); assert.deepEqual(ok.missing, [])
 })
+
+test('policyEvidenceReport: "Polizza n. 0146905119" della quietanza DAS è una voce di polizza', async () => {
+  const { policyEvidenceReport, normalizeForPrecheck } = await import('../src/services/polizzaPrecheck.js')
+  const q = normalizeForPrecheck('QUIETANZA DI PAGAMENTO DEL PREMIO Quietanza n. 693689027 Polizza n. 0146905119 Intestata a: ALZAIA NAV. PAVESE 104 CONDOMINIO Dal 31/01/26 al 31/01/27 Tutela Legale ESCLUSA 31.000,00 Premio netto Imposte Premio lordo € 615,25 € 130,75 € 746,00')
+  const rep = policyEvidenceReport(q)
+  assert.equal(rep.ok, true, rep.missing.join(' / '))
+})

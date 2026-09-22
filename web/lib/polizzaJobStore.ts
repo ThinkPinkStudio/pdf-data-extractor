@@ -11,7 +11,13 @@ export function hashPdfBase64(pdfBase64: string): string {
 
 // 'mismatch': BLOCCATO dal pre-check di pertinenza (contenuto ≠ profilo scelto),
 // in attesa del "Procedi comunque" dell'utente o di una rielaborazione.
-export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled' | 'mismatch'
+// 'review': DA VERIFICARE — il controllo di operatività non ha una prova
+// sufficiente (dubbio, prova non trovata, elementi contraddittori, guasto):
+// nessun campo estratto finché l'utente non preme "Procedi comunque" o
+// "Riabbina" con un altro profilo.
+// 'matched': ABBINATO — job nato in «Solo abbinamento» (precheck.matchOnly):
+// OCR e pertinenza fatti, estrazione in attesa del ▶ dell'utente.
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled' | 'mismatch' | 'matched' | 'review'
 
 export interface JobCursor {
   docIndex?: number
@@ -77,18 +83,21 @@ export async function createJob(params: {
   promptExtra?: string
   profileId?: string
   profileName?: string
+  // Stato iniziale del pre-check: { matchOnly: true } per «Solo abbinamento»
+  // (il worker si ferma in 'matched' dopo la pertinenza, senza estrarre).
+  precheck?: Record<string, unknown> | null
 }): Promise<string> {
   const id = randomUUID()
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11::jsonb,$12,$12)`,
+      `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, created_at, updated_at, precheck)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11::jsonb,$12,$12,$13::jsonb)`,
       [id, params.email, params.batchId ?? null, params.dossierName ?? null, params.wholeDossier,
         JSON.stringify(params.scannedFiles), JSON.stringify(params.fieldDefs),
         params.promptExtra ?? null, params.profileId ?? null, params.profileName ?? null,
-        JSON.stringify(params.rollingState || {}), now()]
+        JSON.stringify(params.rollingState || {}), now(), params.precheck ? JSON.stringify(params.precheck) : null]
     )
     for (let i = 0; i < params.files.length; i++) {
       const f = params.files[i]
@@ -254,6 +263,7 @@ export async function addDossierToBatch(params: {
   promptExtra?: string
   profileId?: string
   profileName?: string
+  matchOnly?: boolean
 }): Promise<string> {
   return createJob({
     email: params.email,
@@ -267,6 +277,7 @@ export async function addDossierToBatch(params: {
     promptExtra: params.promptExtra,
     profileId: params.profileId,
     profileName: params.profileName,
+    precheck: params.matchOnly ? { matchOnly: true } : null,
   })
 }
 
@@ -275,19 +286,21 @@ export async function addDossierToBatch(params: {
 // l'orchestratore riparte dopo un restart). Ritorna proprietario, etichetta e
 // conteggi dei job; null se già notificato (o batch inesistente).
 export async function claimBatchNotification(batchId: string): Promise<
-  { email: string; label: string; total: number; done: number; error: number; canceled: number; mismatch: number } | null
+  { email: string; label: string; total: number; done: number; error: number; canceled: number; mismatch: number; matched: number; review: number } | null
 > {
   const { rows } = await pool.query<{ email: string; label: string }>(
     `UPDATE batch_jobs SET notified_at = $1 WHERE id = $2 AND notified_at IS NULL RETURNING email, label`,
     [now(), batchId]
   )
   if (!rows.length) return null
-  const { rows: counts } = await pool.query<{ total: number; done: number; error: number; canceled: number; mismatch: number }>(
+  const { rows: counts } = await pool.query<{ total: number; done: number; error: number; canceled: number; mismatch: number; matched: number; review: number }>(
     `SELECT COUNT(*)::int AS total,
        COUNT(*) FILTER (WHERE status = 'done')::int AS done,
        COUNT(*) FILTER (WHERE status = 'error')::int AS error,
        COUNT(*) FILTER (WHERE status = 'canceled')::int AS canceled,
-       COUNT(*) FILTER (WHERE status = 'mismatch')::int AS mismatch
+       COUNT(*) FILTER (WHERE status = 'mismatch')::int AS mismatch,
+       COUNT(*) FILTER (WHERE status = 'matched')::int AS matched,
+       COUNT(*) FILTER (WHERE status = 'review')::int AS review
      FROM polizza_jobs WHERE batch_id = $1`,
     [batchId]
   )
@@ -331,6 +344,8 @@ export interface BatchSummary extends BatchRow {
   error: number
   canceled: number
   mismatch: number
+  matched: number
+  review: number
 }
 
 // Lavoro CONDIVISO nel team: elenca i batch di TUTTI gli utenti (la colonna email
@@ -345,7 +360,9 @@ export async function listBatches(): Promise<BatchSummary[]> {
        COUNT(j.id) FILTER (WHERE j.status = 'done')::int AS done,
        COUNT(j.id) FILTER (WHERE j.status = 'error')::int AS error,
        COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled,
-       COUNT(j.id) FILTER (WHERE j.status = 'mismatch')::int AS mismatch
+       COUNT(j.id) FILTER (WHERE j.status = 'mismatch')::int AS mismatch,
+       COUNT(j.id) FILTER (WHERE j.status = 'matched')::int AS matched,
+       COUNT(j.id) FILTER (WHERE j.status = 'review')::int AS review
      FROM batch_jobs b
      LEFT JOIN polizza_jobs j ON j.batch_id = b.id
      GROUP BY b.id
@@ -618,12 +635,15 @@ export async function resetJobForRetry(
     profileId?: string | null
     profileName?: string | null
     settingsOverride?: Record<string, unknown> | null
+    // RIABBINA: rifà OCR (dalla cache) e pertinenza e si ferma in 'matched'
+    // (o 'review'/'mismatch'), senza estrarre: l'estrazione parte col ▶.
+    matchOnly?: boolean
   } = {}
 ): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || job.status === 'running' || job.status === 'queued') return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
-  const verb = job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
+  const verb = opts.matchOnly ? 'Riabbinamento' : job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
   const withProfile = opts.fieldDefs !== undefined && opts.profileId !== undefined
   logs.push(
     `[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''}`
@@ -637,8 +657,9 @@ export async function resetJobForRetry(
     rolling_state: initRollingState(opts.fieldDefs !== undefined ? opts.fieldDefs : (job.field_defs || [])),
     sources: {},
     // Rielaborare = ricontrollare da zero: l'esito (e l'eventuale override) del
-    // pre-check precedente non deve sopravvivere al rilancio.
-    precheck: null,
+    // pre-check precedente non deve sopravvivere al rilancio. Il solo
+    // abbinamento riparte con la sola bandiera matchOnly.
+    precheck: opts.matchOnly ? { matchOnly: true } : null,
     ...(opts.fieldDefs !== undefined ? { field_defs: opts.fieldDefs } : {}),
     ...(opts.promptExtra !== undefined ? { prompt_extra: opts.promptExtra } : {}),
     ...(opts.profileId !== undefined ? { profile_id: opts.profileId } : {}),
@@ -646,25 +667,58 @@ export async function resetJobForRetry(
     ...(opts.settingsOverride !== undefined ? { settings_override: opts.settingsOverride } : {}),
     logs,
   })
+  // Il batch riparte: la mail di fine batch si riarma (era una tantum).
+  if (job.batch_id) await pool.query(`UPDATE batch_jobs SET notified_at = NULL WHERE id = $1`, [job.batch_id])
   return { ...job, status: 'queued' as JobStatus }
 }
 
 // "PROCEDI COMUNQUE": l'utente conferma che il fascicolo va estratto col
 // profilo scelto nonostante il pre-check di pertinenza lo abbia bloccato
-// (falso allarme). L'override viene PERSISTITO nel precheck: al run successivo
-// il worker salta il controllo. Solo da stato 'mismatch'.
+// (falso allarme) o lasciato in dubbio. L'override viene PERSISTITO nel
+// precheck: al run successivo il worker salta il controllo ed ESTRAE (anche
+// se il job era nato in «Solo abbinamento»). Da 'mismatch' o 'review'.
 export async function overridePrecheckAndRequeue(id: string, byEmail?: string): Promise<JobRow | null> {
   const job = await getJob(id)
-  if (!job || job.status !== 'mismatch') return null
+  if (!job || (job.status !== 'mismatch' && job.status !== 'review')) return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Procedi comunque (pre-check di pertinenza ignorato)${byEmail ? ` da ${byEmail}` : ''} —`)
   await updateJob(id, {
     status: 'queued',
     error: null,
-    precheck: { ...(job.precheck || {}), override: true },
+    precheck: { ...(job.precheck || {}), override: true, matchOnly: false },
     logs,
   })
   return { ...job, status: 'queued' as JobStatus }
+}
+
+// ▶ ESTRAI: un job ABBINATO (solo abbinamento riuscito) torna in coda per
+// l'estrazione vera. Il pre-check non si rifà (precheck.confirmed): la
+// motivazione dell'abbinamento resta nel job. Solo da stato 'matched'.
+export async function confirmMatchAndRequeue(id: string, byEmail?: string): Promise<JobRow | null> {
+  const job = await getJob(id)
+  if (!job || job.status !== 'matched') return null
+  const logs = Array.isArray(job.logs) ? [...job.logs] : []
+  logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Estrazione avviata sull'abbinamento confermato${byEmail ? ` da ${byEmail}` : ''} —`)
+  await updateJob(id, {
+    status: 'queued',
+    error: null,
+    precheck: { ...(job.precheck || {}), confirmed: true, matchOnly: false },
+    logs,
+  })
+  // Seconda fase del batch (estrazione dopo il solo abbinamento): la mail di
+  // fine batch è reclamata una volta sola (notified_at) — si riarma qui, così
+  // l'estrazione avvisa a sua volta quando finisce.
+  if (job.batch_id) await pool.query(`UPDATE batch_jobs SET notified_at = NULL WHERE id = $1`, [job.batch_id])
+  return { ...job, status: 'queued' as JobStatus }
+}
+
+// Job ABBINATI di un batch (per «Avvia estrazione» su tutti).
+export async function listMatchedBatchJobs(batchId: string): Promise<string[]> {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM polizza_jobs WHERE batch_id = $1 AND status = 'matched' ORDER BY created_at, id`,
+    [batchId]
+  )
+  return rows.map((r) => r.id)
 }
 
 // Job in errore di un batch (per il rilancio collettivo con esclusioni).

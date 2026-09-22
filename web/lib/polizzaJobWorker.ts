@@ -127,7 +127,7 @@ export async function runJobAndWait(jobId: string): Promise<void> {
 async function runJob(jobId: string): Promise<void> {
   const job = await getJob(jobId)
   if (!job) return
-  if (job.status === 'done' || job.status === 'canceled' || job.status === 'error') return
+  if (job.status === 'done' || job.status === 'canceled' || job.status === 'error' || job.status === 'matched' || job.status === 'review') return
 
   const settings = await getSettings()
   // Profilo per-dossier: lo snapshot di campi/prompt congelato all'upload vince sul
@@ -429,9 +429,19 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
 
   // ── PRE-CHECK DI PERTINENZA profilo↔contenuto (post-OCR, PRIMA di ogni
   // chiamata LLM di estrazione). Solo per i job con un profilo scelto; salta
-  // se l'utente ha già premuto "Procedi comunque" (precheck.override).
+  // se l'utente ha già premuto "Procedi comunque" (precheck.override) o ▶ su
+  // un abbinamento riuscito (precheck.confirmed).
   // Regola ferrea: un guasto del pre-check NON ferma mai il job.
   const precheckMode = settings.polizzaPrecheckMode || 'semantic'
+  // «Solo abbinamento» (pagina Bulk / Riabbina): dopo la pertinenza il job si
+  // ferma in 'matched' e l'estrazione aspetta il ▶ dell'utente.
+  const precheckBase: Record<string, any> = { ...((job.precheck as any) || {}) }
+  const matchOnly = !!precheckBase.matchOnly
+  // GRIGLIA SPAZIALE per il controllo di operatività: caselle barrate e colonne
+  // premio restano incolonnate (il testo piatto le scioglie); stessa vista del
+  // motore di estrazione (normalizeStagedDocInput).
+  const spatialDocs = docsForIndex.map((d) => ({ name: d.name, pages: ((d as any).spatialPages as string[] | undefined) || d.pages }))
+  const activeProfiles = (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false)
   // Profilo LIVE (per contentKeywords/nome): se è stato cancellato si degrada al
   // semantico sui field_defs congelati — mai un errore.
 // Profilo per il pre-check: quello esplicito del job, altrimenti il profilo
@@ -439,26 +449,56 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
 // quello). Senza questo fallback i job lanciati dalla pagina bulk senza profilo
 // esplicito (GUFFANTI: fideiussioni/infortuni con i campi globali di TL3)
 // saltavano IL FILTRO e venivano estratti lo stesso.
-// ── PROFILO AUTOMATICO (semantico) ─────────────────────────────────────────
-// Il job è nato dalla pagina bulk col tipo «Automatico»: si classificano i
-// profili salvati per affinità tra le loro DESCRIZIONI dei campi e il testo
-// del fascicolo e si adotta il più affine (le descrizioni sono la verità:
-// cambiano i profili, cambia la classifica; nessuna soglia, nessuna parola
-// fissa). Senza classifica (embeddings giù, nessun profilo) si prosegue coi
-// campi globali, mai un errore.
-let autoAssigned = false
+// ── PROFILO AUTOMATICO (semantico + operatività) ───────────────────────────
+// Il job è nato col tipo «Automatico»: si classificano i profili ATTIVI per
+// affinità col testo (rankProfilesForDocs: «Come riconoscerla» se tutti ce
+// l'hanno, altrimenti le descrizioni dei campi) e poi, sui primi 3 con «Come
+// riconoscerla», il controllo di OPERATIVITÀ: si adotta il primo la cui
+// copertura è OPERANTE con prova. Nessuno operante → si adotta il più affine e
+// il job finisce «da verificare» con i verdetti provati. Senza classifica
+// (embeddings giù, nessun profilo) si prosegue coi campi globali, mai un errore.
+let autoOperativita: any = null
+// Profili già provati dall'operatività del percorso Automatico: il pre-check
+// non li rifà (fino a ~24 chiamate per fascicolo, prima).
+let autoTried: { id: string; name: string; verdict: string; reason: string }[] = []
+// ANNULLA anche durante il pre-check: il flag chiude lo stream Ollama e, prima
+// di scrivere uno stato, si ricontrolla il DB (prima 'canceled' veniva
+// sovrascritto da matched/review/mismatch).
+const preCancel = { canceled: false }
+settings.__cancelFlag = preCancel
+const preCancelPoll = setInterval(() => {
+  isCanceled(job.id).then((c) => { if (c) preCancel.canceled = true }).catch(() => {})
+}, 3000)
+try {
 if (job.profile_id === 'auto') {
   try {
     const pcSvc = await importSharedService<{
-      rankProfilesForDocs: (p: any) => Promise<{ id: string; name: string; score: number | null }[]>
+      rankProfilesForDocs: (p: any) => Promise<{ id: string; name: string; score: number | null; signal?: string }[]>
+      runOperativita: (p: any) => Promise<any>
+      recognitionOf: (p: any) => string
+      contentExcludeMatched: (profile: any, docs: any) => string[]
     }>('polizzaPrecheckService.js')
     // Solo i profili ATTIVI (enabled !== false; assente = attivo, import retrocompatibile).
-    const activeProfiles = (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false)
     const ranking = await pcSvc.rankProfilesForDocs({ docs: docsFlat, profiles: activeProfiles, settings })
-    const best = ranking.find((r) => typeof r.score === 'number')
-    const chosen = best ? (settings.polizzaProfiles || []).find((p: any) => p.id === best.id) : null
     const rankStr = ranking.filter((r) => typeof r.score === 'number').map((r) => `${r.name} ${(r.score as number).toFixed(2)}`).join(' · ')
-    if (chosen && best) {
+    const ranked = ranking.filter((r) => typeof r.score === 'number').map((r) => activeProfiles.find((p: any) => p.id === r.id)).filter(Boolean) as any[]
+    let chosen: any = ranked[0] || null
+    const tried: string[] = []
+    if (precheckMode !== 'off') {
+      const opDiag: string[] = []
+      for (const cand of ranked.filter((p) => pcSvc.recognitionOf(p)).slice(0, 3)) {
+        if (preCancel.canceled) break
+        // Stesse regole del profilo scelto a mano: le parole «da evitare» del
+        // candidato entrano nella decisione (operante + parola = contraddizione).
+        const r = await pcSvc.runOperativita({ docs: docsFlat, spatialDocs, profile: cand, profiles: activeProfiles, settings, diag: opDiag, excludeMatched: pcSvc.contentExcludeMatched(cand, docsFlat) })
+        tried.push(`«${cand.name}»: ${r?.verdict === 'ok' ? 'operante' : r?.verdict === 'mismatch' ? 'non operante' : 'da verificare'}`)
+        autoTried.push({ id: cand.id, name: cand.name, verdict: r?.verdict || 'review', reason: r?.reason || '' })
+        if (!autoOperativita) autoOperativita = r
+        if (r && r.verdict === 'ok') { chosen = cand; autoOperativita = r; break }
+      }
+      for (const line of opDiag) await appendLog(job, line, logs)
+    }
+    if (chosen) {
       const fieldDefs = (chosen.fields || []).filter((f: any) => f.enabled !== false)
         .map((f: any) => ({ id: f.id, label: f.label, description: f.description, type: f.type, sheet: f.sheet }))
       job.profile_id = chosen.id
@@ -467,12 +507,14 @@ if (job.profile_id === 'auto') {
       job.prompt_extra = chosen.promptExtra || ''
       settings.polizzaFields = fieldDefs.map((f: any) => ({ ...f, description: f.description ?? '' }))
       settings.polizzaPromptExtra = chosen.promptExtra || ''
+      precheckBase.auto = true
+      precheckBase.autoRanking = ranking
+      if (tried.length) precheckBase.autoTried = tried
       await updateJob(job.id, {
         profile_id: chosen.id, profile_name: chosen.name, field_defs: fieldDefs, prompt_extra: chosen.promptExtra || '',
-        precheck: { verdict: 'ok', mode: 'semantic', score: best.score, threshold: null, reason: `profilo scelto automaticamente: il più affine al contenuto (${rankStr})`, ranking, at: Math.floor(Date.now() / 1000) },
+        precheck: { ...precheckBase, verdict: 'ok', mode: 'semantic', score: null, threshold: null, reason: `profilo scelto automaticamente (${rankStr})`, ranking, at: Math.floor(Date.now() / 1000) },
       })
-      await appendLog(job, `Profilo automatico (semantico, su ${(ranking[0] as any)?.signal || 'descrizioni dei campi'}): adottato «${chosen.name}» — classifica: ${rankStr}`, logs)
-      autoAssigned = true
+      await appendLog(job, `Profilo automatico (${(ranking[0] as any)?.signal || 'descrizioni dei campi'}): adottato «${chosen.name}» — classifica: ${rankStr}${tried.length ? ` — operatività: ${tried.join(', ')}` : ''}`, logs)
     } else {
       await appendLog(job, `Profilo automatico: nessuna classifica disponibile (${ranking.length ? 'punteggi assenti' : 'nessun profilo o embeddings non disponibili'}) — si procede coi campi globali`, logs)
     }
@@ -491,63 +533,112 @@ const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === (job.
 const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
 // Default ATTIVO (12/09/2026): senza polizza principale la cartella si accantona con la ragione.
 const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
-const shouldPrecheck = !!profile && !(job.precheck as any)?.override && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
+const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.confirmed && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
+  // Nomi dei documenti letti (per i messaggi all'utente; MAI nei prompt).
+  const docNames = docsFlat.map((d) => d.name.replace(/^.*[\\/]/, '')).slice(0, 8).join(', ') + (docsFlat.length > 8 ? ` (+${docsFlat.length - 8})` : '')
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null } | null; ranking?: { id: string; name: string; score: number | null }[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null; signal?: string | null } | null; ranking?: { id: string; name: string; score: number | null }[]; operativita?: any; operativitaTried?: { name: string; verdict: string }[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
+      const opDiag: string[] = []
       const pre = await pcSvc.runPrecheck({
         // FILTRO ed ESTRAZIONE SEPARATI: il filtro parole chiave vede il TESTO
         // PIATTO (docsFlat), l'estrazione il markdown Docling (docsForIndex).
         // Il markdown inizia con "<!-- image -->" e metadati → il classificatore
         // rispondeva "image" e bloccava tutto.
         docs: docsFlat,
+        spatialDocs,
         fieldDefs: job.field_defs || [], profile,
         profileName: job.profile_name || profile?.name || '',
-        // Profilo appena scelto dalla classifica semantica: il confronto è già
-        // fatto (restano attive le parole del contenuto del profilo, se ci sono).
-        // Anche col profilo scelto dalla classifica semantica il controllo gira
-        // (è lo stesso confronto: passa per costruzione) così la motivazione
-        // in «Pertinenza» è sempre un verdetto, mai "senza controllo".
         mode: precheckMode,
         settings,
         // Il verdetto semantico è un CONFRONTO tra tutti i profili salvati.
-        allProfiles: (settings.polizzaProfiles || []).filter((p: any) => p && p.enabled !== false),
+        allProfiles: activeProfiles,
+        // Operatività già calcolata dal profilo Automatico: nessuna seconda chiamata,
+        // e i profili già provati non si riprovano per il suggerimento.
+        operativita: autoOperativita && autoOperativita.profileId === profile?.id ? autoOperativita : null,
+        operativitaTried: autoTried.filter((t) => t.id !== profile?.id),
+        diag: opDiag,
       })
+      for (const line of opDiag) await appendLog(job, line, logs)
+      // Annullato mentre il controllo girava: nessuno stato sovrascrive 'canceled'.
+      if (await isCanceled(job.id)) return
       const detStr = [pre.detected?.type, (pre.detected?.keywords || []).join(', ')].filter(Boolean).join(' — ')
       const kwsStr = pre.matched?.length ? ` · parole chiave trovate: ${pre.matched.join(', ')}` : ''
       // MOTIVAZIONE SEMPRE, anche quando il fascicolo è accettato: il perché
-      // (parole trovate, affinità a confronto, classifica dei profili) resta nel
-      // job (precheck.summary), nella pagina Elaborazioni e nell'export, così un
-      // falso positivo si vede e si corregge.
-      const rankStr = (pre.ranking || []).filter((r) => typeof r.score === 'number').slice(0, 3).map((r) => `${r.name} ${(r.score as number).toFixed(2)}`).join(' · ')
-      const falsePos = pre.verdict !== 'mismatch' && pre.suggestion ? ` ⚠ un altro profilo è più affine al contenuto: «${pre.suggestion.name}» — possibile falso positivo` : ''
-      const verdictIt = pre.verdict === 'ok' ? 'accettato' : pre.verdict === 'mismatch' ? 'scartato' : 'accettato senza controllo'
-      const summary = `Pertinenza [${pre.mode}]: ${verdictIt}${pre.score != null ? ` (punteggio ${pre.score.toFixed(2)})` : ''} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}${rankStr ? ` · classifica profili: ${rankStr}` : ''}${falsePos}`
-      await updateJob(job.id, { precheck: { ...pre, summary, at: Math.floor(Date.now() / 1000) } })
-      await appendLog(job, summary, logs)
+      // (prova citata, parole trovate, classifica dei profili) resta nel job
+      // (precheck.summary), nella pagina Elaborazioni e nell'export, così un
+      // falso positivo si vede e si corregge. Niente «punteggio»: i numeri
+      // della classifica (affinità, non correttezza) restano nel log.
+      const rankNames = (pre.ranking || []).filter((r) => typeof r.score === 'number').slice(0, 3).map((r) => r.name).join(' > ')
+      const rankNums = (pre.ranking || []).filter((r) => typeof r.score === 'number').slice(0, 3).map((r) => `${r.name} ${(r.score as number).toFixed(2)}`).join(' · ')
+      const op = pre.operativita
+      const proof = op?.evidenza ? ` · Documento ${op.documento ?? '?'}${op.pagina ? ` pag. ${op.pagina}` : ''}: «${String(op.evidenza).slice(0, 200)}»` : ''
+      const sugg = pre.suggestion ? ` · profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal === 'operatività' ? ' (copertura operante con prova)' : ''}` : ''
+      const triedStr = pre.operativitaTried?.length ? ` · altri profili provati: ${pre.operativitaTried.map((x) => `${x.name} ${x.verdict === 'ok' ? 'operante' : x.verdict === 'mismatch' ? 'non operante' : 'dubbio'}`).join(', ')}` : ''
+      const verdictIt = pre.verdict === 'ok' ? 'abbinato' : pre.verdict === 'mismatch' ? 'non pertinente' : pre.verdict === 'review' ? 'da verificare' : 'accettato senza controllo'
+      const summary = pre.mode === 'operativita'
+        ? `Pertinenza [operatività]: ${verdictIt} — ${pre.reason}${proof}${sugg}${triedStr}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
+        : `Pertinenza [${pre.mode}]: ${verdictIt} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}${sugg}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
+      await updateJob(job.id, { precheck: { ...precheckBase, ...pre, summary, at: Math.floor(Date.now() / 1000) } })
+      await appendLog(job, summary + (rankNums ? ` · affinità: ${rankNums}` : ''), logs)
+      if (pre.verdict === 'review') {
+        // DA VERIFICARE: nessun campo estratto. L'utente sblocca con "Procedi
+        // comunque" (estrae lo stesso) o "Riabbina" con un altro profilo.
+        const suggTxt = pre.suggestion ? ` Profilo suggerito: «${pre.suggestion.name}».` : ''
+        await updateJob(job.id, {
+          status: 'review', progress: {},
+          error: `Da verificare — ${pre.reason}.${proof ? ` Prova: ${proof.slice(3)}.` : ''}${suggTxt} Documenti letti: ${docNames}. Premi "Procedi comunque" per estrarre lo stesso o "Riabbina" con un altro profilo.`,
+        })
+        return
+      }
       if (pre.verdict === 'mismatch') {
         // Il PERCHÉ, sempre: quali documenti c'erano, cosa manca o quali parole
         // mancano, e — se esiste — il profilo attivo più affine da usare.
-        const docNames = docsFlat.map((d) => d.name.replace(/^.*[\\/]/, '')).slice(0, 8).join(', ') + (docsFlat.length > 8 ? ` (+${docsFlat.length - 8})` : '')
-        const sugg = pre.suggestion ? ` Profilo suggerito: «${pre.suggestion.name}»${typeof pre.suggestion.score === 'number' && typeof pre.score === 'number' ? ` (affinità ${pre.suggestion.score.toFixed(2)} contro ${pre.score.toFixed(2)})` : ''}.` : ''
+        const suggTxt = pre.suggestion ? ` Profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal === 'operatività' ? ' (copertura operante con prova)' : ''}.` : ''
         const missingKw = pre.missing?.length ? ` Parole del profilo non trovate: ${pre.missing.slice(0, 6).join(', ')}.` : ''
-        const scarto = pre.excludeMatched?.length
+        const scarto = pre.excludeMatched?.length && pre.mode !== 'operativita'
           ? `Scartato — ${pre.reason}. Documenti letti: ${docNames}.`
           : pre.setAside
-            ? `Accantonato — ${pre.reason}. Documenti letti: ${docNames}.${sugg} Se la polizza c'è ma non è stata riconosciuta, premi "Procedi comunque".`
-            : `Non pertinente al profilo "${job.profile_name || job.profile_id}" — ${pre.reason}.${missingKw}${detStr ? ` Rilevato nel testo: ${detStr}.` : ''}${sugg} Documenti letti: ${docNames}. Cambia profilo o premi "Procedi comunque".`
+            ? `Accantonato — ${pre.reason}. Documenti letti: ${docNames}.${suggTxt} Se la polizza c'è ma non è stata riconosciuta, premi "Procedi comunque".`
+            : `Non pertinente al profilo "${job.profile_name || job.profile_id}" — ${pre.reason}.${proof ? ` Prova: ${proof.slice(3)}.` : ''}${missingKw}${detStr && pre.mode !== 'operativita' ? ` Rilevato nel testo: ${detStr}.` : ''}${suggTxt} Documenti letti: ${docNames}. Cambia profilo o premi "Procedi comunque".`
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
           error: scarto,
         })
         return // stesso stop pulito del probe OCR: il batch prosegue coi dossier successivi
       }
+      if (matchOnly) {
+        // SOLO ABBINAMENTO riuscito: qui ci si ferma, l'estrazione aspetta il ▶.
+        await updateJob(job.id, { status: 'matched', progress: {}, error: null })
+        await appendLog(job, `Abbinato: estrazione in attesa del ▶ (solo abbinamento)`, logs)
+        return
+      }
     } catch (err: any) {
+      if (matchOnly) {
+        // Solo abbinamento: un guasto del controllo NON può diventare un'estrazione
+        // silenziosa. Il dossier si ferma in «Da verificare» con l'errore.
+        const summary = `Pertinenza: controllo non eseguibile (${err.message})`
+        await updateJob(job.id, { status: 'review', progress: {}, error: `Da verificare — ${summary}. Documenti letti: ${docNames}. Premi "Riabbina" per riprovare o "Procedi comunque" per estrarre lo stesso.`, precheck: { ...precheckBase, verdict: 'review', mode: precheckMode, reason: summary, summary, at: Math.floor(Date.now() / 1000) } })
+        await appendLog(job, summary, logs)
+        return
+      }
       await appendLog(job, `Pre-check pertinenza non eseguibile (${err.message}) — si procede con l'estrazione`, logs)
     }
+  } else if (matchOnly && !precheckBase.override && !precheckBase.confirmed) {
+    // Solo abbinamento senza controllo possibile (nessun profilo o pre-check
+    // spento): nulla da verificare, ma non si estrae senza il ▶.
+    const summary = `Pertinenza: abbinamento senza controllo (${!profile ? 'nessun profilo sul job' : 'pre-controllo spento'})`
+    await updateJob(job.id, { status: 'matched', progress: {}, error: null, precheck: { ...precheckBase, verdict: 'skipped', mode: precheckMode, summary, at: Math.floor(Date.now() / 1000) } })
+    await appendLog(job, summary, logs)
+    return
   }
+  } finally {
+    clearInterval(preCancelPoll)
+    if (settings.__cancelFlag === preCancel) delete settings.__cancelFlag
+  }
+  if (await isCanceled(job.id)) return
 
   // polizza_numero estratto: finisce nei metadati dell'indice vettoriale (chiave di
   // business per ritrovare la stessa polizza attraverso caricamenti diversi).

@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { useConfirmPanel } from '@/components/ConfirmPanel'
 
 interface BatchSummary {
   id: string
@@ -16,6 +17,8 @@ interface BatchSummary {
   error: number
   canceled: number
   mismatch: number
+  matched: number
+  review: number
 }
 
 interface JobSnapshot {
@@ -33,6 +36,7 @@ interface JobSnapshot {
   duplicateOf?: string | null
   sourceJobId?: string | null
   profileId?: string | null
+  profileName?: string | null
   promptExtra?: string | null
   logs?: string[]
   updatedAt?: number
@@ -43,12 +47,15 @@ function fmtDate(epochSeconds: number) {
   return new Date(epochSeconds * 1000).toLocaleString()
 }
 
-function batchStatus(b: BatchSummary): 'running' | 'error' | 'done' | 'queued' | 'mismatch' {
-  if (b.running > 0 || (b.queued > 0 && b.done + b.error + b.canceled > 0)) return 'running'
+function batchStatus(b: BatchSummary): 'running' | 'error' | 'done' | 'queued' | 'mismatch' | 'review' | 'matched' {
+  if (b.running > 0 || (b.queued > 0 && b.done + b.error + b.canceled + (b.matched || 0) + (b.review || 0) > 0)) return 'running'
   if (b.queued > 0 && b.done === 0 && b.error === 0) return 'queued'
   if (b.error > 0) return 'error'
-  // Dossier bloccati dal pre-check di pertinenza: il batch è "da confermare"
+  // Dossier fermi: «da verificare» (operatività in dubbio) prima del
+  // «da confermare» (non pertinente), poi gli abbinati in attesa del ▶.
+  if ((b.review || 0) > 0) return 'review'
   if ((b.mismatch || 0) > 0) return 'mismatch'
+  if ((b.matched || 0) > 0) return 'matched'
   return 'done'
 }
 
@@ -81,8 +88,13 @@ export default function PolizzaJobsPage() {
   // Dialog universale di rilancio: "run di TEST" (crea una COPIA) oppure
   // "rielabora con profilo" (singolo o batch) — lo STESSO job torna in coda coi
   // field_defs del profilo scelto al posto di quelli congelati all'upload.
-  type ReprofileMode = 'test' | 'reprofile' | 'reprofileBatch'
+  // 'rematch' / 'rematchBatch': RIABBINA — rifà solo OCR (cache) + pertinenza
+  // col profilo attuale, uno scelto o Automatico; l'estrazione aspetta il ▶.
+  type ReprofileMode = 'test' | 'reprofile' | 'reprofileBatch' | 'rematch' | 'rematchBatch'
   const [dial, setDial] = useState<{ mode: ReprofileMode; jobs: JobSnapshot[] } | null>(null)
+  // Filtro per stato nel dettaglio batch (chip cliccabili): null = tutte le righe.
+  const [chipFilter, setChipFilter] = useState<string | null>(null)
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
   const [testProfileId, setTestProfileId] = useState('')
   const [testModel, setTestModel] = useState('')
   const [testStrategy, setTestStrategy] = useState('')      // '' = come da impostazioni
@@ -131,7 +143,7 @@ export default function PolizzaJobsPage() {
   async function toggleOpen(id: string) {
     if (openId === id) { setOpenId(null); setDetail(null); return }
     setOpenId(id); setDetail(null); setLoadingDetail(true)
-    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set()); setBulkSelected(new Set())
+    setShowValues(new Set()); setShowLog(new Set()); setRetryExcluded(new Set()); setBulkSelected(new Set()); setChipFilter(null)
     await loadDetail(id)
     setLoadingDetail(false)
   }
@@ -172,6 +184,7 @@ export default function PolizzaJobsPage() {
           const pid = jobs[0]?.profileId
           if (pid && (s.polizzaProfiles || []).some((p: { id: string }) => p.id === pid)) setTestProfileId(pid)
         }
+        // Riabbina: default «profilo attuale del job» ('' = nessuna sostituzione).
       } catch { /* senza profili resta "campi del job" */ }
     }
     if (!testModels.length) {
@@ -184,9 +197,24 @@ export default function PolizzaJobsPage() {
   async function submitDialog() {
     if (!dial) return
     const { mode, jobs } = dial
-    if (mode !== 'test' && !testProfileId) { setReprofileError(t('jobsDash.reprofileRequired')); return }
+    const isRematch = mode === 'rematch' || mode === 'rematchBatch'
+    if (!isRematch && mode !== 'test' && !testProfileId) { setReprofileError(t('jobsDash.reprofileRequired')); return }
     setBusy(true)
     try {
+      if (isRematch) {
+        // Solo abbinamento: profilo attuale ('' → nessun profileId), Automatico o scelto.
+        const url = mode === 'rematch' ? `/api/polizza/job/${jobs[0].jobId}/rematch` : `/api/polizza/batch/${jobs[0].batchId}/bulk`
+        const rbody: Record<string, unknown> = mode === 'rematch'
+          ? (testProfileId ? { profileId: testProfileId } : {})
+          : { action: 'rematch', jobIds: jobs.map((j) => j.jobId), ...(testProfileId ? { profileId: testProfileId } : {}) }
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rbody) })
+        if (!res.ok) { setReprofileError(((await res.json())?.error) || 'Errore'); return }
+        setDial(null)
+        if (mode === 'rematchBatch') setBulkSelected(new Set())
+        if (openId) await loadDetail(openId)
+        await loadBatches()
+        return
+      }
       const body: Record<string, unknown> = {}
       if (testProfileId) body.profileId = testProfileId
       if (testModel.trim()) body.model = testModel.trim()
@@ -260,6 +288,14 @@ export default function PolizzaJobsPage() {
         openDialog('reprofileBatch', jobs.map((j) => ({ ...j, batchId })))
         return
       }
+      if (action === 'rematch') {
+        // Riabbina: scelta del profilo (attuale / Automatico / uno) nel dialog.
+        // Le righe in corso/in coda non si riabbinano: senza righe idonee niente dialog.
+        const eligible = jobs.filter((j) => j.status !== 'running' && j.status !== 'queued').map((j) => ({ ...j, batchId }))
+        if (!eligible.length) { setBulkResult(t('jobsDash.bulkResult', { ok: 0, skipped: jobs.length })); return }
+        openDialog('rematchBatch', eligible)
+        return
+      }
       const res = await fetch(`/api/polizza/batch/${batchId}/bulk`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
@@ -301,15 +337,117 @@ export default function PolizzaJobsPage() {
       : s === 'error' ? t('jobsDash.statusError')
         : s === 'queued' ? t('jobsDash.statusQueued')
           : s === 'mismatch' ? t('jobsDash.statusMismatch')
-            : t('jobsDash.statusDone')
+            : s === 'review' ? t('jobsDash.statusReview')
+              : s === 'matched' ? t('jobsDash.statusMatched')
+                : t('jobsDash.statusDone')
+  )
+  // Etichetta di BATCH: gli stati «fermi» dicono cosa aspetta l'utente.
+  const batchStatusLabel = (s: string) => (
+    s === 'matched' ? t('jobsDash.statusMatchedBatch') : s === 'review' ? t('jobsDash.statusReviewBatch') : statusLabel(s)
   )
   const statusColor = (s: string) => (
     s === 'running' ? 'var(--c-info)'
       : s === 'error' ? 'var(--c-error)'
         : s === 'queued' ? 'var(--c-text-muted)'
-          : s === 'mismatch' ? 'var(--c-warning, #d97706)'
+          : s === 'mismatch' || s === 'review' ? 'var(--c-warning, #d97706)'
             : 'var(--c-success)'
   )
+
+  // ▶ ESTRAI: avvia l'estrazione di un job ABBINATO (solo abbinamento riuscito).
+  async function extractJobRow(jobId: string) {
+    setBusy(true)
+    try {
+      await fetch(`/api/polizza/job/${jobId}/extract`, { method: 'POST' })
+      if (openId) await loadDetail(openId)
+      await loadBatches()
+    } finally { setBusy(false) }
+  }
+  // «Usa e riabbina»: riabbina il dossier col profilo suggerito dal controllo.
+  async function rematchWith(jobId: string, profileId: string) {
+    setBusy(true)
+    try {
+      await fetch(`/api/polizza/job/${jobId}/rematch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) })
+      if (openId) await loadDetail(openId)
+      await loadBatches()
+    } finally { setBusy(false) }
+  }
+  // ▶ AVVIA ESTRAZIONE su tutti gli abbinati del batch (conferma nel pannello).
+  async function extractAll(batchId: string, n: number) {
+    if (!(await askConfirm(t('jobsDash.extractAllConfirm', { n }), { okLabel: t('jobsDash.extractAllOk'), title: t('jobsDash.extractAll', { n }) }))) return
+    setBusy(true)
+    try {
+      await fetch(`/api/polizza/batch/${batchId}/extract-all`, { method: 'POST' })
+      await loadDetail(batchId)
+      await loadBatches()
+    } finally { setBusy(false) }
+  }
+  // Riabbina TUTTI i dossier del batch (non in corso): dialog di scelta profilo.
+  function openBatchRematch(batchId: string) {
+    const jobs = (detail || []).filter((j) => j.status !== 'running' && j.status !== 'queued').map((j) => ({ ...j, batchId }))
+    if (jobs.length) openDialog('rematchBatch', jobs)
+  }
+
+  // Chip di stato nel dettaglio batch: quali righe rientrano in un gruppo.
+  const chipOf = (j: JobSnapshot): string => (
+    j.status === 'running' || j.status === 'queued' ? 'active'
+      : j.status === 'matched' ? 'matched'
+        : j.status === 'review' ? 'review'
+          : j.status === 'mismatch' ? (isSetAside(j) ? 'setAside' : 'mismatch')
+            : j.status === 'done' ? 'done'
+              : 'error'
+  )
+  // Riga «Profilo»: nome (auto → nome se scelto dal riconoscimento), badge
+  // «solo abbinamento», profilo suggerito con «Usa e riabbina».
+  const profileCell = (j: JobSnapshot, activeRow: boolean) => {
+    const pc = (j.precheck as any) || {}
+    const name = j.profileName || (j.profileId ? j.profileId : t('jobsDash.profileNone'))
+    const sugg = pc.suggestion && pc.suggestion.id && pc.suggestion.id !== j.profileId ? pc.suggestion : null
+    return (
+      <>
+        <span>{pc.auto ? t('jobsDash.profileAuto', { name }) : name}</span>
+        {pc.matchOnly && j.status !== 'matched' && (
+          <span style={{ marginLeft: 6, fontSize: 9, padding: '1px 5px', borderRadius: 999, background: 'var(--c-bg-card-alt)', color: 'var(--c-text-secondary)' }}>{t('jobsDash.matchOnlyBadge')}</span>
+        )}
+        {sugg && (
+          <span style={{ display: 'block', fontSize: 10, color: 'var(--c-text-secondary)', marginTop: 2 }}>
+            {t('jobsDash.suggested', { name: sugg.name })}{' '}
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 9, padding: '1px 6px' }} disabled={busy || activeRow}
+              title={t('jobsDash.useSuggestedTitle')} onClick={() => rematchWith(j.jobId, sugg.id)}>
+              🔁 {t('jobsDash.useSuggested')}
+            </button>
+          </span>
+        )}
+      </>
+    )
+  }
+  // Motivazione della pertinenza sotto lo stato: con l'operatività due righe
+  // strutturate (esito — Documento N pag. P: «prova» / motivo), altrimenti la
+  // sintesi storica. Il testo completo resta nel title.
+  const precheckLines = (j: JobSnapshot, max: number) => {
+    const pc = (j.precheck as any) || {}
+    const summary = typeof pc.summary === 'string' ? pc.summary : ''
+    const op = pc.operativita
+    if (op && op.esito) {
+      // Esito del MODELLO + verdetto finale quando non coincidono (prova non
+      // trovata/generica, batch contraddittori, parola da evitare): «Operante»
+      // in grassetto su una riga «Da verificare» confondeva.
+      const esitoBase = op.esito === 'operante' ? t('jobsDash.opOperante') : op.esito === 'non operante' ? t('jobsDash.opNonOperante') : t('jobsDash.opDubbio')
+      const esito = pc.verdict === 'review' ? `${esitoBase} · ${t('jobsDash.chipReview').toLowerCase()}` : esitoBase
+      const where = op.documento ? ` — ${t('jobsDash.evidenceAt', { doc: op.documento, page: op.pagina || '?' })}` : ''
+      return (
+        <span title={summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+          <span style={{ fontWeight: 600 }}>{esito}</span>{where}{op.evidenza ? `: «${String(op.evidenza).slice(0, 160)}»` : ''}
+          {op.motivo ? <span style={{ display: 'block', color: 'var(--c-text-muted)' }}>{String(op.motivo).slice(0, 160)}</span> : null}
+        </span>
+      )
+    }
+    if (!summary) return null
+    return (
+      <span title={summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+        {summary.slice(0, max)}
+      </span>
+    )
+  }
 
   // "Procedi comunque": sblocca un job fermato dal pre-check di pertinenza.
   async function proceedJobRow(jobId: string) {
@@ -404,17 +542,52 @@ export default function PolizzaJobsPage() {
                     <tr style={{ cursor: 'pointer' }} onClick={() => toggleOpen(b.id)}>
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600 }}>{b.label}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{b.email}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: statusColor(st), fontWeight: 600 }}>{statusLabel(st)}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12 }}>{t('jobsDash.progressCount', { done: b.done + b.error + b.canceled + (b.mismatch || 0), total: b.total })}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: statusColor(st), fontWeight: 600 }}>{batchStatusLabel(st)}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12 }}>{t('jobsDash.progressCount', { done: b.done + b.error + b.canceled + (b.mismatch || 0) + (b.matched || 0) + (b.review || 0), total: b.total })}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--c-text-muted)' }}>{fmtDate(b.created_at)}</td>
                     </tr>
                     {isOpen && (
                       <tr>
                         <td colSpan={5} style={{ padding: '0 14px 14px', background: 'var(--c-bg-card-alt)' }}>
                           {loadingDetail && <p style={{ fontSize: 12 }}><span className="spinner" /></p>}
-                          {!loadingDetail && detail && (
+                          {!loadingDetail && detail && (() => {
+                            // Contatori per stato (chip cliccabili = filtro righe) e
+                            // abbinati in attesa del ▶.
+                            const chips: { key: string; label: string; n: number; color: string }[] = [
+                              { key: 'matched', label: t('jobsDash.chipMatched'), n: detail.filter((j) => chipOf(j) === 'matched').length, color: 'var(--c-success)' },
+                              { key: 'review', label: t('jobsDash.chipReview'), n: detail.filter((j) => chipOf(j) === 'review').length, color: 'var(--c-warning, #d97706)' },
+                              { key: 'mismatch', label: t('jobsDash.chipMismatch'), n: detail.filter((j) => chipOf(j) === 'mismatch').length, color: 'var(--c-warning, #d97706)' },
+                              { key: 'setAside', label: t('jobsDash.chipSetAside'), n: detail.filter((j) => chipOf(j) === 'setAside').length, color: 'var(--c-text-secondary)' },
+                              { key: 'done', label: t('jobsDash.chipDone'), n: detail.filter((j) => chipOf(j) === 'done').length, color: 'var(--c-success)' },
+                              { key: 'error', label: t('jobsDash.chipError'), n: detail.filter((j) => chipOf(j) === 'error').length, color: 'var(--c-error)' },
+                              { key: 'active', label: t('jobsDash.chipActive'), n: detail.filter((j) => chipOf(j) === 'active').length, color: 'var(--c-info)' },
+                            ]
+                            const matchedCount = chips[0].n
+                            const visible = chipFilter ? detail.filter((j) => chipOf(j) === chipFilter) : detail
+                            const allVisibleSelected = visible.length > 0 && visible.every((j) => bulkSelected.has(j.jobId))
+                            return (
                             <>
-                              <div style={{ display: 'flex', gap: 8, margin: '10px 0', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ display: 'flex', gap: 6, margin: '10px 0 4px', flexWrap: 'wrap', alignItems: 'center' }} onClick={(e) => e.stopPropagation()} title={t('jobsDash.chipsHint')}>
+                                <button type="button" onClick={() => { setChipFilter(null); setBulkSelected(new Set()) }}
+                                  style={{ fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer', border: '1px solid var(--c-border)', background: chipFilter === null ? 'var(--c-accent)' : 'var(--c-bg-card)', color: chipFilter === null ? '#fff' : 'var(--c-text-secondary)', width: 'auto' }}>
+                                  {t('jobsDash.chipAll')} {detail.length}
+                                </button>
+                                {chips.filter((c) => c.n > 0).map((c) => (
+                                  <button key={c.key} type="button" onClick={() => { setChipFilter(chipFilter === c.key ? null : c.key); setBulkSelected(new Set()) }}
+                                    style={{ fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${chipFilter === c.key ? c.color : 'var(--c-border)'}`, background: chipFilter === c.key ? c.color : 'var(--c-bg-card)', color: chipFilter === c.key ? '#fff' : c.color, fontWeight: 600, width: 'auto' }}>
+                                    {c.label} {c.n}
+                                  </button>
+                                ))}
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, margin: '6px 0 10px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                {matchedCount > 0 && (
+                                  <button className="btn btn-primary" style={{ fontSize: 11 }} disabled={busy} onClick={() => extractAll(b.id, matchedCount)} title={t('jobsDash.extractTitle')}>
+                                    {t('jobsDash.extractAll', { n: matchedCount })}
+                                  </button>
+                                )}
+                                <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy} onClick={() => openBatchRematch(b.id)} title={t('jobsDash.rematchAllTitle')}>
+                                  {t('jobsDash.rematchAll')}
+                                </button>
                                 <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => exportBatch(b.id, b.label)}>
                                   ⬇ {t('jobsDash.exportBatch')}
                                 </button>
@@ -428,10 +601,18 @@ export default function PolizzaJobsPage() {
                                   🗂 {t('jobsDash.downloadPdfs')}
                                 </a>
                                 {/* Azioni IN BULK sui job spuntati (tutti gli stati):
-                                    Rielabora, Rielabora con profilo, Run di test, Riusa,
-                                    Procedi comunque, Annulla, Riprova. */}
+                                    Estrai, Riabbina, Rielabora, Rielabora con profilo, Run di
+                                    test, Riusa, Procedi comunque, Annulla, Riprova. */}
                                 {selectedCount > 0 && (
                                   <>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11, fontWeight: 700 }} disabled={busy}
+                                      title={t('jobsDash.extractTitle')} onClick={() => runBulkAction(b.id, 'extract')}>
+                                      {t('jobsDash.bulkExtract')}
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
+                                      title={t('jobsDash.rematchTitle')} onClick={() => runBulkAction(b.id, 'rematch')}>
+                                      {t('jobsDash.bulkRematch')}
+                                    </button>
                                     <button className="btn btn-secondary" style={{ fontSize: 11 }} disabled={busy}
                                       title={t('jobsDash.bulkHint')} onClick={() => runBulkAction(b.id, 'retry')}>
                                       {t('jobsDash.bulkRetry')}
@@ -469,23 +650,25 @@ export default function PolizzaJobsPage() {
                                 <thead>
                                   <tr>
                                     <th style={{ fontSize: 10 }}>
-                                      <input type="checkbox" checked={allSelected}
+                                      <input type="checkbox" checked={allVisibleSelected}
                                         onChange={(e) => {
+                                          // Solo le righe VISIBILI (filtro chip): mai spuntare righe nascoste.
                                           const n = new Set(bulkSelected)
-                                          if (e.target.checked) for (const jd of detail) n.add(jd.jobId)
-                                          else for (const jd of detail) n.delete(jd.jobId)
+                                          if (e.target.checked) for (const jd of visible) n.add(jd.jobId)
+                                          else for (const jd of visible) n.delete(jd.jobId)
                                           setBulkSelected(n)
                                         }}
                                         title={t('jobsDash.selectAll')} />
                                     </th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierName')}</th>
+                                    <th style={{ fontSize: 10 }}>{t('jobsDash.colProfile')}</th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierStatus')}</th>
                                     <th style={{ fontSize: 10 }}>{t('jobsDash.dossierFields')}</th>
                                     <th style={{ fontSize: 10, textAlign: 'right' }}>{t('jobsDash.colActions')}</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {detail.map((j) => {
+                                  {visible.map((j) => {
                                     const active = j.status === 'running' || j.status === 'queued'
                                     const failed = j.status === 'error'
                                     const selectable = selectableForReprofile(j)
@@ -513,14 +696,11 @@ export default function PolizzaJobsPage() {
                                             )}
                                             {j.dossierName || '—'}
                                           </td>
+                                          <td style={{ fontSize: 11 }}>{profileCell(j, active)}</td>
                                           <td style={{ fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                                             {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
-                                            {j.error ? ` — ${j.error}` : ''}
-                                            {typeof (j.precheck as any)?.summary === 'string' && (
-                                              <span title={(j.precheck as any).summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
-                                                {String((j.precheck as any).summary).slice(0, 220)}
-                                              </span>
-                                            )}
+                                            {j.error ? <span title={j.error}>{` — ${j.status === 'review' ? j.error.slice(0, 260) : j.error}`}</span> : ''}
+                                            {precheckLines(j, 220)}
                                             {j.status === 'running' && j.progress?.docName && (
                                               <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
                                                 {j.progress.docName}
@@ -552,19 +732,31 @@ export default function PolizzaJobsPage() {
                                                 ↻ {t('jobsDash.retry')}
                                               </button>
                                             )}
-                                            {j.status === 'mismatch' && (
+                                            {j.status === 'matched' && (
+                                              <button className="btn btn-primary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, fontWeight: 700 }} disabled={busy}
+                                                title={t('jobsDash.extractTitle')} onClick={() => extractJobRow(j.jobId)}>
+                                                ▶ {t('jobsDash.extract')}
+                                              </button>
+                                            )}
+                                            {(j.status === 'mismatch' || j.status === 'review') && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, color: 'var(--c-warning, #d97706)', fontWeight: 700 }} disabled={busy}
-                                                title={t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
+                                                title={j.status === 'review' ? t('jobsDash.proceedReviewTitle') : t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
                                                 ▶ {t('jobsDash.proceedAnyway')}
                                               </button>
                                             )}
-                                            {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch') && (
+                                            {!active && (
+                                              <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                                                title={t('jobsDash.rematchTitle')} onClick={() => openDialog('rematch', [j])}>
+                                                🔁 {t('jobsDash.rematch')}
+                                              </button>
+                                            )}
+                                            {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch' || j.status === 'review' || j.status === 'matched') && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                                                 title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                                                 ↻ {t('jobsDash.reprocess')}
                                               </button>
                                             )}
-                                            {['done', 'error', 'canceled', 'mismatch'].includes(j.status) && (
+                                            {['done', 'error', 'canceled', 'mismatch', 'review', 'matched'].includes(j.status) && (
                                               <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                                                 title={t('jobsDash.reprocessWithProfileTitle')} onClick={() => openDialog('reprofile', [j])}>
                                                 ⇄ {t('jobsDash.reprocessWithProfile')}
@@ -607,7 +799,7 @@ export default function PolizzaJobsPage() {
                                         </tr>
                                         {valuesOpen && hasValues && (
                                           <tr>
-                                            <td colSpan={5} style={{ padding: '4px 0 10px 18px' }}>
+                                            <td colSpan={6} style={{ padding: '4px 0 10px 18px' }}>
                                               <table style={{ fontSize: 11 }}>
                                                 <tbody>
                                                   {Object.entries(j.values || {}).map(([k, v]) => (
@@ -626,21 +818,22 @@ export default function PolizzaJobsPage() {
                                         )}
                                         {logOpen && (
                                           <tr>
-                                            <td colSpan={5} style={{ padding: '4px 0 10px 18px' }}>
+                                            <td colSpan={6} style={{ padding: '4px 0 10px 18px' }}>
                                               <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto', margin: 0, color: 'var(--c-text-secondary)' }}>
                                                 {(j.logs || []).slice(-30).join('\n')}
                                               </pre>
                                             </td>
                                           </tr>
                                         )}
-                                        {filesOpen && filesList(j, 5, 18)}
+                                        {filesOpen && filesList(j, 6, 18)}
                                       </Fragment>
                                     )
                                   })}
                                 </tbody>
                               </table>
                             </>
-                          )}
+                            )
+                          })()}
                         </td>
                       </tr>
                     )}
@@ -731,12 +924,8 @@ export default function PolizzaJobsPage() {
                       <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--c-text-secondary)' }}>{j.owner || ''}</td>
                       <td style={{ padding: '8px 14px', fontSize: 12, color: statusColor(j.status === 'canceled' ? 'error' : j.status) }}>
                         {isDiscarded(j) ? t('jobsDash.statusDiscarded') : isSetAside(j) ? t('jobsDash.statusSetAside') : statusLabel(j.status === 'canceled' ? 'error' : j.status)}
-                        {j.error ? ` — ${j.error.slice(0, 120)}` : ''}
-                        {typeof (j.precheck as any)?.summary === 'string' && (
-                          <span title={(j.precheck as any).summary} style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
-                            {String((j.precheck as any).summary).slice(0, 160)}
-                          </span>
-                        )}
+                        {j.error ? <span title={j.error}>{` — ${j.error.slice(0, 120)}`}</span> : ''}
+                        {precheckLines(j, 160)}
                         {!!j.duplicateOf && (
                           <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-secondary)' }}>
                             ⧉ {t('jobsDash.duplicateOf')}
@@ -751,19 +940,31 @@ export default function PolizzaJobsPage() {
                             ↻ {t('jobsDash.retry')}
                           </button>
                         )}
-                        {j.status === 'mismatch' && (
+                        {j.status === 'matched' && (
+                          <button className="btn btn-primary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, fontWeight: 700 }} disabled={busy}
+                            title={t('jobsDash.extractTitle')} onClick={() => extractJobRow(j.jobId)}>
+                            ▶ {t('jobsDash.extract')}
+                          </button>
+                        )}
+                        {(j.status === 'mismatch' || j.status === 'review') && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6, color: 'var(--c-warning, #d97706)', fontWeight: 700 }} disabled={busy}
-                            title={t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
+                            title={j.status === 'review' ? t('jobsDash.proceedReviewTitle') : t('jobsDash.proceedTitle')} onClick={() => proceedJobRow(j.jobId)}>
                             ▶ {t('jobsDash.proceedAnyway')}
                           </button>
                         )}
-                        {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch') && (
+                        {!active && (
+                          <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
+                            title={t('jobsDash.rematchTitle')} onClick={() => openDialog('rematch', [j])}>
+                            🔁 {t('jobsDash.rematch')}
+                          </button>
+                        )}
+                        {(j.status === 'done' || j.status === 'canceled' || j.status === 'mismatch' || j.status === 'review' || j.status === 'matched') && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                             title={t('jobsDash.reprocessTitle')} onClick={() => retryJobRow(j.jobId)}>
                             ↻ {t('jobsDash.reprocess')}
                           </button>
                         )}
-                        {['done', 'error', 'canceled', 'mismatch'].includes(j.status) && (
+                        {['done', 'error', 'canceled', 'mismatch', 'review', 'matched'].includes(j.status) && (
                           <button className="btn btn-secondary" style={{ fontSize: 10, padding: '2px 8px', marginRight: 6 }} disabled={busy}
                             title={t('jobsDash.reprocessWithProfileTitle')} onClick={() => openDialog('reprofile', [j])}>
                             ⇄ {t('jobsDash.reprocessWithProfile')}
@@ -847,19 +1048,26 @@ export default function PolizzaJobsPage() {
       {dial && (() => {
         const { mode, jobs } = dial
         const n = jobs.length
-        const isBatch = mode === 'reprofileBatch'
-        const title = mode === 'test'
-          ? t('jobsDash.testDialogTitle')
-          : isBatch
-            ? t('jobsDash.reprofileBatchDialogTitle', { n })
-            : t('jobsDash.reprofileDialogTitle')
-        const hint = mode === 'test'
-          ? t('jobsDash.testDialogHint')
-          : isBatch
-            ? t('jobsDash.reprofileBatchDialogHint')
-            : t('jobsDash.reprofileDialogHint')
-        const startLabel = isBatch ? t('jobsDash.reprofileStartBatch', { n }) : (mode === 'test' ? t('jobsDash.testStart') : t('jobsDash.reprofileStart'))
-        const icon = mode === 'test' ? '🧪' : '⇄'
+        const isBatch = mode === 'reprofileBatch' || mode === 'rematchBatch'
+        const isRematch = mode === 'rematch' || mode === 'rematchBatch'
+        const title = isRematch
+          ? (isBatch ? t('jobsDash.rematchBatchDialogTitle', { n }) : t('jobsDash.rematchDialogTitle'))
+          : mode === 'test'
+            ? t('jobsDash.testDialogTitle')
+            : isBatch
+              ? t('jobsDash.reprofileBatchDialogTitle', { n })
+              : t('jobsDash.reprofileDialogTitle')
+        const hint = isRematch
+          ? t('jobsDash.rematchDialogHint')
+          : mode === 'test'
+            ? t('jobsDash.testDialogHint')
+            : isBatch
+              ? t('jobsDash.reprofileBatchDialogHint')
+              : t('jobsDash.reprofileDialogHint')
+        const startLabel = isRematch
+          ? (isBatch ? t('jobsDash.rematchStartBatch', { n }) : t('jobsDash.rematchStart'))
+          : isBatch ? t('jobsDash.reprofileStartBatch', { n }) : (mode === 'test' ? t('jobsDash.testStart') : t('jobsDash.reprofileStart'))
+        const icon = isRematch ? '🔁' : mode === 'test' ? '🧪' : '⇄'
         return (
           <div onClick={() => setDial(null)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -869,12 +1077,14 @@ export default function PolizzaJobsPage() {
                 {isBatch ? `${n} job — ` : `${jobs[0].dossierName || jobs[0].jobId.slice(0, 8)} — `}{hint}
               </p>
               <div className="form-group">
-                <label className="label">{t('jobsDash.testProfile')}{isBatch || mode === 'reprofile' ? ' *' : ''}</label>
+                <label className="label">{t('jobsDash.testProfile')}{!isRematch && (isBatch || mode === 'reprofile') ? ' *' : ''}</label>
                 <select value={testProfileId} onChange={(e) => setTestProfileId(e.target.value)} style={{ width: '100%' }}>
-                  <option value="">{mode === 'test' ? t('jobsDash.testProfileFrozen') : t('jobsDash.testProfileFrozenHint')}</option>
+                  <option value="">{isRematch ? t('jobsDash.rematchProfileCurrent') : mode === 'test' ? t('jobsDash.testProfileFrozen') : t('jobsDash.testProfileFrozenHint')}</option>
+                  {isRematch && <option value="auto">{t('jobsDash.rematchProfileAuto')}</option>}
                   {testProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
+              {!isRematch && (<>
               <div className="form-group">
                 <label className="label">{t('jobsDash.testModel')}</label>
                 <input list="test-models" value={testModel} onChange={(e) => setTestModel(e.target.value)}
@@ -896,6 +1106,7 @@ export default function PolizzaJobsPage() {
                 <label className="label">{t('jobsDash.testPrompt')}</label>
                 <textarea value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} rows={3} style={{ width: '100%', fontSize: 12 }} />
               </div>
+              </>)}
               {reprofileError && <p style={{ fontSize: 11, color: 'var(--c-error)', margin: '0 0 10px' }}>{reprofileError}</p>}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
                 <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setDial(null)}>{t('jobsDash.testCancel')}</button>
@@ -905,6 +1116,7 @@ export default function PolizzaJobsPage() {
           </div>
         )
       })()}
+      {confirmPanel}
     </div>
   )
 }

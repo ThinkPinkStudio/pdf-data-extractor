@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
-import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob } from '@/lib/polizzaJobStore'
+import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob } from '@/lib/polizzaJobStore'
 import { startBatch } from '@/lib/polizzaBatchWorker'
 import { startJob } from '@/lib/polizzaJobWorker'
 
@@ -10,8 +10,11 @@ export const runtime = 'nodejs'
 
 // Azioni in BULK nella pagina Elaborazioni: applica l'azione scelta a una lista
 // di jobId di un batch, riusando le logiche per-job esistenti (resetJobForRetry,
-// reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob) con
-// un unico startBatch alla fine. Le azioni non applicabili a un dato stato vengono
+// reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob,
+// confirmMatchAndRequeue) con un unico startBatch alla fine.
+// 'rematch': RIABBINA — rifà OCR (cache) e pertinenza e si ferma in 'matched';
+//   profileId '' = profilo attuale del job, 'auto' = riconoscimento automatico,
+//   altrimenti il profilo scelto. 'extract': ▶ sui job abbinati. Le azioni non applicabili a un dato stato vengono
 // saltate: la risposta riporta quanti job sono stati eseguiti e quanti saltati.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
@@ -33,6 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try { body = await req.json() } catch { /* body vuoto = nessuna azione */ }
 
   const action = body.action || ''
+  const wantsAuto = body.profileId === 'auto'
   const jobIds = Array.isArray(body.jobIds) ? [...new Set(body.jobIds.map(String))].filter(Boolean) : []
   if (!action) return NextResponse.json({ error: 'Azione mancante' }, { status: 400 })
   if (!jobIds.length) return NextResponse.json({ error: 'Nessun job selezionato' }, { status: 400 })
@@ -47,12 +51,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const settings = await getSettings()
   // Risoluzione del profilo (per le azioni che lo richiedono): autoritativa lato
   // server, come nel route /reprofile e /test.
-  const profile = body.profileId
+  const profile = body.profileId && !wantsAuto
     ? (settings.polizzaProfiles || []).find((p) => p.id === body.profileId) || null
     : null
   // Le azioni "rielabora con profilo" richiedono un profilo: risolto in modo
   // autoritativo lato server (come nel route /reprofile e /test).
   const needsProfile = action === 'reprofile' || action === 'reprofileBatch'
+    // Riabbina CON un profilo scelto (profileId ≠ auto/vuoto): il profilo deve esistere,
+    // come nel route /rematch — niente ripiego silenzioso sul profilo attuale.
+    || (action === 'rematch' && !!body.profileId && !wantsAuto)
   if (needsProfile && !profile) {
     return NextResponse.json({ error: 'Profilo non trovato' }, { status: 400 })
   }
@@ -98,6 +105,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (res) done++; else { skipped++; skippedIds.push(id) }
     } else if (action === 'proceed') {
       const res = await overridePrecheckAndRequeue(id, session.email)
+      if (res) done++; else { skipped++; skippedIds.push(id) }
+    } else if (action === 'extract') {
+      const res = await confirmMatchAndRequeue(id, session.email)
+      if (res) done++; else { skipped++; skippedIds.push(id) }
+    } else if (action === 'rematch') {
+      // Riabbina: stesso profilo (nessun profileId), Automatico ('auto': campi
+      // congelati dal worker sul profilo riconosciuto) o un profilo scelto.
+      const opts = wantsAuto
+        ? { fieldDefs: [] as typeof job.field_defs, promptExtra: null, profileId: 'auto', profileName: 'Automatico (semantico)', matchOnly: true }
+        : profile && profileFields
+          ? { fieldDefs: profileFields, promptExtra: profile.promptExtra || null, profileId: profile.id, profileName: profile.name, matchOnly: true }
+          : { matchOnly: true }
+      const res = await resetJobForRetry(id, session.email, opts)
       if (res) done++; else { skipped++; skippedIds.push(id) }
     } else if (action === 'cancel') {
       const res = await cancelJob(id)

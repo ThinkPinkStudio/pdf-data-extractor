@@ -13,3 +13,4 @@ __pycache__/
 # output locali degli script di calibrazione/copertura
 .coverage-cache/
 .goldens-out/
+.pertinenza-cache/

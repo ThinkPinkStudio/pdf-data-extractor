@@ -497,6 +497,84 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   tra le due «Da verificare», dalla alta (80) «Accettate». Abbinamento 1:1 per
   punteggio migliore. Test: `test/compareEngine.test.mjs`.
 
+- **PERTINENZA = OPERATIVITÀ della copertura, filtro «Come riconoscerla»**
+  (21/09/2026, dalle verifiche manuali Lucchese 1/4 e Pizzamiglio 3/9): il
+  pre-controllo a parole accettava la tutela legale citata nelle condizioni
+  generali o come opzione non barrata (il «punteggio» 0,67/0,33 era la frazione
+  di parole trovate, soglia 0,2) e scartava una vera DAS per «ESCLUSA»
+  (indicizzazione). Ora, se il profilo ha `recognition` («Come riconoscerla»,
+  textarea in Impostazioni, esportata/importata col profilo) e il modo ≠ off,
+  il modello legge quella definizione e le pagine più affini (embedding bge-m3
+  del testo di riconoscimento vs pagine piatte; prime pagine dei documenti in
+  testa; GRIGLIA spaziale nel prompt; budget da `computeSafeContextBudget` su
+  8192) e risponde `esito` operante / non operante / non determinabile con
+  `evidenza` COPIATA dal testo: `verifyOperativitaEvidence` la cerca nella pagina
+  citata, poi nelle altre inviate (normalizzata o per token). Tabella di
+  decisione in `polizzaOperativita.js` (`decideOperativita`): operante con prova
+  → ok; non operante con prova → mismatch; tutto il resto (prova assente, non
+  determinabile, parola «da evitare» + operante = contraddizione, guasto) →
+  nuovo stato **`review` «Da verificare»**, bloccante, senza campi estratti.
+  Le parole da evitare non decidono più da sole quando c'è `recognition`.
+  Con `recognition` un GUASTO (Ollama/embeddings giù, risposta illeggibile)
+  dà `review`, non `skipped`: scelta dell'utente («in dubbio non si estrae»),
+  il dossier resta visibile e sbloccabile con Riabbina/Procedi; mai
+  un'estrazione silenziosa «senza controllo» (era la lamentela del cliente).
+  Profilo suggerito = un altro profilo attivo con `recognition` che risulta
+  OPERANTE con prova (`suggestOperativeProfile`, primi 2 della classifica);
+  tipo «Automatico» del bulk: classifica + operatività sui primi 3, si adotta
+  il primo operante. Senza `recognition`: metodi storici, ma ok+suggerimento o
+  skipped → review (`degradeWithoutRecognition`); `effectivePrecheckMode` è
+  l'unica regola del modo effettivo (prima modo semantic + parole → «accettato
+  senza controllo»). Niente «punteggio» nelle motivazioni (numeri solo nel log).
+  Bozze dei testi in `polizze_test/profili-polizza-riconoscimento.json`
+  (import per id). Misura: `node scripts/pertinenza-eval.mjs` contro
+  `test/fixtures/pertinenza-expected.json` (13 posizioni; `--no-recognition
+  --mode keywords` per il prima). Il modo salvato in produzione (`keywords`)
+  resta il ripiego. **Misurato 22/09/2026** sulle 10 posizioni disponibili in
+  locale (Lucchese ARAG + 9 Pizzamiglio; mancano le 3 cartelle Lucchese RC
+  DUAL / Helvetia epoca): percorso storico 5/10 → operatività **10/10**.
+  Quattro cose decise dalla misura, non a tavolino. **Nome della copertura**
+  = le parole distintive CONSECUTIVE della testa di «Come riconoscerla»
+  (frequenza inversa tra le teste dei profili, `recognitionCoverName`:
+  «tutela legale»; «medica»|«sanitaria»; profili gemelli → parole non in
+  tutte le teste); una parola sola («sezione», «contraente») sta ovunque.
+  **Riga strutturale** = riga della griglia col nome della copertura E un
+  importo o una spunta (`structuralCoverLines`: «Tutela Legale 240,00 42,06»,
+  «TUTELA LEGALE Imponibile annuo € 249,06», «Tutela Legale ESCLUSA
+  31.000,00»): è il «premio proprio / casella / riepilogo» della definizione;
+  «TUTELA LEGALE (opzionale)» in un elenco del DIP non lo è. (1) **ordine
+  delle pagine** (`selectOperativitaPages`): il primo batch è fatto SOLO di
+  pagine con riga strutturale (mescolate alla prosa, il modello citava le
+  condizioni invece della scheda); poi le pagine che nominano con importi,
+  la prosa che nomina, i frontespizi, il resto per embedding; batch pieno →
+  ci si ferma (la pagina esclusa apre il batch dopo); pagine lunghe spezzate
+  in parti. Senza: la scheda BOIARDO era 47ª su 54 pagine e in 6 batch non
+  arrivava mai al modello. (2) **prova di «operante»**: deve nominare la
+  copertura (non «Ogni garanzia opera secondo i termini…») E stare in una
+  pagina con una riga strutturale (non l'elenco opzioni del DIP di
+  CAMPESTRE); altrimenti review. (3) **coerenza tra batch**
+  (`combineOperativitaBatches`): «operante» dopo un «non operante» provato →
+  review «esiti contraddittori»; «non operante» con pagine che nominano la
+  copertura ancora non lette → review, non scarto. (4) Un **riesame
+  avversario** del 7B («scettico, conferma/smentisci») è stato provato e
+  TOLTO: smentiva le prove vere (DAS «ESCLUSA» = indicizzazione, BOIARDO con
+  l'imponibile sotto gli occhi). Le pagine vanno al modello con `withPairs`
+  (griglia + coppie etichetta→valore), come nell'estrazione. La misura è
+  fragile alla composizione dei batch (stessa pagina, esito diverso con
+  compagni diversi): ogni ritocco va rimisurato, mai dedotto.
+- **Abbinamento separato dall'estrazione** (21/09/2026): stato **`matched`
+  «Abbinato»** (`precheck.matchOnly`: bulk «🔍 Solo abbinamento», route
+  `dossier` campo `matchOnly`; «🔁 Riabbina» = `resetJobForRetry({matchOnly})`,
+  con profilo attuale / scelto / `auto`) → il worker si ferma dopo OCR +
+  pertinenza; «▶ Estrai» (`confirmMatchAndRequeue`, `precheck.confirmed`: il
+  controllo non si rifà) su riga, selezione (`bulk` action `extract`/`rematch`)
+  o batch (`extract-all`). «Procedi comunque» vale anche su `review`. L'OCR è
+  in cache per hash: l'estrazione non lo ripete. Pagina Elaborazioni: chip per
+  stato che filtrano le righe, colonna «Profilo» (auto → nome, «suggerito» con
+  «Usa e riabbina»), motivazione strutturata (esito — Documento N pag. P:
+  «prova» / motivo). Export batch: colonna «Profilo» + un foglio per profilo
+  (valori di profili diversi mai sotto le stesse intestazioni).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

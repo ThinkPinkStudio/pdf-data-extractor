@@ -99,11 +99,14 @@ export interface WebSettings {
   // negli 8GB di VRAM di qwen2.5:7b Q4). Superarlo può far spillare il KV su CPU
   // e rallentare il modello: la UI avvisa, ma non blocca.
   polizzaBatchContext?: number
-  // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' con
-  // "Procedi comunque" in UI). 'off' (default: il blocco non si attiva mai a
-  // sorpresa), 'keywords' (contentKeywords del profilo nel testo OCR; senza
-  // keywords degrada a semantic), 'semantic' (embeddings pagine↔descrizioni),
-  // 'llm' (breve classificazione col modello). Switch per confronto sul campo.
+  // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' /
+  // 'review' con "Procedi comunque" in UI). Con un profilo che ha «Come
+  // riconoscerla» (recognition) e modo ≠ 'off' il controllo è di OPERATIVITÀ
+  // (polizzaOperativita.js: il modello dice se la copertura è davvero acquistata
+  // e cita la prova); i modi qui sotto sono il RIPIEGO per i profili senza quel
+  // testo: 'keywords' (contentKeywords nel testo OCR; senza keywords degrada a
+  // semantic), 'semantic' (classifica dei profili per embeddings), 'llm'
+  // (breve classificazione col modello), 'off' (nessun controllo).
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
   // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
   // un fascicolo senza frontespizio di polizza reale (solo informativo/

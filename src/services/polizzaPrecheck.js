@@ -9,6 +9,11 @@
  *  - 'semantic': affinità embeddings pagine ↔ descrizioni dei campi;
  *  - 'llm': breve chiamata al modello ("che tipo di polizza è?") confrontata
  *    coi termini del profilo.
+ *  - OPERATIVITÀ (dal 21/09/2026, quando il profilo ha «Come riconoscerla»):
+ *    il modello legge la definizione del tipo scritta dall'utente e le pagine
+ *    più affini e dice se la copertura è OPERANTE citando la prova
+ *    (polizzaOperativita.js). Vale su ogni modo tranne 'off'; i tre metodi
+ *    sopra restano il ripiego per i profili senza quel testo.
  *
  * Questo modulo NON importa Electron/Ollama/pdfjs: solo funzioni deterministiche
  * (le chiamate embeddings/LLM stanno in polizzaPrecheckService.js). Le SOGLIE
@@ -142,6 +147,39 @@ export function llmComparisonScore(detected, profileTerms) {
 }
 
 /**
+ * Modo EFFETTIVO del pre-check dato lo switch globale e le parole del
+ * contenuto del profilo: 'off' + parole → 'keywords' (le parole esplicite del
+ * profilo vincono sullo switch); 'keywords' senza parole → 'semantic'; ogni
+ * altro modo resta com'è. UNA sola funzione per la decisione e per il servizio:
+ * prima il servizio forzava 'keywords' appena c'era una parola, la decisione
+ * restava 'semantic' e non trovava la classifica → «accettato senza controllo».
+ */
+export function effectivePrecheckMode(mode, hasContentKeywords) {
+  const m = mode || 'off'
+  if (m === 'off') return hasContentKeywords ? 'keywords' : 'off'
+  if (m === 'keywords' && !hasContentKeywords) return 'semantic'
+  return m
+}
+
+/**
+ * Profilo SENZA «Come riconoscerla»: i metodi storici restano il ripiego, ma un
+ * verdetto che non è un vero controllo non passa più in silenzio: 'ok' con un
+ * altro profilo più affine, o 'skipped' (embeddings giù, modello muto, testo
+ * assente) diventano «da verificare» con la ragione scritta. 'off' resta off.
+ */
+export function degradeWithoutRecognition(decision, { hasRecognition, mode, suggestion } = {}) {
+  if (!decision || hasRecognition || (mode || 'off') === 'off') return decision
+  const tail = 'profilo senza «Come riconoscerla»: pertinenza non verificata'
+  if (decision.verdict === 'ok' && suggestion?.name) {
+    return { ...decision, verdict: 'review', reason: `${decision.reason}; un altro profilo è più affine al contenuto: «${suggestion.name}» — ${tail}` }
+  }
+  if (decision.verdict === 'skipped' && decision.mode !== 'off') {
+    return { ...decision, verdict: 'review', reason: `${decision.reason} — ${tail}` }
+  }
+  return decision
+}
+
+/**
  * VERDETTO finale, con tutte le degradazioni esplicite:
  * - mode 'off' o nessun profilo → 'skipped' (i job coi campi globali non hanno
  *   un "profilo" con cui confrontare);
@@ -162,7 +200,13 @@ export function decidePrecheck(p) {
   // contentExcludeKeywords e una di esse compare nel testo OCR, il job va in
   // 'mismatch' SEMPRE, anche con lo switch pre-check a 'off'. È la regola
   // "meglio scartare che estrarre a vuoto": non dipende da alcun metodo.
-  if (p?.hasContentExclude && p?.contentExclude?.matched?.length) {
+  // Col controllo di OPERATIVITÀ attivo (profilo con «Come riconoscerla», modo
+  // ≠ off) le parole da evitare non decidono più da sole: "ESCLUSA" in una
+  // quietanza DAS parlava dell'indicizzazione e scartava una vera tutela
+  // legale (PIZZAMIGLIO/ALZAIA). Diventano un elemento della decisione di
+  // operatività (copertura operante + parola da evitare → «da verificare»).
+  const operative = !!p?.hasRecognition && mode !== 'off'
+  if (!operative && p?.hasContentExclude && p?.contentExclude?.matched?.length) {
     return {
       verdict: 'mismatch', mode, score: 0, threshold: 0,
       reason: `parola del contenuto da evitare trovata: "${p.contentExclude.matched[0]}"`,
@@ -189,13 +233,19 @@ export function decidePrecheck(p) {
     }
   }
 
-  // Modalità effettiva: se il profilo ha keyword di CONTENUTO da cercare, il
-  // pre-check valuta SEMPRE (anche con switch 'off'): le parole esplicite del
-  // profilo vincono sullo switch globale. La degradazione 'keywords'→'semantic'
-  // resta (keywords configurate ma vuote nel set passato).
-  let effective = mode
-  if (p?.hasContentKeywords && mode === 'off') effective = 'keywords'
-  else if (mode === 'keywords' && !p.hasContentKeywords) effective = 'semantic'
+  // OPERATIVITÀ: il verdetto è quello di decideOperativita (polizzaOperativita.js);
+  // senza risultato (chiamante senza modello) → «da verificare», mai accettato.
+  if (operative) {
+    if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
+    const op = p.operativita
+    if (op && op.verdict) return { verdict: op.verdict, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
+    return { verdict: 'review', mode: 'operativita', score: null, threshold: null, reason: 'controllo di operatività non eseguito' }
+  }
+
+  // Modalità effettiva (effectivePrecheckMode): parole del contenuto presenti
+  // → il pre-check valuta anche a switch 'off'; 'keywords' senza parole →
+  // 'semantic'.
+  const effective = effectivePrecheckMode(mode, !!p?.hasContentKeywords)
 
   if (effective === 'off') return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'pre-check disattivato' }
   if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
@@ -278,7 +328,11 @@ export const REQUIRE_VALID_POLICY_DEFAULT = true
 // senza punteggiatura): n° polizza alfanumerico, massimali con importi,
 // premi/imponibili con importi. Un documento informativo/DIP/quietanza quasi
 // mai li ha tutti insieme.
-const POLICY_NUM_RE = /(?:n[.:°]?\s*polizz|polizz\s*n[.:°]?|contraent|numero\s+polizz)/i
+// "Polizza n. 0146905119" (normalizzato: "polizza n 0146905119") è la forma più
+// comune e NON era coperta: `polizz\s*n` pretende la "n" subito dopo "polizz".
+// La quietanza DAS di ALZAIA (numero di polizza + premi) finiva «cartella
+// senza polizza principale» prima ancora del controllo di operatività.
+const POLICY_NUM_RE = /(?:n[.:°]?\s*polizz|polizz[ae]?\s*n[.:°]?\s*\d|polizz\s*n[.:°]?|contraent|numero\s+(?:di\s+)?polizz)/i
 const POLICY_AMOUNT_RE = /(?:massimal|franchig[ie]|premio|imponibil|impost|scopert|tasso\s+regolaz|indennit)/i
 
 /**
