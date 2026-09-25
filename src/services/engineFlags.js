@@ -19,10 +19,14 @@ export const DEFAULT_FLAGS = Object.freeze([])
  * - campi: valori dei campi compilabili (AcroForm) nella griglia del text layer.
  * - cascata4: la cascata chiede al massimo FIELDS_PER_CALL campi per chiamata
  *   (come i gruppi) e scarta le copie con lo stesso text layer (F04).
+ * - a78: le proposte degli stadi tabella (A.7) e frontespizio (A.8) sono
+ *   provvisorie; A.7 senza etichetta che nomina il campo = solo ripiego; A.8
+ *   legge la griglia del documento più recente (F13).
  */
 export const KNOWN_FLAGS = Object.freeze({
   campi: 'valori dei campi compilabili (AcroForm) nella griglia del text layer',
   cascata4: 'cascata a FIELDS_PER_CALL campi per chiamata; copie identiche anche per text layer (F04)',
+  a78: 'proposte di tabella (A.7) e frontespizio (A.8) provvisorie; A.7 senza etichetta del campo solo ripiego; A.8 dalla griglia (F13)',
 })
 
 /** @returns {Set<string>} */

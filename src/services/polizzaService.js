@@ -5399,6 +5399,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               tableRow: structLex > 0,
               structLex, rowLex,
               deterministic: false,
+              // [flag a78] Proposta PROVVISORIA: la cascata richiede il campo al
+              // primo documento dove è eleggibile e l'arbitro decide (come nei gruppi).
+              ...(engineFlag(settings, 'a78') ? { preStage: true } : {}),
+            }
+            // [flag a78] Né l'etichetta di riga né l'intestazione di colonna hanno
+            // una parola della testa della descrizione (riga «Categoria» per il
+            // Frazionamento): non chiude il campo, resta solo come RIPIEGO se il
+            // modello lo lascia vuoto (come i seed di Stadio A).
+            if (engineFlag(settings, 'a78') && !(structLex > 0)) {
+              if (!seedBest[f.id]) seedBest[f.id] = cand
+              diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}) — riga/colonna non nominano il campo: solo ripiego`)
+              continue
             }
             const prevC = best[f.id]
             const before = prevC?.valore
@@ -5440,12 +5452,28 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // NON hardcode di nomi) — "DATI ANAGRAFICI" o "POLIZZA N."/indirizzo ecc.
       let frontBlock = ''
       let frontDoc = null // documento da cui viene il blocco (fonte e affinità del candidato)
-      for (const d of analyzed) {
-        const md = d.pages?.join('\n') || d.text || ''
-        const m = md.match(/(DATI\s+ANAGRAFICI|POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA)[\s\S]{0,1400}/i)
-        if (m) { frontBlock = m[0]; frontDoc = d; break }
-        const m2 = md.match(/[\s\S]{0,1400}DECORRENZA[\s\S]{0,300}/i)
-        if (m2) { frontBlock = m2[0]; frontDoc = d; break }
+      const a78 = engineFlag(settings, 'a78')
+      if (a78) {
+        // [flag a78] Stessa regola dei prompt (12/09: testo = GRIGLIA): la pagina
+        // del frontespizio nella griglia con le coppie etichetta→valore, dal
+        // documento PIÙ RECENTE che ne ha uno (non il primo caricato).
+        const FRONT_RE = /(DATI\s+ANAGRAFICI|POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA|DECORRENZA)/i
+        for (const d of [...analyzed].sort(byStagedRecency)) {
+          const pi = (d.pages || []).findIndex((pg) => FRONT_RE.test(pg || ''))
+          if (pi < 0) continue
+          const sp = Array.isArray(d.spatialPages) && d.spatialPages[pi] && d.spatialPages[pi].trim() ? d.spatialPages[pi] : null
+          frontBlock = sp ? withPairs(sp) : String(d.pages[pi] || '')
+          frontDoc = d
+          break
+        }
+      } else {
+        for (const d of analyzed) {
+          const md = d.pages?.join('\n') || d.text || ''
+          const m = md.match(/(DATI\s+ANAGRAFICI|POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA)[\s\S]{0,1400}/i)
+          if (m) { frontBlock = m[0]; frontDoc = d; break }
+          const m2 = md.match(/[\s\S]{0,1400}DECORRENZA[\s\S]{0,300}/i)
+          if (m2) { frontBlock = m2[0]; frontDoc = d; break }
+        }
       }
       frontBlock = frontBlock.trim()
       try { writeFileSync('/tmp/a8-block.txt', String(frontBlock).slice(0, 2000)) } catch {}
@@ -5455,12 +5483,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         const fieldLines = anagFields
           .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
           .join('\n')
-        const sys = 'Estrai i dati dal FRONTESPIZIO qui sotto. ' +
-          'Le etichette (in MAIUSCOLO) e i loro valori sono su righe consecutive: etichetta, poi il VALORE sulla riga sotto o accanto. ' +
-          'Il valore è il dato reale, MAI l\'etichetta ("NATO IL" non è un nome, "COMUNE" non è una città, "CAP" non è un CAP). ' +
-          'FORMATO: un ARRAY JSON con una voce per ogni campo trovato: {"campo": <indice del campo>, "valore": "...", "riga": "..."}. ' +
-          'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE. Se un campo non ha un valore chiaro, non includerlo. Non inventare.'
-        const user = `FRONTESPIZIO (etichetta sopra, valore sotto):\n${frontBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'array JSON, es. [{"campo": 0, "valore": "...", "riga": "..."}]. I campi senza valore non compaiono.`
+        const sys = a78
+          // [flag a78] Nessuna frase sul LAYOUT (maiuscolo, riga sotto, "NATO IL"…):
+          // la griglia porta già le coppie etichetta→valore.
+          ? 'Estrai i dati dal FRONTESPIZIO qui sotto. Il valore è il dato reale, MAI l\'etichetta. ' +
+            'FORMATO: un ARRAY JSON con una voce per ogni campo trovato: {"campo": <indice del campo>, "valore": "...", "riga": "..."}. ' +
+            'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE. Se un campo non ha un valore chiaro, non includerlo. Non inventare.'
+          : 'Estrai i dati dal FRONTESPIZIO qui sotto. ' +
+            'Le etichette (in MAIUSCOLO) e i loro valori sono su righe consecutive: etichetta, poi il VALORE sulla riga sotto o accanto. ' +
+            'Il valore è il dato reale, MAI l\'etichetta ("NATO IL" non è un nome, "COMUNE" non è una città, "CAP" non è un CAP). ' +
+            'FORMATO: un ARRAY JSON con una voce per ogni campo trovato: {"campo": <indice del campo>, "valore": "...", "riga": "..."}. ' +
+            'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE. Se un campo non ha un valore chiaro, non includerlo. Non inventare.'
+        const user = `${a78 ? 'FRONTESPIZIO:' : 'FRONTESPIZIO (etichetta sopra, valore sotto):'}\n${frontBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'array JSON, es. [{"campo": 0, "valore": "...", "riga": "..."}]. I campi senza valore non compaiono.`
         const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, numPredict: 4096, diag, fields: anagFields, shape: 'staged', format: false })
         try { writeFileSync('/tmp/a8-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
         const parsed = parseJsonResponse(raw)
@@ -5509,6 +5543,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             affinity: affPair && typeof affPair === 'object' ? affPair.aff : affPair,
             lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
             deterministic: false,
+            ...(a78 ? { preStage: true } : {}),
           }
           best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
           a8Rows++
@@ -5576,9 +5611,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const missCount = {}
   const hasPolizzaBase = cascadeDocs.some((d) => d.type === 'polizza')
   let polizzaVisited = !hasPolizzaBase
+  // [flag a78] Campi con una proposta PROVVISORIA degli stadi A.7/A.8 non ancora
+  // richiesti alla cascata: contano come mancanti finché un documento li chiede.
+  const preStageAsked = new Set()
+  const pendingPre = (f) => engineFlag(settings, 'a78') && best[f.id]?.preStage === true && !preStageAsked.has(f.id)
   const missingEligible = (doc) => {
     const base = activeFields.filter((f) => {
       if (!(f.id in best)) return (missCount[f.id] || 0) < RECOVERY_MISS_CAP
+      if (pendingPre(f)) return true
       // Controprova sulla polizza base: si ri-chiede tutto ciò che non viene da lei
       return doc.type === 'polizza' && best[f.id]?.docType !== 'polizza'
     })
@@ -5598,7 +5638,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // Tutti i campi valorizzati? Ci si ferma SOLO dopo aver letto la polizza
     // base (controprova dei provvisori): i documenti più vecchi non-base si
     // saltano, la polizza no.
-    const allFilled = activeFields.every((f) => f.id in best)
+    const allFilled = activeFields.every((f) => f.id in best && !pendingPre(f))
     if (allFilled && polizzaVisited) {
       diag.push(`Cascata: tutti i ${activeFields.length} campi valorizzati — ${cascadeDocs.length - di} documenti più vecchi saltati (${cascadeCalls} chiamate totali)`)
       break
@@ -5606,6 +5646,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (allFilled && !polizzaVisited && doc.type !== 'polizza') continue // dritti alla polizza base
     const missingHere = missingEligible(doc)
     if (!missingHere.length) { if (doc.type === 'polizza') polizzaVisited = true; continue }
+    for (const f of missingHere) if (pendingPre(f)) preStageAsked.add(f.id)
 
     const docHeader = `DOCUMENTO ANALIZZATO: "${stagedDocTag(doc)}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
     const promptFor = (fields) => {
