@@ -23,10 +23,10 @@ interface ReconcileSvc {
   planReconcile: (d: { id: string; path: string; files: { idx: number; numbers: string[] }[] }[]) => { target: string; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }[]
 }
 
-async function spatialPagesOf(buf: Buffer): Promise<string[] | null> {
+async function spatialPagesOf(buf: Buffer, settings?: any): Promise<string[] | null> {
   try {
-    const { spatialPagesFromPdf, hasTextLayer } = await importSharedService<{ spatialPagesFromPdf: (b: Buffer) => Promise<string[]>; hasTextLayer: (p: string[]) => boolean }>('pdfTextLayer.js')
-    const pages = await spatialPagesFromPdf(buf)
+    const { spatialPagesFromPdf, hasTextLayer } = await importSharedService<{ spatialPagesFromPdf: (b: Buffer, opts?: { settings?: any }) => Promise<string[]>; hasTextLayer: (p: string[]) => boolean }>('pdfTextLayer.js')
+    const pages = await spatialPagesFromPdf(buf, { settings })
     return hasTextLayer(pages) ? pages : null
   } catch { return null }
 }
@@ -60,7 +60,7 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
         // Stessa chiave del worker: per motore OCR solo se ci sono pagine scansionate.
         const buf = b64 ? Buffer.from(b64, 'base64') : null
-        const probe = buf ? await spatialPagesOf(buf) : null
+        const probe = buf ? await spatialPagesOf(buf, settings) : null
         const key = hash ? ((!probe || probe.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings) : hash) : null
         if (key) pages = await getOcrCache(key).catch(() => null)
         // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).

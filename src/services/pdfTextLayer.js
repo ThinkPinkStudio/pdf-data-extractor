@@ -17,6 +17,7 @@
  */
 import { buildSpatialPage } from './ocrLayout.js'
 import { joinSplitNumbers } from './splitNumbers.js'
+import { engineFlag } from './engineFlags.js'
 
 /**
  * Converte il `textContent` di pdfjs in blocchi/righe/parole con bbox, il
@@ -120,10 +121,11 @@ export { joinSplitNumbers, joinSplitNumbersInPages } from './splitNumbers.js'
  * text layer). Lancia solo se il PDF non si apre affatto.
  *
  * @param {Buffer|Uint8Array} pdfBuf
- * @param {{ password?: string }} [opts]
+ * @param {{ password?: string, settings?: object }} [opts]  settings: per i flag del motore (campi compilabili)
  * @returns {Promise<string[]>}
  */
 export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
+  const withFormFields = engineFlag(opts.settings || {}, 'campi')
   const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
   const pdfjs = pdfjsMod.default || pdfjsMod
   if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
@@ -143,7 +145,7 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
         // Campi compilabili solo su pagine che hanno già testo: una scansione
         // con un campo firma o data resterebbe «digitale» e salterebbe l'OCR
         // (il rendering per l'OCR disegna comunque i campi).
-        if (items.some((it) => it && typeof it.str === 'string' && it.str.trim())) {
+        if (withFormFields && items.some((it) => it && typeof it.str === 'string' && it.str.trim())) {
           try {
             const extra = formFieldItems(await page.getAnnotations({ intent: 'display' }))
             if (extra.length) items = [...items, ...extra]

@@ -8,7 +8,7 @@
  *
  *   node scripts/golden-prod.mjs --base https://genius.csabroker.it --email <utente>
  *        [--only bolchini-rc-2026,alzaia-tl] [--model qwen3:32b] [--out .goldens-out/prod-<tag>]
- *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b]
+ *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b] [--flags campi,…]
  *        [--from .goldens-out/prod-<base>] [--no-proceed]
  *
  * - Un BATCH per fascicolo («TEST GOLDEN …»): la riconciliazione per numero di
@@ -52,8 +52,10 @@ const THINK = arg('think')
 if (THINK && !['off', 'abbinamento', 'estrazione', 'tutto'].includes(THINK)) { console.error('--think off|abbinamento|estrazione|tutto'); process.exit(2) }
 const CTX = arg('ctx') ? Number(arg('ctx')) : null
 const OCR = arg('ocr')
+// Flag del motore (src/services/engineFlags.js): correzioni accese solo nelle run di test.
+const FLAGS = arg('flags')
 const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR
-const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}`))
+const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}${FLAGS ? `-flag-${FLAGS.replace(/[^a-z0-9]+/gi, '-')}` : ''}`))
 const PROCEED = !process.argv.includes('--no-proceed')
 const FROM = arg('from')
 // Coda interrotta senza uccidere i processi: se esiste .goldens-out/SKIP_QUEUED
@@ -117,7 +119,7 @@ const prodProfiles = settings.polizzaProfiles || []
 console.log(`App ${BASE} — versione ${version?.version || '?'} — Ollama ${settings.ollamaUrl || '?'} — modello ${settings.ollamaModel || '?'}${MODEL ? ` → run di test con ${MODEL}` : ''} — strategia ${settings.polizzaStagedCascade ? 'cascata' : 'gruppi'}${STRATEGY ? ` → run di test ${STRATEGY}` : ''} — pre-controllo ${settings.polizzaPrecheckMode || 'default'} — contesto ${settings.polizzaBatchContext || 8192}`)
 if (version?.features) console.log(`  feature: ${[].concat(version.features).slice(-6).join(' · ')}`)
 
-const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
+const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, flags: FLAGS || settings.polizzaEngineFlags || '', precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
 const t00 = Date.now()
 for (const c of FULL_CASES) {
   if (ONLY && !ONLY.has(c.id)) continue
@@ -169,7 +171,7 @@ for (const c of FULL_CASES) {
       console.log(`   job di base ${baseId} (da ${FROM})`)
     }
     if (OVERRIDE && job.status === 'done') {
-      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}) }
+      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}), ...(FLAGS ? { flags: FLAGS } : {}) }
       const t = await api(`/api/polizza/job/${jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
@@ -202,7 +204,7 @@ for (const c of FULL_CASES) {
 
 const done = summary.cases.filter((s) => s.total)
 const R = done.reduce((a, s) => a + s.right, 0), N = done.reduce((a, s) => a + s.total, 0)
-console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragionamento ${summary.think} · ctx ${summary.ctx} · versione ${summary.version} — ${Math.round((Date.now() - t00) / 60000)} min ===`)
+console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragionamento ${summary.think} · ctx ${summary.ctx}${summary.ocr && summary.ocr !== 'tesseract' ? ` · OCR ${summary.ocr}` : ''}${summary.flags ? ` · flag ${summary.flags}` : ''} · versione ${summary.version} — ${Math.round((Date.now() - t00) / 60000)} min ===`)
 for (const s of summary.cases) {
   if (s.skipped) { console.log(`  ${s.id.padEnd(18)} saltato`); continue }
   if (s.error) { console.log(`  ${s.id.padEnd(18)} ERRORE ${s.error.slice(0, 100)}`); continue }

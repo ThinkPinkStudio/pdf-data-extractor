@@ -18,6 +18,7 @@ import { join } from 'path'
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
+import { engineFlag, engineFlagsLabel } from './engineFlags.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -5524,7 +5525,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const useCascade = settings.polizzaStagedCascade === true
   // In testa alla diagnostica: quale strategia ha DAVVERO girato (chiude ogni
   // dubbio su "lo switch ha funzionato?" guardando il log del job).
-  diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${settings.ollamaModel || settings.llmModel || '?'}`)
+  diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${settings.ollamaModel || settings.llmModel || '?'} — flag del motore: ${engineFlagsLabel(settings)}`)
   let progressTotal = 0
   let progressDone = 0
 

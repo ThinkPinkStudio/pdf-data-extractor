@@ -114,6 +114,8 @@ export interface WebSettings {
   // OCR delle pagine scansionate: '' / 'tesseract' (default) o il nome di un
   // modello visivo Ollama che TRASCRIVE la pagina (qwen2.5vl:7b, gemma3:27b…).
   polizzaOcrEngine?: string
+  // Flag del motore per le correzioni da misurare (engineFlags.js): '' = default.
+  polizzaEngineFlags?: string
   // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
   navHiddenExtractor?: string[]
   // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
@@ -274,6 +276,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaThink: (['off', 'abbinamento', 'estrazione', 'tutto'].includes(map.polizzaThink) ? map.polizzaThink : 'off') as WebSettings['polizzaThink'],
     polizzaOcrEngine: String(map.polizzaOcrEngine || '').trim(),
+    polizzaEngineFlags: String(map.polizzaEngineFlags || '').trim(),
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     extractions: json<GenericField[]>('extractions'),

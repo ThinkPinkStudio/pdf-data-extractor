@@ -83,13 +83,13 @@ async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<
 // Ritorna null se il PDF non si apre o nessuna pagina ha text layer (scansione):
 // in quel caso il chiamante NON deve passare spatialPages vuote al motore
 // (pagine vuote = niente prompt), ma usare il markdown o l'OCR.
-async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
+async function spatialPagesFromPdf(pdfBuf: Buffer, settings?: any): Promise<string[] | null> {
   try {
     const { spatialPagesFromPdf: fromPdf, hasTextLayer } = await importSharedService<{
-      spatialPagesFromPdf: (b: Buffer) => Promise<string[]>
+      spatialPagesFromPdf: (b: Buffer, opts?: { settings?: any }) => Promise<string[]>
       hasTextLayer: (p: string[]) => boolean
     }>('pdfTextLayer.js')
-    const pages = await fromPdf(pdfBuf)
+    const pages = await fromPdf(pdfBuf, { settings })
     return hasTextLayer(pages) ? pages : null
   } catch {
     return null // pdfjs non disponibile/fallito → il worker usa solo il markdown
@@ -133,7 +133,7 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   onPage?: (page: number, total: number) => Promise<void>
 } = {}): Promise<{ pages: string[]; canceled?: boolean; ocrPages?: number } | null> {
   const log = hooks.log || (async () => {})
-  const textLayer = await spatialPagesFromPdf(buf)
+  const textLayer = await spatialPagesFromPdf(buf, settings)
   const needOcr = textLayer ? textLayer.map((t, i) => (t && t.trim() ? -1 : i + 1)).filter((p) => p > 0) : null
   let doc: Awaited<ReturnType<typeof loadPdfServer>> | null = null
   if (!textLayer || needOcr!.length) {
@@ -226,7 +226,7 @@ async function runJob(jobId: string): Promise<void> {
   // DOPO i globali con WHITELIST rigida (mai far entrare chiavi arbitrarie dal
   // DB nei settings in memoria) — stesso pattern di field_defs qui sopra.
   if (job.settings_override && typeof job.settings_override === 'object') {
-    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaThink', 'polizzaBatchContext', 'polizzaOcrEngine'] as const
+    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaThink', 'polizzaBatchContext', 'polizzaOcrEngine', 'polizzaEngineFlags'] as const
     for (const k of ALLOWED) {
       if (job.settings_override[k] !== undefined) (settings as any)[k] = job.settings_override[k]
     }
@@ -393,7 +393,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // con la chiave per motore una prova «OCR visivo» rileggeva da zero anche i
     // digitali (griglia ricalcolata) e il confronto con la base non era pulito
     // (GUFFANTI RC 33 → 29 senza una sola pagina letta dal modello visivo).
-    const layerProbe = mdDoc ? null : await spatialPagesFromPdf(buf)
+    const layerProbe = mdDoc ? null : await spatialPagesFromPdf(buf, settings)
     const hasScanPages = !layerProbe || layerProbe.some((t) => !t || !t.trim())
     const docCacheKey = mdDoc || !hasScanPages ? fileHash : ocrCacheKey(fileHash, settings)
     if (!mdDoc) {
@@ -454,7 +454,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // Griglia = text layer di ADESSO quando c'è (stesso percorso testo di
       // tutto il resto, campi compilabili compresi); la cache solo se il PDF
       // non ha text layer (numeri spezzati ricomposti, vedi rejoinCachedGrid).
-      spatial = await spatialPagesFromPdf(buf)
+      spatial = await spatialPagesFromPdf(buf, settings)
       if (spatial) {
         if (!cacheIsGrid) {
           try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }

@@ -110,7 +110,17 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   di adesso (`withFreshTextLayer`, worker e riconciliazione): prima una
   correzione del percorso testo non arrivava mai ai fascicoli già visti; le
   scansioni restano l'OCR in cache. Da misurare sui golden (cambia il testo di
-  GUFFANTI RC, SPALLINO RC).
+  GUFFANTI RC, SPALLINO RC): è dietro il flag `campi`. Rischio visto: il
+  questionario SPALLINO (senza data) prende il 31/03/2026 dal periodo
+  «31.3.25-31.3.26» della tabella delle polizze in corso e passa davanti alla
+  polizza del 2016 (ASSITA, massimale 2.000.000 come distrattori).
+- **FLAG DEL MOTORE per le correzioni da misurare** (26/09/2026,
+  `src/services/engineFlags.js`): una correzione nuova entra SPENTA dietro un
+  flag; le run di test la accendono (`polizzaEngineFlags` nell'override,
+  golden-prod `--flags campi,…`) e la si misura sull'app deployata contro la
+  stessa base, con UN solo deploy. Promossa → entra in `DEFAULT_FLAGS`;
+  bocciata → si toglie il codice. La prima riga della diagnostica elenca i
+  flag attivi.
 - **A pari data il testo digitale prima dell'OCR** (`byStagedRecency`, flag
   `ocr` sui documenti dal worker): la cascata visitava per prima la scansione
   (ordine alfabetico) e ne prendeva i campi letti male.
