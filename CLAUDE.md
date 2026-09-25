@@ -110,6 +110,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «Tutela Legale ESCLUSA 31.000,00»: ESCLUSA è l'indicizzazione); (3) con
   l'operatività attiva il filtro regex «polizza vera» (polizza n./contraente)
   non decide (LUCCA: «Certificato N°» accantonato prima di chiedere al modello).
+- **Copertura MAI NOMINATA = non operante senza modello** (25/09/2026, BESA):
+  se il nome della copertura (`recognitionCoverName`, da «Come riconoscerla»)
+  non compare in NESSUNA pagina del fascicolo, `coverNeverNamed` → non
+  pertinente con la ragione «mai nominata», nessuna chiamata. Prima il modello
+  diceva «non operante» senza poter citare l'assenza e tutto finiva «Da
+  verificare» (6 dubbi su 9: vita MetLife, Cat Nat, infortuni). Per «non
+  operante» il prompt chiede di copiare la riga dove la copertura compare
+  (opzione non barrata, voce senza premio).
 - **Ragionamento per fase** (`polizzaThink`: off | abbinamento | estrazione |
   tutto; solo modelli che ragionano, qwen3 & co.): il pensiero resta fuori dal
   JSON. Default off; A/B nelle run di test.

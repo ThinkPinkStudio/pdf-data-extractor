@@ -302,6 +302,10 @@ export function buildOperativitaPrompt({ recognition, contentKeywords = [], cont
     ' "documento": "Documento N" (il documento della prova),',
     ' "pagina": numero della pagina della prova,',
     ' "evidenza": "frase COPIATA ESATTAMENTE dal testo (max 200 caratteri) che dimostra l\'esito",',
+    // «non operante» senza citazione finiva sempre «Da verificare» (BESA 25/09:
+    // «La tutela legale non è selezionata e non ha un premio proprio», nessuna
+    // prova): la riga dove la copertura compare È la prova del non acquisto.
+    '   (per "non operante" copia la riga in cui la copertura compare: l\'opzione non barrata, la voce senza premio, il richiamo nelle condizioni)',
     ' "motivo": "una frase di spiegazione"}',
     'Se nessuna frase del testo dimostra l\'esito, rispondi "non determinabile" con evidenza vuota.',
     '',
@@ -483,6 +487,24 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
   // indicizzazione). In dubbio non si scarta: da verificare.
   if (evidence.proofIsCoverageRow) return { ...base, verdict: 'review', reason: `copertura dichiarata non operante ma la prova è la riga della copertura con un suo importo: dato contraddittorio${why}` }
   return { ...base, verdict: 'mismatch', reason: `copertura non operante${why}` }
+}
+
+/**
+ * Copertura MAI NOMINATA nel fascicolo: nessuna pagina contiene il nome della
+ * copertura ricavato da «Come riconoscerla» (recognitionCoverName). L'assenza
+ * non si può citare — il modello diceva giustamente «non operante» ma senza
+ * prova, e tutto finiva «Da verificare» (BESA 25/09: polizza vita MetLife,
+ * appendice Cat Nat, infortuni conducente: 6 dubbi su 9). Qui è un fatto del
+ * testo, non un giudizio: non operante, senza chiamare il modello.
+ * @param {string[]} pageTexts  testi (piatti o griglia) di TUTTE le pagine lette
+ * @param {string[][]} names    nomi della copertura (recognitionCoverName)
+ * @returns {boolean} true = mai nominata (false anche se non giudicabile)
+ */
+export function coverNeverNamed(pageTexts, names) {
+  if (!Array.isArray(names) || !names.length) return false
+  const texts = (pageTexts || []).filter((t) => String(t || '').trim())
+  if (!texts.length) return false
+  return !texts.some((t) => namesCoverage(t, names))
 }
 
 /**

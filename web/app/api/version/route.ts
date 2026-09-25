@@ -18,6 +18,8 @@ const BUILD_FEATURES = [
   'riconciliazione',      // riconciliazione dei dossier per numero di polizza (25/09/2026)
   'think-per-fase',       // ragionamento del modello per fase + override nelle run di test (25/09/2026)
   'ocr-visivo-v2',        // OCR con modello visivo, pagine intere (repeat_penalty, trattini → spazi) (25/09/2026)
+  'motore-ciclo1',        // correzioni dall'analisi dei 55 errori (prove, verifiche, A.7, date) (25/09/2026)
+  'copertura-mai-nominata', // pertinenza: copertura mai nominata = non operante senza modello (25/09/2026)
 ]
 
 export async function GET() {

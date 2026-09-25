@@ -12,7 +12,7 @@ import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, cutUseful, operativitaPageTag, OPERATIVITA_MIN_EVIDENCE,
   combineOperativitaBatches, OPERATIVITA_MAX_BATCHES, recognitionDistinctiveTokens, namesCoverage,
-  recognitionAllowsSection, lineHasNonZeroAmount,
+  recognitionAllowsSection, lineHasNonZeroAmount, coverNeverNamed,
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
 } from '../src/services/polizzaOperativita.js'
@@ -371,4 +371,12 @@ test('decideOperativita: senza riga strutturale va bene se la copertura è il pr
   const mm = { verdict: 'mismatch', reason: 'copertura non operante', esito: 'non operante', evidenceFound: true }
   const contra = { verdict: 'review', reason: 'contraddittorio', esito: 'non operante', evidenceFound: true }
   assert.equal(combineOperativitaBatches([mm, contra]).verdict, 'review')
+})
+
+test('coverNeverNamed: copertura mai nominata in nessuna pagina = non operante per fatto del testo', () => {
+  const names = [['tutela', 'legale'], ['tutela', 'giudiziaria']]
+  assert.equal(coverNeverNamed(['Polizza vita MetLife — capitale caso morte 100.000,00', 'Indennità di preavviso dirigenti'], names), true)
+  assert.equal(coverNeverNamed(['Garanzie: RCA, Incendio', 'Tutela Giudiziaria   SI   18,19'], names), false)
+  assert.equal(coverNeverNamed(['', '  '], names), false, 'senza testo non si giudica')
+  assert.equal(coverNeverNamed(['qualunque testo'], []), false, 'nome non determinabile: non si giudica')
 })

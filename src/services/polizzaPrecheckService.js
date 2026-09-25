@@ -20,7 +20,7 @@ import { usefulLength } from './ocrLayout.js'
 import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
-  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection,
+  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection, coverNeverNamed,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
@@ -176,6 +176,14 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       }
     })
     if (!candidates.length) return decideOperativita({ error: 'nessuna pagina con testo' })
+    // Copertura mai nominata in NESSUNA pagina del fascicolo (tutte, non solo le
+    // candidate): non operante per fatto del testo, senza chiamate al modello.
+    const allPageTexts = (docs || []).flatMap((d, i) => [...(d?.pages || []), ...(spatialDocs?.[i]?.pages || [])])
+    if (coverNeverNamed(allPageTexts, lexTokens)) {
+      const name = lexTokens.map((n) => n.join(' ')).join(' / ')
+      log(`Operatività «${profile?.name || ''}»: la copertura «${name}» non è mai nominata in ${allPageTexts.filter((t) => String(t || '').trim()).length} pagine → non operante (nessuna chiamata al modello)`)
+      return { ...decideOperativita({ answer: { esito: 'non operante', evidenza: '', motivo: `la copertura «${name}» non è mai nominata nei documenti` }, evidence: { found: true, names: false, structural: null } }), reason: `copertura non operante: «${name}» non è mai nominata nei documenti letti`, neverNamed: true, profileId: profile?.id || null, profileName: profile?.name || null }
+    }
     const vecs = await embedAll(settings, [recognition, ...candidates.map((c) => c.flat.slice(0, PAGE_EMBED_CHARS))])
     const rVec = vecs[0]
     candidates.forEach((c, i) => { c.score = cosineSim(rVec, vecs[i + 1]) })

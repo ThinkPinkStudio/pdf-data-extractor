@@ -56,6 +56,10 @@ const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR
 const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}`))
 const PROCEED = !process.argv.includes('--no-proceed')
 const FROM = arg('from')
+// Coda interrotta senza uccidere i processi: se esiste .goldens-out/SKIP_QUEUED
+// le run lanciate SENZA --force escono subito (si ferma il resto di una coda già
+// avviata, lasciando finire il passo in corso).
+if (existsSync(join(root, '.goldens-out', 'SKIP_QUEUED')) && !process.argv.includes('--force')) { console.log('Saltato (SKIP_QUEUED)'); console.log('TOTALE giusti 0/0 — saltato'); process.exit(0) }
 if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think o --ctx'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
