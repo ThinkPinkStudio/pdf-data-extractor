@@ -173,7 +173,8 @@ export function reasonLine(j: JobSnapshot, t: T): { head: string; body: string }
   const pc = j.precheck || null
   const op = pc?.operativita || null
   if (st === 'running') return { head: '', body: progressText(j, t) }
-  if (st === 'queued') return { head: '', body: t('jobsDash.stQueued') }
+  // In coda ma letto dalla riconciliazione del batch (numero di polizza): si vede cosa sta leggendo.
+  if (st === 'queued') return { head: '', body: progressText(j, t) || t('jobsDash.stQueued') }
   if (st === 'error') return { head: '', body: j.error || '' }
   if (st === 'canceled') return { head: '', body: t('jobsDash.stCanceled') }
   if (op && op.esito) {

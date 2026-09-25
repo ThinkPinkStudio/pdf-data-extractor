@@ -662,6 +662,32 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   la polizza nel suo batch. Grafica invariata per scelta dell'utente («già
   così è perfetta»). Le cartelle BESA e dei condomìni NON sono in locale.
 
+- **Polizze sparse in cartelle annidate → RICONCILIAZIONE AUTOMATICA per numero
+  di polizza** (25/09/2026, richiesta dell'utente: «deve essere automatico»).
+  Nessuna regola sulla STRUTTURA regge (BESA: «COI TECHNOLOGY SRL» con 3 file
+  sciolti e 18 sottocartelle = 18 polizze; «…/preventivi» = offerte d'altri;
+  «COSTA 1A/TUT. LEGALE» = seconda polizza), quindi decide la PROVA. I batch
+  NUOVI (`batch_jobs.needs_reconcile`, TRUE da `initBatch`; i vecchi FALSE)
+  aspettano «Fine caricamento», poi `polizzaReconcile.ts` legge TUTTI i file
+  sotto il semaforo globale con `readPdfPagesWithOcr` (UNICA lettura
+  text layer + OCR, estratta dal worker; il risultato va nella cache OCR per
+  hash, l'estrazione non rifà l'OCR), trova i numeri
+  (`extractPolicyNumbersFromPages`: nella cella dell'etichetta o SOTTO, nella
+  colonna più vicina alla parola «polizza» — non il codice agenzia; mai la
+  «polizza sostituita/precedente»; kerning «01469DAS000 40» riattaccato) e
+  applica `planReconcile` (src/services/policyReconcile.js, pura, test in
+  `test/policyReconcile.test.mjs`): file collegati da un numero = una
+  posizione; un dossier con più posizioni è un CONTENITORE e cede solo i file
+  col numero; posizioni con un numero in comune (anche col ramo davanti,
+  suffisso ≥ 8 caratteri) si uniscono nella cartella dal percorso più corto;
+  una cartella SENZA numeri con UNA sola polizza sotto ne fa parte. Il perché
+  sta nel log del dossier («Riconciliazione per numero di polizza …»); i
+  dossier svuotati spariscono. Simulato sui PDF veri (solo text layer):
+  BESA TL penale, COI TL penale, Bertolotti GT724FH, cartelle doppie RC
+  prodotti, Vita Zurich + rinnovo → uniti; COI/RUZZA contenitori intatti.
+  Rischio noto: una cartella madre di scansioni il cui numero l'OCR non legge
+  viene trattata come «senza numeri» (MORANDI 11, COSTA 1A).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

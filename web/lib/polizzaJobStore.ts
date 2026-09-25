@@ -242,7 +242,7 @@ export interface BatchRow {
 export async function initBatch(params: { email: string; label: string }): Promise<string> {
   const batchId = randomUUID()
   await pool.query(
-    `INSERT INTO batch_jobs (id, email, label, upload_complete, created_at, updated_at) VALUES ($1,$2,$3,FALSE,$4,$4)`,
+    `INSERT INTO batch_jobs (id, email, label, upload_complete, needs_reconcile, created_at, updated_at) VALUES ($1,$2,$3,FALSE,TRUE,$4,$4)`,
     [batchId, params.email, params.label, now()]
   )
   return batchId
@@ -913,4 +913,88 @@ export async function searchJobs(q: string, limit = 60): Promise<JobSearchHit[]>
       updatedAt: Number(r.updated_at), matchedIn,
     }
   })
+}
+
+// ── RICONCILIAZIONE DEL BATCH (numero di polizza) ────────────────────────────
+export async function batchNeedsReconcile(batchId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ needs_reconcile: boolean }>('SELECT needs_reconcile FROM batch_jobs WHERE id = $1', [batchId])
+  return !!rows[0]?.needs_reconcile
+}
+
+export async function markBatchReconciled(batchId: string): Promise<void> {
+  await pool.query('UPDATE batch_jobs SET needs_reconcile = FALSE, updated_at = $1 WHERE id = $2', [now(), batchId])
+}
+
+/** Dossier IN CODA del batch con i loro file (senza i PDF): la riconciliazione tocca solo quelli mai elaborati. */
+export async function listQueuedBatchDossiers(batchId: string): Promise<{ id: string; dossier_name: string | null; files: { idx: number; file_name: string; file_hash: string | null }[] }[]> {
+  const { rows: jobs } = await pool.query<{ id: string; dossier_name: string | null }>(
+    `SELECT id, dossier_name FROM polizza_jobs WHERE batch_id = $1 AND status = 'queued' AND source_job_id IS NULL ORDER BY created_at, id`, [batchId]
+  )
+  if (!jobs.length) return []
+  const { rows: files } = await pool.query<{ job_id: string; idx: number; file_name: string; file_hash: string | null }>(
+    `SELECT job_id, idx, file_name, file_hash FROM polizza_job_files WHERE job_id = ANY($1) ORDER BY job_id, idx`, [jobs.map((j) => j.id)]
+  )
+  return jobs.map((j) => ({ ...j, files: files.filter((f) => f.job_id === j.id).map(({ idx, file_name, file_hash }) => ({ idx, file_name, file_hash })) }))
+}
+
+/** Un solo PDF (byte) per la lettura della riconciliazione, senza caricare l'intero dossier. */
+export async function getJobFileBase64(jobId: string, idx: number): Promise<string | null> {
+  const { rows } = await pool.query<{ pdf_base64: string }>('SELECT pdf_base64 FROM polizza_job_files WHERE job_id = $1 AND idx = $2', [jobId, idx])
+  return rows[0]?.pdf_base64 ?? null
+}
+
+/**
+ * Applica il PIANO di riconciliazione (policyReconcile.planReconcile) in UNA
+ * transazione: sposta i file nei dossier di destinazione (in coda ai loro),
+ * rinomina ogni destinazione col percorso più corto tra quelli uniti, elimina i
+ * dossier rimasti vuoti, ricalcola alla FINE gli indici contigui (0..n-1, come
+ * scanned_files: la pagina apre i file per posizione) e scrive il perché nel
+ * log. Gli indici del piano sono quelli originali: un contenitore può cedere
+ * file a più destinazioni. Se un dossier coinvolto non è più in coda, nulla.
+ * @returns numero di unioni applicate
+ */
+export async function applyReconcilePlan(
+  plan: { target: string; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }[],
+  pathOf: Record<string, string>,
+): Promise<number> {
+  if (!plan.length) return 0
+  const involved = [...new Set(plan.flatMap((m) => [m.target, ...m.moves.map((x) => x.from)]))]
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows: st } = await client.query<{ id: string; status: string }>(
+      'SELECT id, status FROM polizza_jobs WHERE id = ANY($1) FOR UPDATE', [involved]
+    )
+    if (st.length !== involved.length || st.some((r) => r.status !== 'queued')) { await client.query('ROLLBACK'); return 0 }
+    const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
+    for (const merge of plan) {
+      const { rows: maxRow } = await client.query<{ n: number }>('SELECT COALESCE(MAX(idx), -1)::int AS n FROM polizza_job_files WHERE job_id = $1', [merge.target])
+      let next = Math.max((maxRow[0]?.n ?? -1) + 1, 2000000) // fuori dagli indici originali di chiunque
+      const lines: string[] = []
+      for (const m of merge.moves) {
+        for (const idx of m.idxs) {
+          await client.query('UPDATE polizza_job_files SET job_id = $1, idx = $2 WHERE job_id = $3 AND idx = $4', [merge.target, next++, m.from, idx])
+        }
+        lines.push(`${m.all ? 'unita la cartella' : `${m.idxs.length} file spostati da`} "${pathOf[m.from] || m.from}"`)
+      }
+      await client.query(
+        'UPDATE polizza_jobs SET dossier_name = $1, logs = logs || $2::jsonb WHERE id = $3',
+        [merge.name, JSON.stringify([`${stamp} Riconciliazione per numero di polizza (${merge.numbers.join(', ')}): ${lines.join('; ')} — stessa polizza, un solo dossier.`]), merge.target],
+      )
+    }
+    for (const id of involved) {
+      const { rows: fs } = await client.query<{ idx: number; file_name: string }>('SELECT idx, file_name FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [id])
+      if (!fs.length) { await client.query('DELETE FROM polizza_jobs WHERE id = $1', [id]); continue }
+      await client.query('UPDATE polizza_job_files SET idx = -idx - 1 WHERE job_id = $1', [id])
+      for (let i = 0; i < fs.length; i++) await client.query('UPDATE polizza_job_files SET idx = $1 WHERE job_id = $2 AND idx = $3', [i, id, -fs[i].idx - 1])
+      await client.query('UPDATE polizza_jobs SET scanned_files = $1::jsonb, updated_at = $2 WHERE id = $3', [JSON.stringify(fs.map((f) => f.file_name)), now(), id])
+    }
+    await client.query('COMMIT')
+    return plan.length
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
 }

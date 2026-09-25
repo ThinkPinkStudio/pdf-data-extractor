@@ -66,6 +66,10 @@ export async function initDb() {
     -- Timestamp dell'email di fine batch inviata al proprietario: NULL = non ancora
     -- notificato. Serve a inviare la mail UNA sola volta (anche dopo un restart).
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS notified_at BIGINT;
+    -- RICONCILIAZIONE per numero di polizza (25/09/2026): i batch NUOVI nascono
+    -- con TRUE (initBatch) e prima di elaborare si uniscono i dossier con lo
+    -- stesso numero; i batch esistenti restano FALSE (nessuna unione a posteriori).
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS needs_reconcile BOOLEAN NOT NULL DEFAULT FALSE;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 

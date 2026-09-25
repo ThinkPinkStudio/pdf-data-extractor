@@ -94,6 +94,51 @@ async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
   }
 }
 
+// LETTURA «senza markdown» di UN PDF: text layer pdfjs (griglia spaziale) e
+// OCR Tesseract SOLO sulle pagine senza testo (scansioni). UNICO codice per il
+// worker e per la riconciliazione del batch (policyReconcile): stesso testo,
+// stessa cache OCR (la scrive il chiamante). null = PDF illeggibile.
+export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings: any, hooks: {
+  log?: (line: string) => Promise<void>
+  isCanceled?: () => Promise<boolean>
+  onPage?: (page: number, total: number) => Promise<void>
+} = {}): Promise<{ pages: string[]; canceled?: boolean } | null> {
+  const log = hooks.log || (async () => {})
+  const textLayer = await spatialPagesFromPdf(buf)
+  const needOcr = textLayer ? textLayer.map((t, i) => (t && t.trim() ? -1 : i + 1)).filter((p) => p > 0) : null
+  let doc: Awaited<ReturnType<typeof loadPdfServer>> | null = null
+  if (!textLayer || needOcr!.length) {
+    try { doc = await loadPdfServer(buf) } catch (err: any) {
+      if (!textLayer) { await log(`SKIP "${docName}": ${err.message}`); return null }
+      await log(`"${docName}": ${needOcr!.length} pagine senza testo restano vuote (apertura per OCR fallita: ${err.message})`)
+    }
+  }
+  const totalPages = textLayer ? textLayer.length : (doc?.numPages || 0)
+  const pages: string[] = []
+  if (textLayer) {
+    const nText = textLayer.filter((t) => t && t.trim()).length
+    await log(`Text layer pdfjs per "${docName}": ${nText}/${textLayer.length} pagine con testo${needOcr!.length ? `, ${needOcr!.length} in OCR` : ''}`)
+  }
+  const m = doc ? await svc() : null
+  try {
+    for (let p = 1; p <= totalPages; p++) {
+      if (hooks.isCanceled && await hooks.isCanceled()) return { pages, canceled: true }
+      if (hooks.onPage) await hooks.onPage(p, totalPages)
+      const layer = textLayer ? textLayer[p - 1] : ''
+      if (layer && layer.trim()) { pages.push(layer); continue }
+      if (!doc || !m) { pages.push(''); continue }
+      let png: string
+      try { png = await doc.renderPage(p) } catch (err: any) { await log(`SKIP pagina ${p} di "${docName}": ${err.message}`); pages.push(''); continue }
+      try {
+        pages.push((await m.ocrPageText(png, settings)) || '')
+      } catch (err: any) { await log(`OCR pagina ${p} di "${docName}": ${err.message}`); pages.push('') }
+    }
+  } finally {
+    if (doc) await doc.destroy()
+  }
+  return { pages }
+}
+
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)
@@ -381,41 +426,19 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // (minuti, cifre storpiate) si fa SOLO sulle pagine che non hanno testo
     // (scansioni). Prima, senza Docling, il worker mandava a Tesseract anche i
     // PDF digitali: in locale i test leggevano il text layer, online no.
-    const textLayer = await spatialPagesFromPdf(buf)
-    const needOcr = textLayer ? textLayer.map((t, i) => (t && t.trim() ? -1 : i + 1)).filter((p) => p > 0) : null
-    let doc: Awaited<ReturnType<typeof loadPdfServer>> | null = null
-    if (!textLayer || needOcr!.length) {
-      try { doc = await loadPdfServer(buf) } catch (err: any) {
-        if (!textLayer) { await appendLog(job, `SKIP "${docName}": ${err.message}`, logs); continue }
-        await appendLog(job, `"${docName}": ${needOcr!.length} pagine senza testo restano vuote (apertura per OCR fallita: ${err.message})`, logs)
-      }
-    }
-    const totalPages = textLayer ? textLayer.length : (doc?.numPages || 0)
-    let docText = ''
-    const docPages: string[] = []
-    if (textLayer) {
-      const nText = textLayer.filter((t) => t && t.trim()).length
-      await appendLog(job, `Text layer pdfjs per "${docName}": ${nText}/${textLayer.length} pagine con testo${needOcr!.length ? `, ${needOcr!.length} in OCR` : ''}`, logs)
-    }
-    try {
-      for (let p = 1; p <= totalPages; p++) {
-        if (await isCanceled(job.id)) return
+    const read = await readPdfPagesWithOcr(buf, docName, settings, {
+      log: (line) => appendLog(job, line, logs),
+      isCanceled: () => isCanceled(job.id),
+      onPage: async (p, total) => {
         totalPagesProcessed++
-        await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: p, pageTotal: totalPages, docName, totalPagesProcessed, receivedAt: Date.now() } })
-        const layer = textLayer ? textLayer[p - 1] : ''
-        if (layer && layer.trim()) { docPages.push(layer); docText += '\n' + layer; pagesWithText++; continue }
-        if (!doc) { docPages.push(''); continue }
-        let png: string
-        try { png = await doc.renderPage(p) } catch (err: any) { await appendLog(job, `SKIP pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push(''); continue }
-        try {
-          const text = await m.ocrPageText(png, settings)
-          docPages.push(text || '')
-          if (text) { docText += '\n' + text; pagesWithText++ }
-        } catch (err: any) { await appendLog(job, `OCR pagina ${p} di "${docName}": ${err.message}`, logs); docPages.push('') }
-      }
-    } finally {
-      if (doc) await doc.destroy()
-    }
+        await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: p, pageTotal: total, docName, totalPagesProcessed, receivedAt: Date.now() } })
+      },
+    })
+    if (!read) continue
+    if (read.canceled) return
+    const docPages = read.pages
+    const docText = docPages.filter((t) => t && t.trim()).map((t) => '\n' + t).join('')
+    pagesWithText += docPages.filter((t) => t && t.trim()).length
     // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
     // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
     if (docPages.some((t) => t && t.trim())) {
