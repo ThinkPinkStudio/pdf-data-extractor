@@ -248,24 +248,31 @@ export default function PolizzaBulkPage() {
   }, [baseDossiers, included, groupOf, root])
 
   // Auto-riconoscimento del profilo di un dossier dal percorso: primo profilo la cui
-  // parola di abbinamento compare (sottostringa, case-insensitive) nel label/percorso.
+  // parola di abbinamento compare nel label/percorso a INIZIO DI PAROLA («prof»
+  // trova «PROFESSIONALE», non «SPROFONDO»). Resta un indizio debole («med»
+  // trova anche «VIA MEDA»): per questo il nome decide solo senza un profilo scelto.
   function detectProfile(label: string): string {
-    const path = label.toLowerCase()
+    const path = ' ' + label.toLowerCase().split(/[^a-z0-9àèéìòù]+/).filter(Boolean).join(' ')
     for (const p of profiles) {
       if (p.enabled === false) continue // profilo non attivo: mai riconosciuto in automatico
-      if (profileKeywords(p).some((k) => path.includes(k))) return p.id
+      if (profileKeywords(p).some((k) => path.includes(' ' + k))) return p.id
     }
     return ''
   }
-  // Assegna a ogni dossier (gid) il profilo: auto-riconosciuto dal nome, altrimenti il
-  // tipo predefinito. Le scelte manuali (manualProfile) vengono preservate.
+  // Assegna a ogni dossier (gid) il profilo. Con un PROFILO SCELTO come tipo
+  // predefinito vale quello per tutte le cartelle (25/09/2026, verifica del
+  // cliente: «la macchina non deve usare profili diversi da quello selezionato»
+  // — il nome cartella con «prof»/«med» passava 4 condomìni a RC/Medica). Il
+  // nome della cartella decide solo con «Nessun tipo» o «Automatico». Le
+  // scelte manuali per riga (manualProfile) vengono sempre preservate.
   useEffect(() => {
+    const explicit = !!defaultType && defaultType !== 'auto'
     setProfileOf((prev) => {
       const next: Record<string, string> = {}
       for (const d of finalDossiers) {
         next[d.gid] = (manualProfile.has(d.gid) && prev[d.gid] !== undefined)
           ? prev[d.gid]
-          : (detectProfile(d.label) || defaultType)
+          : explicit ? defaultType : (detectProfile(d.label) || defaultType)
       }
       return next
     })

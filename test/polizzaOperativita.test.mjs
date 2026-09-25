@@ -160,6 +160,18 @@ test('combineOperativitaBatches: un batch operante basta; tutti non operanti →
   assert.ok(OPERATIVITA_MAX_BATCHES >= 2)
 })
 
+test('combineOperativitaBatches: «non operante» senza prova ritrovata non contraddice i «non operante» provati (ALZAIA 104)', () => {
+  const mm = { verdict: 'mismatch', reason: 'copertura non operante: x', esito: 'non operante' }
+  const noProof = { verdict: 'review', reason: 'copertura dichiarata non operante ma la prova citata non è nel testo (prova troppo corta)', esito: 'non operante' }
+  const undet = { verdict: 'review', reason: 'copertura non determinabile', esito: 'non determinabile' }
+  const r = combineOperativitaBatches([mm, noProof, mm, mm, mm, mm])
+  assert.equal(r.verdict, 'mismatch')
+  assert.match(r.reason, /5 con prova, 1 con prova non ritrovata/)
+  assert.equal(combineOperativitaBatches([noProof, noProof]).verdict, 'review', 'nessuna prova trovata: resta un dubbio')
+  assert.equal(combineOperativitaBatches([mm, undet]).verdict, 'review', '«non determinabile» resta un dubbio')
+  assert.equal(combineOperativitaBatches([mm, noProof], { unreadNamed: 2 }).verdict, 'review', 'pagine che nominano la copertura non lette')
+})
+
 const PROFILES = [
   { id: 'tl', recognition: 'Polizza o sezione di TUTELA LEGALE effettivamente ACQUISTATA dal contraente: un prodotto autonomo (es. DAS, ARAG) oppure una sezione "Tutela legale" operante. NON lo è: una RC professionale.' },
   { id: 'rc', recognition: 'Polizza di RESPONSABILITÀ CIVILE PROFESSIONALE effettivamente ACQUISTATA: copre i danni a terzi. NON lo è: una tutela legale.' },
@@ -193,7 +205,7 @@ test('recognitionCoverName: la frase di parole distintive consecutive della test
   assert.deepEqual(recognitionCoverName(PROFILES, 'nope'), [])
   const real = JSON.parse(readFileSync(new URL('../polizze_test/profili-polizza-riconoscimento.json', import.meta.url), 'utf8'))
   const names = Object.fromEntries(real.map((p) => [p.name, recognitionCoverName(real, p.id).map((r) => r.join(' '))]))
-  assert.deepEqual(names['Tutela Legale 3'], ['tutela legale'])
+  assert.deepEqual(names['Tutela Legale 3'], ['tutela legale', 'tutela giudiziaria'], 'TUTELA LEGALE / TUTELA GIUDIZIARIA = due nomi (Allianz «Tutela Giudiziaria SI»)')
   assert.deepEqual(names['RC PROF MED V2'], ['medica', 'sanitaria'], 'MEDICA / SANITARIA = due nomi alternativi')
   assert.ok(names['CSA RCT-RCO completo'].includes('verso terzi'), names['CSA RCT-RCO completo'].join('|'))
   for (const p of real) assert.ok(names[p.name].length > 0, `nome non determinabile per ${p.name}`)

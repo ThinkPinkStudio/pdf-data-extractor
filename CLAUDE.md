@@ -643,6 +643,25 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   `/apple-icon*`); i PNG si rigenerano dallo SVG con `qlmanage -t -s 512` su
   una copia con width/height 512 e poi `sips -z`.
 
+- **Verifica del cliente 25/09/2026 (Pizzamiglio 3/9, condomìni 6/24, BESA)**:
+  l'Excel di Pizzamiglio è della run col VECCHIO controllo a parole
+  (`Pertinenza [keywords] … 0.33`), non dell'operatività. Correzioni:
+  (1) **bulk: il profilo SCELTO vale per tutte le cartelle** — il nome cartella
+  («prof», «med» come pezzo di parola) passava 4 condomìni a RC/Medica;
+  il riconoscimento dal nome ora è a inizio parola e agisce solo con «Nessun
+  tipo»/«Automatico»; (2) **batch di operatività**: tutti «non operante», almeno
+  uno con prova, gli altri con prova non ritrovata → non pertinente (prima un
+  «Sezione PA» troppo corto mandava ALZAIA 104 in «Da verificare»);
+  (3) bozza «Come riconoscerla» TL: «TUTELA LEGALE / TUTELA GIUDIZIARIA»
+  (Allianz «Tutela Giudiziaria SI 18,19» non era una riga strutturale);
+  (4) **STORICO delle run**: tabella `polizza_job_runs`, una fotografia a ogni
+  esito (done/matched/review/mismatch/error) scritta da `updateJob`; scheda
+  «Storico» nel dettaglio con i valori cambiati rispetto alla run prima;
+  (5) **ricerca globale** nella lista Elaborazioni (`/api/polizza/search`:
+  cartella, batch, file, valori estratti; ogni parola deve comparire) → apre
+  la polizza nel suo batch. Grafica invariata per scelta dell'utente («già
+  così è perfetta»). Le cartelle BESA e dei condomìni NON sono in locale.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

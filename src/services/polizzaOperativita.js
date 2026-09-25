@@ -457,7 +457,9 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
  *    operante», poi «operante» sull'elenco delle opzioni del DIP; un riesame
  *    avversario col modello da 7B è stato provato e TOLTO: smentiva anche le
  *    prove vere — «Tutela Legale · Imponibile annuo € 249,06» di BOIARDO);
- *  - tutti i batch «non operante» con prova → mismatch;
+ *  - tutti i batch «non operante» con prova → mismatch; lo stesso se alcuni
+ *    dicono «non operante» con una prova non ritrovata, purché almeno uno
+ *    l'abbia provata;
  *  - altrimenti (prove assenti, dubbi, guasti) → review.
  * Il risultato riportato è quello del batch decisivo (l'operante; altrimenti il
  * primo), con `batches` = batch letti.
@@ -486,6 +488,19 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
       return { ...ok, verdict: 'setaside', batches: list.length, contratto: 'assente', reason: `copertura operante ma senza polizza principale: nelle pagine lette solo quietanze, informativa o condizioni, nessun frontespizio o scheda di polizza${ok.motivo ? ` (${ok.motivo})` : ''}` }
     }
     return { ...ok, batches: list.length, contratto: contractSeen ? 'presente' : ok.contratto }
+  }
+  // Tutti i batch hanno risposto «non operante» e almeno uno con la prova
+  // trovata: un batch la cui citazione non si ritrova (troppo corta, «Sezione
+  // PA» dalla griglia) NON contraddice gli altri — dice la stessa cosa senza
+  // prova. Prima bastava quel batch a mandare in «Da verificare» cinque «non
+  // operante» provati (COND. ALZAIA 104, polizza fabbricato Vittoria, 25/09/2026).
+  // Un «non determinabile», una risposta illeggibile o un guasto restano dubbi.
+  const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante'))
+  if (allSayNo && list.some((r) => r.verdict === 'mismatch') && list.some((r) => r.verdict === 'review')) {
+    const proven = list.filter((r) => r.verdict === 'mismatch')
+    const first = proven[0]
+    if (unreadNamed > 0) return { ...first, verdict: 'review', batches: list.length, reason: `${first.reason} (${list.length} batch letti, ma ${unreadNamed} pagine che nominano la copertura non sono state lette)` }
+    return { ...first, batches: list.length, reason: `${first.reason} (${list.length} batch di pagine, tutti «non operante»: ${proven.length} con prova, ${list.length - proven.length} con prova non ritrovata)` }
   }
   if (list.every((r) => r.verdict === 'mismatch')) {
     // «Non operante» vale come scarto solo se TUTTE le pagine che nominano la

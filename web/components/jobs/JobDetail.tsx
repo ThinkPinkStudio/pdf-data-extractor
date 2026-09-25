@@ -1,6 +1,7 @@
 'use client'
+import { useEffect, useState } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
-import type { DetailTab, JobSnapshot } from './types'
+import type { DetailTab, JobRun, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
 import { errorText, fileUrl, isTestRun, minutesSince, opEsitoKey, shortName, splitName, uiState, valuesCount } from './model'
 import { StatusPill } from './StatusPill'
@@ -10,7 +11,8 @@ import { IcAlert, IcChevLeft, IcChevRight, IcCopy, IcExternal, IcFile, IcX } fro
 
 // Dettaglio di UNA polizza: lo stesso componente sta a lato della tabella
 // (drawer) e nel riquadro destro della coda (inline). Tab: Pertinenza (esito
-// del controllo, strutturato), Valori (con fonte cliccabile), File, Log.
+// del controllo, strutturato), Valori (con fonte cliccabile), Storico (una
+// riga per run, con i valori cambiati rispetto alla run prima), File, Log.
 export function JobDetail({ job, batchLabel, position, onPrev, onNext, onClose, tab, onTab, A, variant }: {
   job: JobSnapshot
   batchLabel?: string | null
@@ -35,6 +37,7 @@ export function JobDetail({ job, batchLabel, position, onPrev, onNext, onClose, 
   const tabs: { id: DetailTab; label: string; count?: number }[] = [
     { id: 'precheck', label: t('jobsDash.tabPrecheck') },
     { id: 'values', label: t('jobsDash.tabValues'), count: nValues },
+    { id: 'history', label: t('jobsDash.tabHistory') },
     { id: 'files', label: t('jobsDash.tabFiles'), count: nDocs },
     { id: 'log', label: t('jobsDash.tabLog'), count: (job.logs || []).length },
   ]
@@ -101,6 +104,7 @@ export function JobDetail({ job, batchLabel, position, onPrev, onNext, onClose, 
       <div style={{ flex: '1 1 0', minHeight: 0, overflow: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {tab === 'precheck' && <PrecheckTab job={job} A={A} />}
         {tab === 'values' && <ValuesTab job={job} />}
+        {tab === 'history' && <HistoryTab job={job} />}
         {tab === 'files' && <FilesTab job={job} />}
         {tab === 'log' && <LogTab job={job} />}
       </div>
@@ -260,4 +264,74 @@ function LogTab({ job }: { job: JobSnapshot }) {
   const logs = job.logs || []
   if (!logs.length) return <p className="jb-text jb-muted">{t('jobsDash.noLog')}</p>
   return <pre className="jb-log">{logs.join('\n')}</pre>
+}
+
+// STORICO: una riga per run arrivata a un esito, dalla più recente. Per ogni
+// run: esito, profilo, modello e contesto, campi compilati; aperta, la
+// motivazione e i valori CAMBIATI rispetto alla run precedente.
+function HistoryTab({ job }: { job: JobSnapshot }) {
+  const t = useT()
+  const [runs, setRuns] = useState<JobRun[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setFailed(false)
+    fetch(`/api/polizza/job/${job.jobId}/history`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => { if (alive) setRuns(Array.isArray(d?.runs) ? d.runs : []) })
+      .catch(() => { if (alive) { setRuns([]); setFailed(true) } })
+    return () => { alive = false }
+  }, [job.jobId, job.status])
+  if (runs === null) return <p className="jb-text jb-muted">…</p>
+  if (failed) return <p className="jb-text jb-muted">{t('jobsDash.historyError')}</p>
+  if (!runs.length) return <p className="jb-text jb-muted">{t('jobsDash.historyEmpty')}</p>
+  const fmt = (s: number) => new Date(s * 1000).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <p className="jb-text jb-muted" style={{ fontSize: 11, margin: 0 }}>{t('jobsDash.historyHint', { n: runs.length })}</p>
+      {runs.map((r, i) => {
+        const prev = runs[i + 1] || null
+        const labelOf = (id: string) => r.fields.find((f) => f.id === id)?.label || prev?.fields.find((f) => f.id === id)?.label || id
+        const ids = [...new Set([...Object.keys(r.values), ...Object.keys(prev?.values || {})])]
+        const changed = prev ? ids.filter((id) => (r.values[id] || '') !== (prev.values[id] || '')) : []
+        const pseudo: JobSnapshot = { jobId: job.jobId, dossierName: job.dossierName, status: r.status, error: r.error, values: {}, precheck: r.verdict ? { verdict: r.verdict } : null }
+        return (
+          <details key={r.id} style={{ border: '1px solid var(--c-border)', borderRadius: 8, padding: '8px 10px', background: i === 0 ? 'var(--c-bg-card-alt)' : undefined }}>
+            <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, listStyle: 'none' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-secondary)' }}>{fmt(r.finishedAt)}</span>
+              <StatusPill job={pseudo} />
+              <span className="jb-pill neutral">{r.profileName || r.profileId || t('jobsDash.profileNone')}</span>
+              {r.total > 0 && <span className="jb-pill neutral">{t('jobsDash.historyFilled', { n: r.filled, tot: r.total })}</span>}
+              {r.model && <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{r.model}{r.ctx ? ` · ctx ${r.ctx}` : ''}</span>}
+              {prev && changed.length > 0 && <span style={{ fontSize: 11, color: 'var(--c-warning)' }}>{t('jobsDash.historyChanged', { n: changed.length })}</span>}
+            </summary>
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(r.summary || r.error) && <p className="jb-text" style={{ fontSize: 11, margin: 0 }}>{r.summary || r.error}</p>}
+              {prev && changed.length > 0 && (
+                <table className="jb-values">
+                  <thead><tr><th>{t('jobsDash.colField')}</th><th>{t('jobsDash.historyBefore')}</th><th>{t('jobsDash.historyAfter')}</th></tr></thead>
+                  <tbody>
+                    {changed.map((id) => (
+                      <tr key={id}>
+                        <td className="jb-muted">{labelOf(id)}</td>
+                        <td style={{ textDecoration: 'line-through', color: 'var(--c-text-muted)' }}>{prev.values[id] || '—'}</td>
+                        <td className="v">{r.values[id] || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {!prev && Object.keys(r.values).length > 0 && (
+                <table className="jb-values">
+                  <tbody>
+                    {Object.entries(r.values).map(([id, v]) => <tr key={id}><td className="jb-muted">{labelOf(id)}</td><td className="v">{v}</td></tr>)}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </details>
+        )
+      })}
+    </div>
+  )
 }

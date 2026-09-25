@@ -70,7 +70,25 @@ export type UiState = 'running' | 'queued' | 'matched' | 'review' | 'mismatch' |
 export type FilterKey = 'all' | 'active' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'done' | 'error'
 
 export type ViewMode = 'tabella' | 'coda'
-export type DetailTab = 'precheck' | 'values' | 'files' | 'log'
+export type DetailTab = 'precheck' | 'values' | 'history' | 'files' | 'log'
+
+// Una run dello STORICO (/api/polizza/job/[id]/history): fotografia a fine run.
+export interface JobRun {
+  id: number
+  finishedAt: number
+  status: string
+  profileId: string | null
+  profileName: string | null
+  model: string | null
+  ctx: number | null
+  verdict: string | null
+  summary: string | null
+  error: string | null
+  fields: { id: string; label: string }[]
+  values: Record<string, string>
+  filled: number
+  total: number
+}
 
 // Batch VIRTUALE delle estrazioni singole (fuori batch): stessa pagina dei batch.
 export const SINGLES_ID = 'singole'
