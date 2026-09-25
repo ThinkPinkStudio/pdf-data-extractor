@@ -14,6 +14,10 @@ const BUILD_FEATURES = [
   'archive-chat',         // voce Chat archivio + /api/archive/chat (1.0.107)
   'semantic-routing',     // gate campo×documento + arbitro semantico nel merge (1.0.108)
   'maintenance-panel',    // voce Dati → /maintenance + /api/admin/maintenance (1.0.109)
+  'storico-ricerca',      // storico delle run + ricerca globale (25/09/2026)
+  'riconciliazione',      // riconciliazione dei dossier per numero di polizza (25/09/2026)
+  'think-per-fase',       // ragionamento del modello per fase + override nelle run di test (25/09/2026)
+  'ocr-visivo-v2',        // OCR con modello visivo, pagine intere (repeat_penalty, trattini → spazi) (25/09/2026)
 ]
 
 export async function GET() {

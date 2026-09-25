@@ -1945,6 +1945,7 @@ const VISION_OCR_PROMPT =
   '- Tabelle e moduli: le celle della STESSA riga sulla stessa riga, separate da almeno due spazi; ogni etichetta accanto al suo valore.\n' +
   '- Caselle di spunta: [X] se barrata/spuntata/annerita, [ ] se vuota, prima del testo della casella.\n' +
   '- Cifre, importi, simboli (€, %, ‰), date, codici e numeri di polizza ESATTAMENTE come stampati: non correggere, non completare.\n' +
+  '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
   '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
   '- Non tradurre, non riassumere, non commentare, niente markdown: solo il testo della pagina.'
 export async function visionOcrPageText(imageDataUrl, settings = {}) {
@@ -1956,10 +1957,17 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
     model,
     messages: [{ role: 'user', content: VISION_OCR_PROMPT, images: [b64] }],
     ...(isThinkingModel(model) ? { think: false } : {}),
-    options: { temperature: 0, num_ctx: 16384, num_predict: 6144 },
+    // repeat_penalty 1.1: senza, sulla riga tratteggiata della tabella premi il
+    // modello ripeteva «-» fino al limite di token e la pagina restava TRONCATA
+    // (BOLCHINI 2025: premi 562,50/618,75/137,67/756,42 persi); con 1,1 la
+    // pagina esce intera e le cifre restano esatte (misurato 25/09/2026).
+    options: { temperature: 0, num_ctx: 16384, num_predict: 6144, repeat_penalty: 1.1 },
   }
   const { content } = await ollamaChatStream(url, payload, { hardCapMs: 900000, cancelFlag: settings.__cancelFlag || null })
-  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').trim()
+  // Trattini/puntini di riempimento tra etichetta e valore («Premio Netto-----562,50»)
+  // → due spazi, come le colonne della griglia digitale. Mai dentro i numeri
+  // (servono 4+ caratteri consecutivi: «1.000.000» ha punti singoli).
+  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').replace(/[-_.·]{4,}/g, '  ').trim()
 }
 
 // Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un
