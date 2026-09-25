@@ -3119,6 +3119,29 @@ export function stagedDocTag(d) {
  * (Il vecchio schema quota-e-taglia lasciava fuori proprio le pagine coi dati:
  * attività a pag. 23, P.IVA del contraente a pag. 10 — mai più.)
  */
+/**
+ * Testo di UNA pagina per i prompt: griglia spaziale con le coppie
+ * etichetta→valore (withPairs) e, se il documento ha anche il markdown Docling
+ * con tabelle che la griglia non ha, le TABELLE DOCLING riparate. Stesso testo
+ * per i batch (buildGroupBatches) e per il recupero dello Stadio E. null se la
+ * pagina è vuota.
+ */
+export function stagedPageText(d, p) {
+  const promptPages = d.spatialPages?.length ? d.spatialPages : d.pages
+  const t = promptPages?.[p]?.trim()
+  if (!t) return null
+  let extraTables = ''
+  const mdPage = d.pages?.[p] && d.pages[p] !== promptPages[p] ? String(d.pages[p] || '') : ''
+  if (mdPage && !/^\s*\|/.test(t)) {
+    const bl = extractTableBlocks(mdPage)
+    if (bl.length) {
+      const repaired = bl.map(repairTableMarkdown).filter(Boolean)
+      if (repaired.length) extraTables = `\nTABELLE DOCLING (strutturate):\n${repaired.join('\n\n')}`
+    }
+  }
+  return `${withPairs(t)}${extraTables}`
+}
+
 export function buildGroupBatches(docList, budgetChars) {
   const batches = []
   let parts = []
@@ -3135,29 +3158,20 @@ export function buildGroupBatches(docList, budgetChars) {
     // e separava etichetta e valore, l'esatto contrario dello scopo.
     const promptPages = d.spatialPages?.length ? d.spatialPages : d.pages
     for (let p = 0; p < promptPages.length; p++) {
-      const t = promptPages[p]?.trim()
-      if (!t) continue
       // Se il documento ha ANCHE il markdown Docling (d.pages) per la stessa
       // pagina e lo spaziale NON ha righe di tabella (|), unisce le TABELLE
       // Docling (riparate per allineamento) al testo spaziale: il modello vede
       // sia la griglia allineata sia le tabelle strutturate. Se lo spaziale ha
-      // già le tabelle (|), lo spaziale basta.
-      let extraTables = ''
-      const mdPage = d.pages?.[p] && d.pages[p] !== promptPages[p] ? String(d.pages[p] || '') : ''
-      if (mdPage && !/^\s*\|/.test(t)) {
-        const bl = extractTableBlocks(mdPage)
-        if (bl.length) {
-          const repaired = bl.map(repairTableMarkdown).filter(Boolean)
-          if (repaired.length) extraTables = `\nTABELLE DOCLING (strutturate):\n${repaired.join('\n\n')}`
-        }
-      }
-      let block = `[${stagedDocTag(d)} · pag. ${p + 1}]\n${withPairs(t)}${extraTables}`
+      // già le tabelle (|), lo spaziale basta (stagedPageText).
+      const pageText = stagedPageText(d, p)
+      if (!pageText) continue
+      let block = `[${stagedDocTag(d)} · pag. ${p + 1}]\n${pageText}`
       let cost = usefulLength(block)
       // Pagina singola oltre il budget: va SPEZZATA su confini strutturali
       // (paragrafi, tabelle intere, righe di tabella con header ripetuto), MAI
       // tagliata a metà riga/tabella a budgetChars — quello perdeva i dati.
       if (cost > budgetChars) {
-        const pieces = splitPageAtBoundaries(withPairs(t) + extraTables, budgetChars)
+        const pieces = splitPageAtBoundaries(pageText, budgetChars)
         for (const piece of pieces) {
           const b = `[${stagedDocTag(d)} · pag. ${p + 1}]\n${piece}`
           const c = usefulLength(b)
@@ -5593,6 +5607,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const v = parseInt(settings.polizzaFieldsPerCall ?? process.env.POLIZZA_FIELDS_PER_CALL, 10)
     return Number.isFinite(v) && v > 0 ? Math.min(v, 24) : 4
   })()
+  // Campi chiesti almeno una volta dallo Stadio B (cascata o gruppi): lo Stadio E
+  // dà la precedenza agli altri (flag recupero).
+  const askedInB = new Set()
 
   if (useCascade) {
   const cascadeDocs = [...analyzed].sort(byStagedRecency)
@@ -5673,6 +5690,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
      for (let fsi = 0; fsi < fieldSets.length; fsi++) {
       if (abortedByErrors) break
       const fieldsNow = fieldSets[fsi]
+      for (const f of fieldsNow) askedInB.add(f.id)
       const buildPrompt = promptFor(fieldsNow)
       const { text: ctx, usedNames } = docBatches[bi]
       const label = `Cascata ${di + 1}/${cascadeDocs.length} "${doc.name}"${docBatches.length > 1 ? ` parte ${bi + 1}/${docBatches.length}` : ''}${fieldSets.length > 1 ? ` [campi ${fsi * perCall + 1}-${fsi * perCall + fieldsNow.length} di ${missingHere.length}]` : ''}`
@@ -5863,6 +5881,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       for (let si = 0; si < batchFields.length; si += FIELDS_PER_CALL) {
       if (abortedByErrors) break
       const subFields = batchFields.slice(si, si + FIELDS_PER_CALL)
+      for (const f of subFields) askedInB.add(f.id)
       const subTag = batchFields.length > FIELDS_PER_CALL ? ` [campi ${si + 1}-${si + subFields.length} di ${batchFields.length}]` : ''
       const batchFieldLines = subFields
         .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
@@ -5936,6 +5955,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
 
   // ── Stage E: recupero mirato dei campi ancora vuoti ────────────────────────
+  const recE = engineFlag(settings, 'recupero')
   if (!abortedByErrors) {
     const missing = activeFields.filter((f) => !(f.id in best))
     // Cap chiamate: 0 disattiva DAVVERO (parse con isFinite, niente || che
@@ -5961,9 +5981,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Interlacciamento ROUND-ROBIN tra i generi: con un cap basso e molti campi
       // mancanti, l'ordine fisso strutturali→economici→anagrafica affamerebbe
       // sistematicamente l'ultimo genere.
-      const batches = []
+      let batches = []
       for (let i = 0; perKind.some((c) => i < c.length); i++) {
         for (const chunks of perKind) if (i < chunks.length) batches.push(chunks[i])
+      }
+      // [flag recupero] Prima i campi che lo Stadio B non ha MAI chiesto (non
+      // eleggibili per affinità su nessun documento): per loro il recupero è
+      // l'unica lettura. Sempre entro il tetto di chiamate.
+      if (recE) {
+        const never = batches.filter((bb) => bb.fields.some((f) => !askedInB.has(f.id)))
+        const rest = batches.filter((bb) => !never.includes(bb))
+        if (never.length) diag.push(`Stadio E: ${never.length} campi mai chiesti dallo Stadio B hanno la precedenza (${never.map((bb) => bb.fields[0].id).join(', ')})`)
+        batches = [...never, ...rest]
       }
       const planned = batches.slice(0, maxCalls)
       const skippedForCap = batches.length - planned.length
@@ -5991,8 +6020,21 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
         const weights = new Map()
         for (const f of b.fields) {
-          for (const t of tokenize(f.label)) weights.set(t, Math.max(weights.get(t) || 0, 2))
+          // [flag recupero] Mai la LABEL (Regola 1): solo la descrizione.
+          if (!recE) for (const t of tokenize(f.label)) weights.set(t, Math.max(weights.get(t) || 0, 2))
           for (const t of tokenize(stripFieldExamples(f.description || ''))) if (!weights.has(t)) weights.set(t, 1)
+        }
+        // [flag recupero] Peso lessicale = rarità del token NEL FASCICOLO (IDF
+        // sulle pagine dei documenti ammessi): i codici e le parole rare della
+        // descrizione («109/1994», «Condizioni Aggiuntive») tirano su le loro
+        // pagine, le parole che stanno ovunque non contano.
+        if (recE) {
+          const pagesAll = b.allowedDocs.flatMap((d) => d.normPages)
+          const N = pagesAll.length || 1
+          for (const t of [...weights.keys()]) {
+            const df = pagesAll.filter((np) => np.includes(t)).length
+            weights.set(t, Math.log((N + 1) / (df + 1)))
+          }
         }
         const countOcc = (np, t) => {
           let n = 0, i = 0
@@ -6017,6 +6059,22 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             })
             semScored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
             pool = semScored
+            if (recE) {
+              // [flag recupero] Fusione per RANGO (reciprocal rank fusion, k=60)
+              // del ranking semantico e di quello lessicale-IDF: nessun peso da
+              // tarare tra le due scale.
+              const lexRank = new Map()
+              const lexScored = semScored.map((x) => {
+                let score = 0
+                const np = x.d.normPages[x.p] || ''
+                for (const [t, w] of weights) score += countOcc(np, t) * w
+                return { key: `${x.d.pos}:${x.p}`, score, docRank: x.docRank, p: x.p }
+              }).sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
+              lexScored.forEach((x, i) => lexRank.set(x.key, i))
+              const RRF_K = 60
+              pool = semScored.map((x, i) => ({ ...x, rrf: 1 / (RRF_K + i + 1) + 1 / (RRF_K + (lexRank.get(`${x.d.pos}:${x.p}`) ?? semScored.length) + 1) }))
+                .sort((a, b2) => b2.rrf - a.rrf || a.docRank - b2.docRank || a.p - b2.p)
+            }
             if (!semanticLogged) {
               diag.push(`Stadio E: ranking SEMANTICO delle pagine (embeddings ${settings.embeddingModel || 'bge-m3'})`)
               semanticLogged = true
@@ -6038,7 +6096,26 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           scored.sort((a, b2) => b2.score - a.score || a.docRank - b2.docRank || a.p - b2.p)
           pool = scored[0]?.score > 0 ? scored : scored.sort((a, b2) => a.docRank - b2.docRank || a.p - b2.p)
         }
-        const RECOVERY_CTX_CHARS = 8000
+        // [flag recupero] Pagine IDENTICHE (tre copie dello stesso contratto) una volta sola.
+        if (recE) {
+          const seenPage = new Set()
+          pool = pool.filter((x) => { const k = x.d.normPages[x.p] || ''; if (k.length >= 200 && seenPage.has(k)) return false; seenPage.add(k); return true })
+        }
+        const fieldLines = b.fields
+          .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
+          .join('\n')
+        // [flag recupero] Nessun esempio con un VALORE di un fascicolo reale
+        // (era «'5. Massimale' … '€ 2.500.000,00'», il massimale di un golden).
+        const columnsHint = recE
+          ? `ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE. Cerca ATTIVAMENTE il valore vicino all'etichetta, anche se distante una riga.`
+          : `ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
+        const buildRecoveryPrompt = (ctxText) => `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctxText}\n\nSe trovi il dato (o la frase che lo contiene, ${paraphraseHint(b.fields)}) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.\n${columnsHint}`
+        // [flag recupero] Budget dal contesto REALE (come i batch), non 8000 fissi.
+        const RECOVERY_CTX_CHARS = recE
+          ? Math.max(8000, computeSafeContextBudget(ctxCap(s2), { systemChars: STAGED_RECOVERY_SYSTEM.length, userChars: buildRecoveryPrompt('').length }))
+          : 8000
+        // Testo di pagina: con il flag recupero lo stesso dei batch (griglia + coppie + tabelle Docling).
+        const pageTextOf = (d, p) => (recE ? stagedPageText(d, p) : (d.spatialPages?.[p] ?? d.pages[p]))
         let ctx = ''
         let ctxCost = 0
         const usedNames = new Set()
@@ -6058,7 +6135,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               const key = `${s.d.name}:${p}`
               if (seen.has(key)) continue
               seen.add(key)
-              const pageText = (s.d.spatialPages?.[p] ?? s.d.pages[p])
+              const pageText = pageTextOf(s.d, p)
               if (!pageText || !pageText.trim()) continue
               const block = `[${stagedDocTag(s.d)} · pag. ${p + 1}]\n${pageText.trim()}`
               const cost = usefulLength(block)
@@ -6072,8 +6149,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         for (const s of pool) {
           // Prompt con la pagina SPAZIALE (colonne preservate); budget misurato
           // sui caratteri UTILI, o il padding dimezzava le pagine inviate.
-          const pageText = (s.d.spatialPages?.[s.p] ?? s.d.pages[s.p])
-          if (!pageText.trim()) continue
+          const pageText = pageTextOf(s.d, s.p)
+          if (!pageText || !pageText.trim()) continue
           const block = `[${stagedDocTag(s.d)} · pag. ${s.p + 1}]\n${pageText.trim()}`
           const cost = usefulLength(block)
           if (ctx && ctxCost + cost > RECOVERY_CTX_CHARS) break
@@ -6093,16 +6170,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         }
         diag.push(`Recupero [${b.kind}] campi ${b.fields.map((f) => f.id).join(', ')} — pagine inviate: ${sentPages.join(', ')}${usedNames.size > sentPages.length ? ', …' : ''}`)
 
-        const fieldLines = b.fields
-          .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
-          .join('\n')
         // Le ISTRUZIONI AGGIUNTIVE dell'utente valgono anche qui: il recupero è
         // una chiamata di estrazione a tutti gli effetti (prima le saltava).
         // Recupero a UN campo per chiamata: si chiede ATTIVAMENTE il valore (il
         // comando "metti null se non c'è" troppo forte faceva rispondere null anche
         // quando l'evidenza era sotto gli occhi — visto su massimale e premi).
-        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, ${paraphraseHint(b.fields)}) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.
-ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
+        const userPrompt = buildRecoveryPrompt(ctx)
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: ctxCap(s2), timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)

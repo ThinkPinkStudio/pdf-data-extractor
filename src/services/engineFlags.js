@@ -15,18 +15,24 @@
 export const DEFAULT_FLAGS = Object.freeze([])
 
 /**
- * Flag conosciuti, col perché. Un nome sconosciuto nell'override si ignora.
+ * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
+ * minuscolo). Un nome sconosciuto nell'override si ignora.
  * - campi: valori dei campi compilabili (AcroForm) nella griglia del text layer.
  * - cascata4: la cascata chiede al massimo FIELDS_PER_CALL campi per chiamata
  *   (come i gruppi) e scarta le copie con lo stesso text layer (F04).
  * - a78: le proposte degli stadi tabella (A.7) e frontespizio (A.8) sono
  *   provvisorie; A.7 senza etichetta che nomina il campo = solo ripiego; A.8
  *   legge la griglia del documento più recente (F13).
+ * - recupero: lo Stadio E usa le pagine dei batch (griglia + coppie +
+ *   tabelle Docling), il budget dal contesto reale, il ranking semantico
+ *   fuso per rango con quello lessicale-IDF (mai la label), pagine identiche
+ *   una volta, precedenza ai campi mai chiesti (F07).
  */
 export const KNOWN_FLAGS = Object.freeze({
   campi: 'valori dei campi compilabili (AcroForm) nella griglia del text layer',
   cascata4: 'cascata a FIELDS_PER_CALL campi per chiamata; copie identiche anche per text layer (F04)',
   a78: 'proposte di tabella (A.7) e frontespizio (A.8) provvisorie; A.7 senza etichetta del campo solo ripiego; A.8 dalla griglia (F13)',
+  recupero: 'Stadio E con le pagine dei batch, budget dal contesto, ranking semantico+IDF per rango, senza label (F07)',
 })
 
 /** @returns {Set<string>} */

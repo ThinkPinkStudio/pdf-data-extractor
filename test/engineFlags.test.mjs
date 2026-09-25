@@ -10,3 +10,8 @@ test('flag del motore: default, accensione, spegnimento, nomi sconosciuti ignora
   assert.equal(engineFlag({ polizzaEngineFlags: 'campi -campi' }, 'campi'), false)
   assert.equal(engineFlagsLabel({ polizzaEngineFlags: 'nessuno' }), 'nessuno')
 })
+
+test('flag del motore: tutti i nomi conosciuti sono in minuscolo (l\'override si confronta in minuscolo)', async () => {
+  const { KNOWN_FLAGS } = await import('../src/services/engineFlags.js')
+  for (const k of Object.keys(KNOWN_FLAGS)) assert.equal(k, k.toLowerCase(), k)
+})
