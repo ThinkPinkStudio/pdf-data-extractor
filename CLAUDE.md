@@ -1,7 +1,8 @@
 # PDF Data Extractor — memo per l'assistente
 
 > **PRIMA di agire leggi [REGOLE_AGENTI.md](REGOLE_AGENTI.md)**: estrazione per
-> DESCRIZIONE soltanto (mai id/label nei prompt), contesto MASSIMO 8192, una sola
+> DESCRIZIONE soltanto (mai id/label nei prompt), contesto default 8192 (massimo
+> 32768, configurabile, sul server da 48 GB), una sola
 > run alla volta (anche in produzione, con lock condiviso), **NESSUN guardrail
 > "indovinato" (soglie/valori inventati)**: si estrae associando l'etichetta al
 > valore adiacente nel layout (testo o tabella), vuoto se non trovato. Vincolante
@@ -18,7 +19,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   to 1.0.NNN`). La versione deployata è visibile in Impostazioni accanto al
   titolo e su `GET /api/version` (con lista feature per verificare cosa è
   arrivato in produzione).
-- **Ollama**: gira in **Docker su Coolify**, risorsa `ollama-with-open-webui`
+- **Ollama (dal 25/09/2026)**: server dedicato `supergenius`, **192.168.100.72**
+  (sottorete diversa da Coolify, instradata), **RTX 6000 Ada 48 GB VRAM**,
+  Ollama nativo (systemd, `OLLAMA_HOST=0.0.0.0:11434`, firewall ufw aperto
+  solo agli IP ammessi). URL dalla web app: `http://192.168.100.72:11434`.
+  Il contesto si alza da Impostazioni tecniche («Tetto contesto batch», fino a
+  32768); «Riabbina» ha l'opzione «Estrai subito dopo l'abbinamento».
+- **Ollama storico**: gira in **Docker su Coolify**, risorsa `ollama-with-open-webui`
   (container `ollama-api-…`), stesso host. URL dalla web app:
   `http://192.168.37.10:11434`. Per riavviarlo: pulsante Restart della risorsa
   in Coolify (dal terminale del container un `pkill -9 -f runner` uccide solo

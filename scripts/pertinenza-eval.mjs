@@ -16,7 +16,7 @@
  *        [--model qwen2.5:7b-instruct] [--ollama http://192.168.37.10:11434]
  *        [--profile-json polizze_test/profili-polizza-riconoscimento.json]
  *        [--mode semantic|keywords|llm|off] [--no-recognition] [--no-ocr]
- *        [--cache .pertinenza-cache] [--json out.json]
+ *        [--cache .pertinenza-cache] [--json out.json] [--ctx 32768]
  *
  * --no-recognition: azzera «Come riconoscerla» in tutti i profili → misura il
  *   percorso STORICO (parole / semantico / llm) per il confronto prima/dopo.
@@ -52,6 +52,7 @@ const CACHE = arg('cache', join(root, '.pertinenza-cache'))
 const JSON_OUT = arg('json')
 const NO_RECOG = process.argv.includes('--no-recognition')
 const NO_OCR = process.argv.includes('--no-ocr')
+const CTX = arg('ctx') ? Number(arg('ctx')) : null
 mkdirSync(CACHE, { recursive: true })
 
 const { spatialPagesFromPdf } = await import(join(root, 'src/services/pdfTextLayer.js'))
@@ -72,6 +73,7 @@ console.log(`Profilo: ${profile.name} — «Come riconoscerla»: ${profile.recog
 
 const settings = {
   ollamaUrl: OLLAMA, ollamaModel: MODEL, embeddingModel: 'bge-m3',
+  ...(CTX ? { polizzaBatchContext: CTX } : {}),
   polizzaPrecheckMode: MODE, polizzaConstrainedJson: true, polizzaRequireValidPolicy: true,
 }
 

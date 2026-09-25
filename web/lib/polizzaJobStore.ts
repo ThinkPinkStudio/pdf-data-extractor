@@ -638,12 +638,15 @@ export async function resetJobForRetry(
     // RIABBINA: rifà OCR (dalla cache) e pertinenza e si ferma in 'matched'
     // (o 'review'/'mismatch'), senza estrarre: l'estrazione parte col ▶.
     matchOnly?: boolean
+    // RIABBINA + ESTRAI: pertinenza da zero e, se passa, estrazione subito
+    // (matchOnly false). Cambia solo la riga di log.
+    andExtract?: boolean
   } = {}
 ): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || job.status === 'running' || job.status === 'queued') return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
-  const verb = opts.matchOnly ? 'Riabbinamento' : job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
+  const verb = opts.andExtract ? 'Riabbinamento ed estrazione' : opts.matchOnly ? 'Riabbinamento' : job.status === 'done' ? 'Rielaborazione' : 'Rilancio'
   const withProfile = opts.fieldDefs !== undefined && opts.profileId !== undefined
   logs.push(
     `[${new Date().toTimeString().slice(0, 8)}] — ${verb} manuale${byEmail ? ` da ${byEmail}` : ''}`

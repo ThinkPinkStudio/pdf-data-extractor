@@ -61,6 +61,17 @@ import {
 // a questo valore (non è hardcode di una polizza: è il limite fisico del modello
 // sull'hardware. Se un giorno si cambia GPU/modello, si alza questa costante).
 export const MAX_BATCH_CTX_8GB = 8192
+// Tetto CONFIGURABILE (25/09/2026, nuovo server RTX 6000 Ada 48 GB): il valore
+// «Tetto contesto batch» di Impostazioni tecniche (polizzaBatchContext) vale
+// per TUTTE le chiamate che prima erano cappate a 8192; assente = 8192 (default
+// sicuro per 8 GB di VRAM). Mai oltre 32768: è il contesto NATIVO di
+// Qwen2.5/Qwen3 (oltre servirebbe YaRN, che Ollama non attiva).
+export const MAX_CTX_ABSOLUTE = 32768
+export function ctxCap(settings) {
+  const v = parseInt(settings?.polizzaBatchContext, 10)
+  if (!Number.isFinite(v) || v <= 0) return MAX_BATCH_CTX_8GB
+  return Math.max(2048, Math.min(v, MAX_CTX_ABSOLUTE))
+}
 // Affinità minima di un valore letto da una RIGA DI TABELLA la cui etichetta
 // nomina il campo (vedi Stadio A.7): sopra i candidati tipici del testo libero
 // (0.4-0.67), sotto la soglia di promozione dei candidati eccellenti (≥0.85).
@@ -541,7 +552,7 @@ async function callOllama(settings, systemPrompt, userPrompt) {
   // Sovrascrivibile con settings.ollamaNumCtx per chi ha più VRAM.
   const NUM_PREDICT = 2048
   const promptTokens = estimateOllamaTokens((systemPrompt?.length || 0) + (userPrompt?.length || 0))
-  const capCtx = Math.min(MAX_BATCH_CTX_8GB, Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384))
+  const capCtx = Math.min(ctxCap(settings), Math.max(8192, parseInt(settings.ollamaNumCtx, 10) || 16384))
   const numCtx = Math.min(capCtx, Math.max(8192, Math.ceil((promptTokens + NUM_PREDICT + 512) / 1024) * 1024))
   // Streaming + watchdog per token (vedi ollamaChatStream): lento ≠ morto.
   const { content } = await ollamaChatStream(url, {
@@ -1444,7 +1455,7 @@ export async function callOllamaRolling(settings, systemPrompt, userPrompt, opts
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   // num_ctx/timeout sovrascrivibili: il "fascicolo intero" invia prompt molto più
   // grandi di un batch da 3 pagine e ha bisogno di contesto e tempi maggiori.
-  const numCtx = Math.min(MAX_BATCH_CTX_8GB, opts.numCtx || 16384)    // default: batch (3 pagine) + guida campi + risposta delta; MASSIMO 8192
+  const numCtx = Math.min(ctxCap(settings), opts.numCtx || 16384)    // default: batch (3 pagine) + guida campi + risposta delta; MASSIMO = ctxCap (Impostazioni)
   const timeoutMs = opts.timeoutMs || 180000
   // opts.diag: collettore di righe di diagnostica leggibili (finisce nel log
   // "Salva diagnostica" del renderer/web). Le statistiche di Ollama sono l'unico
@@ -4391,18 +4402,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // regge 32K; 24K di KV su un 7B q4 stanno negli 8GB. Il DEFAULT resta 24576;
   // polizzaBatchContext lo rende sovrascrivibile (ma vedi il warning sotto per
   // il vincolo VRAM quando si supera il valore prudente).
-  // MASSIMO ASSOLUTO per la VRAM 8GB: qwen3:8b caricato oltre 8192 di contesto
-  // occupa più di 8GB e spilla su CPU (visto: 11 GB con num_ctx 40960, 41%/59%
-  // CPU/GPU, e resta bloccato in "Stopping..."). Il tetto è 8192 e NON è
-  // superabile: qualsiasi valore più alto (settings o default) viene ripiegato
-  // a 8192. Non è hardcode di una polizza: è il limite fisico del modello.
-  const batchLimit = settings.polizzaBatchContext && settings.polizzaBatchContext > 0
-    ? Math.min(settings.polizzaBatchContext, MAX_BATCH_CTX_8GB)
-    : MAX_BATCH_CTX_8GB
-  if (settings.polizzaBatchContext > MAX_BATCH_CTX_8GB) {
-    diag.push(`AVVISO: batchContext richiesto ${settings.polizzaBatchContext} supera il MASSIMO 8192 (VRAM 8GB) — forzato a 8192 per evitare lo spill su CPU`)
+  // Sulla 3060 Ti (8 GB) qwen3:8b oltre 8192 spillava su CPU (11 GB con
+  // num_ctx 40960, Ollama bloccato in "Stopping..."): per questo il default
+  // resta 8192. Dal 25/09/2026 il tetto è configurabile (ctxCap), fino a 32768
+  // su una GPU che regge la KV cache (RTX 6000 Ada 48 GB).
+  const batchLimit = ctxCap(settings)
+  if (settings.polizzaBatchContext > MAX_CTX_ABSOLUTE) {
+    diag.push(`AVVISO: batchContext richiesto ${settings.polizzaBatchContext} supera il MASSIMO ${MAX_CTX_ABSOLUTE} (contesto nativo Qwen) — forzato a ${MAX_CTX_ABSOLUTE}`)
   }
-  const batchCtx = Math.min(modelLimit || MAX_BATCH_CTX_8GB, batchLimit, MAX_BATCH_CTX_8GB)
+  const batchCtx = Math.min(modelLimit || batchLimit, batchLimit)
 
   // ── AFFINITÀ SEMANTICA descrizione↔testo (agnostica: niente classi keyword) ─
   // La DESCRIZIONE del campo è l'unica verità semantica disponibile: guida DOVE
@@ -6320,8 +6328,8 @@ Restituisci UN SOLO oggetto JSON con TUTTE le chiavi c0, c1, … nell'ordine deg
     // Modelli THINKING (qwen3): a 32K di contesto la KV cache supera gli 8 GB di
     // VRAM della 3060 Ti e il modello spillerebbe su CPU. Per loro si cappa la
     // chiamata singola a 16K (dentro gli 8 GB con think:false).
-    const SINGLE_CALL_MAX_CTX = isThinkingModel(ollamaModel) ? MAX_BATCH_CTX_8GB : 32768
-    const PRACTICAL_BATCH_CTX = isThinkingModel(ollamaModel) ? MAX_BATCH_CTX_8GB : 16384
+    const SINGLE_CALL_MAX_CTX = isThinkingModel(ollamaModel) ? ctxCap(settings) : 32768
+    const PRACTICAL_BATCH_CTX = isThinkingModel(ollamaModel) ? ctxCap(settings) : Math.min(16384, ctxCap(settings))
     const singleCtxCap = Math.min(modelLimit || 131072, SINGLE_CALL_MAX_CTX)
     const estTokens = estimateOllamaTokens(WHOLE_DOSSIER_SYSTEM.length + userPrompt.length) + 3000 + 512
     if (estTokens > singleCtxCap) {
@@ -6330,7 +6338,7 @@ Restituisci UN SOLO oggetto JSON con TUTTE le chiavi c0, c1, … nell'ordine deg
       diag.push(`Ollama: ~${estTokens} token stimati > tetto chiamata singola ${singleCtxCap} → elaborazione a batch di documenti (polizza/appendici prima, poi quietanze/regolazioni recenti, con guardrail e uscita anticipata)`)
       return await extractWholeDossierOllamaBatched(fullText, { ...settings, ollamaModel }, activeFields, buildUserPrompt, batchCtx, diag, onProgress, singleCtxCap)
     }
-    const numCtx = Math.min(singleCtxCap, MAX_BATCH_CTX_8GB, Math.max(8192, Math.ceil(estTokens / 1024) * 1024))
+    const numCtx = Math.min(singleCtxCap, ctxCap(settings), Math.max(8192, Math.ceil(estTokens / 1024) * 1024))
     console.log(`[polizza:fascicolo] Ollama: prompt ${userPrompt.length} char → chiamata singola (num_ctx ${numCtx})`)
     diag.push(`Ollama: ~${estTokens} token stimati → chiamata singola col quadro completo (num_ctx ${numCtx})`)
     // 10 min: 32K token di prompt-eval su hardware consumer possono richiedere

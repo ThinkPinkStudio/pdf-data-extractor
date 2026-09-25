@@ -5,7 +5,12 @@ import type { JobSnapshot, ReprofileMode } from './types'
 import { shortName } from './model'
 import { IcFlask, IcPlay, IcRefresh, IcSwap } from './Icons'
 
-export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string }
+export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string; extractAfter: boolean }
+
+// Ultima scelta di «Estrai subito dopo l'abbinamento» (preferenza per utente/browser).
+const EXTRACT_AFTER_KEY = 'jobsRematchExtract'
+function readExtractAfter(): boolean { try { return localStorage.getItem(EXTRACT_AFTER_KEY) === '1' } catch { return false } }
+function writeExtractAfter(v: boolean) { try { localStorage.setItem(EXTRACT_AFTER_KEY, v ? '1' : '0') } catch { /* solo comodità */ } }
 
 // Dialog universale di rilancio: run di TEST (copia, profilo opzionale),
 // RIELABORA CON PROFILO (stesso job in coda coi campi del profilo scelto),
@@ -30,6 +35,10 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   const [model, setModel] = useState('')
   const [strategy, setStrategy] = useState('')
   const [prompt, setPrompt] = useState(isBatch ? '' : (jobs[0]?.promptExtra || ''))
+  // RIABBINA + ESTRAI in un colpo solo: abbinamento e, se riuscito, estrazione
+  // (come un'elaborazione normale); spento = si ferma in «Abbinato».
+  const [extractAfter, setExtractAfter] = useState(false)
+  useEffect(() => { if (isRematch) setExtractAfter(readExtractAfter()) }, [isRematch])
 
   // Preselezione (rielabora con profilo, singolo): l'ultimo profilo di QUESTO
   // job, se esiste ancora; i profili arrivano in asincrono.
@@ -47,11 +56,13 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
     ? (isBatch ? t('jobsDash.rematchBatchDialogTitle', { n }) : t('jobsDash.rematchDialogTitle'))
     : mode === 'test' ? t('jobsDash.testDialogTitle')
       : isBatch ? t('jobsDash.reprofileBatchDialogTitle', { n }) : t('jobsDash.reprofileDialogTitle')
-  const hint = isRematch ? t('jobsDash.rematchDialogHint')
+  const hint = isRematch ? (extractAfter ? t('jobsDash.rematchExtractDialogHint') : t('jobsDash.rematchDialogHint'))
     : mode === 'test' ? t('jobsDash.testDialogHint')
       : isBatch ? t('jobsDash.reprofileBatchDialogHint') : t('jobsDash.reprofileDialogHint')
   const startLabel = isRematch
-    ? (isBatch ? t('jobsDash.rematchStartBatch', { n }) : t('jobsDash.rematchStart'))
+    ? (extractAfter
+      ? (isBatch ? t('jobsDash.rematchExtractStartBatch', { n }) : t('jobsDash.rematchExtractStart'))
+      : (isBatch ? t('jobsDash.rematchStartBatch', { n }) : t('jobsDash.rematchStart')))
     : isBatch ? t('jobsDash.reprofileStartBatch', { n }) : (mode === 'test' ? t('jobsDash.testStart') : t('jobsDash.reprofileStart'))
   const Icon = isRematch ? IcRefresh : mode === 'test' ? IcFlask : IcSwap
 
@@ -70,6 +81,13 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
+        {isRematch && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, marginBottom: 4, cursor: 'pointer' }}>
+            <input type="checkbox" checked={extractAfter} style={{ marginTop: 2 }}
+              onChange={(e) => { setExtractAfter(e.target.checked); writeExtractAfter(e.target.checked) }} />
+            <span>{t('jobsDash.rematchExtractAfter')}<br /><span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.rematchExtractAfterHelp')}</span></span>
+          </label>
+        )}
         {!isRematch && (<>
           <div className="form-group">
             <label className="label">{t('jobsDash.testModel')}</label>
@@ -93,7 +111,7 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
         {error && <p style={{ fontSize: 11, color: 'var(--c-error)', margin: '0 0 10px' }}>{error}</p>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
           <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={onCancel}>{t('jobsDash.testCancel')}</button>
-          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt })}>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt, extractAfter: isRematch && extractAfter })}>
             <IcPlay /> {startLabel}
           </button>
         </div>

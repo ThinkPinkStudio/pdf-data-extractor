@@ -13,6 +13,8 @@ export const runtime = 'nodejs'
 // { profileId?: string }: assente = profilo attuale del job; 'auto' =
 // riconoscimento automatico del profilo; altrimenti il profilo scelto (campi
 // congelati sostituiti). L'estrazione parte poi col ▶ (route /extract).
+// { extract: true } = RIABBINA + ESTRAI in un colpo solo: stesso controllo di
+// pertinenza, ma se passa il worker estrae subito (niente sosta in 'matched').
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const job = await getJob(params.id)
   if (!job) return NextResponse.json({ error: 'Job non trovato' }, { status: 404 })
 
-  let body: { profileId?: string | null } = {}
+  let body: { profileId?: string | null; extract?: boolean } = {}
   try { body = await req.json() } catch { /* body vuoto = stesso profilo */ }
 
   let opts: Parameters<typeof resetJobForRetry>[2] = { matchOnly: true }
@@ -40,12 +42,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     label = profile.name
   }
 
+  if (body.extract === true) opts = { ...opts, matchOnly: false, andExtract: true }
   const updated = await resetJobForRetry(params.id, session.email, opts)
   if (!updated) return NextResponse.json({ error: 'Job non riabbinabile (è ancora in esecuzione o in coda)' }, { status: 409 })
 
   if (updated.batch_id) startBatch(updated.batch_id)
   else startJob(updated.id)
 
-  await logAction({ email: session.email, action: 'polizza.job.rematch', resource: `${job.dossier_name || job.id} → ${label}`, ip })
+  await logAction({ email: session.email, action: body.extract === true ? 'polizza.job.rematch-extract' : 'polizza.job.rematch', resource: `${job.dossier_name || job.id} → ${label}`, ip })
   return NextResponse.json({ ok: true })
 }
