@@ -189,7 +189,7 @@ async function runJob(jobId: string): Promise<void> {
   // DOPO i globali con WHITELIST rigida (mai far entrare chiavi arbitrarie dal
   // DB nei settings in memoria) — stesso pattern di field_defs qui sopra.
   if (job.settings_override && typeof job.settings_override === 'object') {
-    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson'] as const
+    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaThink', 'polizzaBatchContext'] as const
     for (const k of ALLOWED) {
       if (job.settings_override[k] !== undefined) (settings as any)[k] = job.settings_override[k]
     }

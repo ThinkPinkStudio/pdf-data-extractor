@@ -108,6 +108,9 @@ export interface WebSettings {
   // semantic), 'semantic' (classifica dei profili per embeddings), 'llm'
   // (breve classificazione col modello), 'off' (nessun controllo).
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  // Ragionamento del modello (solo modelli che ragionano: qwen3 & co.) per fase:
+  // 'off' (default) | 'abbinamento' | 'estrazione' | 'tutto' (netFetch.thinkEnabled).
+  polizzaThink?: 'off' | 'abbinamento' | 'estrazione' | 'tutto'
   // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
   navHiddenExtractor?: string[]
   // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
@@ -266,6 +269,7 @@ export async function getSettings(): Promise<WebSettings> {
     // Default 'llm' (22/09/2026, richiesta dell'utente): con «Come riconoscerla»
     // il controllo è comunque l'operatività; 'llm' è il ripiego per i profili senza.
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
+    polizzaThink: (['off', 'abbinamento', 'estrazione', 'tutto'].includes(map.polizzaThink) ? map.polizzaThink : 'off') as WebSettings['polizzaThink'],
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     extractions: json<GenericField[]>('extractions'),

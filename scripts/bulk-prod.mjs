@@ -105,20 +105,27 @@ for (;;) {
   await new Promise((r) => setTimeout(r, 60000))
 }
 console.log(`Finito in ${Math.round((Date.now() - t0) / 60000)} min`)
-const rows = jobs.map((j) => ({ jobId: j.jobId, dossier: j.dossierName, status: j.status, verdict: j.precheck?.verdict || null, reason: j.precheck?.reason || j.error || '', proof: j.precheck?.operativita?.evidenza || '', values: Object.keys(j.values || {}).length }))
+const rows = jobs.map((j) => ({ jobId: j.jobId, dossier: j.dossierName, status: j.status, verdict: j.precheck?.verdict || null, setAside: !!j.precheck?.setAside, reason: j.precheck?.reason || j.error || '', proof: j.precheck?.operativita?.evidenza || '', values: Object.keys(j.values || {}).length }))
 writeFileSync(join(OUT, `bulk-${BATCH}.json`), JSON.stringify({ batchId: BATCH, model: settings.ollamaModel, ctx: settings.polizzaBatchContext, rows }, null, 2))
 if (EXPECTED) {
   const exp = JSON.parse(readFileSync(join(root, EXPECTED), 'utf8'))
   let right = 0
+  let judged = 0
   console.log(`\n=== PERTINENZA contro ${EXPECTED} ===`)
   for (const c of exp.cases) {
     const hits = rows.filter((r) => String(r.dossier || '').includes(c.match) && !rows.some((o) => o !== r && String(o.dossier || '').includes(c.match) && String(o.dossier).length < String(r.dossier).length))
     const r = hits[0]
+    if (!r) {
+      // Cartella unita a un'altra dalla riconciliazione (stesso numero di polizza): non è più una posizione a sé.
+      console.log(`  UNITA     ${c.id.padEnd(24)} atteso ${c.expected.padEnd(13)} → nessun dossier «${c.match}»: unito dalla riconciliazione (non conteggiato)`)
+      continue
+    }
+    judged++
     const got = !r ? 'ASSENTE' : (r.status === 'matched' || (r.status === 'done' && r.verdict === 'ok')) ? 'operante'
-      : (r.status === 'mismatch' && /accanton/i.test(r.reason)) ? 'accantonata' : 'non operante'
+      : (r.setAside || /accanton/i.test(r.reason)) ? 'accantonata' : 'non operante'
     const ok = !!r && (c.expected === got || (c.expected === 'non operante' && got === 'accantonata'))
     if (ok) right++
     console.log(`  ${ok ? 'GIUSTO   ' : 'SBAGLIATO'} ${c.id.padEnd(24)} atteso ${c.expected.padEnd(13)} → ${got.padEnd(12)} ${r ? `[${r.status}] ${String(r.reason).slice(0, 110)}` : ''}`)
   }
-  console.log(`  TOTALE ${right}/${exp.cases.length}`)
+  console.log(`  TOTALE ${right}/${judged}${judged < exp.cases.length ? ` (${exp.cases.length - judged} unite dalla riconciliazione)` : ''}`)
 }

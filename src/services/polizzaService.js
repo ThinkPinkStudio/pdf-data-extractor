@@ -17,7 +17,7 @@ import { join } from 'path'
 // a trovare ita.traineddata per l'OCR offline e ha fallback su TESSERACT_DATA_DIR.
 let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
-import { resilientFetch, ollamaThinkOpts, isThinkingModel } from './netFetch.js'
+import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -1420,7 +1420,7 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
       throw new Error(`Ollama error ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`)
     }
     const decoder = new TextDecoder()
-    let buf = '', content = '', promptEval = null, evalCount = null
+    let buf = '', content = '', promptEval = null, evalCount = null, thinkingChars = 0
     for await (const value of res.stream) {
       lastChunkAt = Date.now()
       buf += decoder.decode(value, { stream: true })
@@ -1432,12 +1432,15 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
         try {
           const j = JSON.parse(line)
           if (j.message?.content) content += j.message.content
-          else if (j.message?.thinking) content += j.message.thinking
+          // Col ragionamento ACCESO (payload.think === true) il pensiero sta nel
+          // suo campo e NON va nel JSON della risposta; spento resta il vecchio
+          // ripiego (modelli che rispondono solo in `thinking`).
+          else if (j.message?.thinking) { if (payload.think === true) thinkingChars += j.message.thinking.length; else content += j.message.thinking }
           if (j.done) { promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
         } catch { /* riga NDJSON parziale: completata al prossimo chunk */ }
       }
     }
-    return { content, promptEval, evalCount }
+    return { content, promptEval, evalCount, thinkingChars }
   } catch (err) {
     // L'abort chiude la connessione → Ollama CANCELLA la generazione (niente zombie).
     if (abortReason) throw new Error(`Ollama interrotto: ${abortReason}`)
@@ -1470,6 +1473,10 @@ export async function callOllamaRolling(settings, systemPrompt, userPrompt, opts
   // "nessun vincolo", risposta libera — usato dallo Stadio A.7 che ha chiavi
   // proprie k0..kN non coperte dallo schema c0..cN).
   const format = opts.format ?? ollamaFormatFor(opts.fields, opts.shape || 'staged', settings)
+  // Ragionamento per fase (polizzaThink): l'abbinamento marca le sue chiamate
+  // con settings.__phase = 'abbinamento'; tutto il resto è estrazione. Acceso:
+  // i token del pensiero contano in num_predict e allungano la chiamata.
+  const thinking = isThinkingModel(settings.ollamaModel) && thinkEnabled(settings, settings.__phase || 'estrazione')
   const payload = {
     model: settings.ollamaModel,
     messages: [
@@ -1477,17 +1484,17 @@ export async function callOllamaRolling(settings, systemPrompt, userPrompt, opts
       { role: 'user',   content: userPrompt   }
     ],
     ...(format === false ? {} : { format }),
-    ...ollamaThinkOpts(settings.ollamaModel), // qwen3 & co.: thinking OFF
+    ...(isThinkingModel(settings.ollamaModel) ? { think: thinking } : {}), // qwen3 & co.: spento salvo polizzaThink
     options: {
       num_ctx:     numCtx,
       temperature: 0,
-      num_predict: opts.numPredict || 3000
+      num_predict: thinking ? Math.max(opts.numPredict || 3000, 8192) : (opts.numPredict || 3000)
     }
   }
-  const { content, promptEval, evalCount } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * 4, envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
+  const { content, promptEval, evalCount, thinkingChars } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * (thinking ? 12 : 4), envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
-    diag.push(`Ollama: modello ${settings.ollamaModel} · num_ctx ${numCtx} · durata ${secs}s` +
+    diag.push(`Ollama: modello ${settings.ollamaModel}${thinking ? ` · ragionamento ON (${thinkingChars} char)` : ''} · num_ctx ${numCtx} · durata ${secs}s` +
       (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
       (evalCount != null ? ` · token generati: ${evalCount}` : ''))
     // Stima dei token del prompt inviato (~3,5 char/token per italiano/OCR):
@@ -2671,7 +2678,7 @@ ${(picked.length ? picked : allOrdered).map((c) =>
 Restituisci SOLO il JSON {"valore":"...","source":{"doc":N,"page":M,"line":L}} oppure {} se gli estratti non contengono il valore.`
 
     const askOnce = async () => {
-      const raw = await callOllamaRolling(settings, RECENCY_SYSTEM_EXPLICIT, userPrompt, { numCtx: 8192, timeoutMs: 120000, fields: [f], shape: 'perField' })
+      const raw = await callOllamaRolling(settings, RECENCY_SYSTEM_EXPLICIT, userPrompt, { numCtx: ctxCap(settings), timeoutMs: 120000, fields: [f], shape: 'perField' })
       return parseJsonResponse(raw)
     }
 
@@ -5636,7 +5643,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.
 ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
         try {
-          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: 8192, timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
+          const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: ctxCap(s2), timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
@@ -6004,8 +6011,10 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
         return (win || '').slice(0, 160)
       } catch { return '' }
     }
+    // num_ctx UGUALE a quello delle altre chiamate (ctxCap): con valori diversi
+    // Ollama ricarica il modello a ogni cambio (32B: secondi persi per chiamata).
     const verifyCall = async (userPrompt) => callOllamaRolling(s2, AUTO_VERIFY_SYSTEM, userPrompt, {
-      numCtx: 8192, numPredict: 40, timeoutMs: 60000, diag, format: 'json',
+      numCtx: ctxCap(s2), numPredict: 40, timeoutMs: 60000, diag, format: 'json',
     })
     try {
       const beforeCount = Object.keys(best).length

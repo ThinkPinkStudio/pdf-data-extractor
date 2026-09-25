@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Il job sorgente è ancora in esecuzione o in coda' }, { status: 409 })
   }
 
-  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string } = {}
+  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number } = {}
   try { body = await req.json() } catch { /* body vuoto = tutti i default */ }
 
   const settings = await getSettings()
@@ -49,11 +49,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (model) { settingsOverride.ollamaModel = model; settingsOverride.polizzaWholeDossierModel = model }
   if (typeof body.stagedCascade === 'boolean') settingsOverride.polizzaStagedCascade = body.stagedCascade
   if (typeof body.perField === 'boolean') settingsOverride.polizzaPerField = body.perField
+  // Ragionamento per fase e tetto di contesto: A/B senza toccare le impostazioni globali.
+  if (body.think && ['off', 'abbinamento', 'estrazione', 'tutto'].includes(body.think)) settingsOverride.polizzaThink = body.think
+  if (typeof body.ctx === 'number' && body.ctx > 0) settingsOverride.polizzaBatchContext = Math.round(body.ctx)
 
   const engineBit = typeof body.perField === 'boolean'
     ? (body.perField ? ' · per-campo' : (body.stagedCascade ? ' · cascata' : ' · gruppi'))
     : (typeof body.stagedCascade === 'boolean' ? (body.stagedCascade ? ' · cascata' : ' · gruppi') : '')
-  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}`
+  const extraBit = `${settingsOverride.polizzaThink ? ` · ragionamento ${settingsOverride.polizzaThink}` : ''}${settingsOverride.polizzaBatchContext ? ` · ctx ${settingsOverride.polizzaBatchContext}` : ''}`
+  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}${extraBit}`
   const job = await createTestJob({
     sourceJobId: src.id, email: session.email, fieldDefs, promptExtra, settingsOverride, label,
   })

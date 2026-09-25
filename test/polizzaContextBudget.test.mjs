@@ -177,3 +177,12 @@ test('ctxCap: default 8192, valore di Impostazioni rispettato fino a 32768, mai 
   assert.equal(ctxCap({ polizzaBatchContext: 65536 }), 32768)
   assert.equal(ctxCap({ polizzaBatchContext: 512 }), 2048)
 })
+
+test('thinkEnabled: ragionamento per fase, spento di default', async () => {
+  const { thinkEnabled } = await import('../src/services/netFetch.js')
+  assert.equal(thinkEnabled({}, 'estrazione'), false)
+  assert.equal(thinkEnabled({ polizzaThink: 'abbinamento' }, 'abbinamento'), true)
+  assert.equal(thinkEnabled({ polizzaThink: 'abbinamento' }, 'estrazione'), false)
+  assert.equal(thinkEnabled({ polizzaThink: 'tutto' }, 'estrazione'), true)
+  assert.equal(thinkEnabled({ polizzaThink: 'estrazione' }, 'abbinamento'), false)
+})

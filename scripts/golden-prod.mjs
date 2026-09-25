@@ -8,7 +8,8 @@
  *
  *   node scripts/golden-prod.mjs --base https://genius.csabroker.it --email <utente>
  *        [--only bolchini-rc-2026,alzaia-tl] [--model qwen3:32b] [--out .goldens-out/prod-<tag>]
- *        [--strategy gruppi|cascata] [--no-proceed]
+ *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192]
+ *        [--from .goldens-out/prod-<base>] [--no-proceed]
  *
  * - Un BATCH per fascicolo («TEST GOLDEN …»): la riconciliazione per numero di
  *   polizza non deve unire fascicoli golden diversi (BOLCHINI RC 2025/2026 hanno
@@ -21,7 +22,9 @@
  *   produzione; poi una RUN DI TEST (copia del job, override del solo modello
  *   e/o della strategia del motore a stadi: «gruppi» = gruppi a copertura
  *   totale, «cascata» = dal più recente) — le impostazioni globali non si
- *   toccano.
+ *   toccano. --from <dir>: riusa i job di BASE di una misura precedente
+ *   (<dir>/<caso>.json → baseJobId) e crea solo le run di test: niente
+ *   ricaricamento né rielaborazione di base per ogni modello.
  * - Punteggio: scoreFullTruth, giusti/N su TUTTI i campi del profilo (Regola 4).
  * Una run alla volta: i fascicoli vanno in sequenza e il server serializza.
  */
@@ -45,9 +48,14 @@ const ONLY = arg('only') ? new Set(arg('only').split(',').map((s) => s.trim())) 
 const MODEL = arg('model')
 const STRATEGY = arg('strategy')
 if (STRATEGY && !['gruppi', 'cascata'].includes(STRATEGY)) { console.error('--strategy gruppi|cascata'); process.exit(2) }
-const OVERRIDE = MODEL || STRATEGY
-const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}`))
+const THINK = arg('think')
+if (THINK && !['off', 'abbinamento', 'estrazione', 'tutto'].includes(THINK)) { console.error('--think off|abbinamento|estrazione|tutto'); process.exit(2) }
+const CTX = arg('ctx') ? Number(arg('ctx')) : null
+const OVERRIDE = MODEL || STRATEGY || THINK || CTX
+const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}`))
 const PROCEED = !process.argv.includes('--no-proceed')
+const FROM = arg('from')
+if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think o --ctx'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // certificato interno
@@ -104,7 +112,7 @@ const prodProfiles = settings.polizzaProfiles || []
 console.log(`App ${BASE} — versione ${version?.version || '?'} — Ollama ${settings.ollamaUrl || '?'} — modello ${settings.ollamaModel || '?'}${MODEL ? ` → run di test con ${MODEL}` : ''} — strategia ${settings.polizzaStagedCascade ? 'cascata' : 'gruppi'}${STRATEGY ? ` → run di test ${STRATEGY}` : ''} — pre-controllo ${settings.polizzaPrecheckMode || 'default'} — contesto ${settings.polizzaBatchContext || 8192}`)
 if (version?.features) console.log(`  feature: ${[].concat(version.features).slice(-6).join(' · ')}`)
 
-const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), ctx: settings.polizzaBatchContext || 8192, precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
+const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ctx: CTX || settings.polizzaBatchContext || 8192, precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
 const t00 = Date.now()
 for (const c of FULL_CASES) {
   if (ONLY && !ONLY.has(c.id)) continue
@@ -120,10 +128,15 @@ for (const c of FULL_CASES) {
   }
   const t0 = Date.now()
   try {
-    const { batchId } = await api('/api/polizza/batch', {
+    const prev = FROM && existsSync(join(root, FROM, `${c.id}.json`)) ? JSON.parse(readFileSync(join(root, FROM, `${c.id}.json`), 'utf8')) : null
+    const baseId = prev ? (prev.baseJobId || prev.jobId) : null
+    if (FROM && !baseId) throw new Error(`nessun job di base in ${FROM}/${c.id}.json`)
+    let batchId = prev?.batchId || null, jobId = baseId, job = null, pertinenza = prev?.pertinenza || null, runJobId = baseId
+    if (!baseId) {
+    ;({ batchId } = await api('/api/polizza/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: `TEST GOLDEN ${c.id}${MODEL ? ` · ${MODEL}` : ''}${STRATEGY ? ` · ${STRATEGY}` : ''}` }),
-    })
+    }))
     const form = new FormData()
     const folder = basename(dir)
     for (const f of files) {
@@ -132,13 +145,13 @@ for (const c of FULL_CASES) {
     }
     form.append('dossierName', folder)
     form.append('profileId', profile.id)
-    const { jobId } = await api(`/api/polizza/batch/${batchId}/dossier`, { method: 'POST', body: form })
+    ;({ jobId } = await api(`/api/polizza/batch/${batchId}/dossier`, { method: 'POST', body: form }))
     await api(`/api/polizza/batch/${batchId}/complete`, { method: 'POST' })
     console.log(`   batch ${batchId} · job ${jobId}`)
-    let job = await waitJob(jobId)
-    const pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }
+    job = await waitJob(jobId)
+    pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }
     console.log(`   pertinenza: ${job.status}${pertinenza.reason ? ` — ${String(pertinenza.reason).slice(0, 140)}` : ''}`)
-    let runJobId = jobId
+    runJobId = jobId
     if (PROCEED && (job.status === 'mismatch' || job.status === 'review')) {
       await api(`/api/polizza/job/${jobId}/proceed`, { method: 'POST' })
       job = await waitJob(jobId)
@@ -146,18 +159,25 @@ for (const c of FULL_CASES) {
       await api(`/api/polizza/job/${jobId}/extract`, { method: 'POST' })
       job = await waitJob(jobId)
     }
+    } else {
+      job = await api(`/api/polizza/job/${baseId}`)
+      console.log(`   job di base ${baseId} (da ${FROM})`)
+    }
     if (OVERRIDE && job.status === 'done') {
-      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}) }
+      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}) }
       const t = await api(`/api/polizza/job/${jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       runJobId = t.jobId || t.id || t.job?.id
-      console.log(`   run di test ${runJobId}${MODEL ? ` con ${MODEL}` : ''}${STRATEGY ? ` · strategia ${STRATEGY}` : ''}`)
+      console.log(`   run di test ${runJobId}${MODEL ? ` con ${MODEL}` : ''}${STRATEGY ? ` · strategia ${STRATEGY}` : ''}${THINK ? ` · ragionamento ${THINK}` : ''}${CTX ? ` · ctx ${CTX}` : ''}`)
       job = await waitJob(runJobId)
+      // La pertinenza della run di test (col modello/strategia provati) è quella che conta qui.
+      pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }
+      console.log(`   pertinenza run di test: ${job.status}${pertinenza.reason ? ` — ${String(pertinenza.reason).slice(0, 140)}` : ''}`)
       if (PROCEED && (job.status === 'mismatch' || job.status === 'review')) { await api(`/api/polizza/job/${runJobId}/proceed`, { method: 'POST' }); job = await waitJob(runJobId) }
     }
     const secs = Math.round((Date.now() - t0) / 1000)
-    writeFileSync(join(OUT, `${c.id}.json`), JSON.stringify({ jobId: runJobId, batchId, status: job.status, pertinenza, fieldDefs: job.fieldDefs, values: job.values, sources: job.sources, logs: job.logs }, null, 2))
+    writeFileSync(join(OUT, `${c.id}.json`), JSON.stringify({ jobId: runJobId, baseJobId: jobId, batchId, status: job.status, pertinenza, fieldDefs: job.fieldDefs, values: job.values, sources: job.sources, logs: job.logs }, null, 2))
     if (job.status !== 'done') {
       console.log(`   ESITO ${job.status}: ${String(job.error || '').slice(0, 200)}`)
       summary.cases.push({ id: c.id, status: job.status, secs, pertinenza, right: 0, total: (job.fieldDefs || []).length })
@@ -177,7 +197,7 @@ for (const c of FULL_CASES) {
 
 const done = summary.cases.filter((s) => s.total)
 const R = done.reduce((a, s) => a + s.right, 0), N = done.reduce((a, s) => a + s.total, 0)
-console.log(`\n=== RIEPILOGO — ${summary.model} · ctx ${summary.ctx} · versione ${summary.version} — ${Math.round((Date.now() - t00) / 60000)} min ===`)
+console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragionamento ${summary.think} · ctx ${summary.ctx} · versione ${summary.version} — ${Math.round((Date.now() - t00) / 60000)} min ===`)
 for (const s of summary.cases) {
   if (s.skipped) { console.log(`  ${s.id.padEnd(18)} saltato`); continue }
   if (s.error) { console.log(`  ${s.id.padEnd(18)} ERRORE ${s.error.slice(0, 100)}`); continue }

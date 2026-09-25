@@ -32,6 +32,7 @@ interface Settings {
   polizzaConsensusPasses?: number
   polizzaStagedCascade?: boolean
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
+  polizzaThink?: 'off' | 'abbinamento' | 'estrazione' | 'tutto'
   // Voci del menu PDF Extractor nascoste nella sidebar (href).
   navHiddenExtractor?: string[]
 }
@@ -256,6 +257,16 @@ export default function SettingsTechnicalPage() {
                 <option value="off">{t('set.precheckModeOff')}</option>
               </select>
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.precheckModeHint')}</p>
+            </div>
+            <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+              <label className="label">{t('set.think')}</label>
+              <select value={s.polizzaThink ?? 'off'} onChange={(e) => up('polizzaThink', e.target.value as Settings['polizzaThink'])}>
+                <option value="off">{t('set.thinkOff')}</option>
+                <option value="abbinamento">{t('set.thinkMatch')}</option>
+                <option value="estrazione">{t('set.thinkExtract')}</option>
+                <option value="tutto">{t('set.thinkAll')}</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.thinkHint')}</p>
             </div>
           </div>
         </div>

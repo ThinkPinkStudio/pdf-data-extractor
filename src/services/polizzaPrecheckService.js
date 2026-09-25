@@ -198,7 +198,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       remaining = remaining.filter((c) => !taken.has(`${c.ord}:${c.page}`))
       const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi)' : ''}`)
-      const raw = await callOllamaRolling(settings, system, user, {
+      const raw = await callOllamaRolling({ ...settings, __phase: 'abbinamento' }, system, user, {
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       const answer = parseOperativitaAnswer(raw)
@@ -211,7 +211,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       if (decision.verdict === 'ok') needContract = true
       if (needContract) {
         const cq = buildContrattoPrompt({ blocks })
-        const rawC = await callOllamaRolling(settings, cq.system, cq.user, { numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
+        const rawC = await callOllamaRolling({ ...settings, __phase: 'abbinamento' }, cq.system, cq.user, { numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
         const ca = parseContrattoAnswer(rawC)
         decision.contratto = ca?.contratto || 'non determinabile'
         log(`Operatività «${profile?.name || ''}» batch ${b + 1}: contratto ${decision.contratto}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''}`)
