@@ -22,6 +22,7 @@ const BUILD_FEATURES = [
   'copertura-mai-nominata', // pertinenza: copertura mai nominata = non operante senza modello (25/09/2026)
   'riconciliazione-cf', // riconciliazione: niente CF come numero, copie di fuori non dividono la cartella (26/09/2026)
   'campi-compilabili', // valori dei campi AcroForm nella griglia; pagine digitali dal text layer di adesso (26/09/2026)
+  'flag-motore',       // flag del motore per le run di test: campi, cascata4, a78, recupero, elenchi (26/09/2026)
 ]
 
 export async function GET() {
