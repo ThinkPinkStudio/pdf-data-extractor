@@ -9,15 +9,23 @@
  *   node scripts/golden-prod.mjs --base https://genius.csabroker.it --email <utente>
  *        [--only bolchini-rc-2026,alzaia-tl] [--model qwen3:32b] [--out .goldens-out/prod-<tag>]
  *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b] [--flags campi,…]
- *        [--from .goldens-out/prod-<base>] [--no-proceed]
+ *        [--from .goldens-out/prod-<base>] [--forza-pertinenza]
  *
  * - Un BATCH per fascicolo («TEST GOLDEN …»): la riconciliazione per numero di
  *   polizza non deve unire fascicoli golden diversi (BOLCHINI RC 2025/2026 hanno
  *   lo stesso numero).
  * - Profilo = quello di PRODUZIONE con lo stesso nome (GET /api/settings).
- * - Pertinenza: l'esito viene registrato; se il job si ferma («Da verificare»,
- *   «Non pertinente», «Abbinato») si preme «Procedi comunque»/▶ e si misura
- *   l'estrazione (salvo --no-proceed).
+ * - Pertinenza: conta COME PER IL CLIENTE. Un fascicolo che l'app ferma («Da
+ *   verificare», «Non pertinente», «Non valido») NON si forza: vale 0 campi
+ *   (errore di pertinenza, se la polizza è vera) e lo dice il riepilogo. Fino al
+ *   26/09 lo script premeva «Procedi comunque» e ha ESTRATTO la sola quietanza
+ *   ALZAIA dichiarata non operante: regola dell'utente, «SENZA UNA POLIZZA È
+ *   SEMPRE NON VALIDO». --forza-pertinenza (solo diagnostica) preme «Procedi
+ *   comunque» sui «Da verificare»/«Non pertinente» delle polizze VERE, MAI su un
+ *   «Non valido» né su un caso atteso non valido (golden-cases: expect).
+ * - Casi con expect 'non-valido' (ALZAIA): controllo di validità, fuori dal
+ *   conteggio dei campi; giusto se l'app dice «Non valido».
+ * - «Abbinato» (pertinenza superata, estrazione da confermare): si preme ▶.
  * - --model / --strategy: il job di base gira con la configurazione di
  *   produzione; poi una RUN DI TEST (copia del job, override del solo modello
  *   e/o della strategia del motore a stadi: «gruppi» = gruppi a copertura
@@ -56,7 +64,12 @@ const OCR = arg('ocr')
 const FLAGS = arg('flags')
 const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR
 const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}${FLAGS ? `-flag-${FLAGS.replace(/[^a-z0-9]+/gi, '-')}` : ''}`))
-const PROCEED = !process.argv.includes('--no-proceed')
+// Mai forzare di default (vedi intestazione). --no-proceed resta accettato (è il default).
+const FORCE = process.argv.includes('--forza-pertinenza')
+// «Non valido» (nessuna polizza): stato mismatch con l'errore che lo dice; i job
+// vecchi scrivevano «Accantonato».
+const isNotValid = (j) => j?.status === 'mismatch' && /^(?:Non valido|Accantonato)\b/.test(String(j?.error || ''))
+const mayForce = (c, j) => FORCE && c.expect !== 'non-valido' && (j.status === 'review' || (j.status === 'mismatch' && !isNotValid(j)))
 const FROM = arg('from')
 // Coda interrotta senza uccidere i processi: se esiste .goldens-out/SKIP_QUEUED
 // le run lanciate SENZA --force escono subito (si ferma il resto di una coda già
@@ -171,10 +184,11 @@ for (const c of FULL_CASES) {
     pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }
     console.log(`   pertinenza: ${job.status}${pertinenza.reason ? ` — ${String(pertinenza.reason).slice(0, 140)}` : ''}`)
     runJobId = jobId
-    if (PROCEED && (job.status === 'mismatch' || job.status === 'review')) {
+    if (mayForce(c, job)) {
+      console.log('   FORZATO (--forza-pertinenza): «Procedi comunque» su una polizza vera fermata dalla pertinenza')
       await api(`/api/polizza/job/${jobId}/proceed`, { method: 'POST' })
       job = await waitJob(jobId)
-    } else if (PROCEED && job.status === 'matched') {
+    } else if (job.status === 'matched' && c.expect !== 'non-valido') {
       await api(`/api/polizza/job/${jobId}/extract`, { method: 'POST' })
       job = await waitJob(jobId)
     }
@@ -193,13 +207,19 @@ for (const c of FULL_CASES) {
       // La pertinenza della run di test (col modello/strategia provati) è quella che conta qui.
       pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }
       console.log(`   pertinenza run di test: ${job.status}${pertinenza.reason ? ` — ${String(pertinenza.reason).slice(0, 140)}` : ''}`)
-      if (PROCEED && (job.status === 'mismatch' || job.status === 'review')) { await api(`/api/polizza/job/${runJobId}/proceed`, { method: 'POST' }); job = await waitJob(runJobId) }
+      if (mayForce(c, job)) { console.log('   FORZATO (--forza-pertinenza)'); await api(`/api/polizza/job/${runJobId}/proceed`, { method: 'POST' }); job = await waitJob(runJobId) }
     }
     const secs = Math.round((Date.now() - t0) / 1000)
     writeFileSync(join(OUT, `${c.id}.json`), JSON.stringify({ jobId: runJobId, baseJobId: jobId, batchId, status: job.status, pertinenza, fieldDefs: job.fieldDefs, values: job.values, sources: job.sources, logs: job.logs }, null, 2))
-    if (job.status !== 'done') {
-      console.log(`   ESITO ${job.status}: ${String(job.error || '').slice(0, 200)}`)
-      summary.cases.push({ id: c.id, status: job.status, secs, pertinenza, right: 0, total: (job.fieldDefs || []).length })
+    if (c.expect === 'non-valido') {
+      // Controllo di VALIDITÀ: giusto solo se l'app lo dichiara Non valido e non estrae.
+      const ok = isNotValid(job)
+      console.log(`   VALIDITÀ: atteso «Non valido» (${c.why || ''}) → ${ok ? 'GIUSTO' : `SBAGLIATO (${job.status}${job.status === 'done' ? ', ESTRATTO' : ''})`}`)
+      summary.cases.push({ id: c.id, expect: 'non-valido', status: job.status, secs, pertinenza, validityOk: ok })
+    } else if (job.status !== 'done') {
+      // Fermato dall'app = quello che vede il cliente: 0 campi.
+      console.log(`   FERMATO DALL'APP (${job.status}): ${String(job.error || '').slice(0, 200)} → 0 campi`)
+      summary.cases.push({ id: c.id, status: job.status, secs, pertinenza, right: 0, total: (job.fieldDefs || []).length, blocked: true })
     } else {
       const score = scoreFullTruth({ data: job.values || {} }, golden, job.fieldDefs || [])
       const report = formatFullTruthReport(score)
@@ -220,7 +240,12 @@ console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragi
 for (const s of summary.cases) {
   if (s.skipped) { console.log(`  ${s.id.padEnd(18)} saltato`); continue }
   if (s.error) { console.log(`  ${s.id.padEnd(18)} ERRORE ${s.error.slice(0, 100)}`); continue }
+  if (s.expect === 'non-valido') { console.log(`  ${s.id.padEnd(18)} ${String(s.secs).padStart(5)}s  validità: atteso Non valido → ${s.validityOk ? 'GIUSTO' : `SBAGLIATO (${s.status})`}`); continue }
   console.log(`  ${s.id.padEnd(18)} ${String(s.secs).padStart(5)}s  pertinenza ${String(s.pertinenza?.status).padEnd(8)}  giusti ${s.right}/${s.total}${s.status !== 'done' ? `  (${s.status})` : ''}`)
 }
 console.log(`  TOTALE giusti ${R}/${N} (${N ? Math.round((R / N) * 1000) / 10 : 0}%) su ${done.length} fascicoli`)
+const blocked = summary.cases.filter((s) => s.blocked)
+if (blocked.length) console.log(`  FERMATI DALLA PERTINENZA (polizze vere, 0 campi per il cliente): ${blocked.map((s) => `${s.id} (${s.status})`).join(', ')}`)
+const validity = summary.cases.filter((s) => s.expect === 'non-valido')
+if (validity.length) console.log(`  VALIDITÀ (senza polizza = Non valido): ${validity.filter((s) => s.validityOk).length}/${validity.length} giusti`)
 writeFileSync(join(OUT, 'summary.json'), JSON.stringify(summary, null, 2))

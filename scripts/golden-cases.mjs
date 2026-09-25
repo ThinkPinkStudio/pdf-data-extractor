@@ -36,7 +36,12 @@ export const FULL_CASES = [
   { id: 'guffanti-tl', profile: 'Tutela Legale 3', golden: 'test/fixtures/full-guffanti.json', dir: 'polizze_test/guffanti' },
   { id: 'bolchini-tl', profile: 'Tutela Legale 3', golden: 'test/fixtures/full-bolchini-tl.json', dir: 'polizze_test/BOLCHINI MARGHERITA/In vigore/TUT. LEGALE PROF' },
   { id: 'spallino-tl', profile: 'Tutela Legale 3', golden: 'test/fixtures/full-spallino-tl.json', dir: 'polizze_test/SPALLINO LORENZO E STUDIO/SPALLINO LORENZO Tutela legale GJ009XD' },
-  { id: 'alzaia-tl', profile: 'Tutela Legale 3', golden: 'test/fixtures/full-alzaia-tl.json', dir: 'polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/ALZAIA NAVIGLIO PAVESE 104/ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS' },
+  // ALZAIA: UN solo file, la QUIETANZA di rinnovo DAS, nessuna polizza. Regola
+  // dell'utente (26/09/2026): «SE NON HAI UNA POLIZZA NON ESTRAI! SENZA UNA
+  // POLIZZA È SEMPRE NON VALIDO». Non è più un caso di ESTRAZIONE (i suoi 23
+  // campi non contano): è un controllo di VALIDITÀ, giusto se l'app lo
+  // dichiara «Non valido» e non estrae nulla.
+  { id: 'alzaia-tl', profile: 'Tutela Legale 3', golden: 'test/fixtures/full-alzaia-tl.json', dir: 'polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/ALZAIA NAVIGLIO PAVESE 104/ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS', expect: 'non-valido', why: 'una sola quietanza di pagamento, nessuna polizza' },
   // EULIP (full-eulip-locale.json) NON è a verità piena: 13 campi su 24 del
   // profilo RCT RCO. Fuori dal confronto finché il golden non copre tutto.
 ]
