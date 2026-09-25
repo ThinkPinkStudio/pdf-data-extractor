@@ -3748,6 +3748,41 @@ export function findStagedSource(analyzed, evidenza, cleaned, preferredNames = n
 }
 
 /**
+ * Voci di un valore-ELENCO («voce; voce; voce»): almeno due voci con almeno
+ * 4 caratteri normalizzati ciascuna, altrimenti []. Il separatore è quello che
+ * le descrizioni chiedono («separati da punto e virgola»).
+ */
+export function listItems(value) {
+  const items = String(value ?? '').split(/\s*;\s*/).map((x) => x.trim()).filter((x) => normForMatch(x).length >= 4)
+  return items.length >= 2 ? items : []
+}
+
+/**
+ * [flag elenchi] Sorgente di un ELENCO composto dal modello: la pagina (tra
+ * quelle della chiamata, se note) che contiene PIÙ voci — per testo
+ * normalizzato o per tutti i token della voce. Un elenco non sta mai intero
+ * nel testo, e senza sorgente restava senza documento né affinità e perdeva
+ * contro qualunque paragrafo localizzabile. Almeno due voci ritrovate.
+ */
+export function findListSource(analyzed, cleaned, preferredNames = null, callPages = null) {
+  const items = listItems(cleaned)
+  if (!items.length) return null
+  const docs = preferredNames ? analyzed.filter((d) => preferredNames.has(d.name)) : analyzed
+  const inCall = (d, p) => !callPages || !!callPages.get(d.name)?.has(p + 1)
+  const needles = items.map((it) => ({ norm: normForMatch(it), tokens: valueTokens(it) }))
+  let bestHit = null
+  for (const d of docs) {
+    for (let p = 0; p < d.normPages.length; p++) {
+      if (!inCall(d, p)) continue
+      const np = d.normPages[p]
+      const n = needles.filter((x) => np.includes(x.norm) || (x.tokens.length >= 2 && pageHasValueTokens(np, x.tokens))).length
+      if (n >= 2 && (!bestHit || n > bestHit.n)) bestHit = { file: d.name, page: p + 1, doc: d, n }
+    }
+  }
+  return bestHit ? { file: bestHit.file, page: bestHit.page, doc: bestHit.doc } : null
+}
+
+/**
  * Campi da seminare con le caselle barrate (Stadio A.5): SOLO quelli la cui
  * DESCRIZIONE parla di caselle/selezioni (descriptionAsksCheckbox). Mai la
  * label: è il nome che il cliente dà alla colonna (Regola 1).
@@ -3787,6 +3822,9 @@ const STAGED_CANDIDATE_LOG = new WeakMap()
 // piè di pagina); se anche UNA occorrenza sta accanto a un'etichetta che la
 // descrizione nega, il VALORE è quello della compagnia ovunque appaia.
 const STAGED_TAINTED = new WeakMap()
+// Opzioni del motore per l'oggetto `best` (flag del motore letti una volta):
+// absorbStagedEntries non riceve le impostazioni.
+const STAGED_OPTS = new WeakMap()
 // Chiave di un valore indipendente dall'ordine delle parole ("Via Enrico
 // Fermi 9/B - 37135 Verona" = "37135 Verona - Via Enrico Fermi 9/B").
 function valueKey(v) {
@@ -4120,6 +4158,7 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
     const source = findStagedSource(analyzed, evidenza, cleaned, usedNames, callPages)
+      || (STAGED_OPTS.get(best)?.lists ? findListSource(analyzed, cleaned, usedNames, callPages) : null)
     // PAGINA DI QUESTIONARIO come evidenza di una VERIFICA: l'elenco delle
     // attività o delle garanzie opzionali del questionario ("Incarichi di
     // Sindaco/Revisore dei Conti  %") non prova una copertura, e la
@@ -4334,6 +4373,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const diag = []
   const best = {}   // id → candidato vincente { valore, effDate, docType, file, page, … }
+  STAGED_OPTS.set(best, { lists: engineFlag(settings, 'elenchi') })
 
   const ollamaModel = resolveOllamaModel(settings)
   const s2 = { ...settings, ollamaModel }
@@ -5093,7 +5133,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const distinctHead = distinctiveHeadTokens(activeFields, lexTokenize)
   const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
     if (!srcDoc?.text) return null
-    const win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
+    let win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
+    // [flag elenchi] ELENCO: finestre attorno a OGNI voce, unite (la stringa
+    // intera non è mai nel testo e l'affinità restava null).
+    if (!win && engineFlag(settings, 'elenchi')) {
+      const items = listItems(cleaned)
+      const wins = items.map((it) => findValueWindow(normIndexOf(srcDoc), it, '', 120)).filter(Boolean)
+      if (wins.length >= 2) win = wins.join(' … ')
+    }
     if (!win) return null
     // lex: SEMPRE calcolata — è lo spareggio deterministico a pari data
     // (documenti tutti uguali: decide la somiglianza con la DESCRIZIONE).
