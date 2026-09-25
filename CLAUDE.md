@@ -97,6 +97,20 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (`ocrCacheKey`: `<hash>:vis:<modello>`). Provabile nelle run di test (`ocr`).
   Motivo: Tesseract leggeva «€ 1.000.000,00» come «41.000.000,00» e
   «IPD0017417» come «1PD0017417» (BOLCHINI 2025, cache OCR di produzione).
+- **CAMPI COMPILABILI (AcroForm) nella griglia** (26/09/2026): i valori
+  scritti nei campi di un PDF compilabile stanno nelle annotazioni widget, non
+  nel contenuto della pagina, e pdf.js `getTextContent` non li restituisce: il
+  modello riceveva «CONTRAENTE:» col vuoto (Mastrantonio: numero, contraente,
+  indirizzo SOLO nei campi), le quietanze GUFFANTI senza importo/data di
+  quietanzamento, il questionario SPALLINO senza «€ 385.000,00» né risposte.
+  `formFieldItems` (pdfTextLayer) li mette nella griglia nella loro posizione
+  (testo, scelte; caselle come [X]/[ ]; nascosti e pulsanti fuori), solo su
+  pagine che hanno già testo (una scansione con un campo data non deve saltare
+  l'OCR). Le pagine DIGITALI lette dalla cache OCR si prendono dal text layer
+  di adesso (`withFreshTextLayer`, worker e riconciliazione): prima una
+  correzione del percorso testo non arrivava mai ai fascicoli già visti; le
+  scansioni restano l'OCR in cache. Da misurare sui golden (cambia il testo di
+  GUFFANTI RC, SPALLINO RC).
 - **A pari data il testo digitale prima dell'OCR** (`byStagedRecency`, flag
   `ocr` sui documenti dal worker): la cascata visitava per prima la scansione
   (ordine alfabetico) e ne prendeva i campi letti male.

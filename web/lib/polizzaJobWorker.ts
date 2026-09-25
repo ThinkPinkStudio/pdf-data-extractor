@@ -105,12 +105,17 @@ async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
 // (niente OCR rifatto per ogni scansione). `textLayer`: se noto, solo le
 // pagine con testo digitale (le pagine OCR restano come un OCR rifatto da
 // zero); null = tutte. Mai bloccante: in errore le pagine restano com'erano.
+// Con il text layer noto, le pagine DIGITALI si prendono da quello (letto
+// adesso, col percorso testo di adesso: campi compilabili compresi) e non dalla
+// cache; le scansioni restano l'OCR in cache (withFreshTextLayer).
 async function rejoinCachedGrid(pages: string[], textLayer: string[] | null): Promise<string[]> {
   try {
-    const { joinSplitNumbersInPages } = await importSharedService<{
+    const { joinSplitNumbersInPages, withFreshTextLayer } = await importSharedService<{
       joinSplitNumbersInPages: (p: string[], layer?: string[] | null) => string[]
+      withFreshTextLayer: (cached: string[], layer: string[] | null) => string[]
     }>('pdfTextLayer.js')
-    return joinSplitNumbersInPages(pages, textLayer)
+    const fresh = textLayer && textLayer.length ? withFreshTextLayer(pages, textLayer) : pages
+    return joinSplitNumbersInPages(fresh, textLayer)
   } catch {
     return pages
   }
@@ -446,14 +451,15 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // Ramo markdown: la griglia è il text layer (niente OCR) → chiave del solo file.
       const cachedRaw = await getOcrCache(fileHash).catch(() => null)
       const cacheIsGrid = !!(cachedRaw && cachedRaw.length && !(cachedRaw.length === 1 && String(cachedRaw[0]).trim() === mdDoc.trim()))
-      // Griglia dalla cache: numeri spezzati dal kerning ricomposti (vedi rejoinCachedGrid).
-      if (cacheIsGrid) spatial = await rejoinCachedGrid(cachedRaw!, null)
-      else {
-        spatial = await spatialPagesFromPdf(buf)
-        if (spatial) {
+      // Griglia = text layer di ADESSO quando c'è (stesso percorso testo di
+      // tutto il resto, campi compilabili compresi); la cache solo se il PDF
+      // non ha text layer (numeri spezzati ricomposti, vedi rejoinCachedGrid).
+      spatial = await spatialPagesFromPdf(buf)
+      if (spatial) {
+        if (!cacheIsGrid) {
           try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
         }
-      }
+      } else if (cacheIsGrid) spatial = await rejoinCachedGrid(cachedRaw!, null)
       totalPagesProcessed += (spatial?.length || docPages.length)
       pagesWithText++
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)

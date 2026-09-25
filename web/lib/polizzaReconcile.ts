@@ -31,6 +31,13 @@ async function spatialPagesOf(buf: Buffer): Promise<string[] | null> {
   } catch { return null }
 }
 
+async function freshDigitalPages(cached: string[], layer: string[]): Promise<string[]> {
+  try {
+    const { withFreshTextLayer } = await importSharedService<{ withFreshTextLayer: (c: string[], l: string[] | null) => string[] }>('pdfTextLayer.js')
+    return withFreshTextLayer(cached, layer)
+  } catch { return cached }
+}
+
 // Pagine lette per cercare il numero: frontespizio, quietanza, appendice lo
 // portano in testa; oltre ci sono condizioni che citano ALTRE polizze.
 const NUMBER_PAGES = 5
@@ -56,6 +63,8 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         const probe = buf ? await spatialPagesOf(buf) : null
         const key = hash ? ((!probe || probe.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings) : hash) : null
         if (key) pages = await getOcrCache(key).catch(() => null)
+        // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
+        if (pages && probe) pages = await freshDigitalPages(pages, probe)
         if (!pages && buf) {
           const read = await readPdfPagesWithOcr(buf, f.file_name, settings)
           pages = read?.pages || null

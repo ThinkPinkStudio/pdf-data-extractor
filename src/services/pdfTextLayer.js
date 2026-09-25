@@ -75,6 +75,41 @@ export function textContentToBlocks(content, opts = {}) {
   return [{ paragraphs: [{ lines }] }]
 }
 
+/**
+ * Valori dei CAMPI COMPILABILI (AcroForm) come voci di testo nella loro
+ * posizione. Stanno nelle annotazioni «widget», non nel contenuto della
+ * pagina: getTextContent non li vede e il modello riceveva «CONTRAENTE:» col
+ * vuoto accanto (Mastrantonio: numero di polizza, contraente e indirizzo SOLO
+ * nei campi), «ha ricevuto l'importo di EURO ……» senza l'importo (quietanze
+ * GUFFANTI), il questionario SPALLINO senza fatturato né risposte. Caselle e
+ * pulsanti di scelta come [X] / [ ], come l'OCR visivo. Campi nascosti e
+ * pulsanti d'azione esclusi. Nessun valore interpretato: il testo del campo.
+ * @param {any[]} annotations  page.getAnnotations()
+ */
+export function formFieldItems(annotations) {
+  const items = []
+  for (const a of annotations || []) {
+    if (!a || a.subtype !== 'Widget' || !Array.isArray(a.rect) || a.rect.length < 4) continue
+    if ((a.annotationFlags || 0) & (0x02 | 0x20)) continue // HIDDEN, NOVIEW
+    let str = ''
+    if (a.checkBox || a.radioButton) {
+      const on = a.checkBox
+        ? a.fieldValue != null && a.fieldValue !== 'Off' && a.fieldValue !== false && a.fieldValue !== ''
+        : a.fieldValue != null && a.fieldValue === a.buttonValue
+      str = on ? '[X]' : '[ ]'
+    } else if (a.fieldType === 'Tx' || a.fieldType === 'Ch') {
+      const v = Array.isArray(a.fieldValue) ? a.fieldValue.join(', ') : a.fieldValue
+      str = String(v ?? '').replace(/\s+/g, ' ').trim()
+    }
+    if (!str) continue
+    const [x1, y1, x2, y2] = a.rect
+    const h = Math.abs(y2 - y1) || 10
+    const fs = Math.max(6, Math.min(11, h * 0.7))
+    items.push({ str, transform: [fs, 0, 0, fs, Math.min(x1, x2) + 1, Math.min(y1, y2) + Math.max(1, (h - fs) / 2)], width: str.length * fs * 0.5 })
+  }
+  return items
+}
+
 // joinSplitNumbers vive in splitNumbers.js (modulo foglia: lo usa anche il
 // controllo dell'evidenza in polizzaValidation.js, che non può importare questo
 // modulo senza chiudere un ciclo). Riesportato qui: gli import esistenti restano.
@@ -104,7 +139,17 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
       try {
         const page = await doc.getPage(p)
         const content = await page.getTextContent({ includeMarkedContent: false })
-        const blocks = textContentToBlocks(content, { viewport: page.getViewport({ scale: 1 }) })
+        let items = content.items || []
+        // Campi compilabili solo su pagine che hanno già testo: una scansione
+        // con un campo firma o data resterebbe «digitale» e salterebbe l'OCR
+        // (il rendering per l'OCR disegna comunque i campi).
+        if (items.some((it) => it && typeof it.str === 'string' && it.str.trim())) {
+          try {
+            const extra = formFieldItems(await page.getAnnotations({ intent: 'display' }))
+            if (extra.length) items = [...items, ...extra]
+          } catch { /* annotazioni illeggibili: solo il testo della pagina */ }
+        }
+        const blocks = textContentToBlocks({ items }, { viewport: page.getViewport({ scale: 1 }) })
         spatial = blocks.length ? buildSpatialPage(blocks).trim().split('\n').map(joinSplitNumbers).join('\n') : ''
       } catch {
         spatial = '' // pagina illeggibile: resta vuota, la numerazione non slitta
@@ -115,6 +160,21 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
   } finally {
     try { await doc.destroy() } catch { /* già distrutto */ }
   }
+}
+
+/**
+ * Pagine lette dalla CACHE OCR con le pagine DIGITALI prese dal text layer di
+ * ADESSO. Per un PDF con testo la cache contiene la griglia di quando il file
+ * fu letto la prima volta: una correzione del percorso testo (campi
+ * compilabili, numeri spezzati…) non arrivava mai ai fascicoli già visti. Le
+ * pagine senza text layer (scansioni) restano quelle dell'OCR in cache: niente
+ * OCR rifatto. Conteggi diversi = PDF diverso da quello in cache: invariato.
+ * @param {string[]} cached
+ * @param {string[]|null} layer  spatialPagesFromPdf dello stesso PDF
+ */
+export function withFreshTextLayer(cached, layer) {
+  if (!Array.isArray(cached) || !Array.isArray(layer) || cached.length !== layer.length) return cached
+  return cached.map((t, i) => (layer[i] && layer[i].trim() ? layer[i] : t))
 }
 
 /** true se almeno una pagina ha testo. */
