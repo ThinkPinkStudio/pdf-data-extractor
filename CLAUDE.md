@@ -15,8 +15,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
 ## Infrastruttura (produzione)
 
 - **Deploy web**: Coolify v4 (progetto "CSA PDF Extractor", ambiente `production`).
-  Ogni merge su `main` → build automatica + bump versione (`chore: bump version
-  to 1.0.NNN`). La versione deployata è visibile in Impostazioni accanto al
+  **Il container di produzione usa `test_branch`, NON `main`** (confermato
+  dall'utente il 25/09/2026): ogni push su `test_branch` va dritto al cliente
+  (https://genius.csabroker.it). `main` è fermo alla 1.0.153 e la versione
+  mostrata resta 1.0.153 anche col codice nuovo: per sapere cosa gira, provare
+  una route recente. Mai pushare mentre gira una misura in produzione (il
+  redeploy riavvia il server a metà run). Storicamente: merge su `main` →
+  build automatica + bump versione (`chore: bump version to 1.0.NNN`). La versione deployata è visibile in Impostazioni accanto al
   titolo e su `GET /api/version` (con lista feature per verificare cosa è
   arrivato in produzione).
 - **Ollama (dal 25/09/2026)**: server dedicato `supergenius`, **192.168.100.72**
