@@ -62,6 +62,18 @@ const FROM = arg('from')
 // le run lanciate SENZA --force escono subito (si ferma il resto di una coda già
 // avviata, lasciando finire il passo in corso).
 if (existsSync(join(root, '.goldens-out', 'SKIP_QUEUED')) && !process.argv.includes('--force')) { console.log('Saltato (SKIP_QUEUED)'); console.log('TOTALE giusti 0/0 — saltato'); process.exit(0) }
+// PAUSA tra una run e l'altra (deploy in produzione senza spezzare una misura):
+// finché esiste .goldens-out/PAUSE la run NON parte e aspetta; si toglie il
+// file e la coda riprende da qui. Vale anche con --force.
+{
+  const pauseFile = join(root, '.goldens-out', 'PAUSE')
+  let told = false
+  while (existsSync(pauseFile)) {
+    if (!told) { console.log(`In pausa (${pauseFile} presente) — ${new Date().toLocaleTimeString('it-IT')}`); told = true }
+    await new Promise((r) => setTimeout(r, 30000))
+  }
+  if (told) console.log(`Pausa finita — ${new Date().toLocaleTimeString('it-IT')}`)
+}
 if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think o --ctx'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
