@@ -197,7 +197,8 @@ export default function SettingsTechnicalPage() {
               <label className="label">{t('set.batchContext')}</label>
               <input
                 type="number"
-                min={1}
+                min={2048}
+                max={32768}
                 step={1024}
                 value={s.polizzaBatchContext ?? ''}
                 placeholder="8192"
@@ -205,7 +206,7 @@ export default function SettingsTechnicalPage() {
               />
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>
                 {t('set.batchContextHelp')}{' '}
-                {(s.polizzaBatchContext ?? 24576) > 24576
+                {(s.polizzaBatchContext ?? 8192) > 32768
                   ? <span style={{ color: 'var(--c-warning, #f0ad4e)' }}>{t('set.batchContextWarn')}</span>
                   : null}
               </p>

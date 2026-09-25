@@ -32,6 +32,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     perField?: boolean
     stagedCascade?: boolean
     promptExtra?: string
+    // Riabbina + estrai in un colpo solo (action 'rematch'): niente sosta in 'matched'.
+    extract?: boolean
   } = {}
   try { body = await req.json() } catch { /* body vuoto = nessuna azione */ }
 
@@ -117,7 +119,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         : profile && profileFields
           ? { fieldDefs: profileFields, promptExtra: profile.promptExtra || null, profileId: profile.id, profileName: profile.name, matchOnly: true }
           : { matchOnly: true }
-      const res = await resetJobForRetry(id, session.email, opts)
+      const res = await resetJobForRetry(id, session.email, body.extract === true ? { ...opts, matchOnly: false, andExtract: true } : opts)
       if (res) done++; else { skipped++; skippedIds.push(id) }
     } else if (action === 'cancel') {
       const res = await cancelJob(id)

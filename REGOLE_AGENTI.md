@@ -56,13 +56,21 @@ Esempio VIETATO nel prompt:
   `KNOWN_COLUMNS = ['NETTO IMPONIBILE', 'PREMIO LORDO', ...]`).
 - Se non c'è evidenza: il campo resta **VUOTO**, e lo dice il MODELLO.
 
-## Regola 2 — Contesto massimo: 8192 (MASSIMO, non superabile)
+## Regola 2 — Contesto: tetto CONFIGURABILE, default 8192, massimo 32768
 
-- La costante `MAX_BATCH_CTX_8GB = 8192` (in `src/services/polizzaService.js`) è il
-  **tetto assoluto** di `num_ctx` per qualunque chiamata Ollama (motore a stadi,
-  rolling, full-text, batch).
-- **Non alzarla** senza cambiare modello/hardware: superare 8192 su VRAM 8GB fa
-  spillare la KV su CPU e bloccare Ollama in "Stopping...".
+- Il tetto di `num_ctx` di ogni chiamata Ollama (motore a stadi, rolling,
+  operatività, fascicolo intero) è `ctxCap(settings)` in
+  `src/services/polizzaService.js`: il valore «Tetto contesto batch»
+  (`polizzaBatchContext`) di Impostazioni tecniche, **default 8192**
+  (`MAX_BATCH_CTX_8GB`), **mai oltre 32768** (`MAX_CTX_ABSOLUTE`, contesto nativo
+  di Qwen2.5/Qwen3).
+- Dal 25/09/2026 (decisione dell'utente) Ollama gira sul server con **RTX 6000
+  Ada, 48 GB di VRAM**: 32768 sta in GPU anche con i modelli 32B. Su una GPU da
+  8 GB si resta a 8192: oltre, la KV spilla su CPU e Ollama si blocca in
+  "Stopping...".
+- Il tetto non si alza "per vedere": ogni cambio si misura sui golden
+  (`calibrazione-goldens.mjs --ctx N`) e sulla pertinenza
+  (`pertinenza-eval.mjs --ctx N`) prima di adottarlo.
 - Prima di una run, se sospetti spill: `ollama ps` (il modello non deve superare la VRAM).
 
 ## Regola 3 — Una sola run alla volta, anche in produzione

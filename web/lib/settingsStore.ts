@@ -95,9 +95,9 @@ export interface WebSettings {
   // true = CASCATA dal documento più recente ("solo i buchi", con controprova
   // sulla polizza base) — sperimentale, confrontabile via Rielabora.
   polizzaStagedCascade?: boolean
-  // Tetto di contesto (num_ctx) dei batch del motore a stadi. Default 24576 (stà
-  // negli 8GB di VRAM di qwen2.5:7b Q4). Superarlo può far spillare il KV su CPU
-  // e rallentare il modello: la UI avvisa, ma non blocca.
+  // Tetto di contesto (num_ctx) di OGNI chiamata Ollama (batch del motore a
+  // stadi, operatività, fascicolo intero). Default 8192 (8 GB di VRAM); massimo
+  // 32768, il contesto nativo di Qwen2.5/Qwen3 (server con 48 GB di VRAM).
   polizzaBatchContext?: number
   // Pre-check di pertinenza profilo↔fascicolo (blocca il job in 'mismatch' /
   // 'review' con "Procedi comunque" in UI). Con un profilo che ha «Come
@@ -259,7 +259,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
-    polizzaBatchContext: map.polizzaBatchContext ? Math.min(parseInt(map.polizzaBatchContext, 10) || 8192,  8192) : 8192,
+    polizzaBatchContext: map.polizzaBatchContext ? Math.max(2048, Math.min(parseInt(map.polizzaBatchContext, 10) || 8192, 32768)) : 8192,
     polizzaAutoVerify: bool('polizzaAutoVerify', false),
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),

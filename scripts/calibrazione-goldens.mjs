@@ -9,6 +9,7 @@
  *   cd pdf-data-extractor && (cd web && npm ci) && ln -sfn web/node_modules node_modules
  *   node scripts/calibrazione-goldens.mjs [--only guffanti,rcp-pilato] [--model qwen3:8b]
  *        [--ollama http://192.168.37.10:11434] [--out /tmp/goldens] [--resolve-only]
+ *        [--ctx 32768]  (tetto di contesto, passato a calibrazione-run; default 8192)
  *
  * --resolve-only: non chiama Ollama, mostra solo come le chiavi di ogni golden
  * si agganciano ai campi del profilo (controllo preliminare, istantaneo).
@@ -60,6 +61,7 @@ const OLLAMA = arg('ollama', process.env.OLLAMA_URL || 'http://192.168.37.10:114
 const OUT = arg('out', join(root, '.goldens-out'))
 const PROFILES = arg('profile-json', join(root, 'polizze_test/profili-polizza-calibrato.json'))
 const RESOLVE_ONLY = process.argv.includes('--resolve-only')
+const CTX = arg('ctx')
 mkdirSync(OUT, { recursive: true })
 const profiles = JSON.parse(readFileSync(PROFILES, 'utf8'))
 const legacyMap = existsSync(join(root, 'polizze_test/uuid-mapping.json'))
@@ -90,6 +92,7 @@ for (const c of CASES) {
   if (unresolved.length) console.log(`   (chiavi golden non risolte al profilo: ${unresolved.join(', ')})`)
   const runArgs = ['scripts/calibrazione-run.mjs', '--dir', dir, '--profile', c.profile, '--profile-json', PROFILES, '--ollama', OLLAMA, '--model', MODEL, '--out', out]
   if (files.length) runArgs.push('--files', files.join(','))
+  if (CTX) runArgs.push('--ctx', CTX)
   const t0 = Date.now()
   const run = spawnSync(process.execPath, runArgs, { cwd: root, stdio: 'inherit', env: process.env })
   const secs = Math.round((Date.now() - t0) / 1000)

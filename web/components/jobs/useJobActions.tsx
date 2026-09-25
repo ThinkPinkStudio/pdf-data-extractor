@@ -95,6 +95,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
     if (isReprofile && !v.profileId) { setDialogError(t('jobsDash.reprofileRequired')); return }
     const body: Record<string, unknown> = {}
     if (v.profileId) body.profileId = v.profileId
+    if (isRematch && v.extractAfter) body.extract = true
     if (!isRematch) {
       if (v.model.trim()) body.model = v.model.trim()
       if (v.strategy === 'perfield') body.perField = true

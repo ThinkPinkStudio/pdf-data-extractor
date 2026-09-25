@@ -23,7 +23,7 @@ import {
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES,
 } from './polizzaOperativita.js'
-import { callOllamaRolling, MAX_BATCH_CTX_8GB, computeSafeContextBudget, withPairs } from './polizzaService.js'
+import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
 
 // Cap dei costi: il pre-check deve costare SECONDI, non minuti.
 const MAX_PAGES_EMBED = 40      // prime 2 pagine per documento, fino a 40 testi
@@ -117,7 +117,7 @@ export function contentExcludeMatched(profile, docs) {
  * in «Come riconoscerla» è davvero acquistata nel fascicolo?
  *  1. embedding (bge-m3) del testo di riconoscimento e delle pagine PIATTE;
  *  2. pagine scelte per affinità (prime pagine dei documenti in testa) fino al
- *     budget del contesto (MAX_BATCH_CTX_8GB, stesso calcolo dei batch a stadi);
+ *     budget del contesto (ctxCap, stesso calcolo dei batch a stadi);
  *  3. al modello va la GRIGLIA SPAZIALE (caselle e colonne premio restano
  *     incolonnate), marcatori [Documento N · pag. P], mai il nome file;
  *  4. risposta vincolata da JSON Schema, prova verificata nel testo, decisione.
@@ -181,7 +181,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     candidates.forEach((c, i) => { c.score = cosineSim(rVec, vecs[i + 1]) })
     // Budget di testo: contesto massimo meno prompt (senza pagine) e margine.
     const probe = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks: [] })
-    const budgetChars = computeSafeContextBudget(MAX_BATCH_CTX_8GB, { systemChars: probe.system.length, userChars: probe.user.length })
+    const budgetChars = computeSafeContextBudget(ctxCap(settings), { systemChars: probe.system.length, userChars: probe.user.length })
     // BATCH SUCCESSIVI per affinità (copertura progressiva del fascicolo): il
     // primo batch porta le prime pagine dei documenti e le più affini; se non
     // arriva una prova di operatività si passa alle pagine seguenti, fino a
@@ -199,7 +199,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi)' : ''}`)
       const raw = await callOllamaRolling(settings, system, user, {
-        numCtx: MAX_BATCH_CTX_8GB, timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
+        numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       const answer = parseOperativitaAnswer(raw)
       const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
@@ -211,7 +211,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       if (decision.verdict === 'ok') needContract = true
       if (needContract) {
         const cq = buildContrattoPrompt({ blocks })
-        const rawC = await callOllamaRolling(settings, cq.system, cq.user, { numCtx: MAX_BATCH_CTX_8GB, timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
+        const rawC = await callOllamaRolling(settings, cq.system, cq.user, { numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
         const ca = parseContrattoAnswer(rawC)
         decision.contratto = ca?.contratto || 'non determinabile'
         log(`Operatività «${profile?.name || ''}» batch ${b + 1}: contratto ${decision.contratto}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''}`)
