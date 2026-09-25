@@ -121,9 +121,11 @@
       "note": "2.4/2.6 50% del massimale; 2.9 RC conduzione studio 500.000; 2.12 firma elettronica 500.000; spese legali 1/4 del massimale"
     },
     "Estensioni operative": {
-      "value": null,
-      "mode": "emptyOrNo",
-      "note": "scheda p.6: tutte le 6 estensioni barrate NO; condizioni particolari Non Operante"
+      "mode": "anyof",
+      "values": [
+        "nessun"
+      ],
+      "note": "scheda p.6: tutte le 6 estensioni barrate NO; la descrizione prescrive «Se la scheda elenca estensioni tutte barrate NO, scrivi 'Nessuna'» [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     },
     "Esclusioni particolari": {
       "mode": "anyof",

@@ -15,8 +15,12 @@
       "mode": "contains"
     },
     "P. IVA / Cod. Fiscale": {
-      "value": "10576980154",
-      "mode": "vat"
+      "mode": "anyof",
+      "values": [
+        "10576980154",
+        "BLCMGH62H43F205O"
+      ],
+      "note": "il documento riporta «C.F. BLCMGH62H43F205O / P.I. 10576980154» del contraente; la descrizione accetta «partita IVA o codice fiscale» [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     },
     "Indirizzo": {
       "value": "MUGELLO",

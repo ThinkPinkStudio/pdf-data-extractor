@@ -124,9 +124,11 @@
       ]
     },
     "Estensioni operative": {
-      "value": null,
-      "mode": "emptyOrNo",
-      "note": "Condizioni Speciali Art. 1-6 tutte NO"
+      "mode": "anyof",
+      "values": [
+        "nessun"
+      ],
+      "note": "Condizioni Speciali Art. 1-6 tutte NO; la descrizione prescrive 'Nessuna' [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     },
     "Esclusioni particolari": {
       "mode": "anyof",
@@ -142,9 +144,12 @@
       ]
     },
     "Condizioni particolari": {
-      "value": null,
-      "mode": "emptyOrNo",
-      "note": "scheda: 'Non operante.'"
+      "mode": "anyof",
+      "values": [
+        "non operante",
+        "nessuna"
+      ],
+      "note": "scheda p.6: «CONDIZIONI PARTICOLARI … Non operante.»; la descrizione dice «Se la scheda dice 'Non operante' riportalo» (come il golden 2025) [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     },
     "Visto leggero": {
       "value": null,

@@ -65,9 +65,9 @@
       "mode": "date"
     },
     "Sinistri e circostanze": {
-      "value": "Sì",
-      "mode": "yes",
-      "note": "Questionario Avvocato 10/2025 (firmato 24/03/2026), Sezione 4 domanda 8: barrato 'sinistro chiuso con liquidazione oltre € 20.000,00'"
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "Questionario p2 Sez. 4 domanda 8: campi del modulo SI5='' e NO5='X' (risposta NO); il gruppo radio dei sinistri non ha valore (tutti /Off) e le Sezioni 6-7 (scheda sinistro/circostanza) sono vuote. Il golden del 12/09 diceva 'Sì' leggendo come barrato un cerchio stampato spostato [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     },
     "Massimale per sinistro": {
       "value": "1.500.000,00",

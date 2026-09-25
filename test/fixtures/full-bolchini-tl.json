@@ -98,9 +98,9 @@
       "mode": "contains"
     },
     "Interessi di frazionamento": {
-      "value": "5,84",
+      "value": null,
       "mode": "amount",
-      "note": "tabella premi: 2,92 per rata su due rate semestrali; la descrizione chiede il COMPLESSIVO (2,92+2,92=5,84), non stampato nel documento"
+      "note": "il complessivo 5,84 (2,92×2) NON è stampato in nessun documento: ottenerlo richiede un calcolo, vietato dalle regole (mai calcolato) → vuoto [corretto 25/09/2026 dall'analisi degli errori in produzione]"
     }
   },
   "nonVerificati": [],
