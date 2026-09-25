@@ -132,6 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         sourceJobId: job.id, email: session.email, fieldDefs: srcFieldDefs,
         promptExtra: body.promptExtra !== undefined ? (body.promptExtra || null) : (profile ? (profile.promptExtra || null) : job.prompt_extra || null),
         settingsOverride: override || {}, label: `TEST · ${job.dossier_name || job.id.slice(0, 8)}${model ? ` · ${model}` : ''}`,
+        ...(profile ? { profileId: profile.id, profileName: profile.name } : {}),
       })
       if (res) { done++; startJob(res.id) } else { skipped++; skippedIds.push(id) }
     } else {

@@ -52,6 +52,7 @@ export default function PolizzaJobsPage() {
   const shown = (batches || []).filter((b) => !q || b.label.toLowerCase().includes(q) || (b.email || '').toLowerCase().includes(q))
   const singlesSummary = singles ? summarizeJobs(singles, SINGLES_ID, t('jobsDash.singlesShort')) : null
   const showSingles = singlesSummary && (!q || t('jobsDash.singlesShort').toLowerCase().includes(q))
+  const singlesActive = !!singlesSummary && ((singlesSummary.queued || 0) + (singlesSummary.running || 0)) > 0
 
   return (
     <div>
@@ -77,8 +78,13 @@ export default function PolizzaJobsPage() {
       {hits !== null && <SearchResults hits={hits} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+        {/* Estrazioni singole (e run di test) IN CIMA quando hanno lavoro in corso o
+            in coda: in fondo, dopo decine di batch, non si vedevano (25/09/2026). */}
+        {showSingles && singlesSummary && singlesActive && (
+          <BatchCard b={singlesSummary} href={`/polizza/jobs/${SINGLES_ID}`} subtitle={t('jobsDash.singlesCardDesc')} virtual />
+        )}
         {shown.map((b) => <BatchCard key={b.id} b={b} href={`/polizza/jobs/${b.id}`} />)}
-        {showSingles && singlesSummary && (
+        {showSingles && singlesSummary && !singlesActive && (
           <BatchCard b={singlesSummary} href={`/polizza/jobs/${SINGLES_ID}`} subtitle={t('jobsDash.singlesCardDesc')} virtual />
         )}
       </div>

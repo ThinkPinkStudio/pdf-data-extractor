@@ -665,6 +665,11 @@ export async function createTestJob(params: {
   promptExtra: string | null
   settingsOverride: Record<string, unknown>
   label: string
+  // Identità del PROFILO della run di test: senza, il pre-controllo della copia
+  // usava il profilo ATTIVO delle Impostazioni (un altro profilo, senza «Come
+  // riconoscerla») e la sua pertinenza non valeva (A/B del 25/09/2026).
+  profileId?: string | null
+  profileName?: string | null
 }): Promise<JobRow | null> {
   const src = await getJob(params.sourceJobId)
   if (!src) return null
@@ -675,14 +680,16 @@ export async function createTestJob(params: {
   await pool.query(
     `INSERT INTO polizza_jobs
        (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra,
-        rolling_state, source_job_id, settings_override, logs, created_at, updated_at)
-     VALUES ($1,$2,NULL,$3,'queued',$4,$5::jsonb,$6::jsonb,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12,$12)`,
+        rolling_state, source_job_id, settings_override, logs, created_at, updated_at, profile_id, profile_name)
+     VALUES ($1,$2,NULL,$3,'queued',$4,$5::jsonb,$6::jsonb,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12,$12,$13,$14)`,
     [id, params.email, params.label, src.whole_dossier,
       JSON.stringify(src.scanned_files || []), JSON.stringify(params.fieldDefs),
       params.promptExtra, JSON.stringify(initRollingState(params.fieldDefs)),
       rootId, JSON.stringify(params.settingsOverride || {}),
       JSON.stringify([`[${new Date().toTimeString().slice(0, 8)}] — Run di TEST creata da "${src.dossier_name || src.id}" da ${params.email} —`]),
-      now()]
+      now(),
+      params.profileId !== undefined ? params.profileId : (src.profile_id || null),
+      params.profileName !== undefined ? params.profileName : (src.profile_name || null)]
   )
   return getJob(id)
 }

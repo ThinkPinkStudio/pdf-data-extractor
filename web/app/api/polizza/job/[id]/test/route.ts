@@ -62,6 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}${extraBit}`
   const job = await createTestJob({
     sourceJobId: src.id, email: session.email, fieldDefs, promptExtra, settingsOverride, label,
+    ...(profile ? { profileId: profile.id, profileName: profile.name } : {}),
   })
   if (!job) return NextResponse.json({ error: 'Creazione run di test fallita' }, { status: 500 })
 
