@@ -67,7 +67,7 @@ export interface JobSnapshot {
 export type UiState = 'running' | 'queued' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'discarded' | 'done' | 'error' | 'canceled'
 
 // Filtro (striscia KPI / chip): un gruppo di stati.
-export type FilterKey = 'all' | 'active' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'done' | 'error'
+export type FilterKey = 'all' | 'active' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'done' | 'error' | 'canceled'
 
 export type ViewMode = 'tabella' | 'coda'
 export type DetailTab = 'precheck' | 'values' | 'history' | 'files' | 'log'

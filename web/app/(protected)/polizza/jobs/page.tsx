@@ -54,7 +54,7 @@ export default function PolizzaJobsPage() {
   const showSingles = singlesSummary && (!q || t('jobsDash.singlesShort').toLowerCase().includes(q))
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
           <h1 className="page-title" style={{ marginBottom: 4 }}>{t('jobsDash.title')}</h1>

@@ -3,16 +3,17 @@
 // JSX: si testano e si riusano da entrambe le viste (Tabella e Coda).
 import type { BatchSummary, FilterKey, JobSnapshot, T, UiState } from './types'
 
-export const FILTERS: FilterKey[] = ['all', 'active', 'matched', 'review', 'mismatch', 'setAside', 'done', 'error']
+export const FILTERS: FilterKey[] = ['all', 'active', 'matched', 'review', 'mismatch', 'setAside', 'done', 'error', 'canceled']
 
 export const FILTER_LABEL_KEY: Record<FilterKey, string> = {
   all: 'jobsDash.chipAll', active: 'jobsDash.chipActive', matched: 'jobsDash.chipMatched', review: 'jobsDash.chipReview',
   mismatch: 'jobsDash.chipMismatch', setAside: 'jobsDash.chipSetAside', done: 'jobsDash.chipDone', error: 'jobsDash.chipError',
+  canceled: 'jobsDash.chipCanceled',
 }
 
 export const FILTER_COLOR: Record<FilterKey, string> = {
   all: 'var(--c-accent)', active: '#3b82f6', matched: '#22c55e', review: '#f59e0b', mismatch: '#fb923c',
-  setAside: '#6a6a8a', done: '#22c55e', error: '#ef4444',
+  setAside: '#6a6a8a', done: '#22c55e', error: '#ef4444', canceled: '#4b4b63',
 }
 
 export function uiState(j: JobSnapshot): UiState {
@@ -32,7 +33,9 @@ export function filterOf(j: JobSnapshot): Exclude<FilterKey, 'all'> {
   const st = uiState(j)
   if (st === 'running' || st === 'queued') return 'active'
   if (st === 'discarded') return 'mismatch'
-  if (st === 'canceled') return 'error'
+  // Annullati: stato a sé (grigio), mai tra gli errori — un dossier fermato a
+  // mano non è un guasto (BESA 22/09: 62 annullati mostrati come «Errori»).
+  if (st === 'canceled') return 'canceled'
   return st
 }
 
@@ -120,7 +123,7 @@ export interface Segment { key: FilterKey; n: number; color: string; opacity?: n
 // Segmenti della barra di avanzamento: estratte, abbinate, da verificare, non
 // pertinenti, accantonate, errori, in corso. Solo quelli con conteggio > 0.
 export function segmentsFromCounts(c: Partial<Record<FilterKey, number>>): Segment[] {
-  const order: [FilterKey, number][] = [['done', 1], ['matched', 0.55], ['review', 1], ['mismatch', 1], ['setAside', 1], ['error', 1], ['active', 0.55]]
+  const order: [FilterKey, number][] = [['done', 1], ['matched', 0.55], ['review', 1], ['mismatch', 1], ['setAside', 1], ['error', 1], ['canceled', 0.6], ['active', 0.55]]
   return order.filter(([k]) => (c[k] || 0) > 0).map(([k, o]) => ({ key: k, n: c[k] || 0, color: FILTER_COLOR[k], opacity: o }))
 }
 
@@ -129,7 +132,7 @@ export function segmentsFromCounts(c: Partial<Record<FilterKey, number>>): Segme
 export function countsFromBatch(b: BatchSummary): Record<FilterKey, number> {
   return {
     all: b.total, active: (b.queued || 0) + (b.running || 0), matched: b.matched || 0, review: b.review || 0,
-    mismatch: b.mismatch || 0, setAside: 0, done: b.done || 0, error: (b.error || 0) + (b.canceled || 0),
+    mismatch: b.mismatch || 0, setAside: 0, done: b.done || 0, error: b.error || 0, canceled: b.canceled || 0,
   }
 }
 
