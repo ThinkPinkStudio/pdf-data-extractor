@@ -118,3 +118,18 @@ test('formatScoreReport: contiene id dossier e almeno una riga campo', () => {
   assert.match(text, /N° Polizza/)
   assert.match(text, /283618616/)
 })
+test('scoreFullTruth: vuoto giusto se la verità è vuota, valore dove doveva restare vuoto = sbagliato, yes/emptyOrNo/anyof, indice #N', async () => {
+  const { scoreFullTruth } = await import('../src/services/polizzaEval.js')
+  const defs = [{ id: 'a', label: 'N° Polizza' }, { id: 'b', label: 'Sinistri' }, { id: 'c', label: 'Compagnia' }, { id: 'd', label: 'Tasso' }, { id: 'e', label: 'Visto' }, { id: 'f', label: 'Frazionamento' }, { id: 'g', label: 'Senza verità' }]
+  const golden = { fields: {
+    'N° Polizza': { value: '123', mode: 'exact' }, Sinistri: { value: null, mode: 'emptyOrNo' },
+    Compagnia: { mode: 'anyof', values: ['DAS', 'D.A.S'] }, Tasso: { value: null, mode: 'text' },
+    Visto: { value: 'Sì', mode: 'yes' }, 'Frazionamento#5': { value: 'ANNUALE', mode: 'contains' },
+  } }
+  const r = scoreFullTruth({ data: { a: '123', b: 'No', c: 'D.A.S. Difesa', d: '0,5', e: 'SI', f: 'annuale' } }, golden, defs)
+  assert.equal(r.total, 7, 'denominatore = campi del profilo')
+  assert.equal(r.right, 5)
+  assert.deepEqual(r.noTruth, ['Senza verità'])
+  assert.equal(r.rows.find((x) => x.label === 'Tasso').why, 'doveva restare vuoto')
+  assert.equal(scoreFullTruth({ data: {} }, golden, defs).right, 2, 'vuoti giusti: Sinistri (emptyOrNo) e Tasso (null)')
+})

@@ -139,6 +139,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   `test-guffanti.mjs`, `test-docling.mjs`. Prima era copiata in quattro posti:
   "in test funziona, online no" nasceva anche da lì. Le pagine senza text layer
   restano `''` al loro posto (numerazione stabile, OCR selettivo possibile).
+- **Golden a VERITÀ PIENA (25/09/2026)**: `node scripts/calibrazione-goldens.mjs
+  --full --ollama http://192.168.100.72:11434 --model <m> --out .goldens-out/<tag>`
+  = i 13 fascicoli di `FULL_CASES` (golden-cases.mjs, cartelle lette
+  ricorsivamente, profili di `profili-polizza-riconoscimento.json`), punteggio
+  `scoreFullTruth` (polizzaEval.js): giusti/N con N = campi del profilo, vuoto
+  giusto se la verità è vuota, `yes`/`emptyOrNo`/`anyof`, «Label#i» = campo di
+  indice i; i campi senza verità contano sbagliati. Riepilogo in
+  `<out>/summary.json`. EULIP escluso (golden parziale 13/24).
+  `calibrazione-run` ora chiude il worker OCR ed esce (prima restava appeso).
 - **Golden dal LOCALE, contro l'Ollama vero** (il container cloud non
   raggiunge 192.168.37.10 e su CPU un batch costa 10 minuti):
   `cd web && npm ci && cd .. && ln -sfn web/node_modules node_modules`, poi

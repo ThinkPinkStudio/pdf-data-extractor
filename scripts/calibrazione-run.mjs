@@ -120,5 +120,11 @@ try {
 } catch (err) {
   console.error('ERRORE:', err.message)
   console.error(err)
+  try { await svc.closeOcrWorker() } catch { /* noop */ }
   process.exit(1)
 }
+// Il worker Tesseract (OCR delle scansioni) tiene vivo l'event loop: senza
+// chiuderlo il processo restava appeso a 0% CPU dopo «Salvato in» e una coda
+// di run (calibrazione-goldens) si fermava per ore.
+try { await svc.closeOcrWorker() } catch { /* noop */ }
+process.exit(0)

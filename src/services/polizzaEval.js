@@ -241,3 +241,67 @@ export function formatScoreReport(score) {
     ...rows,
   ].join('\n')
 }
+
+/**
+ * Punteggio a VERITÀ PIENA (Regola 4): OGNI campo del profilo ha una verità —
+ * un valore o VUOTO (`value: null`) — e il punteggio è giusti/N con N =
+ * campi del profilo. Un campo lasciato vuoto quando la verità è vuota è
+ * GIUSTO (lo scorer storico lo contava «mancante»); un valore dove la verità
+ * è vuota è SBAGLIATO. Modalità in più rispetto a compareField:
+ *   yes       — risposta affermativa (Sì/Si/Yes)
+ *   emptyOrNo — vuoto oppure «No»
+ *   anyof     — l'estratto contiene uno dei `values` (normalizzati)
+ * I campi del profilo senza verità nel golden sono riportati a parte
+ * (`noTruth`) e contano come SBAGLIATI: la misura non si fa su selezioni.
+ * @param {object} extracted  {data} o mappa piatta id→valore
+ * @param {{fields:object}} golden  chiavi = label del campo
+ * @param {{id:string,label:string}[]} fieldDefs  campi attivi del profilo
+ */
+export function scoreFullTruth(extracted, golden, fieldDefs) {
+  const got = actualMap(extracted)
+  // «Label#N» = il campo di INDICE N (da 0) del profilo: per le label doppie
+  // (RC PROF MED V2 ha due «Frazionamento», indici 10 e 28).
+  const byLabel = new Map()
+  const byPos = new Map()
+  for (const [label, spec] of Object.entries(golden?.fields || {})) {
+    const m = label.match(/^(.*)#(\d+)$/)
+    if (m) byPos.set(Number(m[2]), spec)
+    else byLabel.set(normLabel(label), spec)
+  }
+  const isYes = (s) => /^(si|sì|yes|s)$/i.test(normForMatch(s).replace(/[^a-z]/g, '') || '')
+  const isNo = (s) => /^(no|n)$/i.test(normForMatch(s).replace(/[^a-z]/g, '') || '')
+  const rows = []
+  let right = 0
+  const noTruth = []
+  for (const [i, f] of (fieldDefs || []).entries()) {
+    const spec = byPos.get(i) || byLabel.get(normLabel(f.label))
+    const actual = got[f.id] || ''
+    let ok = false
+    let why = ''
+    if (!spec) { noTruth.push(f.label); why = 'nessuna verità nel golden' }
+    else {
+      const mode = spec.mode || 'text'
+      const expectEmpty = spec.value == null && mode !== 'anyof'
+      if (mode === 'emptyOrNo') ok = !actual || isNo(actual)
+      else if (expectEmpty) ok = !actual
+      else if (!actual) ok = false
+      else if (mode === 'yes') ok = isYes(actual)
+      else if (mode === 'anyof') ok = (spec.values || []).some((v) => normForMatch(actual).includes(normForMatch(v)))
+      else { const st = compareField(spec, actual).status; ok = st === 'exact' || st === 'normalized' }
+      if (!ok) why = expectEmpty ? 'doveva restare vuoto' : (!actual ? 'mancante' : 'valore sbagliato')
+    }
+    if (ok) right++
+    rows.push({ label: f.label, id: f.id, expected: spec ? (spec.mode === 'anyof' ? (spec.values || []).join('|') : spec.value) : undefined, actual, ok, why })
+  }
+  return { dossier: golden?.id || 'unknown', label: golden?.label || '', right, total: (fieldDefs || []).length, noTruth, rows }
+}
+
+/** Tabella testo del punteggio a verità piena. */
+export function formatFullTruthReport(s) {
+  const pct = s.total ? Math.round((s.right / s.total) * 1000) / 10 : 0
+  return [
+    `Eval ${s.dossier}${s.label ? ` — ${s.label}` : ''}`,
+    `  giusti ${s.right}/${s.total} (${pct}%)${s.noTruth.length ? `  · senza verità: ${s.noTruth.length}` : ''}`,
+    ...s.rows.map((r) => `  ${r.ok ? 'OK ' : 'NO '} ${String(r.label).padEnd(40)} atteso=${String(r.expected ?? '∅').slice(0, 30).padEnd(30)} ottenuto=${r.actual ? String(r.actual).slice(0, 60) : '∅'}${r.why ? `  (${r.why})` : ''}`),
+  ].join('\n')
+}
