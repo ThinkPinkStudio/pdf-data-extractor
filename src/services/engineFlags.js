@@ -17,9 +17,12 @@ export const DEFAULT_FLAGS = Object.freeze([])
 /**
  * Flag conosciuti, col perché. Un nome sconosciuto nell'override si ignora.
  * - campi: valori dei campi compilabili (AcroForm) nella griglia del text layer.
+ * - cascata4: la cascata chiede al massimo FIELDS_PER_CALL campi per chiamata
+ *   (come i gruppi) e scarta le copie con lo stesso text layer (F04).
  */
 export const KNOWN_FLAGS = Object.freeze({
   campi: 'valori dei campi compilabili (AcroForm) nella griglia del text layer',
+  cascata4: 'cascata a FIELDS_PER_CALL campi per chiamata; copie identiche anche per text layer (F04)',
 })
 
 /** @returns {Set<string>} */

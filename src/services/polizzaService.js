@@ -4338,10 +4338,28 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const analyzed = []
   {
     const seen = new Map()
+    // [flag cascata4] Stesso TEXT LAYER (griglia pdf.js) = stesso documento anche
+    // quando il markdown Docling differisce per l'OCR di un timbro (GUFFANTI RC
+    // 2026: tre copie del contratto, tre volte le chiamate e i voti). Resta la
+    // copia col testo (markdown) più lungo, mai la prima caricata per caso.
+    const byLayer = new Map()
+    const layerKey = (d) => (engineFlag(settings, 'cascata4') && Array.isArray(d.spatialPages) ? normForMatch(d.spatialPages.map(collapseSpatial).join('\n')) : '')
     for (const d of analyzedAll) {
       const key = normForMatch(d.text || '')
       if (key.length >= 200 && seen.has(key)) { diag.push(`Documento identico scartato: ${d.name} (stesso testo di ${seen.get(key)})`); continue }
       if (key.length >= 200) seen.set(key, d.name)
+      const lk = layerKey(d)
+      if (lk.length >= 200 && byLayer.has(lk)) {
+        const kept = byLayer.get(lk)
+        if ((d.text || '').length > (kept.text || '').length) {
+          analyzed[analyzed.indexOf(kept)] = d
+          d.ord = kept.ord
+          byLayer.set(lk, d)
+          diag.push(`Documento identico (text layer): ${kept.name} sostituito da ${d.name} (testo più lungo)`)
+        } else diag.push(`Documento identico (text layer) scartato: ${d.name} (stesso text layer di ${kept.name})`)
+        continue
+      }
+      if (lk.length >= 200) byLayer.set(lk, d)
       // Etichetta NEUTRA del documento nei prompt ("Documento N"): il nome file
       // non entra mai nel testo che legge il modello (vedi stagedDocTag).
       d.ord = analyzed.length + 1
@@ -5528,6 +5546,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${settings.ollamaModel || settings.llmModel || '?'} — flag del motore: ${engineFlagsLabel(settings)}`)
   let progressTotal = 0
   let progressDone = 0
+  // Tetto di CAMPI PER CHIAMATA. Con 12 descrizioni per chiamata il modello da
+  // 8B perdeva la corrispondenza indice→campo (visto nel dump GUFFANTI: valori
+  // scalati sul campo precedente, frasi qualsiasi nei campi assenti dalla
+  // pagina); la letteratura sugli schemi piccoli va nella stessa direzione.
+  // Lo stesso testo del batch viene chiesto in più chiamate da pochi campi.
+  // Sovrascrivibile da Impostazioni (polizzaFieldsPerCall) o env. Vale per i
+  // GRUPPI e, col flag cascata4, per la CASCATA (che chiedeva 22-32 campi in
+  // una chiamata: rcp-pilato le esclusioni sotto la chiave delle estensioni).
+  const FIELDS_PER_CALL = (() => {
+    const v = parseInt(settings.polizzaFieldsPerCall ?? process.env.POLIZZA_FIELDS_PER_CALL, 10)
+    return Number.isFinite(v) && v > 0 ? Math.min(v, 24) : 4
+  })()
 
   if (useCascade) {
   const cascadeDocs = [...analyzed].sort(byStagedRecency)
@@ -5577,28 +5607,39 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const missingHere = missingEligible(doc)
     if (!missingHere.length) { if (doc.type === 'polizza') polizzaVisited = true; continue }
 
-    const fieldLines = missingHere
-      .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
-      .join('\n')
     const docHeader = `DOCUMENTO ANALIZZATO: "${stagedDocTag(doc)}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
-    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (${paraphraseHint(missingHere)}), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    const promptFor = (fields) => {
+      const fieldLines = fields
+        .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
+        .join('\n')
+      return (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (${paraphraseHint(fields)}), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${fields.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    }
+    // [flag cascata4] Campi chiesti a gruppi di FIELDS_PER_CALL sullo STESSO
+    // testo (come i gruppi); senza flag, tutti i mancanti in una chiamata.
+    const fieldSets = []
+    const perCall = engineFlag(settings, 'cascata4') ? FIELDS_PER_CALL : missingHere.length
+    for (let si = 0; si < missingHere.length; si += perCall) fieldSets.push(missingHere.slice(si, si + perCall))
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
-    const reserve = estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + buildPrompt('').length) + 3000 + 512
+    // Riserva sul prompt più lungo tra i sotto-gruppi: il testo è lo stesso per tutti.
+    const reserve = Math.max(...fieldSets.map((fs) => estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + promptFor(fs)('').length))) + 3000 + 512
     const budgetChars = Math.max(4000, Math.floor((batchCtx - reserve) * 2.0))
     // COPERTURA TOTALE del documento: se non entra in una chiamata si spezza —
     // il budget decide in quanti pezzi, MAI cosa resta fuori.
     const docBatches = buildGroupBatches([doc], budgetChars)
 
     for (let bi = 0; bi < docBatches.length; bi++) {
+     for (let fsi = 0; fsi < fieldSets.length; fsi++) {
       if (abortedByErrors) break
+      const fieldsNow = fieldSets[fsi]
+      const buildPrompt = promptFor(fieldsNow)
       const { text: ctx, usedNames } = docBatches[bi]
-      const label = `Cascata ${di + 1}/${cascadeDocs.length} "${doc.name}"${docBatches.length > 1 ? ` parte ${bi + 1}/${docBatches.length}` : ''}`
+      const label = `Cascata ${di + 1}/${cascadeDocs.length} "${doc.name}"${docBatches.length > 1 ? ` parte ${bi + 1}/${docBatches.length}` : ''}${fieldSets.length > 1 ? ` [campi ${fsi * perCall + 1}-${fsi * perCall + fieldsNow.length} di ${missingHere.length}]` : ''}`
       cascadeCalls++
       let parsed = null
       let usedCtx = ctx
       try {
-        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
+        const raw = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(ctx), { numCtx: batchCtx, timeoutMs: 600000, diag, fields: fieldsNow, shape: 'staged' })
         try {
           parsed = parseJsonResponse(raw)
         } catch {
@@ -5607,7 +5648,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           diag.push(`${label}: risposta non parsabile, retry con contesto ridotto…`)
           const cutAt = ctx.lastIndexOf('\n\n[', Math.floor(ctx.length * 0.7))
           usedCtx = cutAt > 0 ? ctx.slice(0, cutAt) : ctx.slice(0, Math.floor(ctx.length * 0.7))
-          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: missingHere, shape: 'staged' })
+          const raw2 = await callOllamaRolling(s2, STAGED_CASCADE_SYSTEM, buildPrompt(usedCtx), { numCtx: batchCtx, numPredict: 4096, timeoutMs: 600000, diag, fields: fieldsNow, shape: 'staged' })
           parsed = parseJsonResponse(raw2)
         }
         consecutiveErrors = 0
@@ -5627,9 +5668,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
       // controprova sulla polizza base non ha più codice speciale — i suoi
       // candidati competono con l'affinità descrizione↔contesto come gli altri.
-      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx, verificationObjects)
+      llmFieldsCount += await absorbStagedEntries(parsed, fieldsNow, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx, verificationObjects)
       const filled = report.filter((r) => r.outcome === 'ok').length
-      diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
+      diag.push(`${label} (${fieldsNow.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
         `${counters.noEvidence - before.noEvidence} senza evidenza` +
         `${counters.guardrail > before.guardrail ? `, ${counters.guardrail - before.guardrail} guardrail` : ''}`)
@@ -5639,6 +5680,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (reported.length) {
         diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}${reportEvidenceTail(r)}`).join(' · ')}`)
       }
+     }
     }
 
     // Dopo il documento: tentativi a vuoto (per il tetto) e registrazione
@@ -5671,16 +5713,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
     groupPlans.push({ kind, groupFields, groupDocs })
   }
-  // Tetto di CAMPI PER CHIAMATA. Con 12 descrizioni per chiamata il modello da
-  // 8B perdeva la corrispondenza indice→campo (visto nel dump GUFFANTI: valori
-  // scalati sul campo precedente, frasi qualsiasi nei campi assenti dalla
-  // pagina); la letteratura sugli schemi piccoli va nella stessa direzione.
-  // Lo stesso testo del batch viene chiesto in più chiamate da pochi campi.
-  // Sovrascrivibile da Impostazioni (polizzaFieldsPerCall) o env.
-  const FIELDS_PER_CALL = (() => {
-    const v = parseInt(settings.polizzaFieldsPerCall ?? process.env.POLIZZA_FIELDS_PER_CALL, 10)
-    return Number.isFinite(v) && v > 0 ? Math.min(v, 24) : 4
-  })()
   for (const plan of groupPlans) {
     const { kind, groupFields, groupDocs } = plan
     // fieldLines COMPLETO solo per stimare la riserva di budget; i campi chiesti
