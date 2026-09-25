@@ -96,10 +96,32 @@ async function spatialPagesFromPdf(pdfBuf: Buffer): Promise<string[] | null> {
   }
 }
 
+// Numeri spezzati dal kerning ricomposti anche nelle griglie LETTE DALLA CACHE
+// OCR. joinSplitNumbers (14/09) è arrivato dopo l'ultimo bump di OCR_FORMAT
+// (11/09): le griglie in cache scritte prima restavano "54 . 383 ,00" e il
+// fatturato del questionario cadeva senza evidenza con la citazione giusta
+// (BOLCHINI RC 2026, fascicolo già elaborato → griglia dalla cache). La
+// funzione è idempotente: si applica in lettura invece di invalidare la cache
+// (niente OCR rifatto per ogni scansione). `textLayer`: se noto, solo le
+// pagine con testo digitale (le pagine OCR restano come un OCR rifatto da
+// zero); null = tutte. Mai bloccante: in errore le pagine restano com'erano.
+async function rejoinCachedGrid(pages: string[], textLayer: string[] | null): Promise<string[]> {
+  try {
+    const { joinSplitNumbersInPages } = await importSharedService<{
+      joinSplitNumbersInPages: (p: string[], layer?: string[] | null) => string[]
+    }>('pdfTextLayer.js')
+    return joinSplitNumbersInPages(pages, textLayer)
+  } catch {
+    return pages
+  }
+}
+
 // LETTURA «senza markdown» di UN PDF: text layer pdfjs (griglia spaziale) e
 // OCR Tesseract SOLO sulle pagine senza testo (scansioni). UNICO codice per il
 // worker e per la riconciliazione del batch (policyReconcile): stesso testo,
 // stessa cache OCR (la scrive il chiamante). null = PDF illeggibile.
+const totalPagesForLog = (layer: string[] | null, doc: { numPages?: number } | null) => (layer ? layer.length : (doc?.numPages || 0))
+
 export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings: any, hooks: {
   log?: (line: string) => Promise<void>
   isCanceled?: () => Promise<boolean>
@@ -124,7 +146,9 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   const m = doc ? await svc() : null
   // Motore di lettura delle scansioni: Tesseract o un modello visivo (polizzaOcrEngine).
   const vision = m ? m.visionOcrEngine(settings) : null
-  if (vision && needOcr && needOcr.length) await log(`OCR con modello visivo ${vision} per "${docName}" (${needOcr.length} pagine)`)
+  // needOcr è null per una scansione INTERA (nessun text layer): allora tutte le pagine.
+  const toOcr = needOcr ? needOcr.length : totalPagesForLog(textLayer, doc)
+  if (vision && toOcr) await log(`OCR con modello visivo ${vision} per "${docName}" (${toOcr} pagine)`)
   let ocrPages = 0
   try {
     for (let p = 1; p <= totalPages; p++) {
@@ -359,16 +383,28 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // Cache OCR: SOLO se il markdown Docling/pdf-inspector non è disponibile.
     // (PRIMA la cache vinceva su Docling e i PDF già visti non lo usavano mai.)
     let cachedPages: string[] | null = null
+    // Chiave della cache: dipende dal MOTORE OCR solo se il documento ha pagine
+    // SCANSIONATE. Un PDF tutto digitale dà lo stesso testo con qualunque motore:
+    // con la chiave per motore una prova «OCR visivo» rileggeva da zero anche i
+    // digitali (griglia ricalcolata) e il confronto con la base non era pulito
+    // (GUFFANTI RC 33 → 29 senza una sola pagina letta dal modello visivo).
+    const layerProbe = mdDoc ? null : await spatialPagesFromPdf(buf)
+    const hasScanPages = !layerProbe || layerProbe.some((t) => !t || !t.trim())
+    const docCacheKey = mdDoc || !hasScanPages ? fileHash : ocrCacheKey(fileHash, settings)
     if (!mdDoc) {
-      try { cachedPages = await getOcrCache(ocrCacheKey(fileHash, settings)) } catch { /* cache mai bloccante */ }
+      try { cachedPages = await getOcrCache(docCacheKey) } catch { /* cache mai bloccante */ }
       if (!cachedPages) {
         try {
-          if (await hasStaleOcrCache(ocrCacheKey(fileHash, settings))) {
+          if (await hasStaleOcrCache(docCacheKey)) {
             await appendLog(job, `OCR rifatto per "${docName}": formato del testo aggiornato (colonne preservate)`, logs)
           }
         } catch { /* solo log, mai bloccante */ }
       }
       if (cachedPages && cachedPages.length) {
+        // Cache senza markdown: text layer o OCR? Lo dice il PDF (pagine senza testo = scansione).
+        const layerOfCached = layerProbe
+        // Numeri spezzati ricomposti sulle sole pagine digitali ([] = nessuna: scansione intera).
+        cachedPages = await rejoinCachedGrid(cachedPages, layerOfCached || [])
         const docText = cachedPages.filter(Boolean).join('\n')
         totalPagesProcessed += cachedPages.length
         pagesWithText += cachedPages.filter((t) => t && t.trim()).length
@@ -376,8 +412,6 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         await appendLog(job, `OCR riusato dalla CACHE per "${docName}" (${cachedPages.length} pagine, contenuto già visto)`, logs)
         await updateJob(job.id, { progress: { docIndex: d, docTotal: files.length, pageIndex: cachedPages.length, pageTotal: cachedPages.length, docName, totalPagesProcessed, receivedAt: Date.now() } })
         parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
-        // Cache senza markdown: text layer o OCR? Lo dice il PDF (pagine senza testo = scansione).
-        const layerOfCached = await spatialPagesFromPdf(buf)
         docsForIndex.push({ name: docName, pages: cachedPages, hash: fileHash, ocr: !layerOfCached || layerOfCached.some((t) => !t || !t.trim()) })
         docsFlat.push({ name: docName, pages: cachedPages.map(toFlat) })
         continue
@@ -409,13 +443,15 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // rigenera da pdfjs. (OCR_FORMAT=3 ha già invalidato le voci marce; questa
       // è difesa in profondità per chi ha una cache scritta da build difettose.)
       let spatial: string[] | null = null
-      const cachedRaw = await getOcrCache(ocrCacheKey(fileHash, settings)).catch(() => null)
+      // Ramo markdown: la griglia è il text layer (niente OCR) → chiave del solo file.
+      const cachedRaw = await getOcrCache(fileHash).catch(() => null)
       const cacheIsGrid = !!(cachedRaw && cachedRaw.length && !(cachedRaw.length === 1 && String(cachedRaw[0]).trim() === mdDoc.trim()))
-      if (cacheIsGrid) spatial = cachedRaw
+      // Griglia dalla cache: numeri spezzati dal kerning ricomposti (vedi rejoinCachedGrid).
+      if (cacheIsGrid) spatial = await rejoinCachedGrid(cachedRaw!, null)
       else {
         spatial = await spatialPagesFromPdf(buf)
         if (spatial) {
-          try { await putOcrCache(ocrCacheKey(fileHash, settings), docName, spatial) } catch { /* non fatale */ }
+          try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
         }
       }
       totalPagesProcessed += (spatial?.length || docPages.length)
@@ -453,7 +489,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
     // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
     if (docPages.some((t) => t && t.trim())) {
-      try { await putOcrCache(ocrCacheKey(fileHash, settings), docName, docPages) } catch { /* non fatale */ }
+      try { await putOcrCache((read.ocrPages || 0) > 0 ? ocrCacheKey(fileHash, settings) : fileHash, docName, docPages) } catch { /* non fatale */ }
     }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ocr: (read.ocrPages || 0) > 0 })

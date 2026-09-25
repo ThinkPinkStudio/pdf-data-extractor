@@ -23,6 +23,14 @@ interface ReconcileSvc {
   planReconcile: (d: { id: string; path: string; files: { idx: number; numbers: string[] }[] }[]) => { target: string; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }[]
 }
 
+async function spatialPagesOf(buf: Buffer): Promise<string[] | null> {
+  try {
+    const { spatialPagesFromPdf, hasTextLayer } = await importSharedService<{ spatialPagesFromPdf: (b: Buffer) => Promise<string[]>; hasTextLayer: (p: string[]) => boolean }>('pdfTextLayer.js')
+    const pages = await spatialPagesFromPdf(buf)
+    return hasTextLayer(pages) ? pages : null
+  } catch { return null }
+}
+
 // Pagine lette per cercare il numero: frontespizio, quietanza, appendice lo
 // portano in testa; oltre ci sono condizioni che citano ALTRE polizze.
 const NUMBER_PAGES = 5
@@ -43,12 +51,16 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         let pages: string[] | null = null
         const b64 = await getJobFileBase64(d.id, f.idx)
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
-        if (hash) pages = await getOcrCache(ocrCacheKey(hash, settings)).catch(() => null)
-        if (!pages && b64) {
-          const read = await readPdfPagesWithOcr(Buffer.from(b64, 'base64'), f.file_name, settings)
+        // Stessa chiave del worker: per motore OCR solo se ci sono pagine scansionate.
+        const buf = b64 ? Buffer.from(b64, 'base64') : null
+        const probe = buf ? await spatialPagesOf(buf) : null
+        const key = hash ? ((!probe || probe.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings) : hash) : null
+        if (key) pages = await getOcrCache(key).catch(() => null)
+        if (!pages && buf) {
+          const read = await readPdfPagesWithOcr(buf, f.file_name, settings)
           pages = read?.pages || null
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
-          if (hash && pages && pages.some((t) => t && t.trim())) await putOcrCache(ocrCacheKey(hash, settings), f.file_name, pages).catch(() => {})
+          if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
         }
         files.push({ idx: f.idx, numbers: pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : [] })
       }

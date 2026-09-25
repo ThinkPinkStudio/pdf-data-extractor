@@ -83,6 +83,15 @@ export function parseLastDateFromContextLine(fullText, linePattern) {
 // la loro data NON rappresenta il periodo coperto e va esclusa dalla recenza.
 const EMISSION_LINE_RE = /(EMESS|EMISSIONE|STAMPAT|RILASCIAT|DATA\s+DOC)/i
 
+// Parola di PERIODO legata per POSIZIONE alla data che segue: tra la parola e
+// la data solo ":" e spazi, o "ore NN del" ("dalle ore 24 del 31/01/26").
+// (`\s*(?::\s*)?` e non `\s*:?\s*`: le righe della griglia hanno lunghe run di
+// spazi e due `\s*` affiancati le proverebbero spezzate in tutti i modi.)
+const PERIOD_KEYWORD_BEFORE_RE = /\b(?:dal|dalle|al|alle|decorrenza|scadenza|effetto|periodo)\s*(?::\s*)?(?:ore\s+\d{1,2}(?:[.:]\d{2})?\s+del(?:l['’])?\s*)?$/i
+// Due date che formano un periodo: la seconda segue la prima dopo "al"/"alle"
+// o un trattino ("16/12/25 - 16/12/26").
+const PERIOD_JOIN_RE = /^\s*(?:al|alle|[-–—])\s*$/i
+
 /**
  * Ultima (massima) data GG/MM/AAAA presente nel testo, ESCLUDENDO le righe di
  * emissione/stampa. Fallback quando non si trovano scadenza/periodo/decorrenza.
@@ -95,19 +104,41 @@ export function latestDateExcludingEmission(text) {
     // Anche gli anni a DUE cifre delle quietanze ("Dal 16/12/25 al 16/12/26"):
     // senza, la quietanza di rinnovo restava "senza data" e perdeva per recency
     // contro la polizza dell'anno prima (SPALLINO TL: 16/12/2024 al posto di 2025).
-    // L'anno a 2 cifre vale SOLO in una riga di PERIODO ("Dal … al", "dalle ore
-    // 24 del"): senza questo vincolo "045 8300010" o "00/84/90" di un piè di
-    // pagina davano al Set Informativo la data 00/84/2090 e lo rendevano il
-    // documento "più recente" del fascicolo (GUFFANTI TL da 87% a 35%).
-    const periodLine = /\b(?:dal|al|dalle|alle|periodo|decorrenza|scadenza)\b/i.test(rawLine)
+    // L'anno a 2 cifre vale SOLO se una parola di PERIODO è LEGATA ALLA DATA per
+    // posizione (la precede subito: "Dal 16/12/25", "Scadenza: 16/12/26",
+    // "dalle ore 24 del 31/01/26"), oppure se la data è la SECONDA di una
+    // coppia crescente unita da "al"/"alle"/trattino ("Periodo 16/12/25 -
+    // 16/12/26"), o solo da spazi quando la prima è a sua volta legata alla
+    // parola ("Dal  al 16/12/25 16/12/26": etichette in colonna prima dei
+    // valori). Una parola di periodo ALTROVE nella riga non conta più: il
+    // piè di pagina DAS «Aut. D.M. del 26.11.59 n.3646 Società appartenente al
+    // Gruppo Generali» aveva "al" nella riga e "26.11.59" diventava 26/11/2059;
+    // le due scansioni firmate SPALLINO TL, datate 2059, aprivano la cascata e
+    // decorrenza/scadenza restavano quelle della polizza 2024 invece del
+    // rinnovo 2025-2026 (lo stesso piè di pagina sta su ogni documento DAS).
+    // Prima ancora "045 8300010" o "00/84/90" di un piè di pagina davano al Set
+    // Informativo la data 00/84/2090 (GUFFANTI TL da 87% a 35%).
+    const dates = []
     for (const m of rawLine.matchAll(/(?<![\d/.])(\d{1,2})[/.](\d{1,2})[/.](20\d{2}|\d{2})(?![\d/.])/g)) {
-      if (m[3].length === 2 && !periodLine) continue
       const dd = +m[1], mm = +m[2]
       if (dd < 1 || dd > 31 || mm < 1 || mm > 12) continue // non è una data
       const yy = m[3].length === 2 ? `20${m[3]}` : m[3]
       const s = `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}`
-      const ts = dateStrToTs(s)
-      if (ts != null && ts > bestTs) { bestTs = ts; best = s }
+      dates.push({ s, ts: dateStrToTs(s), short: m[3].length === 2, start: m.index, end: m.index + m[0].length })
+    }
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i]
+      if (d.short) {
+        d.bound = PERIOD_KEYWORD_BEFORE_RE.test(rawLine.slice(0, d.start))
+        if (!d.bound && i > 0) {
+          const prev = dates[i - 1]
+          const between = rawLine.slice(prev.end, d.start)
+          const increasing = prev.ts != null && d.ts != null && prev.ts < d.ts
+          d.bound = increasing && (PERIOD_JOIN_RE.test(between) || (prev.bound && /^\s+$/.test(between)))
+        }
+        if (!d.bound) continue
+      }
+      if (d.ts != null && d.ts > bestTs) { bestTs = d.ts; best = d.s }
     }
   }
   return best

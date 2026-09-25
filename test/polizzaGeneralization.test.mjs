@@ -48,8 +48,17 @@ test('R2 fieldKind esplicito non regredisce: "0" su campo number resta valorizza
 
 // ── Regola 7: anti-label blacklist (intestazioni di sezione) ────────────────
 test('R7 isLabelLikeValue: intestazioni di sezione → true (scartate)', () => {
-  for (const v of ['IL CONTRAENTE', 'Contratto di Assicurazione per la Responsabilità Civile Professionale del Medico', 'Ramo di competenza: RC']) {
+  for (const v of ['IL CONTRAENTE', 'Contratto di Assicurazione', 'Ramo di competenza', 'Condizioni particolari', 'Esclusioni', 'Massimale per sinistro']) {
     assert.equal(isLabelLikeValue(v), true, `"${v}" dovrebbe essere scartata`)
+  }
+})
+
+// [25/09/2026, F09] Match sull'INTERA stringa: un valore che CONTIENE le parole
+// di un'intestazione non è un'intestazione. Prima (substring) anche questi due
+// erano scartati; il revisore ha accettato di perderli come costo dell'ancoraggio.
+test('R7 isLabelLikeValue: frasi che CONTENGONO un\'intestazione non sono intestazioni', () => {
+  for (const v of ['Contratto di Assicurazione per la Responsabilità Civile Professionale del Medico', 'Ramo di competenza: RC']) {
+    assert.equal(isLabelLikeValue(v), false, `"${v}" non è più scartata (match full-string)`)
   }
 })
 

@@ -18,7 +18,8 @@
  * `looseAmount`. Nessun accoppiamento ai servizi di import: testabile in Node
  * puro come gli altri test del repo.
  */
-import { looseAmount, factNature, descriptionDeniesNature } from './polizzaValidation.js'
+import { looseAmount, factNature, descriptionDeniesNature, descriptionNamesQuestionnaire } from './polizzaValidation.js'
+import { fieldValueKind } from './gbnfSchema.js'
 import { scanKindForField, NUMERIC_SCAN_KINDS } from './polizzaNumericScan.js'
 import { fieldNatura } from './polizzaFieldKind.js'
 
@@ -344,14 +345,28 @@ export function descriptionAsksCheckbox(description) {
  * altro documento. `optionPages` è un Set di `nomeDoc|numeroPagina` (1-based)
  * rivelate come opzioni; senza di esso resta il comportamento storico (per-file).
  *
+ * CAMPO (analisi errori 25/09/2026, F09): il veto vale SOLO per i campi che
+ * la testa della descrizione dichiara IMPORTO (fieldValueKind). Prima girava
+ * su qualunque valore: looseAmount prendeva il PRIMO numero di un elenco di
+ * testo ("Perdita o interruzione di attività di Terzi: 2.500.000; …", i
+ * Sottolimiti di GUFFANTI RC 2026) e buttava tutto l'elenco perché quella
+ * cifra stava solo nel questionario. E non vale per un campo la cui parte
+ * positiva della descrizione nomina il questionario/proposta come FONTE del
+ * dato ("il Fatturato … nella scheda di copertura, nel questionario o nella
+ * proposta", descriptionNamesQuestionnaire): lì il questionario è la fonte
+ * giusta, non un elenco di opzioni. Senza `field` resta il comportamento
+ * storico (solo registro e documenti).
+ *
  * @param registry registro {facts,index}
  * @param {Array<string>|Set<string>} optionDocs nomi documento rivelati come opzioni
  * @param {object} cand candidato { valore, file }
  * @param {Set<string>} [optionPages] chiavi `doc|page` delle pagine-opzione
+ * @param {object} [field] definizione del campo del candidato
  * @returns {boolean} true = vetto (la cifra esiste SOLO in pagine-opzione)
  */
-export function vetoOptionSourceOnly(registry, optionDocs, cand, optionPages = null) {
+export function vetoOptionSourceOnly(registry, optionDocs, cand, optionPages = null, field = null) {
   if (!registry || !cand || !optionDocs) return false
+  if (field && (fieldValueKind(field) !== 'amount' || descriptionNamesQuestionnaire(field))) return false
   const amt = looseAmount(cand?.valore)
   if (amt == null || !Number.isFinite(amt) || amt < LARGE_AMOUNT_THRESHOLD) return false
   const matches = findFactsByValue(registry, amt)

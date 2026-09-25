@@ -42,8 +42,8 @@ import {
   isTextualField,
   hasOcrDigitRunAsAmount,
   pickSemanticCandidate,
-  stripFieldExamples, findValueWindow, buildNormIndex, matchFieldKey,
-  validateCrossFields, valueLabelledByLayout, distinctiveHeadTokens,
+  stripFieldExamples, findValueWindow, buildNormIndex, indexOfWholeNumber, matchFieldKey,
+  validateCrossFields, valueLabelledByLayout, distinctiveHeadTokens, descriptionEchoPhrase, fieldAsksIdentifier,
 } from './polizzaValidation.js'
 import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs, extractMarkdownColumns, extractTableBlocks, repairTableMarkdown, tableRowsWithHeaders } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
@@ -85,7 +85,10 @@ import {
   anagraphicSeeds, anagraphicSeedKind, windowsFromLabelValuePairs,
   GROUNDING_MIN_CONFIDENCE,
 } from './polizzaGrounding.js'
-import { fieldKind, descriptionAsksVerification, canonicalVerificationAnswer, verificationAnswers } from './polizzaFieldKind.js'
+import {
+  fieldKind, descriptionAsksVerification, canonicalVerificationAnswer, verificationAnswers, verificationObjectPhrases, evidenceNamesObject,
+  positiveDescriptionText, positiveDescriptionHead, descriptionAsksDocumentNumber, descriptionPercentExample,
+} from './polizzaFieldKind.js'
 import {
   isSpecificCoverageField, hasDocumentedTutelaEvidence,
 } from './polizzaValidation.js'
@@ -1003,9 +1006,10 @@ export function sanitizeFieldValue(field, rawValue) {
   // contratto/adesione): un numero SPORCO OCR ("3ROL]]D") NON è un dato — è
   // spazzatura da scartare, mai da "riparare" (meglio vuoto che un numero
   // inventato/illeggibile). isGarbageIdentifier lo rileva (caratteri
-  // non-alfanumerici adiacenti identici o <70% alfanumerici).
-  if (field && isGarbageIdentifier(v) &&
-      /numero\s+(?:di\s+|della\s+|del\s+)?(polizz|propost|preventiv|appendic|contratt|adesion)|n[°.]?\s*(polizz|propost|preventiv|appendic)/i.test(`${field.id || ''} ${field.label || ''} ${field.description || ''}`)) return null
+  // non-alfanumerici adiacenti identici o <70% alfanumerici). Il campo è un
+  // identificativo se lo dice la parte POSITIVA della descrizione, mai id o
+  // label (Regola 1; analisi errori 25/09/2026, F09).
+  if (field && isGarbageIdentifier(v) && descriptionAsksDocumentNumber(field.description)) return null
 
   // Campi data (per type configurato): accetta solo date riconoscibili
   if (field?.type === 'date') return normalizeDateValue(v)
@@ -1044,21 +1048,30 @@ export function sanitizeFieldValue(field, rawValue) {
   // Il tasso è un numero per mille: togli l'eventuale simbolo
   if (/\btass/.test(low)) return v.replace(/\s*[‰%]\s*$/, '')
 
-  // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali
-  if (/massimale|premio|imposta|importo|scoperto|franchig/.test(low) && /[%‰]\s*$/.test(v)) return null
+  // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali —
+  // se il TIPO dichiarato dalla testa della descrizione è un importo
+  // (fieldValueKind), mai per le parole di label+descrizione intera: i
+  // Sottolimiti (un ELENCO di testo che cita "del Massimale per Sinistro")
+  // perdevano la voce vera "…: 50%" (GUFFANTI RC 2026, analisi errori
+  // 25/09/2026, F09). Il "%" è ammesso quando un ESEMPIO della descrizione è
+  // una percentuale ("la percentuale di scoperto (es. 10%)"): lo scoperto
+  // "10%" non poteva mai essere estratto.
+  const valueKind = fieldValueKind(field)
+  if (valueKind === 'amount' && /[%‰]\s*$/.test(v) && !descriptionPercentExample(field?.description)) return null
 
   // Un IMPORTO non ha zeri iniziali: "06457990965" (la P.IVA) proposto come
   // massimale è un identificativo, non una somma. È il FORMATO del tipo che la
   // descrizione dichiara (importo), non una soglia sul valore.
-  if (fieldValueKind(field) === 'amount' && /^0\d/.test(v.replace(/[€\s]/g, ''))) return null
+  if (valueKind === 'amount' && /^0\d/.test(v.replace(/[€\s]/g, ''))) return null
 
-  // Un campo che la DESCRIZIONE dichiara IMPORTO (massimale, premio, imposta,
-  // importo, franchigia, diritti, interessi) non può valere una DATA: "04/06/2025"
-  // proposto come massimale annuo diventava "04062025" e passava il controllo di
-  // evidenza (le cifre sono nel testo). È la validazione del TIPO dichiarato
-  // dalla descrizione (Regola 1b), non una soglia: meglio vuoto che una data
-  // spacciata per importo.
-  if (/massimale|premio|imposta|importo|scoperto|franchig|diritti|interessi/.test(low)
+  // Un campo che la DESCRIZIONE dichiara IMPORTO (testa della descrizione,
+  // fieldValueKind) non può valere una DATA: "04/06/2025" proposto come
+  // massimale annuo diventava "04062025" e passava il controllo di evidenza (le
+  // cifre sono nel testo). È la validazione del TIPO dichiarato dalla
+  // descrizione (Regola 1b), non una soglia: meglio vuoto che una data
+  // spacciata per importo. Prima la natura si leggeva da label+descrizione
+  // intera: bastava una parola citata di passaggio.
+  if (valueKind === 'amount'
       && field?.type !== 'date' && /\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(v) && normalizeDateValue(v)) return null
 
   return v
@@ -1974,11 +1987,16 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
 // blocco di "negative few-shot" iniettato in TUTTI i motori di estrazione PRIMA
 // del blocco FORMATO. Tipo-blind (spie generiche, mai per categoria di documento)
 // e a costo zero LLM: solo più token nel prompt.
-const KNOWN_TRAPS_SYSTEM_TEXT =
+// [REGOLE_AGENTI, Regola 1b] Tolta la riga «Un nome societario (…S.p.A., …Srl)
+// NON è una agenzia: ometti»: regola indovinata che contraddice la descrizione
+// dell'Agenzia, i cui esempi sono proprio società (ASSITA SPA, PANIZZA
+// ASSICURAZIONI BROKERS SRL, +Simple Italia Agency Srl) — avrebbe fatto
+// omettere a BOLCHINI RC 2025 il "PANIZZA ASSICURAZIONI BROKERS S.r.l." del
+// timbro letto dall'OCR visivo. Decide la descrizione del campo.
+export const KNOWN_TRAPS_SYSTEM_TEXT =
   'TRAPPOLE CONOSCIUTE (non cascarci):\n' +
   '- Un sotto-limite o sub-massimale di una garanzia speciale (es. 10.000,00) NON è il massimale della polizza: ometti se il campo è il massimale.\n' +
   '- Un campo la cui descrizione inizia con "TESTO…" vuole una PAROLA o una FRASE (SÌ/NO, "annuale", "retribuzioni", una descrizione), MAI un numero o un importo: se per quel campo trovi solo cifre ("4", "13.068,00", "75,00") è il dato sbagliato: "valore": null.\n' +
-  '- Un nome societario (es. "...S.p.A.", "...Srl", compagnia di assicurazione o sede legale) NON è una agenzia/piazza: ometti se compare una dicitura societaria.\n' +
   '- Una P.IVA/Codice Fiscale presente SOLO nell\'intestazione/footer della compagnia assicuratrice (Sede legale…, partita IVA contraente) NON è quella del contraente: ometti.\n' +
   '- L\'attività "rinvio" (la polizza copre SOLO l\'attività di rinvio) NON è l\'attività assicurata: usa quella effettiva, mai "rinvio".\n' +
   '- Decorrenza e scadenza: usa quelle del periodo di copertura PIÙ RECENTE, non di una quietanza vecchia che riporta un\'altra decorrenza/scadenza.\n'
@@ -3157,6 +3175,102 @@ export function buildGroupBatches(docList, budgetChars) {
   return batches
 }
 
+/**
+ * Documenti FOCALIZZATI: gli `n` PIÙ RECENTI (byStagedRecency) e gli `n` PIÙ
+ * AFFINI alle descrizioni (`affOf(d) > 0`, a pari affinità il più recente).
+ * Due criteri TYPE-BLIND (documenti tutti uguali: decidono datazione e
+ * descrizioni, mai il nome o il tipo del file), gli stessi per i batch
+ * focalizzati dei gruppi e per lo Stadio A.7 (una chiamata per documento).
+ * @returns {{ docs: object[], recent: object[], affine: object[] }}
+ */
+export function pickFocusDocs(docs, affOf, n = 3) {
+  const list = [...(docs || [])]
+  const recent = [...list].sort(byStagedRecency).slice(0, n)
+  const affine = list
+    .map((d) => [affOf(d), d])
+    .sort((a, b) => b[0] - a[0] || byStagedRecency(a[1], b[1]))
+    .filter(([aff]) => aff > 0)
+    .slice(0, n)
+    .map(([, d]) => d)
+  return { docs: [...new Set([...recent, ...affine])], recent, affine }
+}
+
+/**
+ * Blocchi TABELLA con importi (markdown `|`, almeno due importi) di OGNI
+ * documento, con la pagina d'origine: [{ d, blocks: [{ b, page }] }], solo i
+ * documenti che ne hanno. Le copie dello stesso blocco si scartano DENTRO il
+ * documento (griglia e markdown della stessa pagina), MAI tra documenti
+ * diversi: la riga "PREMIO ANNUO 201,22 42,78 244,00" della polizza e quella
+ * della polizza quietanzata sono due conferme, non un doppione (BOLCHINI TL).
+ */
+export function a7TableBlocksByDoc(analyzed) {
+  const out = []
+  for (const d of analyzed || []) {
+    const seen = new Set()
+    const blocks = []
+    for (const pages of [d.spatialPages, d.pages].filter(Boolean)) {
+      for (let pi = 0; pi < pages.length; pi++) {
+        for (const b of extractTableBlocks(pages[pi])) {
+          if (seen.has(b)) continue
+          seen.add(b)
+          if ((b.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})/g) || []).length >= 2) blocks.push({ b, page: pi + 1 })
+        }
+      }
+    }
+    if (blocks.length) out.push({ d, blocks: blocks.sort((x, y) => x.page - y.page) })
+  }
+  return out
+}
+
+/**
+ * Riga di tabella dello Stadio A.7 per l'etichetta asserita dal modello
+ * ("riga"), tra le righe della chiamata [{ page, key, row }] (key =
+ * normForMatch dell'etichetta). Prima l'etichetta esatta, poi quella che la
+ * contiene o vi è contenuta; in ciascuna la riga che PORTA il valore (la
+ * stessa etichetta "PREMIO ANNUO" può stare su più pagine), altrimenti la
+ * prima. Prima l'indice era per sola etichetta e vinceva la prima tabella
+ * inserita, di qualunque documento.
+ */
+export function findA7Row(rows, rowLabelNorm, valueNorm) {
+  if (!rowLabelNorm) return null
+  const list = rows || []
+  const exact = list.filter((r) => r.key === rowLabelNorm)
+  const loose = list.filter((r) => r.key && r.key !== rowLabelNorm && (r.key.includes(rowLabelNorm) || rowLabelNorm.includes(r.key)))
+  const carries = (r) => !!valueNorm && (r.row?.cols || []).some((c) => {
+    const n = normForMatch(c.value)
+    return !!n && (n === valueNorm || n.includes(valueNorm))
+  })
+  return exact.find(carries) || loose.find(carries) || exact[0] || loose[0] || null
+}
+
+/**
+ * Campo di una chiave della risposta dello Stadio A.7: SOLO per indice
+ * ("3", "c3", "k3", "k3_…"). Niente ripiego sulle parole della LABEL
+ * (Regola 1: la label non guida mai la scelta del valore): una chiave che non
+ * è un indice non si mappa, meglio vuoto che sul campo sbagliato.
+ */
+export function a7FieldOfKey(k, fields) {
+  const s = String(k ?? '').trim()
+  const kIdx = s.match(/^k(\d+)(?:_|$)/)
+  if (kIdx) return fields?.[Number(kIdx[1])] || null
+  if (/^c\d+$/i.test(s) || /^\d+$/.test(s)) return fields?.[Number(s.replace(/\D/g, ''))] || null
+  return null
+}
+
+// Prompt di sistema dello Stadio A.7. Niente più "(per il premio: il valore
+// più grande, la rata che copre l'anno)": era una regola inventata (Regola 1b)
+// e sceglieva l'offerta più cara tra due proposte (BOLCHINI TL: 272,16 /
+// 57,84 / 330,00 della proposta con massimale 50.000 invece di 201,22 / 42,78
+// / 244,00 della polizza). Quale riga vale lo dice la descrizione; se nessuna
+// riga la rappresenta, il campo si omette.
+export const A7_SYSTEM_PROMPT = 'Estrai i valori richiesti dalle TABELLE qui sotto, tutte dello STESSO documento ("[Documento N · pag. P]" indica la pagina). ' +
+  'Ogni RIGA ha colonne enumerate (col1, col2, ...) coi loro nomi reali; "-" = cella vuota. ' +
+  'REGOLA CAMPI: se il valore di un campo è nella tabella, restituiscilo ESATTO (colonna giusta). ' +
+  'Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell\'intero periodo e rispondi UNA SOLA volta; se nessuna riga rappresenta ciò che la descrizione chiede, ometti il campo. ' +
+  'Se il valore non c\'è, non includere quel campo. Non sommare, non inventare. ' +
+  'FORMATO: un oggetto JSON {"voci": [ ... ]} dove ogni voce è {"campo": <indice del campo>, "valore": "...", "riga": "...", "colonna": "..."}. ' +
+  'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE, è l\'unico modo per sapere a quale campo si riferisce il valore. UN solo valore per campo. Se nessun campo è nella tabella: {"voci": []}.'
+
 // Spezza una pagina (già con le coppie/tabelle) su confini strutturali:
 //  1. blocchi di paragrafo (doppio a-capo) e tabelle INTERE restano uniti;
 //     quando un blocco supera il budget, si spezza alla RIGA DI TABELLA
@@ -3459,6 +3573,21 @@ const STAGED_RECOVERY_SYSTEM =
   'FORMATO: un solo oggetto JSON, con chiavi = gli INDICI dei campi richiesti (c0, c1, …): {"c0": {"valore":"…"|null, "evidenza":"…"}}. Le chiavi c0, c1, … seguono l\'ordine dell\'elenco campi.\n' +
   'Zero testo extra, zero markdown.'
 
+/**
+ * Inciso "anche con parole diverse" dei prompt di cascata e recupero, SENZA i
+ * campi di VERIFICA: per loro la parafrasi era un invito a citare una frase
+ * vicina (SPALLINO RC, recupero: "Consulenza Fiscale" presa per "assistenza
+ * fiscale" → visto leggero "presente"), e ora la citazione deve nominare
+ * l'oggetto con le parole della descrizione. Decide la descrizione ("Verifica
+ * se…"), mai la label.
+ */
+export function paraphraseHint(fields) {
+  const verif = (fields || []).filter((f) => descriptionAsksVerification(f?.description))
+  if (!verif.length) return 'anche con parole diverse'
+  if (verif.length === (fields || []).length) return 'per una VERIFICA la frase copiata deve nominare ciò che si verifica con le parole della descrizione'
+  return 'anche con parole diverse, TRANNE per i campi che chiedono di VERIFICARE se qualcosa è coperto o presente: lì la frase copiata deve nominarlo con le parole della descrizione'
+}
+
 // Stadio B a CASCATA: un documento alla volta, dal più recente al più vecchio,
 // chiedendo SOLO i campi ancora vuoti. Il contratto per-campo con null
 // obbligatorio è lo stesso del recupero (la pigrizia non produce JSON valido).
@@ -3479,26 +3608,84 @@ const STAGED_CASCADE_SYSTEM =
   'FORMATO: un solo oggetto JSON con chiavi = gli INDICI dei campi (c0, c1, …): {"c0": {"valore":"…"|null, "evidenza":"…"}}.\n' +
   'Zero testo extra, zero markdown.'
 
+// Indice normalizzato (grezzo ↔ normalizzato) per pagina, costruito al primo
+// bisogno: serve ai confini di NUMERO delle ricerche per valore. `layer`:
+// 'flat' = d.pages (testo piatto/markdown, quello di normPages), 'spatial' =
+// d.spatialPages (la griglia che il modello ha letto nel prompt).
+const STAGED_PAGE_INDEX = new WeakMap()
+function stagedPageIndex(d, p, layer = 'flat') {
+  let byLayer = STAGED_PAGE_INDEX.get(d)
+  if (!byLayer) { byLayer = { flat: [], spatial: [] }; STAGED_PAGE_INDEX.set(d, byLayer) }
+  const arr = byLayer[layer]
+  if (!arr[p]) arr[p] = buildNormIndex((layer === 'spatial' ? d.spatialPages?.[p] : d.pages?.[p]) || '')
+  return arr[p]
+}
+
+/**
+ * Pagine DAVVERO inviate al modello in una chiamata: i marcatori
+ * "[Documento N · pag. P]" (anche "[FRONTESPIZIO: …]") in testa a ogni blocco
+ * del contesto. Mappa nome documento → Set dei numeri di pagina; null se il
+ * contesto non ha marcatori (la ricerca resta allora sui documenti del contesto).
+ */
+export function stagedCallPages(analyzed, ctx) {
+  const out = new Map()
+  for (const m of String(ctx || '').matchAll(/\[(?:FRONTESPIZIO:\s*)?([^\]\n]+?) · pag\. (\d+)\]/g)) {
+    const d = matchRealDoc(analyzed, m[1])
+    if (!d) continue
+    if (!out.has(d.name)) out.set(d.name, new Set())
+    out.get(d.name).add(Number(m[2]))
+  }
+  return out.size ? out : null
+}
+
 /**
  * Fonte REALE di un valore: cerca l'evidenza (poi il valore) normalizzata nelle
  * pagine dei documenti — prima quelli usati nel contesto della chiamata, poi
  * tutti. Il "documento" asserito dal modello è solo l'ultimo fallback, e solo
  * se combacia con un file reale del fascicolo.
+ * `callPages` (stagedCallPages): se c'è, la ricerca per VALORE si limita alle
+ * pagine inviate in QUESTA chiamata.
  */
-function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null) {
+export function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null, callPages = null) {
   const ordered = preferredNames
     ? [...analyzed].sort((a, b) => (preferredNames.has(a.name) ? 0 : 1) - (preferredNames.has(b.name) ? 0 : 1))
     : analyzed
-  const tryNeedle = (needle, docs) => {
+  // Pagina ammessa per la ricerca per VALORE: una di quelle inviate al modello
+  // in questa chiamata (se note). RCP CRESTA: il 500.000,00 letto a pag. 11-19
+  // aveva come fonte il frontespizio (pag. 2), che il modello in quella
+  // chiamata non aveva nemmeno visto.
+  const inCall = (d, p) => !callPages || !!callPages.get(d.name)?.has(p + 1)
+  // Ago di sole cifre (importi, date, numeri): confini di NUMERO sul testo
+  // grezzo della pagina — "50000000" di "500.000,00" non si trova più dentro
+  // "250000000" di "€ 2.500.000,00" (indexOfWholeNumber). `decimalsAfter`
+  // 'none' = la sola parte intera, scritta nel testo SENZA decimali.
+  // Pagine della chiamata anche sulla GRIGLIA spaziale: il modello ha letto
+  // quella, e il markdown Docling allineato può aver messo il valore sulla
+  // pagina accanto (prima la ricerca sull'intero documento lo ritrovava lì).
+  const hasSpatial = (d, p) => typeof d.spatialPages?.[p] === 'string' && d.spatialPages[p] !== d.pages?.[p]
+  const pageHas = (d, p, needle, numeric, decimalsAfter, layer) => {
+    if (numeric) return indexOfWholeNumber(stagedPageIndex(d, p, layer), needle, 0, decimalsAfter) !== -1
+    return (layer === 'flat' ? d.normPages[p] : stagedPageIndex(d, p, layer).norm).includes(needle)
+  }
+  const tryNeedle = (needle, docs, { valueSearch = false, decimalsAfter = 'zero' } = {}) => {
     if (!needle || needle.length < 4) return null
-    for (const d of docs) {
-      for (let p = 0; p < d.normPages.length; p++) {
-        if (d.normPages[p].includes(needle)) return { file: d.name, page: p + 1, doc: d }
+    const numeric = /^\d+$/.test(needle)
+    for (const layer of (valueSearch && callPages ? ['flat', 'spatial'] : ['flat'])) {
+      for (const d of docs) {
+        for (let p = 0; p < d.normPages.length; p++) {
+          if (valueSearch && !inCall(d, p)) continue
+          if (layer === 'spatial' && !hasSpatial(d, p)) continue
+          if (pageHas(d, p, needle, numeric, decimalsAfter, layer)) return { file: d.name, page: p + 1, doc: d }
+        }
       }
     }
     // evidenza a cavallo di due pagine: match a livello documento, pagina ignota
+    // (mai per un numero: nessun importo sta a cavallo di due pagine, e le
+    // cifre di fine pagina + inizio pagina successiva non sono un valore).
+    if (numeric) return null
     for (const d of docs) {
-      if (d.normPages.join('').includes(needle)) return { file: d.name, page: '', doc: d }
+      const joined = valueSearch ? d.normPages.filter((_, p) => inCall(d, p)).join('') : d.normPages.join('')
+      if (joined.includes(needle)) return { file: d.name, page: '', doc: d }
     }
     return null
   }
@@ -3516,7 +3703,12 @@ function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null) {
   // 5 voti "5.000.000,00" battuti da "30000,00" letto una volta sola).
   const cs = String(cleaned ?? '').trim()
   const intPart = /^[\d.\s]+,\d{1,2}$/.test(cs) ? cs.replace(/,\d{1,2}$/, '').replace(/\D/g, '') : ''
-  const found = tryNeedle(ne, ordered) || tryNeedle(nv, preferredOnly) || (intPart.length >= 4 ? tryNeedle(intPart, preferredOnly) : null)
+  // Un'"evidenza" fatta di sole cifre è il valore stesso: vale come ricerca
+  // per valore (stesse pagine, stessi confini), non come citazione.
+  const neIsValue = /^\d+$/.test(ne)
+  const found = (neIsValue ? tryNeedle(ne, preferredOnly, { valueSearch: true }) : tryNeedle(ne, ordered))
+    || tryNeedle(nv, preferredOnly, { valueSearch: true })
+    || (intPart.length >= 4 ? tryNeedle(intPart, preferredOnly, { valueSearch: true, decimalsAfter: 'none' }) : null)
   if (found) return found
   // TESTO riordinato dal modello ("Via Enrico Fermi, 9/B - 37135 Verona" per
   // "37135 Verona - Via Enrico Fermi, 9/B"): sorgente = la prima pagina che
@@ -3525,14 +3717,28 @@ function findStagedSource(analyzed, evidenza, cleaned, preferredNames = null) {
   if (/[a-z]/i.test(cs)) {
     const tokens = valueTokens(cs)
     if (tokens.length >= 2) {
-      for (const d of preferredOnly) {
-        for (let p = 0; p < d.normPages.length; p++) {
-          if (pageHasValueTokens(d.normPages[p], tokens)) return { file: d.name, page: p + 1, doc: d }
+      for (const layer of (callPages ? ['flat', 'spatial'] : ['flat'])) {
+        for (const d of preferredOnly) {
+          for (let p = 0; p < d.normPages.length; p++) {
+            if (!inCall(d, p)) continue
+            if (layer === 'spatial' && !hasSpatial(d, p)) continue
+            const np = layer === 'flat' ? d.normPages[p] : stagedPageIndex(d, p, layer).norm
+            if (pageHasValueTokens(np, tokens)) return { file: d.name, page: p + 1, doc: d }
+          }
         }
       }
     }
   }
   return null
+}
+
+/**
+ * Campi da seminare con le caselle barrate (Stadio A.5): SOLO quelli la cui
+ * DESCRIZIONE parla di caselle/selezioni (descriptionAsksCheckbox). Mai la
+ * label: è il nome che il cliente dà alla colonna (Regola 1).
+ */
+export function stagedCheckboxFields(fields) {
+  return (fields || []).filter((f) => f && descriptionAsksCheckbox(f.description || ''))
 }
 
 // "documento" asserito dal modello → documento reale del fascicolo, se combacia
@@ -3571,6 +3777,20 @@ const STAGED_TAINTED = new WeakMap()
 function valueKey(v) {
   const t = valueTokens(v)
   return t.length >= 2 ? [...t].sort().join('|') : normForMatch(v)
+}
+
+/**
+ * Evidenza strutturale di due RIGHE DI TABELLA, nell'ordine dell'arbitro
+ * (pickSemanticCandidate): prima structLex, poi rowLex; un valore assente non
+ * decide. >0 se `a` è più forte di `b`, <0 se più debole, 0 se pari.
+ */
+export function tableRowStructCmp(a, b) {
+  const num = (x) => (typeof x === 'number' ? x : null)
+  const s0 = num(a?.structLex), s1 = num(b?.structLex)
+  if (s0 != null && s1 != null && s0 !== s1) return s0 > s1 ? 1 : -1
+  const r0 = num(a?.rowLex), r1 = num(b?.rowLex)
+  if (r0 != null && r1 != null && r0 !== r1) return r0 > r1 ? 1 : -1
+  return 0
 }
 
 /**
@@ -3671,9 +3891,57 @@ export function pickConsensusCandidate(current, cands, { minVotes = 2, tierBlind
   const curInTier = !!current && inTier(current)
   const curAff = curInTier && typeof current?.affinity === 'number' ? current.affinity : null
   const topAff = top.maxAff >= 0 ? top.maxAff : null
-  // Corrente da RIGA DI TABELLA: i voti non bastano, serve affinità nettamente
-  // superiore (stesso margine di promozione dell'arbitro).
-  if (current?.tableRow === true && curInTier && !(topAff != null && curAff != null && topAff - curAff > 0.15)) return { changed: false }
+  if (current?.tableRow === true && curInTier) {
+    // RIGA DI TABELLA contro RIGA DI TABELLA, stesso livello di data (la data
+    // del documento del corrente) e stessa evidenza strutturale (structLex,
+    // rowLex, come nell'arbitro): vince il valore che più DOCUMENTI DISTINTI
+    // mostrano in quella riga. Prima decideva l'ordine di assorbimento ("a
+    // parità resta la prima" = ordine di caricamento): BOLCHINI TL, "PREMIO
+    // ANNUO 201,22 42,78 244,00" in proposta 25K, polizza e polizza
+    // quietanzata contro "PREMIO ANNUO 272,16 57,84 330,00" della sola
+    // proposta alternativa, tutte datate 28/04/2026. Si decide QUI, a registro
+    // completo: durante l'assorbimento il conteggio dipenderebbe dall'ordine
+    // delle chiamate.
+    const curTier = tierOf(current)
+    const trInCurTier = (c) => !!c && c.tableRow === true && tierOf(c) === curTier
+    const groupKey = (c) => { const k = normForMatch(c?.valore); return k ? (keyOf.get(k) || k) : '' }
+    // Stessa evidenza = stesso tipo (riga letta con le intestazioni, con
+    // structLex; oppure etichetta di layout, senza) e stesso rango.
+    const sameStruct = (c) => (typeof c.structLex === 'number') === (typeof current.structLex === 'number') && tableRowStructCmp(c, current) === 0
+    const docsOf = new Map()
+    for (const c of [current, ...(cands || [])]) {
+      if (!trInCurTier(c) || !c.file || !sameStruct(c)) continue
+      const k = groupKey(c)
+      if (!k) continue
+      const e = docsOf.get(k) || { files: new Set(), rep: c }
+      e.files.add(c.file)
+      if ((typeof c.affinity === 'number' ? c.affinity : -1) > (typeof e.rep.affinity === 'number' ? e.rep.affinity : -1)) e.rep = c
+      docsOf.set(k, e)
+    }
+    const curDocs = docsOf.get(curKey)?.files.size || 0
+    const rivals = [...docsOf.entries()].filter(([k]) => k !== curKey).sort((a, b) => b[1].files.size - a[1].files.size)
+    if (rivals.length) {
+      const [rk, r] = rivals[0]
+      const unique = rivals.length < 2 || rivals[1][1].files.size < r.files.size
+      if (r.files.size > curDocs && unique) {
+        return { changed: true, cand: r.rep, votes: groups.get(rk)?.n ?? r.files.size, prevVotes: curN, docs: r.files.size, prevDocs: curDocs }
+      }
+    }
+    // Corrente da RIGA DI TABELLA: i voti non bastano, serve affinità
+    // nettamente superiore (stesso margine di promozione dell'arbitro)…
+    // …salvo che lo sfidante più votato sia ANCH'ESSO una riga di tabella
+    // dello stesso livello di data, con evidenza strutturale non inferiore e,
+    // a evidenza pari, mostrato da non meno documenti: è la stessa tabella
+    // letta altrove e decidono i voti. Contro il testo libero il veto resta
+    // intero (Cresta: "500.000,00" di una clausola, due voti a uno, contro
+    // "5. Massimale = 2.500.000,00"); contro una riga strutturalmente più
+    // debole anche (GUFFANTI RC 2025 v5: la riga componente "2.250,00" non
+    // batte la riga TOTALE "18.000,00").
+    const topStruct = (cands || []).reduce((m, c) => (trInCurTier(c) && groupKey(c) === topKey ? Math.max(m, tableRowStructCmp(c, current)) : m), -Infinity)
+    const topDocs = docsOf.get(topKey)?.files.size || 0
+    const relaxed = topKey !== curKey && (topStruct > 0 || (topStruct === 0 && topDocs >= curDocs))
+    if (!relaxed && !(topAff != null && curAff != null && topAff - curAff > 0.15)) return { changed: false }
+  }
   // Il veto per affinità vale solo se il corrente sta nel livello di recency:
   // un corrente fuori livello (documento senza data) non ha diritto di veto.
   if (curAff != null && (topAff == null || curAff - topAff > vetoMargin)) return { changed: false }
@@ -3693,7 +3961,41 @@ export function pickConsensusCandidate(current, cands, { minVotes = 2, tierBlind
   return { changed: false }
 }
 
-async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null) {
+/**
+ * Oggetto di ogni campo di VERIFICA del profilo (verificationObjectPhrases):
+ * id campo → alternative. Calcolato una volta sui campi del profilo: la
+ * frequenza documentale delle parole generiche si misura su TUTTE le teste.
+ */
+export function verificationObjectsByField(profileFields) {
+  const out = new Map()
+  for (const f of profileFields || []) {
+    const ph = verificationObjectPhrases(f, profileFields)
+    if (ph.length) out.set(f.id, ph)
+  }
+  return out
+}
+
+/**
+ * Campi dello Stadio A.8 (frontespizio focalizzato): gli anagrafici attivi
+ * TRANNE la compagnia, che il blocco anagrafico del frontespizio confonde col
+ * broker. La compagnia la riconosce la TESTA POSITIVA della descrizione
+ * ("Compagnia assicuratrice, cioè l'ASSICURATORE…"), non più la label (Regola
+ * 1; analisi errori 25/09/2026, F09); una testa che la nomina per escluderla
+ * ("…, NON la compagnia") non conta.
+ */
+export function frontespizioFocusFields(anagrafica) {
+  return (anagrafica || []).filter((f) => f && f.enabled !== false && !/compagnia|assicurator/i.test(positiveDescriptionHead(f.description)))
+}
+
+// Coda della riga di diagnostica per un esito SCARTATO: la citazione del
+// modello (120 caratteri). Senza, un "senza-evidenza" su una risposta giusta
+// era indebuggabile (GUFFANTI RC 2026, Legge Merloni: la citazione andava
+// indovinata).
+function reportEvidenceTail(r) {
+  return r.ev && r.outcome !== 'ok' && r.outcome !== 'vuoto/null' ? ` «${r.ev}»` : ''
+}
+
+export async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null, verificationObjects = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // Il prompt può rispondere con chiavi di INDICE `c{N}` (allineate all'ordine
   // di groupFields) — è il formato moderno, senza id/label nel prompt.
@@ -3715,10 +4017,13 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
   // report (opzionale): esito PER CAMPO per la diagnostica — i soli conteggi
   // aggregati rendevano ogni run un tirare a indovinare su CHI fosse stato
   // scartato e con quale valore.
-  const note = (id, outcome, value, aff) => {
-    if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28), aff: typeof aff === 'number' ? aff : null })
+  const note = (id, outcome, value, aff, evidence = '') => {
+    if (report) report.push({ id, outcome, value: value == null ? '' : String(value).slice(0, 28), aff: typeof aff === 'number' ? aff : null, ev: String(evidence || '').replace(/\s+/g, ' ').trim().slice(0, 120) })
   }
   let accepted = 0
+  // Pagine inviate in QUESTA chiamata (marcatori del contesto): la fonte di un
+  // valore cercata per valore nudo si cerca solo lì.
+  const callPages = stagedCallPages(analyzed, rawCtx)
   for (const [k0, e] of Object.entries(parsed || {})) {
     // Chiave risolta: `c{N}` (ordine del prompt) → id; altrimenti id esatto,
     // poi label, poi fuzzy sull'id (solo per risposte storiche con id lunghi).
@@ -3737,7 +4042,14 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     if (isAbsencePlaceholder(val) || (isPlaceholderValue(val) && !descriptionAllowsValue(field, val))) { counters.placeholders++; note(k, 'placeholder', val); continue }
     const cleaned = sanitizeFieldValue(field, val)
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
-    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned); continue }
+    const evQuote = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
+    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
+    // ECO della descrizione di un ALTRO campo della chiamata, assente dal testo
+    // ("Non operante" delle Condizioni finito nelle Esclusioni, RCP SAPORITI).
+    {
+      const echo = descriptionEchoPhrase(field, cleaned, groupFields, normCtx)
+      if (echo) { counters.noEvidence++; note(k, 'eco-descrizione', cleaned, null, `'${echo}' (descrizione di un altro campo)`); continue }
+    }
     // DOMANDA DI MODULO come evidenza: per un campo di verifica, una citazione
     // che contiene TUTTE le risposte ammesse dalla descrizione ("…incarichi di
     // Amministratore di Stabili? Sì No", "Richiesta di Risarcimento SI X NO")
@@ -3745,8 +4057,19 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // prova nulla. Risposte lette dalla descrizione (verificationAnswers).
     {
       const answers = verificationAnswers(field.description)
-      const ev = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
-      if (answers.length >= 2 && ev && isFormQuestionEvidence(ev, answers)) { counters.noEvidence++; note(k, 'evidenza:domanda-di-modulo', cleaned); continue }
+      if (answers.length >= 2 && evQuote && isFormQuestionEvidence(evQuote, answers)) { counters.noEvidence++; note(k, 'evidenza:domanda-di-modulo', cleaned, null, evQuote); continue }
+    }
+    // La citazione di una VERIFICA deve NOMINARE ciò che si verifica (le
+    // alternative della testa della descrizione e i suoi esempi citati): una
+    // frase vera ma d'altro non prova nulla. RCP PILATO, parte 1: sette "Sì" da
+    // pag. 4 (garanzie A-D di un avvocato), tre giusti e quattro no — visto
+    // leggero su "B. Consulenza Fiscale", sindaco/revisore su "incarico di
+    // Curatore", ODV su "Amministratore di sostegno", progettazione su
+    // "rappresentanza e difesa". Vale per Sì e per No; il campo resta vuoto e
+    // i documenti successivi o il recupero lo richiedono con la stessa regola.
+    if (verificationObjects && descriptionAsksVerification(field.description)) {
+      const phrases = verificationObjects.get(field.id)
+      if (phrases && phrases.length && !evidenceNamesObject(evQuote, phrases)) { counters.noEvidence++; note(k, 'evidenza:non-nomina-oggetto', cleaned, null, evQuote); continue }
     }
     const modelDoc = (e && typeof e === 'object' && typeof e.documento === 'string') ? e.documento : ''
 
@@ -3761,14 +4084,15 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // contraente. Decidono la descrizione, l'evidenza e il consenso tra batch.
     // Resta SOLO l'esclusione dell'artefatto "nome file" (non è una soglia:
     // nessuna descrizione chiede il nome del PDF).
-    const fieldText = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
     // NOME FILE mai come dato anagrafico: NON è una soglia su un valore — è
     // l'esclusione di un artefatto che la description vieta per costruzione
     // (nessuna description di contraente/indirizzo/compagnia chiede "il nome del
     // PDF"). Il modello a volte copia il nome file nel campo (visto su LAMBRATE:
     // contraente/indirizzo = "LAMBRATE 3 COND...pdf"). Meglio vuoto che un
-    // nome file.
-    if (/contraente|indirizzo|compagnia|denominazione|ragione\s+sociale/i.test(fieldText) && isFileNameLike(cleaned)) { counters.guardrail++; note(k, 'guardrail:nome-file-anagrafica', cleaned); continue }
+    // nome file. Il campo anagrafico lo dice la TESTA POSITIVA della
+    // descrizione, mai id/label né le clausole "NON è la compagnia" (analisi
+    // errori 25/09/2026, F09 — Regola 1).
+    if (/contraente|indirizzo|compagnia|denominazione|ragione\s+sociale/i.test(positiveDescriptionHead(field.description)) && isFileNameLike(cleaned)) { counters.guardrail++; note(k, 'guardrail:nome-file-anagrafica', cleaned); continue }
     // [REGOLE_AGENTI] NIENTE guardie "indovinate": rimossa la guardia
     // intermediario (imponema un pattern "underwriting/broker" che la description
     // non richiede). Se un campo chiede "compagnia/contraente/indirizzo", decide
@@ -3780,7 +4104,7 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // nella description, non con una regola generica.
 
     const evidenza = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
-    const source = findStagedSource(analyzed, evidenza, cleaned, usedNames)
+    const source = findStagedSource(analyzed, evidenza, cleaned, usedNames, callPages)
     // PAGINA DI QUESTIONARIO come evidenza di una VERIFICA: l'elenco delle
     // attività o delle garanzie opzionali del questionario ("Incarichi di
     // Sindaco/Revisore dei Conti  %") non prova una copertura, e la
@@ -3790,7 +4114,7 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // veto sugli importi (documenti tutti uguali: si guarda il contenuto).
     if (source && descriptionAsksVerification(field.description) && !descriptionNamesQuestionnaire(field)
         && ((source.page && optionPages && optionPages.has(`${source.file}|${source.page}`)) || (optionDocs && optionDocs.has(source.file)))) {
-      counters.noEvidence++; note(k, 'evidenza:pagina-questionario', cleaned); continue
+      counters.noEvidence++; note(k, 'evidenza:pagina-questionario', cleaned, null, evQuote); continue
     }
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
     // Guardia "premio da copertura diversa" (PROF.LE): il premio 25,00 da un
@@ -3800,7 +4124,12 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // stare, niente invenzione. Il valore resta valido se è davvero il premio RC.
     // (guardia "premio da copertura diversa" per NOME FILE rimossa: documenti
     // tutti uguali, nessuna logica sul nome del documento.)
-    if (/fiscale|iva|\bcf\b/i.test(fieldText) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
+    // P.IVA DELL'ASSICURATORE (riga societaria a piè di pagina) mai come dato di
+    // un campo IDENTIFICATIVO: P.IVA/CF o numero di un documento, letti dal tipo
+    // e dalla parte positiva della descrizione (fieldAsksIdentifier). Prima
+    // /fiscale|iva|cf/ su id+label+descrizione: la label decideva, e "iva"
+    // dentro "complessiva"/"effettiva" accendeva la guardia su qualunque campo.
+    if (fieldAsksIdentifier(field) && srcDoc?.text && isInsurerFooterPIva(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:piva-assicuratore', cleaned); continue }
     // CAPITALE SOCIALE della compagnia ≠ dato di polizza: un importo che nel
     // documento compare SOLO nella riga societaria ("Capitale Sociale Euro
     // 259.156.875", "…Sterline 197.118.479") è il capitale dell'assicuratore,
@@ -3809,7 +4138,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     // CONDIZIONALE al contenuto testuale del campo (termine importo) e nulla per
     // i campi che descrivono l'identità (P.IVA/CF gestiti sopra). Vale per i
     // 7+ digit (i capitali sociali sono sempre ≥ 1.000.000): mai per premi piccoli.
-    if (srcDoc?.text && /\b(?:massimale|premio|imponibile|imposta|importo|tasso|capitale)\b/i.test(fieldText)
+    // Il "termine importo" è il TIPO dichiarato dalla testa della descrizione
+    // (fieldValueKind importo/tasso), non più le parole di id+label (Regola 1).
+    if (srcDoc?.text && ['amount', 'rate'].includes(fieldValueKind(field))
         && isInsurerFooterAmount(srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'guardrail:capitale-sociale', cleaned); continue }
 
     // GIUSTAPPOSIZIONE SPAZIALE ≠ DATO: una pagina a colonne può UNIRE i numeri
@@ -3849,7 +4180,9 @@ async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, 
     //    DIVERSO ("non essere il massimale", "non 7500"), un candidato che
     //    ripropone lo stesso importo di un ALTRO campo già valorizzato è uno
     //    spill/nastro, non un dato → vetato.
-    if (factsRegistry && vetoOptionSourceOnly(factsRegistry, optionDocs, { valore: cleaned, file: srcDoc?.name || null }, optionPages)) { counters.guardrail++; note(k, 'veto:opzione-questionario', cleaned); continue }
+    // (Solo campi IMPORTO per la testa della descrizione, mai un elenco di
+    // testo; mai per un campo che nomina il questionario come fonte — F09.)
+    if (factsRegistry && vetoOptionSourceOnly(factsRegistry, optionDocs, { valore: cleaned, file: srcDoc?.name || null }, optionPages, field)) { counters.guardrail++; note(k, 'veto:opzione-questionario', cleaned); continue }
     if (factsRegistry && vetoStructuralDuplicate(field, { valore: cleaned }, best, k)) { counters.guardrail++; note(k, 'veto:duplicato-strutturale', cleaned); continue }
 
     // VETI DI NATURA (FIX 1/2/3 — disambiguazione grandezze, deterministici):
@@ -4071,6 +4404,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const partition = partitionFields(activeFields)
   const kindOf = {}
   for (const [kind, list] of Object.entries(partition)) for (const f of list) kindOf[f.id] = kind
+  // Oggetto di ogni campo di VERIFICA, dalla testa della sua descrizione: la
+  // citazione di una risposta deve nominarlo (absorbStagedEntries). In
+  // diagnostica, così una risposta scartata "non-nomina-oggetto" si legge
+  // accanto alle alternative che avrebbe dovuto contenere.
+  const verificationObjects = verificationObjectsByField(activeFields)
+  if (verificationObjects.size) {
+    diag.push(`Oggetto delle verifiche (dalla testa delle descrizioni, la citazione deve nominarne uno): ${[...verificationObjects.entries()]
+      .map(([id, ph]) => `${fieldsById[id]?.label || id}: ${ph.map((p) => p.code || p.words.join(' ')).join(' | ')}`).join(' · ')}`)
+  }
 
   // ── Stage A: seed regex (deterministici, checksum-validati) ────────────────
   const basePool = (analyzed.filter((d) => d.type === 'polizza').length
@@ -4379,16 +4721,20 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (seedNotes.length) diag.push(`Stadio A: seed regex — ${seedNotes.join(' · ')}`)
 
   // ── Stage A.5: CHECKBOX/SELEZIONI deterministiche ─────────────────────────
-  // Per i campi la cui description parla di checkbox/selezione ("Tipologia
-  // tutela legale", "spunta la casella", ecc.), il dato è SPIUNTATO su una
+  // Per i campi la cui description parla di checkbox/selezione ("spunta la
+  // casella", "BARRATI (X / [x])", ecc.), il dato è SPUNTATO su una
   // tabella a riquadri: si legge con il layout SPAZIALE (chi è 'checked' e il
   // testo della sua riga), prima di spendere il modello. Zero LLM. Se più
   // opzioni sono spuntate, si scrive il valore multiplo separato da " / ".
   // Il candidato compete nel merge come gli altri (mai blindato), con fonte
   // reale (file+pagina dove è stato trovato).
+  // [REGOLE_AGENTI, Regola 1] Il campo si sceglie SOLO dalla DESCRIZIONE
+  // (descriptionAsksCheckbox): tolta la regex sulla LABEL
+  // (/checkbox|tipologia|spunt|barrar|selezion/), che decideva dal nome che il
+  // cliente dà alla colonna (SPALLINO TL, "Tipologia tutela legale").
   const checkboxFields = (fieldsById && Object.values(fieldsById))
   if (checkboxFields && checkboxFields.length) {
-    const withCheckbox = checkboxFields.filter((f) => descriptionAsksCheckbox(f.description || '') || /checkbox|tipologia|spunt|barrar|selezion/i.test(`${f.label || ''}`))
+    const withCheckbox = stagedCheckboxFields(checkboxFields)
     if (withCheckbox.length) {
       let hits = 0
       for (const f of withCheckbox) {
@@ -4486,9 +4832,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // contrasto non devono contare come somiglianza: con le descrizioni v2 la
   // colonna PREMIO LORDO batteva la colonna IMPOSTA per il campo imposte perché
   // la descrizione dice "NON è il premio lordo/totale".
-  const positiveDescriptionText = (desc) => String(desc || '')
-    .replace(/(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|riportar\w*|prender\w*|usar\w*|dedur\w*|copiar\w*)[^.;!?)]*/g, ' ')
-    .replace(/(?:^|[.;:!?]\s*)\s*(?:MAI|mai|né|ne')\s+[^.;!?]*/g, ' ')
+  // (positiveDescriptionText: polizzaFieldKind.js, la stessa regola usata dai
+  // vincoli di formato e dalle guardie del sanitizer.)
   const lexTokenize = (str) => String(str || '')
     .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
     .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
@@ -4788,271 +5133,267 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // (col1..colN, "-" per il vuoto): l'allineamento è meccanico, non semantico.
   // Se non dà risultati, è comunque un ESITO. I candidati competono nel merge
   // (pickSemanticCandidate): niente sostituzione, niente blindatura.
+  // UNA CHIAMATA PER DOCUMENTO (BOLCHINI TL, 25/09/2026). Prima: i primi 4
+  // blocchi tabella in ordine di CARICAMENTO, fusi in un'unica "TABELLA DEL
+  // DOCUMENTO" senza marcatori. Arrivavano le due proposte (massimale 25.000 e
+  // 50.000), la polizza mai, e il valore finiva sul primo documento che lo
+  // conteneva: 272,16 / 57,84 / 330,00 dell'offerta alternativa invece di
+  // 201,22 / 42,78 / 244,00 di proposta 25K, polizza e polizza quietanzata.
+  // Ora i documenti si scelgono come i batch focalizzati (pickFocusDocs: i 3
+  // più recenti e i 3 più affini alle descrizioni, type-blind, al massimo 6
+  // chiamate), ogni chiamata legge le SOLE tabelle di un documento coi
+  // marcatori [Documento N · pag. P], e documento/pagina del candidato sono
+  // quelli della chiamata. I candidati entrano nel registro del consenso: tra
+  // righe di tabella pari decide quanti documenti distinti mostrano il valore
+  // (pickConsensusCandidate), a registro completo.
   const a7Fields = activeFields.filter((f) => f.enabled !== false)
   if (a7Fields.length) {
     let a7Rows = 0
     try {
-      const seenBlocks = new Set()
-      const econRows = [] // blocchi con importi (markdown `|`) + documento/pagina di origine
-      for (const d of analyzed) {
-        const sources = [d.spatialPages, d.pages].filter(Boolean)
-        for (const pages of sources) {
-          for (let pi = 0; pi < pages.length; pi++) {
-            for (const b of extractTableBlocks(pages[pi])) {
-              if (seenBlocks.has(b)) continue
-              seenBlocks.add(b)
-              if ((b.match(/\d{1,3}(?:\.\d{3})*(?:,\d{2})/g) || []).length >= 2) econRows.push({ b, d, page: pi + 1 })
-            }
-          }
-        }
-      }
-      if (econRows.length) {
-        const dedup = econRows.slice(0, 4)
-        // Ogni campo riceve una CHIAVE-PAROLA unica (derivata dalla sua label),
-        // che il modello deve usare come chiave JSON nella risposta. Le chiavi
-        // NUMERICHE c0..cN il modello le compatta saltando i mancanti (visto in
-        // PITTALÀ: c0=imposte, c1=lordo, ...) — una parola legata al campo non
-        // può essere "ricompatatta": il modello la copia o la deforma (e il
-        // match lessicale la recupera). Nessuna guardia: è il modello che
-        // sceglie il valore, la chiave è solo un referente stabile.
+      const withTables = a7TableBlocksByDoc(analyzed)
+      if (withTables.length) {
+        const a7Aff = (d) => Math.max(0, ...a7Fields.map((f) => fieldDocAffinity(f, d)))
+        const pick = pickFocusDocs(withTables.map((t) => t.d), a7Aff)
+        const blocksOf = new Map(withTables.map((t) => [t.d, t.blocks]))
+        // Ordine delle chiamate = recency (a pari livello decide il consenso).
+        const a7Docs = [...pick.docs].sort(byStagedRecency)
+        diag.push(`Stadio A.7: ${a7Docs.length} documenti con tabelle di importi su ${withTables.length} (i più recenti + i più affini alle descrizioni), una chiamata per documento → ${a7Docs.map((d) => `${d.name}${d.dateStr ? ` [${d.dateStr}]` : ''}`).join(' · ')}`)
         // Ogni campo è identificato dal suo INDICE, e la risposta è un ARRAY di
         // voci che RIPETONO l'indice ("campo": N): così un campo saltato non fa
         // scalare gli altri (con le chiavi posizionali il modello compattava).
-        const a7Keyed = a7Fields.map((f, i) => ({ f, key: String(i) }))
-        const fieldLines = a7Keyed
-          .map(({ f }, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
+        const fieldLines = a7Fields
+          .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
           .join('\n')
-        // Indice delle righe (etichetta → colonne) per verificare a posteriori
-        // che la colonna da cui il modello dice di aver preso il valore sia
-        // quella la cui INTESTAZIONE corrisponde di più alla descrizione.
-        const rowsIndex = new Map()
-        const enumerateTable = (blockMd) => {
-          const trw = tableRowsWithHeaders(blockMd)
-          for (const r of trw) { const k = normForMatch(r.label); if (k && !rowsIndex.has(k)) rowsIndex.set(k, r) }
-          if (!trw.length) return blockMd
-          return trw.map((r) => {
-            const part = [`RIGA "${r.label}":`]
-            r.cols.forEach((c, k) => {
-              const v = c.value === '' ? '-' : c.value
-              part.push(`  col${k + 1} ${c.header || ''} = ${v}`)
-            })
-            return part.join('\n')
-          }).join('\n')
-        }
-        const tableBlock = dedup.map(({ b }) => enumerateTable(b)).join('\n\n')
-        // Contesto di EVIDENZA dello stadio: le sole tabelle inviate. Un valore
-        // che non compare lì ("Agenzia Assicurativa Roma", "Sì, massimale
-        // 5.000.000,00 €" per otto campi di verifica) è inventato: prima entrava
-        // come candidato con documento, pagina e affinità come se fosse letto.
-        const a7RawCtx = dedup.map(({ b }) => b).join('\n')
-        const a7NormCtx = normForMatch(a7RawCtx)
-        const sys = 'Estrai i valori richiesti dalla TABELLA qui sotto. ' +
-          'Ogni RIGA ha colonne enumerate (col1, col2, ...) coi loro nomi reali; "-" = cella vuota. ' +
-          'REGOLA CAMPI: se il valore di un campo è nella tabella, restituiscilo ESATTO (colonna giusta). ' +
-          'Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell\'intero periodo (per il premio: il valore più grande, la rata che copre l\'anno) e rispondi UNA SOLA volta. ' +
-          'Se il valore non c\'è, non includere quel campo. Non sommare, non inventare. ' +
-          'FORMATO: un oggetto JSON {"voci": [ ... ]} dove ogni voce è {"campo": <indice del campo>, "valore": "...", "riga": "...", "colonna": "..."}. ' +
-          'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE, è l\'unico modo per sapere a quale campo si riferisce il valore. UN solo valore per campo. Se nessun campo è nella tabella: {"voci": []}.'
-        const user = `TABELLA DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'oggetto JSON, es. {"voci": [{"campo": 1, "valore": "...", "riga": "...", "colonna": "..."}]}. I campi senza valore non compaiono.`
-        // JSON garantito dal server (format:'json', senza schema: le chiavi sono
-        // "campo"/"valore"/"riga"/"colonna"). Prima la risposta era testo libero e
-        // un JSON malformato spegneva TUTTO lo stadio tabella (GUFFANTI TL: 0
-        // proposte, e le cifre in prosa del Set Informativo battevano la tabella).
-        const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
-        try { writeFileSync('/tmp/a7-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
-        let parsed = parseJsonResponse(raw)
-        // {"voci": [...]} → array; {"campo":…} singolo → [voce]
-        if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
-          if (Array.isArray(parsed.voci)) parsed = parsed.voci
-          else if (Number.isFinite(Number(parsed.campo))) parsed = [parsed]
-        }
-        // Risposta attesa: ARRAY di voci con "campo": indice. Un array SENZA
-        // indici (voci prive di "campo") non è mappabile: si riprova UNA volta
-        // chiedendo esplicitamente l'indice per ogni voce.
+        const sys = A7_SYSTEM_PROMPT
+        const userOf = (tableBlock) => `TABELLE DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'oggetto JSON, es. {"voci": [{"campo": 1, "valore": "...", "riga": "...", "colonna": "..."}]}. I campi senza valore non compaiono.`
+        // Budget di TESTO per chiamata (stesso calcolo dei gruppi): le tabelle
+        // di un documento entrano in ordine di pagina finché ci stanno; la prima
+        // entra sempre (prima: 4 blocchi, senza budget).
+        const a7Budget = computeSafeContextBudget(batchCtx, { systemChars: sys.length + userOf('').length, marginRatio: 0.12 })
         const arrayHasIdx = (a) => Array.isArray(a) && a.some((o) => o && Number.isFinite(Number(o.campo ?? o.chiave ?? o.indice)))
-        if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
-          const user2 = user + '\n\nIMPORTANTISSIMO: ogni voce dell\'array "voci" DEVE avere "campo": <indice numerico del campo>.'
-          try {
-            const raw2 = await callOllamaRolling(settings, sys, user2, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
-            let parsed2 = parseJsonResponse(raw2)
-            if (parsed2 && !Array.isArray(parsed2) && Array.isArray(parsed2.voci)) parsed2 = parsed2.voci
-            if (arrayHasIdx(parsed2) || (parsed2 && !Array.isArray(parsed2))) parsed = parsed2
-          } catch { /* resta com'è */ }
-        }
-        // Risoluzione ROBUSTA della risposta → {campo, valore}: il modello può
-        // rispondere come (a) oggetto con chiavi c0..cN, (b) oggetto con chiavi
-        // SEMANTICHE, (c) ARRAY [{valore, riga, colonna}, ...] (dopo il retry).
-        // Niente guardie: si legge la risposta com'è e si mappa.
-        const normBlob = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ')
-        const fieldOfKey = (k) => {
-          const keyNorm = normBlob(k).trim()
-          // chiave-parola "k<indice>" (o "k<indice>_...") → campo per indice
-          const kIdx = String(k).trim().match(/^k(\d+)(?:_|$)/)
-          if (kIdx) {
-            const idx = Number(kIdx[1])
-            if (a7Fields[idx]) return a7Fields[idx]
-          }
-          const isIndexKey = /^c\d+$/i.test(String(k).trim()) || /^\d+$/.test(String(k).trim())
-          if (isIndexKey) {
-            const idx = Number(String(k).replace(/\D/g, ''))
-            if (Number.isFinite(idx) && a7Fields[idx]) return a7Fields[idx]
-          }
-          let best = null, bestScore = 0
-          const kw = keyNorm.split(' ').filter((w) => w.length >= 4)
-          for (const f of a7Fields) {
-            const lbl = normBlob(f.label)
-            let sc = 0
-            for (const w of kw) { if (lbl.includes(w)) sc++ }
-            if (sc > bestScore) { bestScore = sc; best = f }
-          }
-          return bestScore > 0 ? best : null
-        }
         // Array con indici espliciti → coppie [indice, voce]; oggetto → com'è.
         // Un array senza indici NON è mappabile (l'ordine del modello ≠ ordine
         // campi): meglio vuoto che sbagliato.
         const toIdxEntries = (a) => a
           .filter((o) => o && Number.isFinite(Number(o.campo ?? o.chiave ?? o.indice)))
           .map((o) => [String(Number(o.campo ?? o.chiave ?? o.indice)), o])
-        const entries = Array.isArray(parsed)
-          ? (arrayHasIdx(parsed) ? toIdxEntries(parsed) : [])
-          : Object.entries(parsed || {})
-        if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
-          diag.push(`Stadio A.7: risposta ARRAY (${parsed.length} voci) senza indice "campo" — NON mappata; i campi restano ai gruppi normali`)
-        }
-        for (const [k, v] of entries) {
-          // chiavi di servizio ("riga"/"colonna" a livello radice nel caso di
-          // risposta mista) NON sono campi: si saltano
-          if (/^(riga|colonna|documento|nota)$/i.test(String(k).trim())) continue
-          const f = fieldOfKey(k)
-          if (!f) continue
-          // il valore può essere: stringa ("50,96"), oggetto {valore, riga, colonna},
-          // o oggetto annidato {c0: {...}} — normalizzo difensivo
-          const valObj = (typeof v === 'string' || typeof v === 'number') ? { valore: String(v) } : (v || {})
-          if (!valObj.valore && v && typeof v === 'object' && !Array.isArray(v)) {
-            const inner = v.valore ?? (typeof v.c0 === 'object' ? v.c0.valore : null) ?? null
-            if (inner != null) valObj.valore = inner
+        for (const d of a7Docs) {
+          // Indice delle righe (pagina + etichetta → colonne) per verificare a
+          // posteriori che la colonna da cui il modello dice di aver preso il
+          // valore sia quella la cui INTESTAZIONE corrisponde di più alla
+          // descrizione. Solo le righe di QUESTO documento.
+          const rows = []
+          const parts = []
+          const sent = []
+          let used = 0
+          let dropped = 0
+          for (const { b, page } of blocksOf.get(d) || []) {
+            const trw = tableRowsWithHeaders(b)
+            const enumerated = !trw.length ? b : trw.map((r) => {
+              const part = [`RIGA "${r.label}":`]
+              r.cols.forEach((c, k) => {
+                const v = c.value === '' ? '-' : c.value
+                part.push(`  col${k + 1} ${c.header || ''} = ${v}`)
+              })
+              return part.join('\n')
+            }).join('\n')
+            const piece = `[${stagedDocTag(d)} · pag. ${page}]\n${enumerated}`
+            const cost = usefulLength(piece) + 2
+            if (parts.length && used + cost > a7Budget) { dropped++; continue }
+            parts.push(piece)
+            sent.push({ b, page })
+            used += cost
+            for (const r of trw) { const key = normForMatch(r.label); if (key) rows.push({ page, key, row: r }) }
           }
-          if (!valObj.valore) continue
-          // "0"/"0,00" SENZA evidenza (riga/colonna vuote) = placeholder del
-          // modello per "non c'è valore" (visto in PITTALÀ: Fatturato=0,
-          // ODV=0, ...). Meglio vuoto che sbagliato: non è un dato reale.
-          const z = String(valObj.valore).replace(/[€\s]/g, '')
-          const isZeroNoEvid = (/^0(?:,0+)?$/.test(z) || /^0+$/.test(String(valObj.valore).replace(/,/g, '.')))
-            && !valObj.riga && !(v && typeof v === 'object' && v.riga)
-          if (isZeroNoEvid) {
-            diag.push(`Tabella-focus[${f.label}]: "0" senza evidenza scartato (placeholder, meglio vuoto)`)
-            continue
+          if (!parts.length) continue
+          const tableBlock = parts.join('\n\n')
+          // Contesto di EVIDENZA della chiamata: le sole tabelle inviate, coi
+          // marcatori di pagina (la citazione di una verifica deve stare sulla
+          // stessa pagina). Un valore che non compare lì ("Agenzia Assicurativa
+          // Roma", "Sì, massimale 5.000.000,00 €" per otto campi di verifica) è
+          // inventato: prima entrava come candidato con documento, pagina e
+          // affinità come se fosse letto.
+          const a7RawCtx = sent.map(({ b, page }) => `[${stagedDocTag(d)} · pag. ${page}]\n${b}`).join('\n')
+          const a7NormCtx = normForMatch(a7RawCtx)
+          diag.push(`Stadio A.7 [${d.name}]: ${sent.length} tabell${sent.length === 1 ? 'a' : 'e'} (pag. ${[...new Set(sent.map((s) => s.page))].join(', ')})${dropped ? `, ${dropped} oltre il budget non inviate` : ''}`)
+          const user = userOf(tableBlock)
+          // JSON garantito dal server (format:'json', senza schema: le chiavi sono
+          // "campo"/"valore"/"riga"/"colonna"). Prima la risposta era testo libero e
+          // un JSON malformato spegneva TUTTO lo stadio tabella (GUFFANTI TL: 0
+          // proposte, e le cifre in prosa del Set Informativo battevano la tabella).
+          // Un errore di chiamata ferma lo stadio come prima (catch esterno): i
+          // candidati dei documenti già letti restano.
+          const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
+          try { writeFileSync('/tmp/a7-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
+          let parsed = parseJsonResponse(raw)
+          // {"voci": [...]} → array; {"campo":…} singolo → [voce]
+          if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+            if (Array.isArray(parsed.voci)) parsed = parsed.voci
+            else if (Number.isFinite(Number(parsed.campo))) parsed = [parsed]
           }
-          let cleaned = sanitizeFieldValue(f, valObj.valore)
-          if (!cleaned) continue
-          if (!passesStagedEvidence(f, cleaned, valObj, a7NormCtx, a7RawCtx)) {
-            diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — non compare nelle tabelle inviate (senza evidenza)`)
-            continue
+          // Risposta attesa: ARRAY di voci con "campo": indice. Un array SENZA
+          // indici (voci prive di "campo") non è mappabile: si riprova UNA volta
+          // chiedendo esplicitamente l'indice per ogni voce.
+          if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
+            const user2 = user + '\n\nIMPORTANTISSIMO: ogni voce dell\'array "voci" DEVE avere "campo": <indice numerico del campo>.'
+            try {
+              const raw2 = await callOllamaRolling(settings, sys, user2, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
+              let parsed2 = parseJsonResponse(raw2)
+              if (parsed2 && !Array.isArray(parsed2) && Array.isArray(parsed2.voci)) parsed2 = parsed2.voci
+              if (arrayHasIdx(parsed2) || (parsed2 && !Array.isArray(parsed2))) parsed = parsed2
+            } catch { /* resta com'è */ }
           }
-          // Stesso veto dei batch: un importo che nel fascicolo esiste SOLO in un
-          // documento-questionario/opzioni (tabella "polizze precedenti":
-          // 31.3.25-31.3.26 | 2.000.000 | 1.000,00) non è il dato della polizza.
-          {
-            const vnorm0 = normForMatch(cleaned)
-            const origin0 = dedup.find(({ b }) => vnorm0 && normForMatch(b).includes(vnorm0)) || dedup[0]
-            if (factsRegistry && vetoOptionSourceOnly(factsRegistry, optionDocs, { valore: cleaned, file: origin0?.d?.name || null }, optionPages)) {
+          // Risoluzione della risposta → {campo, valore}: il modello può
+          // rispondere come (a) ARRAY di voci con "campo": indice, (b) oggetto
+          // con chiavi d'INDICE (c0..cN, 0..N, k0..kN). Le chiavi con PAROLE non
+          // si mappano: il vecchio ripiego sulle parole della label violava la
+          // Regola 1 (a7FieldOfKey).
+          const entries = Array.isArray(parsed)
+            ? (arrayHasIdx(parsed) ? toIdxEntries(parsed) : [])
+            : Object.entries(parsed || {})
+          if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
+            diag.push(`Stadio A.7 [${d.name}]: risposta ARRAY (${parsed.length} voci) senza indice "campo" — NON mappata; i campi restano ai gruppi normali`)
+          }
+          for (const [k, v] of entries) {
+            // chiavi di servizio ("riga"/"colonna" a livello radice nel caso di
+            // risposta mista) NON sono campi: si saltano
+            if (/^(riga|colonna|documento|nota)$/i.test(String(k).trim())) continue
+            const f = a7FieldOfKey(k, a7Fields)
+            if (!f) continue
+            // il valore può essere: stringa ("50,96"), oggetto {valore, riga, colonna},
+            // o oggetto annidato {c0: {...}} — normalizzo difensivo
+            const valObj = (typeof v === 'string' || typeof v === 'number') ? { valore: String(v) } : (v || {})
+            if (!valObj.valore && v && typeof v === 'object' && !Array.isArray(v)) {
+              const inner = v.valore ?? (typeof v.c0 === 'object' ? v.c0.valore : null) ?? null
+              if (inner != null) valObj.valore = inner
+            }
+            if (!valObj.valore) continue
+            // "0"/"0,00" SENZA evidenza (riga/colonna vuote) = placeholder del
+            // modello per "non c'è valore" (visto in PITTALÀ: Fatturato=0,
+            // ODV=0, ...). Meglio vuoto che sbagliato: non è un dato reale.
+            const z = String(valObj.valore).replace(/[€\s]/g, '')
+            const isZeroNoEvid = (/^0(?:,0+)?$/.test(z) || /^0+$/.test(String(valObj.valore).replace(/,/g, '.')))
+              && !valObj.riga && !(v && typeof v === 'object' && v.riga)
+            if (isZeroNoEvid) {
+              diag.push(`Tabella-focus[${f.label}]: "0" senza evidenza scartato (placeholder, meglio vuoto)`)
+              continue
+            }
+            let cleaned = sanitizeFieldValue(f, valObj.valore)
+            if (!cleaned) continue
+            if (!passesStagedEvidence(f, cleaned, valObj, a7NormCtx, a7RawCtx)) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — non compare nelle tabelle inviate (senza evidenza)`)
+              continue
+            }
+            // Stesso veto dei batch: un importo che nel fascicolo esiste SOLO in un
+            // documento-questionario/opzioni (tabella "polizze precedenti":
+            // 31.3.25-31.3.26 | 2.000.000 | 1.000,00) non è il dato della polizza.
+            if (factsRegistry && vetoOptionSourceOnly(factsRegistry, optionDocs, { valore: cleaned, file: d.name }, optionPages, f)) {
               diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — importo presente solo in un documento-questionario/opzioni`)
               continue
             }
-          }
-          // Documento/pagina REALI del blocco che contiene il valore (prima:
-          // sempre il primo documento, pagina 1). Affinità CALCOLATA come per
-          // ogni altro candidato (finestra attorno al valore ↔ descrizione):
-          // il vecchio 0.9 fisso rendeva imbattibile anche una lettura di
-          // colonna sbagliata (interessi = imposte sul GUFFANTI).
-          const vnorm = normForMatch(cleaned)
-          const origin = dedup.find(({ b }) => vnorm && normForMatch(b).includes(vnorm)) || dedup[0]
-          const srcDoc = origin?.d || analyzed[0]
-          let affPair = null
-          try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), srcDoc) } catch { affPair = null }
-          // RIGA DI TABELLA la cui ETICHETTA contiene parole della DESCRIZIONE del
-          // campo ("5. Massimale" → massimale, "2. Indirizzo del Contraente" →
-          // indirizzo/contraente): è l'evidenza più forte che il documento offre,
-          // l'etichetta stessa nomina il campo. Il candidato entra con affinità
-          // almeno TABLE_ROW_AFFINITY (Pilato: l'indirizzo giusto e "Avvocato"
-          // letti dalla tabella perdevano contro frasi delle condizioni con
-          // affinità semantica 0.66-0.67). Decide la descrizione, nessuna lista.
-          const rowLabelNorm = normForMatch(String(valObj.riga || ''))
-          // Lex sulla TESTA della descrizione (prima dei due punti: "Attività
-          // assicurata", "Premio imponibile…"): è il nome della cosa chiesta.
-          const headField = { ...f, description: String(f.description || '').split(':')[0] || f.description }
-          // SOLO la testa della descrizione: con l'intera descrizione bastava una
-          // parola qualunque ("assicurato" in "Soggetto assicurato") per dare
-          // priorità di tabella a una riga che non nomina il campo.
-          const rowLex = rowLabelNorm ? lexAffinity(headField, rowLabelNorm) : 0
-          // COLONNA coerente con la descrizione? Se la riga ha colonne con nome e
-          // il valore sta sotto un'intestazione che corrisponde MENO alla
-          // descrizione di un'altra intestazione della stessa riga, il modello ha
-          // sbagliato colonna ("1.540,00" sotto PREMIO LORDO per il premio
-          // imponibile, con NETTO IMPONIBILE nella stessa riga): si scarta.
-          let colOk = true
-          // Intestazione di COLONNA che nomina il campo ("Premio Imponibile" per
-          // "Premio imponibile della polizza RC"): evidenza strutturale pari
-          // all'etichetta di riga. Prima contava solo la riga: in una tabella a
-          // una riga ("Rata alla firma fino al 19/04/2027") la colonna giusta
-          // perdeva il merge contro due letture del netto nei batch.
-          let colLex = 0
-          {
-            const row = rowsIndex.get(rowLabelNorm) || [...rowsIndex.entries()].find(([k]) => rowLabelNorm && (k.includes(rowLabelNorm) || rowLabelNorm.includes(k)))?.[1]
-            const cols = row?.cols || []
-            const named = cols.filter((c) => c.header && c.header.trim())
-            const vn = normForMatch(cleaned)
-            const chosen = cols.find((c) => vn && normForMatch(c.value) && (normForMatch(c.value) === vn || normForMatch(c.value).includes(vn)))
-            if (chosen && chosen.header) colLex = headerLex(f, chosen.header)
-            if (named.length >= 2) {
-              const lexOf = (c) => headerLex(f, c.header)
-              if (chosen) {
-                const best = Math.max(...cols.map(lexOf))
-                const bestCols = cols.filter((c) => lexOf(c) === best)
-                if (best > 0 && lexOf(chosen) < best && bestCols.length === 1) {
-                  // Riga giusta, colonna sbagliata: si PRENDE il valore della
-                  // colonna la cui intestazione nomina il campo (stessa riga),
-                  // se è un valore valido e la colonna migliore è UNICA. Scelta
-                  // strutturale, non invenzione: "28,00" sotto PREMIO LORDO per
-                  // il premio imponibile → 24,88 sotto NETTO IMPONIBILE.
-                  const bestCol = bestCols[0]
-                  const fixed = bestCol && bestCol.value && bestCol.value !== '-' ? sanitizeFieldValue(f, bestCol.value) : null
-                  if (fixed && passesStagedEvidence(f, fixed, { ...valObj, valore: fixed }, a7NormCtx, a7RawCtx)) {
-                    diag.push(`Tabella-focus[${f.label}]: "${cleaned}" preso dalla colonna "${chosen.header}" → corretto in "${fixed}" dalla colonna "${bestCol.header}" (stessa riga, intestazione che nomina il campo)`)
-                    cleaned = fixed
-                    colLex = best
-                  } else {
+            // Affinità CALCOLATA come per ogni altro candidato (finestra attorno
+            // al valore ↔ descrizione): il vecchio 0.9 fisso rendeva imbattibile
+            // anche una lettura di colonna sbagliata (interessi = imposte sul
+            // GUFFANTI). Il documento è quello della chiamata.
+            let affPair = null
+            try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), d) } catch { affPair = null }
+            // RIGA DI TABELLA la cui ETICHETTA contiene parole della DESCRIZIONE del
+            // campo ("5. Massimale" → massimale, "2. Indirizzo del Contraente" →
+            // indirizzo/contraente): è l'evidenza più forte che il documento offre,
+            // l'etichetta stessa nomina il campo. Il candidato entra con affinità
+            // almeno TABLE_ROW_AFFINITY (Pilato: l'indirizzo giusto e "Avvocato"
+            // letti dalla tabella perdevano contro frasi delle condizioni con
+            // affinità semantica 0.66-0.67). Decide la descrizione, nessuna lista.
+            const rowLabelNorm = normForMatch(String(valObj.riga || ''))
+            // Lex sulla TESTA della descrizione (prima dei due punti: "Attività
+            // assicurata", "Premio imponibile…"): è il nome della cosa chiesta.
+            const headField = { ...f, description: String(f.description || '').split(':')[0] || f.description }
+            // SOLO la testa della descrizione: con l'intera descrizione bastava una
+            // parola qualunque ("assicurato" in "Soggetto assicurato") per dare
+            // priorità di tabella a una riga che non nomina il campo.
+            const rowLex = rowLabelNorm ? lexAffinity(headField, rowLabelNorm) : 0
+            // COLONNA coerente con la descrizione? Se la riga ha colonne con nome e
+            // il valore sta sotto un'intestazione che corrisponde MENO alla
+            // descrizione di un'altra intestazione della stessa riga, il modello ha
+            // sbagliato colonna ("1.540,00" sotto PREMIO LORDO per il premio
+            // imponibile, con NETTO IMPONIBILE nella stessa riga): si scarta.
+            let colOk = true
+            // Intestazione di COLONNA che nomina il campo ("Premio Imponibile" per
+            // "Premio imponibile della polizza RC"): evidenza strutturale pari
+            // all'etichetta di riga. Prima contava solo la riga: in una tabella a
+            // una riga ("Rata alla firma fino al 19/04/2027") la colonna giusta
+            // perdeva il merge contro due letture del netto nei batch.
+            let colLex = 0
+            const rowHit = findA7Row(rows, rowLabelNorm, normForMatch(cleaned))
+            {
+              const cols = rowHit?.row?.cols || []
+              const named = cols.filter((c) => c.header && c.header.trim())
+              const vn = normForMatch(cleaned)
+              const chosen = cols.find((c) => vn && normForMatch(c.value) && (normForMatch(c.value) === vn || normForMatch(c.value).includes(vn)))
+              if (chosen && chosen.header) colLex = headerLex(f, chosen.header)
+              if (named.length >= 2) {
+                const lexOf = (c) => headerLex(f, c.header)
+                if (chosen) {
+                  const best = Math.max(...cols.map(lexOf))
+                  const bestCols = cols.filter((c) => lexOf(c) === best)
+                  if (best > 0 && lexOf(chosen) < best && bestCols.length === 1) {
+                    // Riga giusta, colonna sbagliata: si PRENDE il valore della
+                    // colonna la cui intestazione nomina il campo (stessa riga),
+                    // se è un valore valido e la colonna migliore è UNICA. Scelta
+                    // strutturale, non invenzione: "28,00" sotto PREMIO LORDO per
+                    // il premio imponibile → 24,88 sotto NETTO IMPONIBILE.
+                    const bestCol = bestCols[0]
+                    const fixed = bestCol && bestCol.value && bestCol.value !== '-' ? sanitizeFieldValue(f, bestCol.value) : null
+                    if (fixed && passesStagedEvidence(f, fixed, { ...valObj, valore: fixed }, a7NormCtx, a7RawCtx)) {
+                      diag.push(`Tabella-focus[${f.label}]: "${cleaned}" preso dalla colonna "${chosen.header}" → corretto in "${fixed}" dalla colonna "${bestCol.header}" (stessa riga, intestazione che nomina il campo)`)
+                      cleaned = fixed
+                      colLex = best
+                    } else {
+                      colOk = false
+                      diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — preso dalla colonna "${chosen.header}" ma la colonna "${bestCol?.header}" corrisponde di più alla descrizione`)
+                    }
+                  } else if (best > 0 && lexOf(chosen) < best) {
                     colOk = false
-                    diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — preso dalla colonna "${chosen.header}" ma la colonna "${bestCol?.header}" corrisponde di più alla descrizione`)
+                    diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — preso dalla colonna "${chosen.header}" ma ${bestCols.length} colonne (${bestCols.map((c) => c.header).join(', ')}) corrispondono di più alla descrizione`)
                   }
-                } else if (best > 0 && lexOf(chosen) < best) {
-                  colOk = false
-                  diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — preso dalla colonna "${chosen.header}" ma ${bestCols.length} colonne (${bestCols.map((c) => c.header).join(', ')}) corrispondono di più alla descrizione`)
                 }
               }
             }
+            if (!colOk) continue
+            // PAGINA reale: quella della riga che porta il valore, altrimenti la
+            // prima tabella inviata che lo contiene (sempre di questo documento).
+            const vnorm = normForMatch(cleaned)
+            const rowCarries = rowHit && (rowHit.row?.cols || []).some((c) => { const n = normForMatch(c.value); return !!n && !!vnorm && (n === vnorm || n.includes(vnorm)) })
+            const page = rowCarries ? rowHit.page
+              : (sent.find(({ b }) => vnorm && normForMatch(b).includes(vnorm)) || sent[0]).page
+            const structLex = Math.max(rowLex, colLex)
+            const baseAff = affPair && typeof affPair === 'object' ? affPair.aff : affPair
+            const cand = {
+              valore: cleaned, effDate: d.dateStr, srcDate: d.dateStr ?? null, docType: d.type,
+              appendixOrd: d.appendixOrd, docPos: d.pos,
+              file: d.name, page,
+              // Riga con etichetta che nomina il campo: affinità almeno TABLE_ROW_AFFINITY,
+              // più alta quanto più l'etichetta coincide con la TESTA della descrizione
+              // (così "Attività" batte "Soggetto assicurato" per "Attività assicurata").
+              affinity: structLex > 0 ? Math.max(typeof baseAff === 'number' ? baseAff : 0, Math.min(0.9, TABLE_ROW_AFFINITY + 0.2 * structLex)) : baseAff,
+              lex: Math.max(affPair && typeof affPair === 'object' && typeof affPair.lex === 'number' ? affPair.lex : 0, structLex),
+              tableRow: structLex > 0,
+              structLex, rowLex,
+              deterministic: false,
+            }
+            const prevC = best[f.id]
+            const before = prevC?.valore
+            best[f.id] = pickSemanticCandidate(prevC, cand, 'anagrafica')
+            a7Rows++
+            // Nel REGISTRO del consenso come ogni candidato accettato dei batch:
+            // prima le letture di tabella avevano zero voti, e una sola lettura
+            // (tableRow) resisteva a qualunque numero di conferme.
+            let clog = STAGED_CANDIDATE_LOG.get(best)
+            if (!clog) { clog = {}; STAGED_CANDIDATE_LOG.set(best, clog) }
+            ;(clog[f.id] ??= []).push(cand)
+            const taken = best[f.id] === cand
+            diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}, riga "${valObj.riga || (v && typeof v === 'object' ? v.riga : '') || ''}" col "${valObj.colonna || (v && typeof v === 'object' ? v.colonna : '') || ''}"${before ? (taken ? `, sostituisce "${before}"` : `, NON sostituisce "${before}" (${prevC?.tableRow === true && prevC.structLex === structLex && prevC.rowLex === rowLex ? 'riga di tabella pari: decide il consenso sui documenti distinti' : 'riga meno coerente con la descrizione'})`) : ''})`)
           }
-          if (!colOk) continue
-          const structLex = Math.max(rowLex, colLex)
-          const baseAff = affPair && typeof affPair === 'object' ? affPair.aff : affPair
-          const cand = {
-            valore: cleaned, effDate: srcDoc?.dateStr, srcDate: srcDoc?.dateStr ?? null, docType: srcDoc?.type,
-            appendixOrd: srcDoc?.appendixOrd, docPos: srcDoc?.pos,
-            file: srcDoc?.name, page: origin?.page || 1,
-            // Riga con etichetta che nomina il campo: affinità almeno TABLE_ROW_AFFINITY,
-            // più alta quanto più l'etichetta coincide con la TESTA della descrizione
-            // (così "Attività" batte "Soggetto assicurato" per "Attività assicurata").
-            affinity: structLex > 0 ? Math.max(typeof baseAff === 'number' ? baseAff : 0, Math.min(0.9, TABLE_ROW_AFFINITY + 0.2 * structLex)) : baseAff,
-            lex: Math.max(affPair && typeof affPair === 'object' && typeof affPair.lex === 'number' ? affPair.lex : 0, structLex),
-            tableRow: structLex > 0,
-            structLex, rowLex,
-            deterministic: false,
-          }
-          const before = best[f.id]?.valore
-          best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
-          a7Rows++
-          const taken = best[f.id] === cand
-          diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (riga "${valObj.riga || (v && typeof v === 'object' ? v.riga : '') || ''}" col "${valObj.colonna || (v && typeof v === 'object' ? v.colonna : '') || ''}"${before ? (taken ? `, sostituisce "${before}"` : `, NON sostituisce "${before}" (riga meno coerente con la descrizione)`) : ''})`)
         }
       } else {
         diag.push('Stadio A.7: nessuna tabella con importi trovata — nessun campo da tabella (esito valido)')
@@ -5072,7 +5413,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // focalizzata coi SOLI campi anagrafici (stesso pattern di A.7: chiavi kN,
   // risposta libera, merge non distruttivo). GIRA SEMPRE; se non dà risultati
   // è comunque un esito valido.
-  const anagFields = (partition.anagrafica || []).filter((f) => f.enabled !== false && !/compagnia|assicurator/i.test(String(f.label || '')))
+  const anagFields = frontespizioFocusFields(partition.anagrafica)
   if (anagFields.length) {
     let a8Rows = 0
     try {
@@ -5239,7 +5580,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
       .join('\n')
     const docHeader = `DOCUMENTO ANALIZZATO: "${stagedDocTag(doc)}" (tipo: ${doc.type}${doc.dateStr ? `, periodo/data: ${doc.dateStr}` : ''})`
-    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (anche con parole diverse), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
+    const buildPrompt = (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (${paraphraseHint(missingHere)}), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${missingHere.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
     // Rapporto CONSERVATIVO 2.0 char/token: un budget ottimista fa troncare il
     // prompt in silenzio dal server (testa = guida campi persa → spazzatura).
     const reserve = estimateOllamaTokens(STAGED_CASCADE_SYSTEM.length + buildPrompt('').length) + 3000 + 512
@@ -5285,7 +5626,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Il merge è tutto nell'arbitro semantico dentro absorbStagedEntries: la
       // controprova sulla polizza base non ha più codice speciale — i suoi
       // candidati competono con l'affinità descrizione↔contesto come gli altri.
-      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx)
+      llmFieldsCount += await absorbStagedEntries(parsed, missingHere, best, kindOf, analyzed, normForMatch(usedCtx), usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx, verificationObjects)
       const filled = report.filter((r) => r.outcome === 'ok').length
       diag.push(`${label} (${missingHere.length} campi chiesti): riempiti ${filled} — scartati: ` +
         `${counters.placeholders - before.placeholders} placeholder, ${counters.sanitized - before.sanitized} sanitizzazione/checksum, ` +
@@ -5295,7 +5636,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // run era un indovinare su CHI fosse stato scartato e con quale valore.
       const reported = report.filter((r) => r.outcome !== 'vuoto/null')
       if (reported.length) {
-        diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+        diag.push(`  ↳ ${reported.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}${reportEvidenceTail(r)}`).join(' · ')}`)
       }
     }
 
@@ -5372,13 +5713,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // descrizioni dei campi del gruppo (senza il secondo il contratto, il più
     // vecchio e più informativo, finiva spezzato in coda a batch di quietanze).
     const groupAff = (d) => Math.max(0, ...groupFields.map((f) => fieldDocAffinity(f, d)))
-    const mostAffine = [...groupDocs]
-      .map((d) => [groupAff(d), d])
-      .sort((a, b) => b[0] - a[0] || byStagedRecency(a[1], b[1]))
-      .filter(([aff]) => aff > 0)
-      .slice(0, 3)
-      .map(([, d]) => d)
-    const focusDocs = [...new Set([...groupDocs.slice(0, 3), ...mostAffine])]
+    // Stessa scelta dello Stadio A.7 (pickFocusDocs).
+    const { docs: focusDocs, affine: mostAffine } = pickFocusDocs(groupDocs, groupAff)
     const focusSet = new Set(focusDocs.map((d) => d.pos))
     // COPERTURA solo dei documenti NON focalizzati: prima ogni pagina dei
     // documenti focalizzati arrivava al modello DUE volte per gruppo (batch
@@ -5501,7 +5837,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const before = { ...counters }
       const normCtx = normForMatch(usedCtx)
       const report = []
-      llmFieldsCount += await absorbStagedEntries(parsed, subFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx)
+      llmFieldsCount += await absorbStagedEntries(parsed, subFields, best, kindOf, analyzed, normCtx, usedNames, counters, report, candidateAffinity, factsRegistry, optionDocs, optionPages, usedCtx, verificationObjects)
       const got = Object.keys(parsed || {}).length
       diag.push(`Gruppo "${kind}" batch ${bi + 1}/${plan.batches.length}${subTag} (${[...usedNames].slice(0, 4).join(', ')}${usedNames.size > 4 ? ', …' : ''}): ` +
         `${subFields.length}/${groupFields.length} campi chiesti, ${got} proposti — scartati: ${counters.placeholders - before.placeholders} placeholder, ` +
@@ -5510,7 +5846,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // Esito PER CAMPO (con affinità semantica): senza questo dettaglio ogni
       // run era un indovinare su CHI fosse stato scartato e con quale valore.
       if (report.length) {
-        diag.push(`  ↳ ${report.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+        diag.push(`  ↳ ${report.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''}${r.aff != null ? `~${r.aff.toFixed(2)}` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}${reportEvidenceTail(r)}`).join(' · ')}`)
       }
       } // fine sotto-chiamate (tetto campi per chiamata)
     }
@@ -5691,16 +6027,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // Recupero a UN campo per chiamata: si chiede ATTIVAMENTE il valore (il
         // comando "metti null se non c'è" troppo forte faceva rispondere null anche
         // quando l'evidenza era sotto gli occhi — visto su massimale e premi).
-        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, anche con parole diverse) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.
+        const userPrompt = `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctx}\n\nSe trovi il dato (o la frase che lo contiene, ${paraphraseHint(b.fields)}) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.
 ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
         try {
           const raw = await callOllamaRolling(s2, STAGED_RECOVERY_SYSTEM, userPrompt, { numCtx: ctxCap(s2), timeoutMs: 120000, diag, fields: b.fields, shape: 'staged' })
           const parsed = parseJsonResponse(raw)
           const beforeIds = new Set(Object.keys(best))
           const recReport = []
-          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry, optionDocs, optionPages, ctx)
+          await absorbStagedEntries(parsed, b.fields, best, kindOf, analyzed, normForMatch(ctx), usedNames, counters, recReport, candidateAffinity, factsRegistry, optionDocs, optionPages, ctx, verificationObjects)
           if (recReport.length) {
-            diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}`).join(' · ')}`)
+            diag.push(`  ↳ ${recReport.map((r) => `${r.id}${r.value ? `="${r.value}"` : ''} ${r.outcome === 'ok' ? '✓' : `[${r.outcome}]`}${reportEvidenceTail(r)}`).join(' · ')}`)
           }
           const gained = b.fields.filter((f) => !beforeIds.has(f.id) && (f.id in best))
           recovered += gained.length
@@ -5762,7 +6098,9 @@ ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e
       if (r.changed) {
         const prev = best[id]?.valore
         best[id] = r.cand
-        notes.push(`${fieldsById[id].label || id}: "${String(r.cand.valore).slice(0, 28)}" (${r.votes} voti${identity ? ', tutti i documenti' : ''}) al posto di "${String(prev ?? '').slice(0, 28)}" (${r.prevVotes})`)
+        notes.push(r.docs != null
+          ? `${fieldsById[id].label || id}: "${String(r.cand.valore).slice(0, 28)}" (riga di tabella in ${r.docs} documenti distinti) al posto di "${String(prev ?? '').slice(0, 28)}" (${r.prevDocs})`
+          : `${fieldsById[id].label || id}: "${String(r.cand.valore).slice(0, 28)}" (${r.votes} voti${identity ? ', tutti i documenti' : ''}) al posto di "${String(prev ?? '').slice(0, 28)}" (${r.prevVotes})`)
       }
     }
     diag.push(notes.length ? `Consenso tra batch: ${notes.join(' · ')}` : 'Consenso tra batch: nessun cambiamento')

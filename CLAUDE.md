@@ -62,6 +62,32 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   del gruppo — senza il secondo il documento più informativo (il contratto, che
   è anche il più vecchio) finiva spezzato in coda a batch di quietanze vecchie.
 
+- **Ciclo correzioni 25/09/2026 sera (analisi di 55 errori dei golden in
+  produzione, workflow con revisore avversario)**: (a) prova degli importi
+  piccoli (< 4 cifre intere) = numero intero nel testo o citazione che lo
+  contiene — un 5,84 CALCOLATO non passa più; numeri spezzati dal kerning
+  ricomposti anche nelle griglie lette dalla cache (`rejoinCachedGrid`,
+  modulo `splitNumbers.js`); confini delle cifre (50000000 non sta dentro
+  250000000) e ricerca del valore limitata alle pagine della chiamata;
+  (b) date con anno a 2 cifre valide solo se la parola del periodo è LEGATA per
+  posizione alla data (o seconda di una coppia crescente): il piè di pagina DAS
+  «Aut. D.M. del 26.11.59 … al Gruppo Generali» datava i documenti al 2059;
+  (c) campi di VERIFICA: la citazione è obbligatoria e deve NOMINARE l'oggetto
+  verificato (`verificationObjectPhrases` dalla testa della descrizione, parole
+  non identificative per frequenza su tutte le teste del profilo), citazioni con
+  «…» accettate a segmenti contigui nella stessa pagina, risposte PRESCRITTE
+  dalla descrizione («scrivi 'Nessuna'») validate dalla citazione, eco di frasi
+  citate nella descrizione di un ALTRO campo scartato; (d) Stadio A.7 tabelle
+  DOCUMENTO PER DOCUMENTO (3 più recenti + 3 più affini), niente «il valore più
+  grande», candidati A.7 nel registro del consenso, spareggio tra righe di
+  tabella per numero di documenti distinti; (e) tolte le ultime letture di
+  id/label nei controlli (P.IVA, nome file, frontespizio, identificativi,
+  selezione caselle A.5) e la trappola inventata «un nome societario non è
+  un'agenzia». Cache OCR per motore SOLO per i documenti con pagine
+  scansionate (i digitali condividono la griglia con qualunque motore).
+  Golden corretti: 6 verità (GUFFANTI RC Estensioni 'Nessuna', GUFFANTI 2026
+  Condizioni 'Non operante', BOLCHINI TL Interessi vuoto, BOLCHINI 2026 P.IVA o
+  CF, SPALLINO RC Sinistri = No). Misura: `scripts/rescore-prod.mjs`.
 - **OCR CON MODELLO VISIVO (25/09/2026, riaperto dall'utente SOLO come OCR)**:
   `polizzaOcrEngine` = '' / 'tesseract' (default) o il nome di un modello Ollama
   che vede le immagini (qwen2.5vl:7b consigliato: sta in GPU col 32B di testo).

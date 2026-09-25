@@ -9,7 +9,9 @@
  */
 
 import { normalizeDateValue, dateStrToTs, shouldReplaceValue } from './polizzaDates.js'
-import { fieldKind, autoKind, fieldNatura } from './polizzaFieldKind.js'
+import { fieldKind, autoKind, fieldNatura, descriptionAsksVerification, verificationAnswers, positiveDescriptionText, descriptionAsksDocumentNumber } from './polizzaFieldKind.js'
+import { fieldValueKind } from './gbnfSchema.js'
+import { joinSplitNumbers, joinSplitNumbersInText } from './splitNumbers.js'
 
 // ─── Importi "puri" ──────────────────────────────────────────────────────────
 
@@ -113,6 +115,19 @@ export function isGarbageIdentifier(raw) {
   return false
 }
 
+/**
+ * true se il campo chiede un IDENTIFICATIVO (una stringa, mai una somma): una
+ * P.IVA/codice fiscale (tipo 'vat' dalla testa della descrizione o dal type)
+ * oppure il numero di un documento (polizza, proposta, appendice…) chiesto
+ * dalla parte POSITIVA della descrizione. Mai id né label (Regola 1): prima le
+ * guardie usavano /iva|fiscale|cf/ su id+label+descrizione intera, e "iva"
+ * dentro "complessiva"/"effettiva" o un "NON è la partita IVA" bastavano.
+ */
+export function fieldAsksIdentifier(field) {
+  if (!field) return false
+  return fieldValueKind(field) === 'vat' || descriptionAsksDocumentNumber(field.description)
+}
+
 // ─── Anti-LABEL (generalizzazione) ──────────────────────────────────────────
 // Il modello copia le INTESTAZIONI di sezione come valore del campo (visto nel
 // fascicolo A/B): "IL CONTRAENTE" (pagina "il contraente" invece della ragione
@@ -140,6 +155,8 @@ const ANTI_LABEL_PATTERNS = [
   // intestazioni TUTTO MAIUSCOLE: dentro un valore, una frase maiuscola con 3+
   // parole e ≥1 parola ≥6 char è un heading, non un dato
 ]
+// Gli stessi pattern ANCORATI all'intera stringa normalizzata.
+const ANTI_LABEL_FULL = ANTI_LABEL_PATTERNS.map((p) => new RegExp(`^(?:${p.source})$`, p.flags))
 /**
  * true se il valore sembra UN'INTESTAZIONE/LABEL di sezione piuttosto che un
  * dato estratto: il modello l'ha copiato perché stava in una sezione dedicata.
@@ -160,7 +177,15 @@ export function isLabelLikeValue(raw) {
   // ("BOLCHINI ARCH. MARGHERITA", "MARIO ROSSI BIANCHI", "ALZAIA NAV. PAVESE
   // 104 CONDOMI"): tre chiamate su quattro davano il contraente giusto e il
   // sanitizer le buttava tutte. Restano SOLO i pattern documentali sotto.
-  for (const p of ANTI_LABEL_PATTERNS) {
+  // [25/09/2026] Match sull'INTERA stringa (^…$), come dice il commento sopra:
+  // prima i pattern cercavano una SOTTOSTRINGA e bocciavano ogni elenco che
+  // contenesse quelle parole — i Sottolimiti veri ("Perdita o interruzione di
+  // attività di Terzi: 50% del Massimale per Sinistro; …", GUFFANTI RC 2026),
+  // le Esclusioni "Antitrust; Esclusioni territoriali USA e Canada" (RCP
+  // CRESTA) ed "Estensione territoriale: Mondo intero escluso USA e Canada"
+  // (BOLCHINI RC, la verità del golden). Un'intestazione è tale solo se è
+  // TUTTO il valore (analisi errori 25/09/2026, F09).
+  for (const p of ANTI_LABEL_FULL) {
     if (p.test(norm)) return true
   }
   return false
@@ -1049,6 +1074,102 @@ export function buildNormIndex(text) {
   return { text: src, norm, map }
 }
 
+// ─── Confini di NUMERO ───────────────────────────────────────────────────────
+// Nel testo NORMALIZZATO spazi e punteggiatura spariscono: "500.000,00" diventa
+// "50000000" e si trova DENTRO "2.500.000,00" ("250000000"). RCP CRESTA: il
+// visto pesante 500.000,00 (letto nelle pagine 11-19) aveva come fonte il
+// frontespizio col massimale "€ 2.500.000,00", e l'affinità si misurava sulla
+// finestra del massimale principale (0,58, gonfiata). I confini si guardano sul
+// testo GREZZO: prima non ci dev'essere una cifra (né cifra + separatore:
+// "2.|500.000"), dopo non ci dev'essere una cifra (né separatore + cifra:
+// "500.000|.000"). Lo spazio è un confine: due colonne affiancate
+// ("250.000   500.000,00") restano numeri distinti.
+function isDigitChar(c) { return c >= '0' && c <= '9' }
+
+/**
+ * true se il tratto GREZZO [start, end) è un numero intero del testo, non un
+ * pezzo di un numero più lungo.
+ * `decimalsAfter`: 'zero' ammette dopo il tratto i soli decimali a zero
+ * (",00" di "5.000.000,00" per il valore "5.000.000": stesso importo); 'none'
+ * non ammette decimali (la sola parte intera vale solo se il testo la scrive
+ * SENZA decimali: "€ 5.000.000" per "5.000.000,00", mai "5.000.000,50").
+ */
+export function rawNumberBounded(text, start, end, decimalsAfter = 'zero') {
+  const s = String(text || '')
+  const b1 = s[start - 1] || '', b2 = s[start - 2] || ''
+  if (isDigitChar(b1)) return false
+  if ((b1 === '.' || b1 === ',') && isDigitChar(b2)) return false
+  const a1 = s[end] || '', a2 = s[end + 1] || ''
+  if (isDigitChar(a1)) return false
+  if ((a1 === '.' || a1 === ',') && isDigitChar(a2)) {
+    if (decimalsAfter !== 'zero') return false
+    return /^[.,]0{1,2}(?!\d)/.test(s.slice(end, end + 4))
+  }
+  return true
+}
+
+/**
+ * Prima posizione (nel NORMALIZZATO dell'indice, da `from`) in cui la run di
+ * cifre `digits` è un numero intero del testo grezzo (rawNumberBounded); -1 se
+ * compare solo dentro numeri più lunghi o non compare.
+ * @param {{text:string,norm:string,map:number[]}} idx indice di buildNormIndex
+ */
+export function indexOfWholeNumber(idx, digits, from = 0, decimalsAfter = 'zero') {
+  const d = String(digits || '')
+  const { text, norm, map } = idx || {}
+  if (!d || !norm) return -1
+  let at = norm.indexOf(d, from)
+  while (at !== -1) {
+    const start = map[at]
+    const end = map[at + d.length - 1] + 1
+    if (rawNumberBounded(text, start, end, decimalsAfter)) return at
+    at = norm.indexOf(d, at + 1)
+  }
+  return -1
+}
+
+// Numeri del testo GREZZO con i loro confini (mai dentro un numero più lungo,
+// mai un pezzo di data "16/12/2025" o di civico "9/B"): migliaia col punto,
+// decimali con la virgola (anche tre: tassi "1,250 ‰") — o col punto e una o
+// due cifre, come li legge l'OCR ("244.00"; "1.250" resta mille e duecentocinquanta).
+const AMOUNT_TOKEN_RE = /(?<![\d/])(?<!\d[.,])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+)|\.(\d{1,2}))?(?![\d/])(?![.,]\d)/g
+
+/**
+ * true se l'IMPORTO `amount` (numero) è scritto nel testo come numero intero:
+ * "244,00", "244" o "244.00" per 244; "€ 28" per 28,00 (stesso importo, il
+ * testo non stampa i decimali). Il confronto è sul VALORE, non sulle cifre:
+ * "5,84" non si trova in "2,92" né dentro "15,84".
+ */
+export function textHasAmount(text, amount) {
+  if (text == null || amount == null || !Number.isFinite(amount)) return false
+  const target = Math.abs(amount)
+  for (const m of String(text).matchAll(AMOUNT_TOKEN_RE)) {
+    const n = parseFloat(`${m[1].replace(/\./g, '')}.${m[2] || m[3] || '0'}`)
+    if (Math.abs(n - target) < 1e-9) return true
+  }
+  return false
+}
+
+// Contesto con i numeri spezzati dal kerning ricomposti, memorizzato per
+// l'ultimo contesto visto: passesStagedEvidence gira su ogni candidato di una
+// chiamata, sempre sullo stesso contesto.
+let joinedCtxMemo = { src: null, out: null }
+function joinedContext(rawCtx) {
+  if (joinedCtxMemo.src !== rawCtx) joinedCtxMemo = { src: rawCtx, out: joinSplitNumbersInText(rawCtx) }
+  return joinedCtxMemo.out
+}
+
+// Contesto senza i MARCATORI di pagina "[Documento N · pag. P]" /
+// "[FRONTESPIZIO: …]" (stessa forma di contextPagesNorm), memorizzato per
+// l'ultimo contesto come joinedContext.
+let markerlessMemo = { src: null, out: null }
+function contextWithoutMarkers(rawCtx) {
+  if (markerlessMemo.src !== rawCtx) {
+    markerlessMemo = { src: rawCtx, out: String(rawCtx || '').replace(/\[(?:FRONTESPIZIO:\s*)?[^\]\n]+? · pag\. \d+\]/g, ' ') }
+  }
+  return markerlessMemo.out
+}
+
 /**
  * Finestra di testo GREZZO (±span char) attorno alla prima occorrenza del valore
  * — o, in mancanza, dell'evidenza — dentro il documento sorgente. È il contesto
@@ -1075,20 +1196,24 @@ export function findValueWindow(docText, value, evidenza, span = 200) {
   for (const needle of [value, evidenza]) {
     const nn = normForMatch(needle)
     if (nn.length < 3) continue
-    const at = norm.indexOf(nn)
+    // Solo cifre (importi, date, numeri): confini di NUMERO sul testo grezzo,
+    // mai le cifre dentro un numero più lungo ("500.000,00" in "2.500.000,00").
+    const at = /^\d+$/.test(nn) ? indexOfWholeNumber(idx, nn) : norm.indexOf(nn)
     if (at !== -1) return cut(at, nn.length)
     // Importi/date: le cifre sono l'ancora, i separatori li mette l'OCR
     const digits = nn.replace(/\D/g, '')
     if (digits.length < 3) continue
-    const atD = norm.indexOf(digits)
+    const atD = indexOfWholeNumber(idx, digits)
     if (atD !== -1) return cut(atD, digits.length)
     // Importo con decimali che il documento scrive SENZA ("5.000.000,00" vs
     // "€ 5.000.000"): si cerca la sola parte intera. Senza questo il candidato
     // giusto restava senza finestra → affinità null → arbitro cieco → perdeva
     // per recency contro un importo qualsiasi di una quietanza (EULIP).
+    // La parte intera vale solo se il testo la scrive SENZA decimali ('none'):
+    // "5.000.000,50" è un altro importo.
     const intPart = String(needle || '').trim().replace(/,\d{1,2}$/, '').replace(/\D/g, '')
     if (intPart.length >= 4 && intPart !== digits) {
-      const atI = norm.indexOf(intPart)
+      const atI = indexOfWholeNumber(idx, intPart, 0, 'none')
       if (atI !== -1) return cut(atI, intPart.length)
     }
     // TESTO riordinato dal modello ("Via Enrico Fermi, 9/B - 37135 Verona" per
@@ -1132,8 +1257,12 @@ export function valueWindows(docText, value, span = 80, limit = 8) {
   }
   const nv = normForMatch(value)
   if (nv.length >= 3) {
-    let at = norm.indexOf(nv)
-    while (at !== -1 && out.length < limit) { out.push(cut(at, nv.length)); at = norm.indexOf(nv, at + nv.length) }
+    // Valore di sole cifre: solo le occorrenze che sono un numero intero
+    // (confini di numero), come findValueWindow.
+    const numeric = /^\d+$/.test(nv)
+    const next = (from) => (numeric ? indexOfWholeNumber(idx, nv, from) : norm.indexOf(nv, from))
+    let at = next(0)
+    while (at !== -1 && out.length < limit) { out.push(cut(at, nv.length)); at = next(at + nv.length) }
   }
   if (/[a-z]/i.test(String(value || ''))) {
     const tokens = valueTokens(value)
@@ -1567,6 +1696,131 @@ export function isInsurerAddress(docText, value) {
   return found
 }
 
+// ─── Citazioni del modello: segmenti, pagine, risposte prescritte, echi ─────
+
+/**
+ * SEGMENTI di una citazione (normalizzati): il modello unisce pezzi non
+ * contigui coi puntini ("…dalla normativa di cui: … alla Legge n. 109/1994…",
+ * GUFFANTI RC 2026, 2.10) o copia gli elenchi puntati della griglia (▪ •).
+ * Il trattino no: sta dentro le date e le sigle.
+ */
+export function evidenceSegments(evidenza) {
+  return String(evidenza || '').split(/…|\.{3,}|[•▪●◦‣∙■□►➢➤]/u).map(normForMatch).filter(Boolean)
+}
+
+// Testo NORMALIZZATO per pagina del contesto di una chiamata: i marcatori
+// "[Documento N · pag. P]" (anche "[FRONTESPIZIO: …]") separano le pagine, i
+// pezzi della stessa pagina spezzata dal budget si ricongiungono. Senza
+// marcatori (frontespizio A.8) è una pagina sola; le tabelle dello Stadio A.7
+// hanno i marcatori di pagina dal 25/09/2026 (una chiamata per documento).
+// Memo sull'ultimo contesto: si interroga per ogni candidato della chiamata.
+let ctxPagesMemo = { src: null, out: null }
+export function contextPagesNorm(rawCtx) {
+  const src = String(rawCtx || '')
+  if (ctxPagesMemo.src === src) return ctxPagesMemo.out
+  const marks = [...src.matchAll(/\[(?:FRONTESPIZIO:\s*)?([^\]\n]+?) · pag\. (\d+)\]/g)]
+  let out
+  if (!marks.length) {
+    out = [normForMatch(src)]
+  } else {
+    const byKey = new Map()
+    const before = src.slice(0, marks[0].index)
+    if (before.trim()) byKey.set('', normForMatch(before))
+    marks.forEach((m, i) => {
+      const end = i + 1 < marks.length ? marks[i + 1].index : src.length
+      const key = `${m[1].trim()}|${m[2]}`
+      byKey.set(key, (byKey.get(key) || '') + normForMatch(src.slice(m.index + m[0].length, end)))
+    })
+    out = [...byKey.values()]
+  }
+  ctxPagesMemo = { src, out }
+  return out
+}
+
+/**
+ * true se la citazione sta nel testo inviato: ogni segmento (evidenceSegments)
+ * è testo normalizzato CONTIGUO della STESSA pagina, nell'ordine della
+ * citazione. Senza testo grezzo si usa il contesto normalizzato intero.
+ */
+export function evidenceInContext(evidenza, normCtx, rawCtx = null) {
+  const segs = evidenceSegments(evidenza)
+  if (!segs.length) return false
+  const pages = rawCtx ? contextPagesNorm(rawCtx) : [String(normCtx || '')]
+  return pages.some((p) => {
+    let at = 0
+    for (const s of segs) {
+      const i = p.indexOf(s, at)
+      if (i === -1) return false
+      at = i + s.length
+    }
+    return true
+  })
+}
+
+// Parte POSITIVA di una descrizione (senza "NON è…", "mai…"): stessa regola di
+// descriptionAllowsRunningText (polizzaFieldKind.positiveDescriptionText).
+const positiveDescriptionPart = positiveDescriptionText
+
+// Citazioni VERE di una descrizione (la virgoletta apre dopo spazio/parentesi/
+// virgola/due punti e chiude prima di spazio o punteggiatura): gli apostrofi
+// di "l'intermediario" e "all'autorità" non sono citazioni.
+const DESC_QUOTE_RE = /(?<=^|[\s(,:])['"«‘]([^"«»]{1,120}?)['"»’](?=[\s,.;:)!?]|$)/g
+
+/**
+ * RISPOSTE che la descrizione PRESCRIVE: quelle di una verifica ('Sì', 'No',
+ * 'presente', 'escluso') e le parole che la parte positiva ordina di scrivere
+ * ("scrivi 'Nessuna'", "restituisci la parola 'NESSUNA'"). Non sono lette
+ * nel testo: le deduce il modello da ciò che vede.
+ */
+export function descriptionPrescribedAnswers(description) {
+  const out = [...verificationAnswers(description)]
+  const re = /\b(?:scrivi|rispondi|restituisci|riporta|metti)\s+(?:(?:la\s+parola|il\s+testo|la\s+dicitura|solo|soltanto|sempre)\s+)?['"«‘]([^"«»]{1,80}?)['"»’](?=[\s,.;:)!?]|$)/giu
+  for (const m of positiveDescriptionPart(description).matchAll(re)) out.push(m[1])
+  return [...new Set(out)]
+}
+
+/** true se `value` (con lettere) è una risposta prescritta dalla descrizione del campo. */
+export function isPrescribedAnswer(field, value) {
+  const v = String(value ?? '')
+  if (!/\p{L}/u.test(v)) return false
+  const nv = normForMatch(v)
+  return !!nv && descriptionPrescribedAnswers(field?.description).some((a) => normForMatch(a) === nv)
+}
+
+/**
+ * ECO DI UN'ALTRA DESCRIZIONE: il valore coincide con una frase citata nella
+ * descrizione di un ALTRO campo della stessa chiamata e NON sta, contiguo, nel
+ * testo inviato. RCP SAPORITI: "Non operante" (citato nella descrizione delle
+ * Condizioni particolari) finiva nelle Esclusioni particolari per la deriva
+ * delle chiavi, e passava l'evidenza perché "non" e "operante" stanno da
+ * qualche parte in 50.000 caratteri. Si confronta con le descrizioni, mai con
+ * liste.
+ * @returns {string|null} la frase citata di cui il valore è l'eco
+ */
+export function descriptionEchoPhrase(field, value, callFields, normCtx) {
+  const v = String(value ?? '')
+  if (!/\p{L}/u.test(v)) return null
+  const nv = normForMatch(v)
+  if (!nv || String(normCtx || '').includes(nv)) return null
+  // Una frase che la PROPRIA descrizione cita (parte positiva) o prescrive non
+  // è l'eco di un altro campo, anche se un altro campo la cita a sua volta:
+  // RC PROF MED V2, "NESSUNA" è la risposta prescritta della Franchigia base
+  // ("restituisci la parola 'NESSUNA'") e il Frazionamento la cita nel suo
+  // "MAI … né 'NESSUNA'" — senza questa esenzione la risposta dedotta cadeva
+  // come eco quando i due campi stavano nella stessa chiamata.
+  if (isPrescribedAnswer(field, v)) return null
+  for (const m of positiveDescriptionPart(field?.description).matchAll(DESC_QUOTE_RE)) {
+    if (normForMatch(m[1]) === nv) return null
+  }
+  for (const g of callFields || []) {
+    if (!g || g === field || (field?.id != null && g.id === field.id)) continue
+    for (const m of String(g.description || '').matchAll(DESC_QUOTE_RE)) {
+      if (normForMatch(m[1]) === nv) return m[1]
+    }
+  }
+  return null
+}
+
 /**
  * Verifica che un valore estratto sia davvero ancorato al TESTO inviato al
  * modello ("meglio vuoto che sbagliato", ma tarata per non scartare le semplici
@@ -1581,6 +1835,40 @@ export function isInsurerAddress(docText, value) {
 export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = null) {
   const evidenza = (entry && typeof entry === 'object' && typeof entry.evidenza === 'string' && entry.evidenza.trim())
     ? entry.evidenza.trim() : null
+
+  // CAMPI DI VERIFICA ("Verifica se…"): la risposta (Sì/No/presente/escluso) è
+  // un giudizio, non una parola del testo, e l'unica prova è la CITAZIONE:
+  // obbligatoria e presente nel testo inviato, per OGNI risposta. Prima per le
+  // risposte di 4+ lettere bastava la parola: RCP SAPORITI, "presente" per il
+  // visto leggero preso da "La presente Estensione…" passava anche con una
+  // citazione inventata. La citazione può essere spezzata dai puntini o dagli
+  // elenchi puntati: ogni pezzo contiguo, sulla stessa pagina, in ordine
+  // (GUFFANTI RC 2026: "Sì" alla Legge Merloni scartato per una citazione
+  // cucita tra i punti elenco del 2.10).
+  if (field && descriptionAsksVerification(field.description)) {
+    return evidenceInContext(evidenza, normCtx, rawCtx)
+  }
+  // RISPOSTE PRESCRITTE dalla descrizione ("scrivi 'Nessuna'" se le estensioni
+  // della scheda sono tutte barrate NO): il modello le DEDUCE, quindi si
+  // giudicano dalla citazione nel testo, non dalla parola trovata altrove nel
+  // batch. GUFFANTI RC 2026: lo stesso "Nessuna" passava o cadeva a seconda che
+  // la pagina con "…e nessuna denuncia di Sinistro…" capitasse nella stessa
+  // chiamata. Se la parola è COPIATA dal testo, la citazione etichetta+valore
+  // può non essere contigua nella griglia (LUCCA: "FRANCHIGIA PER SINISTRO
+  // NESSUNA", etichetta e cella su due righe): vale se la citazione contiene
+  // la parola e TUTTE le sue parole stanno sulla stessa pagina che la stampa.
+  // Senza citazione (chiave "evidenza" omessa: facoltativa fuori dalle
+  // verifiche) non c'è niente da giudicare e resta la regola di sempre: la
+  // parola nel testo, e per le parole cortissime ("Sì") la citazione serve.
+  if (field && isPrescribedAnswer(field, cleaned)) {
+    const nv = normForMatch(cleaned)
+    if (!evidenza) return nv.length >= 4 && normCtx.includes(nv)
+    if (evidenceInContext(evidenza, normCtx, rawCtx)) return true
+    if (!normForMatch(evidenza).includes(nv)) return false
+    const toks = matchTokens(evidenza)
+    const pages = rawCtx ? contextPagesNorm(rawCtx) : [String(normCtx || '')]
+    return pages.some((p) => p.includes(nv) && toks.every((t) => p.includes(t)))
+  }
 
   // Date PRIMA degli importi: "31.12.2025" è fatta di cifre e punti e passerebbe
   // per un importo, ma se l'intera stringa è una data va giudicata come data.
@@ -1606,12 +1894,17 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
     return false
   }
 
-  // Identificativi alfanumerici (P.IVA / Codice Fiscale): PRIMA degli importi,
-  // perché una stringa di 11 cifre come "06457990965" verrebbe letta da
-  // parsePureAmount come un numero (perdendo lo zero iniziale) e giudicata
-  // come importo. Sono STRINGHE identità: passano se compaiono nel contesto
-  // (o nell'evidenza contenuta nel contesto).
-  if (/^\d{6,16}$/.test(cleaned) && field && /iva|fiscale|\bcf\b|codice\s+fiscale/i.test(`${field.id || ''} ${field.label || ''} ${field.description || ''}`)) {
+  // Identificativi alfanumerici (P.IVA / Codice Fiscale / numero di polizza):
+  // PRIMA degli importi, perché una stringa di 11 cifre come "06457990965"
+  // verrebbe letta da parsePureAmount come un numero (perdendo lo zero
+  // iniziale) e giudicata come importo, e un numero di polizza di sole cifre
+  // ("283618616") non è mai un importo "formattato". Sono STRINGHE identità:
+  // passano se compaiono nel contesto (o nell'evidenza contenuta nel contesto).
+  // Il campo è identificativo per TIPO e descrizione (fieldAsksIdentifier),
+  // non più per /iva|fiscale|cf/ su id+label+descrizione intera: decideva la
+  // label, e il N° Polizza EULIP passava solo grazie al "NON è … la partita
+  // IVA" della sua descrizione (analisi errori 25/09/2026, F09).
+  if (/^\d{6,16}$/.test(cleaned) && field && fieldAsksIdentifier(field)) {
     const nv = normForMatch(cleaned)
     if (normCtx.includes(nv)) return true
     if (evidenza) {
@@ -1652,21 +1945,54 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
       // Il CONTESTO NORMALIZZATO (normCtx) ha eliminato i separatori: lì codici
       // e importi non sono più distinguibili → si resta sul comportamento
       // storico di hasOcrDigitRun (permissivo), che non rompe i golden EULIP.
+      // NUMERI SPEZZATI DAL KERNING ("54 . 383 ,00"): la run di cifre si rompe
+      // agli spazi e il valore vero cadeva [senza-evidenza] anche con la
+      // citazione esatta (BOLCHINI RC 2026, fatturato 54.383,00 del
+      // questionario, due volte). Si riprova sul contesto e sulla citazione
+      // con i numeri ricomposti (joinSplitNumbers: idempotente, unisce solo
+      // frammenti la cui unione è un importo ben formato).
       if (rawCtx) {
         if (hasOcrDigitRunAsAmount(rawCtx, intDigits)) return true
+        const joined = joinedContext(rawCtx)
+        if (joined !== rawCtx && hasOcrDigitRunAsAmount(joined, intDigits)) return true
       } else if (hasOcrDigitRun(normCtx, intDigits)) {
         return true
       }
       if (!evidenza) return false
-      if (!hasOcrDigitRunAsAmount(evidenza, intDigits)) return false
+      if (!hasOcrDigitRunAsAmount(evidenza, intDigits) && !hasOcrDigitRunAsAmount(joinSplitNumbers(evidenza), intDigits)) return false
       const ne = normForMatch(evidenza)
       return ne.length >= 10 && normCtx.includes(ne)
     }
-    if (evidenza) {
-      const ne = normForMatch(evidenza)
-      if (ne.length >= 15 && !normCtx.includes(ne)) return false
+    // IMPORTI PICCOLI (parte intera sotto le 4 cifre): prima passavano SENZA
+    // guardare il valore ("return true") e cadevano solo se la citazione
+    // (≥ 15 caratteri) non era nel contesto. Controllo rovesciato: BOLCHINI
+    // TL, il premio lordo 244,00 stampato nella tabella della polizza
+    // ("PREMIO ANNUO 201,22 42,78 244,00") cadeva [senza-evidenza] per una
+    // citazione parafrasata, mentre una SOMMA fatta dal modello (interessi
+    // 5,84 e 5,86 = 2,92 + 2,92, mai stampata) passava con la citazione della
+    // riga delle rate. Ora decide il NUMERO: il valore deve comparire nel testo
+    // inviato come numero intero (confini di numero: "244,00"; "€ 28" vale per
+    // "28,00", stesso importo); altrimenti serve una citazione presente nel
+    // contesto che lo contenga e che sia più del solo numero. Un valore
+    // calcolato non sta né nel testo né in una citazione vera: cade.
+    // I marcatori "[Documento N · pag. P]" non sono testo del documento: il
+    // loro N e P non provano un importo (il "numero qualsiasi della pagina"
+    // che il modello scrive quando non trova il dato).
+    if (rawCtx) {
+      const docText = contextWithoutMarkers(rawCtx)
+      if (textHasAmount(docText, amount)) return true
+      const joined = joinedContext(docText)
+      if (joined !== docText && textHasAmount(joined, amount)) return true
+    } else {
+      // Senza testo grezzo niente confini di numero: basta il valore
+      // normalizzato (decimali compresi) nel contesto normalizzato.
+      const nvAmt = normForMatch(cleaned)
+      if (nvAmt && normCtx.includes(nvAmt)) return true
     }
-    return true
+    if (!evidenza) return false
+    if (!textHasAmount(evidenza, amount) && !textHasAmount(joinSplitNumbers(evidenza), amount)) return false
+    const ne = normForMatch(evidenza)
+    return ne.length > normForMatch(cleaned).length && normCtx.includes(ne)
   }
 
   // Testi: containment normalizzato, poi copertura token ≥80% (le riformattazioni

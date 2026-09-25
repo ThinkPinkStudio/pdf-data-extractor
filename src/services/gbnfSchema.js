@@ -22,7 +22,10 @@
  * "SÌ/NO", "PERCENTUALE…") e infine id/label. `fieldKind` centralizza la regola.
  */
 
-import { fieldKind, descriptionAsksVerification } from './polizzaFieldKind.js'
+import {
+  fieldKind, descriptionAsksVerification, descriptionAsksDocumentNumber,
+  descriptionOfferedWords, descriptionPercentExample, descriptionGivesNumericFormat,
+} from './polizzaFieldKind.js'
 
 // ─── Classificazione del valore ──────────────────────────────────────────────
 
@@ -43,11 +46,12 @@ export function fieldValueKind(field) {
   if (kind === 'number') {
     // NUMERO DOCUMENTO (polizza/proposta/appendice/…): è un IDENTIFICATIVO
     // alfanumerico, NON un importo ("RCM00010027822", "781949596"). Il prefisso
-    // description "NUMERO." da solo NON basta per decidere amount: si guarda al
-    // blob (id+label+descrizione): se è un "numero documento" → testo libero,
-    // altrimenti amount.
-    const blob = `${field.id || ''} ${field.label || ''} ${field.description || ''}`
-    if (/numero\s+(di\s+|della\s+|delle\s+|del\s+)?(polizz|proposta|preventiv|appendic|contratt|adesion)|n[°.]?\s*(polizz|propost|preventiv|appendic)/i.test(blob)) return 'text'
+    // description "NUMERO." da solo NON basta per decidere amount: se la parte
+    // POSITIVA della descrizione chiede il numero di un documento → testo
+    // libero, altrimenti amount. Prima si guardava id+label+descrizione intera:
+    // decideva la label (Regola 1) e un "NON è il numero di proposta" bastava a
+    // togliere il pattern a un importo (analisi errori 25/09/2026, F09).
+    if (descriptionAsksDocumentNumber(field.description)) return 'text'
     return 'amount'
   }
   if (kind === 'percent') return 'rate'
@@ -100,16 +104,52 @@ export const VALUE_PATTERNS = {
   // "Nessuna", "Non previsto"). Aperto a tutti gli importi, faceva entrare
   // frasi qualsiasi nei premi ("Pacchetto sicurezza privacy" come premio lordo).
   amountOrWord: "^(([1-9][0-9]{0,2}(\\.[0-9]{3})+|[1-9][0-9]*|0)(,[0-9]{1,2})?|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,39})$",
+  // Importo OPPURE PERCENTUALE ("10%", "12,5 %"): SOLO per i campi la cui
+  // descrizione porta un ESEMPIO con "%" ("la percentuale di scoperto (es.
+  // 10%)"). Col solo pattern importo lo scoperto "10%" non era scrivibile e il
+  // modello, costretto, rispondeva un numero qualsiasi o una frase troncata
+  // (RCP SAPORITI, analisi errori 25/09/2026).
+  amountOrPercent: "^(([1-9][0-9]{0,2}(\\.[0-9]{3})+|[1-9][0-9]*|0)(,[0-9]{1,2})?|[0-9]{1,3}(,[0-9]+)? ?%)$",
+  amountOrPercentOrWord: "^(([1-9][0-9]{0,2}(\\.[0-9]{3})+|[1-9][0-9]*|0)(,[0-9]{1,2})?|[0-9]{1,3}(,[0-9]+)? ?%|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,39})$",
   // P.IVA 11 cifre o CF 16 alfanumerici (il checksum resta a sanitizeFieldValue)
   vat: '^([0-9]{11}|[A-Z0-9]{16})$',
   // Tasso per mille: 2,450 / 0.245
   rate: '^[0-9]+([,.][0-9]+)?$',
 }
 
-// La descrizione ammette una PAROLA al posto dell'importo? ("oppure la parola
-// Illimitato", "Nessuna", "non previsto"…). Decide la descrizione, non una lista.
+// La descrizione ammette una PAROLA al posto dell'importo? Decide la parte
+// POSITIVA della descrizione, non una lista di parole ovunque nel testo
+// (analisi errori 25/09/2026, F09):
+//  - la descrizione OFFRE una parola come risposta: citata dopo "parola",
+//    dopo "scrivi/rispondi/restituisci/…" o in testa a un esempio («oppure la
+//    parola "Illimitato"», «scrivi 'entro il massimale di polizza'», «(es.
+//    'NESSUNA', 'COME DA SCHEDA TECNICA', oppure un importo)»);
+//  - oppure il tipo importo viene SOLO da una parola della testa (nessun type
+//    forte, nessun prefisso NUMERO/IMPORTO) e la descrizione non dichiara un
+//    formato numerico: "Parametro … della regolazione del premio (es.
+//    Retribuzioni o Fatturato)", "Periodicità di pagamento del premio:
+//    annuale, semestrale…" non chiedono un numero, e il pattern li obbligava
+//    a scriverne uno.
+// Prima bastava "nessun…" ovunque: "Vuoto se … e nessuna percentuale" apriva
+// le parole libere sullo Scoperto base (RCP SAPORITI: "RCO per ogni Sinistro
+// di un importo pari", la frase troncata a 40 lettere dalla grammatica).
 export function amountAllowsWord(field) {
-  return /illimitat|\bparola\b|nessun[ao]?\b|non\s+previst|senza\s+limit|non\s+indicat/i.test(String(field?.description || ''))
+  if (!field) return false
+  if (descriptionOfferedWords(field.description).length) return true
+  return fieldKind(field) === 'text' && !descriptionGivesNumericFormat(field.description)
+}
+
+/**
+ * Chiave di VALUE_PATTERNS per un campo di tipo importo: parole se la
+ * descrizione le ammette (amountAllowsWord), percentuale se un suo ESEMPIO è
+ * una percentuale (descriptionPercentExample, «la percentuale di scoperto
+ * (es. 10%)»). Senza campo: il solo importo.
+ */
+export function amountPatternKey(field) {
+  if (!field) return 'amount'
+  const word = amountAllowsWord(field)
+  if (descriptionPercentExample(field.description)) return word ? 'amountOrPercentOrWord' : 'amountOrPercent'
+  return word ? 'amountOrWord' : 'amount'
 }
 
 function stringSchema(kind, field = null) {
@@ -118,7 +158,7 @@ function stringSchema(kind, field = null) {
   // RC 2025: 6 verifiche su 8 a "Sì" con verità vuota, 30/35 → 23/35). Lasciato
   // libero, scrive "non indicato"/testo e i segnaposto cadono da soli; la
   // canonizzazione delle risposte resta in sanitizeFieldValue.
-  const key = kind === 'amount' && amountAllowsWord(field) ? 'amountOrWord' : kind
+  const key = kind === 'amount' ? amountPatternKey(field) : kind
   const pattern = VALUE_PATTERNS[key]
   return pattern ? { type: 'string', pattern } : { type: 'string' }
 }
@@ -228,7 +268,10 @@ int-plain ::= "0" | [1-9] [0-9]*
 int-grouped ::= [1-9] [0-9]{0,2} ("." [0-9]{3})+
 word-body ::= [A-Za-zÀ-ÿ] [A-Za-zÀ-ÿ' ]{2,39}
 amount-body ::= (int-grouped | int-plain) ("," [0-9]{1,2})?
+percent-body ::= [0-9] [0-9]? [0-9]? ("," [0-9]+)? " "? "%"
 amount-or-word ::= amount | "\\"" word-body "\\""
+amount-or-percent ::= amount | "\\"" percent-body "\\""
+amount-or-percent-or-word ::= amount | "\\"" percent-body "\\"" | "\\"" word-body "\\""
 amount ::= "\\"" amount-body "\\""
 vat ::= "\\"" ([0-9]{11} | [A-Z0-9]{16}) "\\""
 rate ::= "\\"" [0-9]+ ([,.] [0-9]+)? "\\""
@@ -237,7 +280,9 @@ null ::= "null"
 
 function gbnfValoreRhs(kind, field = null) {
   if (kind === 'date') return 'date'
-  if (kind === 'amount') return amountAllowsWord(field) ? 'amount-or-word' : 'amount'
+  if (kind === 'amount') {
+    return { amount: 'amount', amountOrWord: 'amount-or-word', amountOrPercent: 'amount-or-percent', amountOrPercentOrWord: 'amount-or-percent-or-word' }[amountPatternKey(field)]
+  }
   if (kind === 'vat') return 'vat'
   if (kind === 'rate') return 'rate'
   return 'string'
