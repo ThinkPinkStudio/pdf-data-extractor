@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { extractPolicyNumbers, extractPolicyNumbersFromPages, normalizePolicyNumber, planReconcile } from '../src/services/policyReconcile.js'
+import { extractPolicyNumbers, extractPolicyNumbersFromPages, fiscalNumbers, normalizePolicyNumber, planReconcile } from '../src/services/policyReconcile.js'
 
 test('extractPolicyNumbers: numeri dopo l\'etichetta di polizza, forma canonica', () => {
   assert.deepEqual(extractPolicyNumbers('Polizza n. 01469DAS00040 — Contraente BESA'), ['1469DAS00040'])
@@ -102,4 +102,44 @@ test('cartella senza numeri con UNA polizza sotto ne fa parte e le dà il nome; 
   const v1 = D('v1', 'G/RUZZA/ET103PP', [['111111111']])
   const v2 = D('v2', 'G/RUZZA/FD611EL', [['222222222']])
   assert.deepEqual(planReconcile([client, v1, v2]), [], 'due polizze sotto: il contenitore resta com\'è')
+})
+
+test('codice fiscale di persona e numeri etichettati come P.IVA/C.F. non sono numeri di polizza', () => {
+  assert.equal(normalizePolicyNumber('RZZFBA62T30F205P'), '', 'CF di persona')
+  assert.equal(normalizePolicyNumber('RZZFBAQ2T3LF205P'), '', 'CF con omocodia')
+  assert.equal(normalizePolicyNumber('01469DAS00040'), '1469DAS00040', 'i numeri veri restano')
+  assert.deepEqual(extractPolicyNumbers('Polizza n. RZZFBA62T30F205P'), [])
+  // RUZZA FABIO, infortuni conducente: CF nella cella della polizza, numero vero sotto
+  const page = 'Polizza n. 46094755   Contraente RUZZA FABIO\nPolizza n. 01234567890\nPARTITA IVA: 01234567890'
+  assert.deepEqual(extractPolicyNumbersFromPages([page]), ['46094755'], 'la P.IVA etichettata cade anche vicino a «polizza»')
+  assert.deepEqual([...fiscalNumbers('P.IVA/C.F. 13251900158 — Codice fiscale RZZFBA62T30F205P')].sort(), ['13251900158', 'RZZFBA62T30F205P'])
+  // Due persone con lo stesso CF nei moduli di polizze diverse: nessuna unione
+  const a = D('a', 'G/RUZZA/INF CONDUCENTE', [['46094755']])
+  const b = D('b', 'G/RUZZA/ET103PP', [['539295277']])
+  assert.deepEqual(planReconcile([a, b]), [])
+})
+
+test('cartella senza numeri: la copia di una polizza di FUORI archiviata sotto di lei non conta', () => {
+  // BESA CAT NAT: «PREMENUGO/COPIE FIRMATE» ha la polizza di Settala (EXM16548705),
+  // «PREMENUGO/POLIZZA» la sua (EXM16536864); la cartella madre e «PREMENUGO»
+  // hanno solo scansioni senza numero.
+  const settala = D('s', 'G/BESA/SETTALA CAT NAT/SETTALA/POLIZZA', [['EXM16548705'], []])
+  const settalaFirm = D('sf', 'G/BESA/SETTALA CAT NAT/SETTALA/COPIE FIRMATE', [['EXM16548705'], []])
+  const top = D('t', 'G/BESA/PREMENUGO CAT NAT', [[]])
+  const mid = D('m', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO', [[]])
+  const firm = D('f', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO/COPIE FIRMATE', [['EXM16548705'], []])
+  const pol = D('p', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO/POLIZZA', [['EXM16536864'], []])
+  const plan = planReconcile([settala, settalaFirm, top, mid, firm, pol])
+  const prem = plan.find((x) => x.target === 'p')
+  assert.ok(prem, 'Premenugo diventa un dossier solo')
+  assert.equal(prem.name, 'G/BESA/PREMENUGO CAT NAT')
+  assert.deepEqual(prem.moves.map((m) => m.from).sort(), ['m', 't'])
+  const sett = plan.find((x) => x.numbers.includes('EXM16548705'))
+  assert.ok(sett.moves.some((m) => m.from === 'f'), 'la copia di Settala torna a Settala')
+  // Senza una polizza «di casa» sotto (tutte di fuori) la cartella resta com'è
+  const lone = D('l', 'G/X', [[]])
+  const stray = D('y', 'G/X/COPIA', [['EXM16548705']])
+  const home = D('h', 'G/Y', [['EXM16548705']])
+  const plan2 = planReconcile([home, lone, stray])
+  assert.ok(!plan2.some((x) => x.moves.some((m) => m.from === 'l')))
 })

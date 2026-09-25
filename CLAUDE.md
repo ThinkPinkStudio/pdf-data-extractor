@@ -760,6 +760,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   prodotti, Vita Zurich + rinnovo → uniti; COI/RUZZA contenitori intatti.
   Rischio noto: una cartella madre di scansioni il cui numero l'OCR non legge
   viene trattata come «senza numeri» (MORANDI 11, COSTA 1A).
+  **26/09/2026 (BESA in produzione)**: mai come numero un codice fiscale di
+  persona (RUZZA FABIO: «RZZFBA62T30F205P» dall'OCR, uguale in tutte le sue
+  polizze) né un numero che il documento etichetta P.IVA/C.F.
+  (`fiscalNumbers`); nella regola «cartella senza numeri» non conta una
+  polizza sotto di lei che si unisce a una cartella di FUORI (la copia di
+  Settala archiviata in «PREMENUGO/COPIE FIRMATE» teneva Premenugo in tre
+  dossier). Resta separata — giustamente, per la prova — una «BOZZA DA
+  APPROVARE» col numero provvisorio (EX/TPO17428237) dalla polizza definitiva
+  (EX/M16548705): numeri diversi, nessun legame nei documenti.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

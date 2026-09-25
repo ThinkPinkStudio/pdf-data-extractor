@@ -24,7 +24,10 @@
  *  - una cartella SENZA alcun numero di polizza (solo set informativo,
  *    condizioni) che sotto di sé ha UNA sola polizza ne fa parte («COI … TUT.
  *    LEGALE PENALE» col solo set informativo, sopra «…/POLIZZA»); con due o più
- *    polizze sotto resta com'è;
+ *    polizze sotto resta com'è; una polizza sotto di lei che si unisce a una
+ *    cartella di FUORI (copia archiviata nel posto sbagliato) non conta;
+ *  - mai come numero di polizza un codice fiscale di persona o un numero che
+ *    il documento etichetta come partita IVA / codice fiscale;
  *  - il dossier unito prende il percorso più corto tra quelli uniti (la
  *    cartella madre), non quello di «…/POLIZZA».
  */
@@ -37,14 +40,37 @@
 // barra o un punto («n. 123456 del 2024», «123456 12/2024» restano fuori).
 const LABELLED_NUM_RE = /(?:polizz[ae]?\s*(?:n(?:um(?:ero)?)?\s*[.:°º]?|nr\.?)|n(?:um(?:ero)?)?\s*[.:°º]?\s*(?:di\s+)?polizz[ae]?)\s*[:.]?\s*([A-Z0-9][A-Z0-9./\-]{4,24}(?: \d{1,4}(?![\dA-Za-z/.]))*)/gi
 
+// Forma di un CODICE FISCALE di persona (omocodia compresa): sei lettere, anno,
+// mese (lettera), giorno, comune, controllo. Stampato vicino a «polizza» nei
+// moduli (BESA, RUZZA FABIO: «RZZFBA62T30F205P» letto come numero): è la
+// persona, uguale in TUTTE le sue polizze, e le unirebbe tutte.
+const PERSON_CF_RE = /^[A-Z]{6}[\dLMNPQRSTUV]{2}[ABCDEHLMPRST][\dLMNPQRSTUV]{2}[A-Z][\dLMNPQRSTUV]{3}[A-Z]$/
+
 /**
  * Forma canonica di un numero: maiuscolo, senza separatori né zeri iniziali
  * («00556129374» = «556129374», «212.044.0000902142» = «2120440000902142»).
- * Un codice con meno di 5 cifre non è un numero di polizza («n. 1», «Mod. 2122»).
+ * Un codice con meno di 5 cifre non è un numero di polizza («n. 1», «Mod. 2122»),
+ * un codice fiscale di persona nemmeno.
  */
 export function normalizePolicyNumber(raw) {
   const s = String(raw || '').toUpperCase().replace(/[\s./\-_]+/g, '').replace(/^0+/, '')
+  if (PERSON_CF_RE.test(s)) return ''
   return (s.match(/\d/g) || []).length >= 5 ? s : ''
+}
+
+// Numero dopo un'etichetta FISCALE sulla stessa riga («PARTITA IVA: 13251900158»,
+// «P.IVA/C.F. 01234567890», «Codice fiscale 80012345678»): è il contraente,
+// non la polizza, anche quando la stessa cifra finisce vicino a «polizza».
+const FISCAL_NUM_RE = /(?:\bpartita\s+iva|\bp\.?\s*i\.?\s*v\.?\s*a\b\.?|\bcod(?:ice)?\.?\s*fisc(?:ale)?\b\.?|\bc\.\s*f\.)\s*[:.]?\s*(?:\/\s*(?:c\.\s*f\.|cod(?:ice)?\.?\s*fisc(?:ale)?\.?)\s*[:.]?\s*)?([A-Z0-9]{11,16})\b/gi
+
+/** Numeri che nel testo stanno dopo un'etichetta fiscale (forma canonica). */
+export function fiscalNumbers(text) {
+  const out = new Set()
+  for (const m of String(text || '').matchAll(FISCAL_NUM_RE)) {
+    const s = m[1].toUpperCase().replace(/^0+/, '')
+    if (s) out.add(s)
+  }
+  return out
 }
 
 /** Numeri di polizza citati con la loro etichetta nel testo (forma canonica, senza doppioni). */
@@ -82,6 +108,7 @@ const OTHER_POLICY_RE = /sostituit|precedent/i
  */
 export function extractPolicyNumbersFromPages(pages) {
   const out = new Set()
+  const fiscal = fiscalNumbers((pages || []).join('\n'))
   for (const page of pages || []) {
     const lines = String(page || '').split('\n')
     for (let i = 0; i < lines.length; i++) {
@@ -109,7 +136,7 @@ export function extractPolicyNumbersFromPages(pages) {
       }
     }
   }
-  return [...out]
+  return [...out].filter((n) => !fiscal.has(n))
 }
 
 function unionFind() {
@@ -203,20 +230,26 @@ export function planReconcile(dossiers) {
     }
     byTarget.set(target, entry)
   }
-  // 4. Cartelle senza numeri con UNA sola polizza sotto di sé.
+  // 4. Cartelle senza numeri con UNA sola polizza sotto di sé. Una posizione
+  // sotto la cartella che si unisce a una polizza di FUORI (la copia firmata di
+  // un'altra sede archiviata lì: BESA «PREMENUGO/COPIE FIRMATE» con la polizza
+  // di Settala) non è «sotto»: resta la polizza di casa.
   const numbered = new Set(nodes.map((n) => n.dossier.id))
+  const inside = (p, root) => String(p || '').startsWith(`${root}/`)
+  const pathOf = new Map(list.map((d) => [d.id, d.path || '']))
   for (const d of list) {
     if (numbered.has(d.id) || !(d.files || []).length || !d.path) continue
-    const below = list.filter((o) => o.id !== d.id && String(o.path || '').startsWith(`${d.path}/`) && numbered.has(o.id))
+    const below = list.filter((o) => o.id !== d.id && inside(o.path, d.path) && numbered.has(o.id))
     if (!below.length) continue
-    const targets = new Set(below.map((o) => targetOfDossier.get(o.id) || `container:${o.id}`))
+    const targets = new Set(below
+      .map((o) => targetOfDossier.get(o.id) || `container:${o.id}`)
+      .filter((t) => t.startsWith('container:') || t === d.id || inside(pathOf.get(t), d.path)))
     if (targets.size !== 1) continue
     const target = [...targets][0]
     if (target.startsWith('container:')) continue
     const entry = byTarget.get(target)
     entry.moves.set(d.id, { from: d.id, all: true, idxs: (d.files || []).map((f) => f.idx) })
   }
-  const pathOf = new Map(list.map((d) => [d.id, d.path || '']))
   const plan = []
   for (const e of byTarget.values()) {
     if (!e.moves.size) continue
