@@ -120,7 +120,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   golden-prod `--flags campi,…`) e la si misura sull'app deployata contro la
   stessa base, con UN solo deploy. Promossa → entra in `DEFAULT_FLAGS`;
   bocciata → si toglie il codice. La prima riga della diagnostica elenca i
-  flag attivi.
+  flag attivi. Nomi in minuscolo. Flag del 26/09 (dall'analisi dei 55
+  errori, parti approvate dal revisore): `campi` (AcroForm nella griglia),
+  `cascata4` (F04: cascata a 4 campi per chiamata + copie con lo stesso text
+  layer), `a78` (F13: proposte A.7/A.8 provvisorie, A.7 senza etichetta del
+  campo solo ripiego, A.8 dalla griglia del documento più recente senza frasi
+  di layout), `recupero` (F07: Stadio E con le pagine dei batch, budget dal
+  contesto, ranking semantico+IDF fuso per rango, niente label, niente
+  esempio «€ 2.500.000,00» nel prompt), `elenchi` (F08 parte 2: elenco
+  localizzato voce per voce). Da misurare uno alla volta (golden-prod
+  `--flags`). F12 (righe sovrapposte, caselle dei font simbolici) non fatto.
+  `.goldens-out/PAUSE` ferma golden-prod PRIMA della run successiva (deploy
+  senza spezzare una misura).
 - **A pari data il testo digitale prima dell'OCR** (`byStagedRecency`, flag
   `ocr` sui documenti dal worker): la cascata visitava per prima la scansione
   (ordine alfabetico) e ne prendeva i campi letti male.
