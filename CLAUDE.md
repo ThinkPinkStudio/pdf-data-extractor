@@ -16,8 +16,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
 
 - **Deploy web**: Coolify v4 (progetto "CSA PDF Extractor", ambiente `production`).
   **Il container di produzione usa `test_branch`, NON `main`** (confermato
-  dall'utente il 25/09/2026): ogni push su `test_branch` va dritto al cliente
-  (https://genius.csabroker.it). `main` è fermo alla 1.0.153 e la versione
+  dall'utente il 25/09/2026): ogni DEPLOY di `test_branch` va al cliente
+  (https://genius.csabroker.it). **Il push NON deploya** (26/09/2026): Coolify
+  sta dietro la VPN e i webhook di GitHub non arrivano; il deploy si lancia a
+  mano da Coolify. Il 26/09 la produzione era 10 commit indietro e una notte di
+  misure ha girato sul codice vecchio: prima di misurare, controllare in
+  `/api/version` il marcatore `buildFeatures` del codice atteso. `main` è fermo alla 1.0.153 e la versione
   mostrata resta 1.0.153 anche col codice nuovo: per sapere cosa gira, provare
   una route recente. Mai pushare mentre gira una misura in produzione (il
   redeploy riavvia il server a metà run). Storicamente: merge su `main` →
