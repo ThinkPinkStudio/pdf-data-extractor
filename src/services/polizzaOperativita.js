@@ -83,6 +83,33 @@ export function recognitionDistinctiveTokens(profiles, profileId) {
 }
 
 /**
+ * «Come riconoscerla» ammette che la copertura sia una SEZIONE di una polizza
+ * più ampia? Lo dice la TESTA della definizione scritta dall'utente («Polizza
+ * o sezione di TUTELA LEGALE…» sì; «Polizza di RESPONSABILITÀ CIVILE
+ * PROFESSIONALE…» no). Solo allora la prova di «operante» deve stare in una
+ * pagina con una riga strutturale (copertura + importo/spunta): per una
+ * sezione è ciò che separa l'acquisto dalle condizioni generali e dagli elenchi
+ * di opzioni. Quando la copertura È il prodotto, la prova che la nomina basta
+ * («Tipo di contratto: Responsabilità Civile Professionale», «APPENDICE N. 4
+ * ALLA POLIZZA RC PROFESSIONALE»): il controllo strutturale le scartava e
+ * mandava in «Da verificare» polizze RC vere (GUFFANTI, SPALLINO, Pilato —
+ * produzione 25/09/2026).
+ */
+export function recognitionAllowsSection(recognition) {
+  const head = String(recognition || '').split(':')[0]
+  return /\bsezion[ei]\b/i.test(head)
+}
+
+/**
+ * La riga ha un IMPORTO DIVERSO DA ZERO («31.000,00», «€ 240»; non «0,00»):
+ * premio o somma assicurata propri della copertura.
+ */
+export function lineHasNonZeroAmount(line) {
+  const amounts = String(line || '').match(/(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d[\d.]*/g) || []
+  return amounts.some((a) => /[1-9]/.test(a))
+}
+
+/**
  * La pagina PORTA IMPORTI (premi, somme assicurate: "249,06", "€ 30.000,00")?
  * Serve SOLO all'ordine di lettura: tra le pagine che nominano la copertura,
  * quelle con importi (scheda di polizza, quietanza, riepilogo garanzie) si
@@ -390,11 +417,18 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
   // structural: la pagina della prova ha una riga col nome della copertura E un
   // importo/spunta (null = nome non determinabile).
   const struct = (b) => { const l = structuralCoverLines(b.text, lexTokens); return l === null ? null : l.length > 0 }
+  // La prova È una riga strutturale con un importo non nullo? (la copertura
+  // con un suo premio/somma: «Tutela Legale  ESCLUSA  31.000,00» della
+  // quietanza DAS, dove ESCLUSA è la colonna dell'indicizzazione).
+  const proofRow = (b) => {
+    const rows = structuralCoverLines(b.text, lexTokens) || []
+    return rows.some((l) => lineHasNonZeroAmount(l) && (normForMatch(l).includes(ne) || ne.includes(normForMatch(l)) || valueTokens(ev).filter((t) => t.length >= 4).every((t) => normForMatch(l).includes(normForMatch(t)))))
+  }
   const cited = (blocks || []).find((b) => b.ord === answer?.documento && b.page === answer?.pagina)
-  if (cited && matches(cited)) return { found: true, names, structural: struct(cited), ord: cited.ord, page: cited.page, where: 'citata', reason: 'prova trovata nella pagina citata' }
+  if (cited && matches(cited)) return { found: true, names, structural: struct(cited), proofIsCoverageRow: proofRow(cited), ord: cited.ord, page: cited.page, where: 'citata', reason: 'prova trovata nella pagina citata' }
   for (const b of blocks || []) {
     if (b === cited) continue
-    if (matches(b)) return { found: true, names, structural: struct(b), ord: b.ord, page: b.page, where: 'altra pagina', reason: `prova trovata in Documento ${b.ord} pag. ${b.page}` }
+    if (matches(b)) return { found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), ord: b.ord, page: b.page, where: 'altra pagina', reason: `prova trovata in Documento ${b.ord} pag. ${b.page}` }
   }
   return { found: false, names, structural: null, ord: null, page: null, where: null, reason: 'prova citata non trovata nel testo inviato' }
 }
@@ -415,7 +449,7 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
  * | non determinabile | —       | —                 | review   |
  * | guasto            | —       | —                 | review   |
  */
-export function decideOperativita({ answer, evidence, excludeMatched = [], error = null } = {}) {
+export function decideOperativita({ answer, evidence, excludeMatched = [], error = null, requireStructural = true } = {}) {
   const base = {
     esito: answer?.esito || null,
     documento: evidence?.found ? evidence.ord : (answer?.documento ?? null),
@@ -436,11 +470,18 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
     // Prova senza STRUTTURA: nella pagina nessuna riga con la copertura accanto
     // a un importo o a una spunta («TUTELA LEGALE (opzionale)» nell'elenco
     // delle opzioni di un DIP): un'offerta, non un acquisto.
-    if (evidence.structural === false) return { ...base, verdict: 'review', reason: `copertura dichiarata operante ma nella pagina della prova nessuna riga la affianca a un premio, importo o spunta${why}` }
+    // Solo se la definizione ammette una SEZIONE (recognitionAllowsSection):
+    // quando la copertura è il prodotto intero la riga strutturale non serve.
+    if (requireStructural && evidence.structural === false) return { ...base, verdict: 'review', reason: `copertura dichiarata operante ma nella pagina della prova nessuna riga la affianca a un premio, importo o spunta${why}` }
     if (excludeMatched.length) return { ...base, verdict: 'review', reason: `elementi contraddittori: parola da evitare «${excludeMatched[0]}» nel testo, ma copertura operante${why}` }
     return { ...base, verdict: 'ok', reason: `copertura operante${why}` }
   }
   if (!evidence?.found) return { ...base, verdict: 'review', reason: `copertura dichiarata non operante ma la prova citata non è nel testo (${evidence?.reason || 'assente'})${why}` }
+  // Contraddizione: «non operante» provato con la RIGA della copertura che
+  // porta un suo importo non nullo — è così che si presenta una copertura
+  // acquistata (DAS: «Tutela Legale  ESCLUSA  31.000,00», ESCLUSA = colonna
+  // indicizzazione). In dubbio non si scarta: da verificare.
+  if (evidence.proofIsCoverageRow) return { ...base, verdict: 'review', reason: `copertura dichiarata non operante ma la prova è la riga della copertura con un suo importo: dato contraddittorio${why}` }
   return { ...base, verdict: 'mismatch', reason: `copertura non operante${why}` }
 }
 
@@ -495,7 +536,9 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   // prova. Prima bastava quel batch a mandare in «Da verificare» cinque «non
   // operante» provati (COND. ALZAIA 104, polizza fabbricato Vittoria, 25/09/2026).
   // Un «non determinabile», una risposta illeggibile o un guasto restano dubbi.
-  const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante'))
+  // (solo i «non operante» con la prova NON ritrovata: una prova trovata ma
+  // contraddittoria — la riga della copertura con un suo importo — resta dubbio)
+  const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante' && !r.evidenceFound))
   if (allSayNo && list.some((r) => r.verdict === 'mismatch') && list.some((r) => r.verdict === 'review')) {
     const proven = list.filter((r) => r.verdict === 'mismatch')
     const first = proven[0]

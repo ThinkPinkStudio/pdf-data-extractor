@@ -8,7 +8,7 @@
  *
  *   node scripts/golden-prod.mjs --base https://genius.csabroker.it --email <utente>
  *        [--only bolchini-rc-2026,alzaia-tl] [--model qwen3:32b] [--out .goldens-out/prod-<tag>]
- *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192]
+ *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b]
  *        [--from .goldens-out/prod-<base>] [--no-proceed]
  *
  * - Un BATCH per fascicolo («TEST GOLDEN …»): la riconciliazione per numero di
@@ -51,8 +51,9 @@ if (STRATEGY && !['gruppi', 'cascata'].includes(STRATEGY)) { console.error('--st
 const THINK = arg('think')
 if (THINK && !['off', 'abbinamento', 'estrazione', 'tutto'].includes(THINK)) { console.error('--think off|abbinamento|estrazione|tutto'); process.exit(2) }
 const CTX = arg('ctx') ? Number(arg('ctx')) : null
-const OVERRIDE = MODEL || STRATEGY || THINK || CTX
-const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}`))
+const OCR = arg('ocr')
+const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR
+const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}`))
 const PROCEED = !process.argv.includes('--no-proceed')
 const FROM = arg('from')
 if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think o --ctx'); process.exit(2) }
@@ -112,7 +113,7 @@ const prodProfiles = settings.polizzaProfiles || []
 console.log(`App ${BASE} — versione ${version?.version || '?'} — Ollama ${settings.ollamaUrl || '?'} — modello ${settings.ollamaModel || '?'}${MODEL ? ` → run di test con ${MODEL}` : ''} — strategia ${settings.polizzaStagedCascade ? 'cascata' : 'gruppi'}${STRATEGY ? ` → run di test ${STRATEGY}` : ''} — pre-controllo ${settings.polizzaPrecheckMode || 'default'} — contesto ${settings.polizzaBatchContext || 8192}`)
 if (version?.features) console.log(`  feature: ${[].concat(version.features).slice(-6).join(' · ')}`)
 
-const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ctx: CTX || settings.polizzaBatchContext || 8192, precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
+const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
 const t00 = Date.now()
 for (const c of FULL_CASES) {
   if (ONLY && !ONLY.has(c.id)) continue
@@ -164,12 +165,12 @@ for (const c of FULL_CASES) {
       console.log(`   job di base ${baseId} (da ${FROM})`)
     }
     if (OVERRIDE && job.status === 'done') {
-      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}) }
+      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}) }
       const t = await api(`/api/polizza/job/${jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       runJobId = t.jobId || t.id || t.job?.id
-      console.log(`   run di test ${runJobId}${MODEL ? ` con ${MODEL}` : ''}${STRATEGY ? ` · strategia ${STRATEGY}` : ''}${THINK ? ` · ragionamento ${THINK}` : ''}${CTX ? ` · ctx ${CTX}` : ''}`)
+      console.log(`   run di test ${runJobId}${MODEL ? ` con ${MODEL}` : ''}${STRATEGY ? ` · strategia ${STRATEGY}` : ''}${THINK ? ` · ragionamento ${THINK}` : ''}${CTX ? ` · ctx ${CTX}` : ''}${OCR ? ` · OCR ${OCR}` : ''}`)
       job = await waitJob(runJobId)
       // La pertinenza della run di test (col modello/strategia provati) è quella che conta qui.
       pertinenza = { status: job.status, verdict: job.precheck?.verdict || null, reason: job.precheck?.reason || job.error || null }

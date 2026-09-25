@@ -62,7 +62,32 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   del gruppo — senza il secondo il documento più informativo (il contratto, che
   è anche il più vecchio) finiva spezzato in coda a batch di quietanze vecchie.
 
-- **VISION DISMESSA**: il percorso vision (immagini al modello multimodale) NON
+- **OCR CON MODELLO VISIVO (25/09/2026, riaperto dall'utente SOLO come OCR)**:
+  `polizzaOcrEngine` = '' / 'tesseract' (default) o il nome di un modello Ollama
+  che vede le immagini (qwen2.5vl:7b consigliato: sta in GPU col 32B di testo).
+  Il modello TRASCRIVE le sole pagine senza text layer (`visionOcrPageText`,
+  pagina a ~1800 px a colori, caselle come [X]/[ ]); la trascrizione entra nel
+  percorso testo di sempre (prova, consenso, date). Cache OCR per motore
+  (`ocrCacheKey`: `<hash>:vis:<modello>`). Provabile nelle run di test (`ocr`).
+  Motivo: Tesseract leggeva «€ 1.000.000,00» come «41.000.000,00» e
+  «IPD0017417» come «1PD0017417» (BOLCHINI 2025, cache OCR di produzione).
+- **A pari data il testo digitale prima dell'OCR** (`byStagedRecency`, flag
+  `ocr` sui documenti dal worker): la cascata visitava per prima la scansione
+  (ordine alfabetico) e ne prendeva i campi letti male.
+- **Pertinenza, tre correzioni (25/09/2026, golden in produzione)**: (1) la
+  riga strutturale (copertura + importo) è richiesta SOLO se «Come
+  riconoscerla» ammette una SEZIONE nella sua testa (`recognitionAllowsSection`:
+  TL3 «Polizza o sezione di…» sì, RC «Polizza di…» no) — 5 RC su 7 finivano
+  «Da verificare» con prove come «Tipo di contratto: Responsabilità Civile
+  Professionale»; (2) «non operante» provato con la RIGA della copertura che
+  ha un suo importo non nullo = contraddizione → «Da verificare» (DAS
+  «Tutela Legale ESCLUSA 31.000,00»: ESCLUSA è l'indicizzazione); (3) con
+  l'operatività attiva il filtro regex «polizza vera» (polizza n./contraente)
+  non decide (LUCCA: «Certificato N°» accantonato prima di chiedere al modello).
+- **Ragionamento per fase** (`polizzaThink`: off | abbinamento | estrazione |
+  tutto; solo modelli che ragionano, qwen3 & co.): il pensiero resta fuori dal
+  JSON. Default off; A/B nelle run di test.
+- **VISION DISMESSA** (come percorso di ESTRAZIONE: immagini → campi): NON
   deve esistere. I PDF scansionati passano da OCR Tesseract + modello di testo.
   Il worker web usa sempre `runWholeDossier`; il selettore "modello vision" è
   stato rimosso dalle Impostazioni. Errori storici "Multimodal data provided"

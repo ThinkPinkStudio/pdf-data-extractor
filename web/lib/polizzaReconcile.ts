@@ -15,7 +15,7 @@ import { importSharedService } from './sharedServices'
 import { readPdfPagesWithOcr } from './polizzaJobWorker'
 import {
   listQueuedBatchDossiers, getJobFileBase64, getOcrCache, putOcrCache, hashPdfBase64,
-  applyReconcilePlan, markBatchReconciled, updateJob, getJob,
+  applyReconcilePlan, markBatchReconciled, updateJob, getJob, ocrCacheKey,
 } from './polizzaJobStore'
 
 interface ReconcileSvc {
@@ -43,12 +43,12 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         let pages: string[] | null = null
         const b64 = await getJobFileBase64(d.id, f.idx)
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
-        if (hash) pages = await getOcrCache(hash).catch(() => null)
+        if (hash) pages = await getOcrCache(ocrCacheKey(hash, settings)).catch(() => null)
         if (!pages && b64) {
           const read = await readPdfPagesWithOcr(Buffer.from(b64, 'base64'), f.file_name, settings)
           pages = read?.pages || null
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
-          if (hash && pages && pages.some((t) => t && t.trim())) await putOcrCache(hash, f.file_name, pages).catch(() => {})
+          if (hash && pages && pages.some((t) => t && t.trim())) await putOcrCache(ocrCacheKey(hash, settings), f.file_name, pages).catch(() => {})
         }
         files.push({ idx: f.idx, numbers: pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : [] })
       }

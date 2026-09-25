@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     // il salvataggio la SCARTAVA in silenzio e lo switch tornava sempre a gruppi.
     'polizzaStagedCascade',
     // Pre-check di pertinenza profilo↔fascicolo (off/keywords/semantic/llm).
-    'polizzaPrecheckMode', 'polizzaThink',
+    'polizzaPrecheckMode', 'polizzaThink', 'polizzaOcrEngine',
     // Voci di menu nascoste nella sidebar PDF Extractor (Impostazioni tecniche).
     'navHiddenExtractor',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',

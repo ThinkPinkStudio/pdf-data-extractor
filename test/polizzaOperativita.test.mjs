@@ -12,6 +12,7 @@ import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, cutUseful, operativitaPageTag, OPERATIVITA_MIN_EVIDENCE,
   combineOperativitaBatches, OPERATIVITA_MAX_BATCHES, recognitionDistinctiveTokens, namesCoverage,
+  recognitionAllowsSection, lineHasNonZeroAmount,
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
 } from '../src/services/polizzaOperativita.js'
@@ -109,8 +110,12 @@ test('decidePrecheck con operatività: il verdetto è quello del controllo; le p
   assert.equal(decidePrecheck({ ...base, hasRecognition: false }).verdict, 'mismatch')
   // a switch 'off' l'operatività non gira (regole storiche)
   assert.equal(decidePrecheck({ ...base, mode: 'off', operativita: { verdict: 'ok', reason: 'x' } }).verdict, 'mismatch')
-  // la validità "polizza vera" viene PRIMA (cartella senza polizza principale)
-  const set = decidePrecheck({ ...base, hasPolicyEvidence: false, requireValidPolicy: true, operativita: { verdict: 'ok', reason: 'x' } })
+  // con l'operatività il filtro a parole «polizza vera» NON decide (LUCCA: «Certificato N°»
+  // senza «polizza n.»/«contraente»): decide il controllo, che ha la domanda sul contratto
+  const withOp = decidePrecheck({ ...base, hasPolicyEvidence: false, requireValidPolicy: true, operativita: { verdict: 'ok', reason: 'x' } })
+  assert.equal(withOp.verdict, 'ok')
+  // senza «Come riconoscerla» resta: cartella senza polizza principale → accantonata
+  const set = decidePrecheck({ ...base, hasRecognition: false, contentExclude: null, hasPolicyEvidence: false, requireValidPolicy: true })
   assert.equal(set.verdict, 'mismatch'); assert.equal(set.setAside, true)
 })
 
@@ -344,4 +349,26 @@ test('sole quietanze: operante senza contratto visto → accantonata (forzabile)
   assert.equal(parseContrattoAnswer('niente'), null)
   // il prompt di operatività NON contiene la domanda sul contratto (misurato: la ribaltava)
   assert.ok(!/CONTRATTO/.test(buildOperativitaPrompt({ recognition: 'x', blocks: [] }).user))
+})
+
+test('recognitionAllowsSection: la riga strutturale serve solo se la definizione ammette una SEZIONE', () => {
+  assert.equal(recognitionAllowsSection('Polizza o sezione di TUTELA LEGALE effettivamente ACQUISTATA: …'), true)
+  assert.equal(recognitionAllowsSection('Polizza di RESPONSABILITÀ CIVILE PROFESSIONALE effettivamente ACQUISTATA: una sezione …'), false, 'conta solo la testa, prima dei due punti')
+  assert.equal(recognitionAllowsSection(''), false)
+})
+
+test('decideOperativita: senza riga strutturale va bene se la copertura è il prodotto; la riga della copertura con importo contraddice un «non operante»', () => {
+  const op = { esito: 'operante', evidenza: 'Tipo di contratto: Responsabilità Civile Professionale', documento: 1, pagina: 1 }
+  const ev = { found: true, names: true, structural: false, ord: 1, page: 1 }
+  assert.equal(decideOperativita({ answer: op, evidence: ev }).verdict, 'review', 'default: riga strutturale richiesta')
+  assert.equal(decideOperativita({ answer: op, evidence: ev, requireStructural: false }).verdict, 'ok')
+  const no = { esito: 'non operante', evidenza: 'Tutela Legale ESCLUSA 31.000,00', documento: 1, pagina: 1 }
+  assert.equal(decideOperativita({ answer: no, evidence: { found: true, names: true, structural: true, proofIsCoverageRow: true } }).verdict, 'review')
+  assert.equal(decideOperativita({ answer: no, evidence: { found: true, names: true, structural: true, proofIsCoverageRow: false } }).verdict, 'mismatch')
+  assert.equal(lineHasNonZeroAmount('Tutela Legale   ESCLUSA   31.000,00'), true)
+  assert.equal(lineHasNonZeroAmount('Tutela Legale   NO   0,00'), false)
+  // combinazione: la contraddizione (prova trovata) non si somma ai «non operante» provati
+  const mm = { verdict: 'mismatch', reason: 'copertura non operante', esito: 'non operante', evidenceFound: true }
+  const contra = { verdict: 'review', reason: 'contraddittorio', esito: 'non operante', evidenceFound: true }
+  assert.equal(combineOperativitaBatches([mm, contra]).verdict, 'review')
 })

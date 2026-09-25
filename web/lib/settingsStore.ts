@@ -111,6 +111,9 @@ export interface WebSettings {
   // Ragionamento del modello (solo modelli che ragionano: qwen3 & co.) per fase:
   // 'off' (default) | 'abbinamento' | 'estrazione' | 'tutto' (netFetch.thinkEnabled).
   polizzaThink?: 'off' | 'abbinamento' | 'estrazione' | 'tutto'
+  // OCR delle pagine scansionate: '' / 'tesseract' (default) o il nome di un
+  // modello visivo Ollama che TRASCRIVE la pagina (qwen2.5vl:7b, gemma3:27b…).
+  polizzaOcrEngine?: string
   // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
   navHiddenExtractor?: string[]
   // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
@@ -270,6 +273,7 @@ export async function getSettings(): Promise<WebSettings> {
     // il controllo è comunque l'operatività; 'llm' è il ripiego per i profili senza.
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaThink: (['off', 'abbinamento', 'estrazione', 'tutto'].includes(map.polizzaThink) ? map.polizzaThink : 'off') as WebSettings['polizzaThink'],
+    polizzaOcrEngine: String(map.polizzaOcrEngine || '').trim(),
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     extractions: json<GenericField[]>('extractions'),

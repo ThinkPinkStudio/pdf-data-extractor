@@ -20,7 +20,7 @@ import { usefulLength } from './ocrLayout.js'
 import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
-  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
+  buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
@@ -203,7 +203,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       })
       const answer = parseOperativitaAnswer(raw)
       const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
-      const decision = decideOperativita({ answer, evidence, excludeMatched })
+      const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
       // Dopo un «operante»: c'è il CONTRATTO tra le pagine lette (domanda a
       // parte, breve)? Con sole quietanze si continua a cercare il frontespizio
@@ -301,7 +301,7 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
   // in decidePrecheck): se la cartella verrà accantonata, l'operatività non si
   // calcola nemmeno (fino a 6 chiamate buttate).
   const policyEv = normText ? hasPolicyEvidence(normText) : null
-  const willSetAside = policyEv === false && settings?.polizzaRequireValidPolicy !== false
+  const willSetAside = !operative && policyEv === false && settings?.polizzaRequireValidPolicy !== false
 
   // OPERATIVITÀ: il controllo vero quando il profilo dice come riconoscere la
   // copertura. Un risultato precalcolato (profilo Automatico del worker) evita

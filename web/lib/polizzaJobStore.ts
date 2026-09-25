@@ -173,6 +173,14 @@ export async function findIdenticalCompletedJob(jobId: string): Promise<{ id: st
 //     rovesciate: si rigenerano con l'orientamento corretto.
 export const OCR_FORMAT = 4
 
+// Chiave della cache OCR per MOTORE di lettura: Tesseract usa l'hash del file
+// (voci esistenti), un modello visivo `<hash>:vis:<modello>`. Senza, un A/B
+// Tesseract ↔ modello visivo avrebbe riletto il testo dell'altro motore.
+export function ocrCacheKey(fileHash: string, settings: { polizzaOcrEngine?: string } | null | undefined): string {
+  const e = String(settings?.polizzaOcrEngine || '').trim()
+  return e && e.toLowerCase() !== 'tesseract' ? `${fileHash}:vis:${e}` : fileHash
+}
+
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {
   const { rows } = await pool.query<{ pages: string[]; format: number }>(
     'SELECT pages, format FROM ocr_cache WHERE file_hash = $1', [fileHash]

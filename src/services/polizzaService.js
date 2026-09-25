@@ -1927,6 +1927,41 @@ export async function ocrPageText(imageBase64, settings = {}) {
   return ocrImageToText(imageBase64)
 }
 
+// OCR CON MODELLO VISIVO (25/09/2026, server RTX 6000 Ada): il modello
+// TRASCRIVE la pagina scansionata al posto di Tesseract — e basta. Non è il
+// vecchio «percorso vision» (immagini → campi, dismesso): la trascrizione entra
+// nello stesso percorso testo (prova nel testo, consenso, date, controlli
+// incrociati). Tesseract sbagliava proprio dove serve: simboli («€ 1.000.000,00»
+// → «41.000.000,00», BOLCHINI 2025), codici («IPD0017417» → «1PD0017417»),
+// caselle barrate e colonne delle tabelle. Motore = settings.polizzaOcrEngine
+// (nome del modello Ollama); vuoto o 'tesseract' = Tesseract.
+export function visionOcrEngine(settings) {
+  const e = String(settings?.polizzaOcrEngine || '').trim()
+  return e && e.toLowerCase() !== 'tesseract' ? e : null
+}
+const VISION_OCR_PROMPT =
+  'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
+  '- Ordine di lettura, riga per riga, dall\'alto in basso.\n' +
+  '- Tabelle e moduli: le celle della STESSA riga sulla stessa riga, separate da almeno due spazi; ogni etichetta accanto al suo valore.\n' +
+  '- Caselle di spunta: [X] se barrata/spuntata/annerita, [ ] se vuota, prima del testo della casella.\n' +
+  '- Cifre, importi, simboli (€, %, ‰), date, codici e numeri di polizza ESATTAMENTE come stampati: non correggere, non completare.\n' +
+  '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
+  '- Non tradurre, non riassumere, non commentare, niente markdown: solo il testo della pagina.'
+export async function visionOcrPageText(imageDataUrl, settings = {}) {
+  const model = visionOcrEngine(settings)
+  if (!model) return ocrPageText(imageDataUrl, settings)
+  const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
+  const b64 = String(imageDataUrl || '').replace(/^data:image\/[a-z]+;base64,/i, '')
+  const payload = {
+    model,
+    messages: [{ role: 'user', content: VISION_OCR_PROMPT, images: [b64] }],
+    ...(isThinkingModel(model) ? { think: false } : {}),
+    options: { temperature: 0, num_ctx: 16384, num_predict: 6144 },
+  }
+  const { content } = await ollamaChatStream(url, payload, { hardCapMs: 900000, cancelFlag: settings.__cancelFlag || null })
+  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').trim()
+}
+
 // Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un
 // blocco di "negative few-shot" iniettato in TUTTI i motori di estrazione PRIMA
 // del blocco FORMATO. Tipo-blind (spie generiche, mai per categoria di documento)
@@ -2977,6 +3012,9 @@ function analyzeStagedDocs(docs) {
     const om = name.match(APPENDIX_ORD_RE)
     return {
       name, pages, spatialPages, text, textMode,
+      // Testo da OCR (scansione) invece che dal text layer: a pari data vale
+      // meno (byStagedRecency) — l'OCR può alterare cifre e simboli.
+      ocr: !!d?.ocr,
       normPages: pages.map((p) => normForMatch(p)),
       type: classifyDocType(name),
       dateStr,
@@ -2996,6 +3034,11 @@ function byStagedRecency(a, b) {
     if (a.ts !== b.ts) return b.ts - a.ts
   }
   if ((a.appendixOrd ?? -1) !== (b.appendixOrd ?? -1)) return (b.appendixOrd ?? -1) - (a.appendixOrd ?? -1)
+  // A PARI DATA il testo digitale prima dell'OCR: la cascata visitava per prima
+  // la scansione «POLIZZA QUIETANZATA» (ordine alfabetico) e ne prendeva 12
+  // campi letti male, poi la polizza digitale con «€ 1.000.000,00» trovava i
+  // campi già pieni (BOLCHINI 2025: massimale 41.000.000,00).
+  if (!!a.ocr !== !!b.ocr) return a.ocr ? 1 : -1
   return a.pos - b.pos
 }
 

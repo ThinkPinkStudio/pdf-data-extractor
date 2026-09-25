@@ -33,6 +33,7 @@ interface Settings {
   polizzaStagedCascade?: boolean
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
   polizzaThink?: 'off' | 'abbinamento' | 'estrazione' | 'tutto'
+  polizzaOcrEngine?: string
   // Voci del menu PDF Extractor nascoste nella sidebar (href).
   navHiddenExtractor?: string[]
 }
@@ -267,6 +268,11 @@ export default function SettingsTechnicalPage() {
                 <option value="tutto">{t('set.thinkAll')}</option>
               </select>
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.thinkHint')}</p>
+            </div>
+            <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+              <label className="label">{t('set.ocrEngine')}</label>
+              <input value={s.polizzaOcrEngine ?? ''} onChange={(e) => up('polizzaOcrEngine', e.target.value)} placeholder="tesseract" style={{ fontFamily: 'var(--font-mono)' }} />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.ocrEngineHint')}</p>
             </div>
           </div>
         </div>

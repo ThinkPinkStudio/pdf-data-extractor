@@ -223,7 +223,12 @@ export function decidePrecheck(p) {
   // Il blocco si attiva SOLO se `hasPolicyEvidence` è esplicitamente boolean:
   // con undefined/null (chiamanti storici, o testo non giudicabile) il
   // comportamento resta identico a prima (mai blocco, mai skipped extra).
-  if (typeof p?.hasPolicyEvidence === 'boolean' && p?.requireValidPolicy !== false && p?.hasProfile) {
+  // Con l'OPERATIVITÀ attiva questo filtro a parole NON decide: «Polizza di
+  // Assicurazione · Certificato N° RCSPEM00000098 · ASSICURATO» (AmTrust, LUCCA)
+  // non ha «polizza n.» né «contraente» e una polizza vera finiva accantonata
+  // prima di chiedere al modello; le sole quietanze le ferma già la domanda
+  // «c'è il contratto?» (setaside). Resta per i profili senza «Come riconoscerla».
+  if (!operative && typeof p?.hasPolicyEvidence === 'boolean' && p?.requireValidPolicy !== false && p?.hasProfile) {
     if (p.hasPolicyEvidence === false) {
       const why = Array.isArray(p.policyMissing) && p.policyMissing.length ? p.policyMissing.join(' e ') : 'nessun frontespizio di polizza vera nel contenuto'
       return {

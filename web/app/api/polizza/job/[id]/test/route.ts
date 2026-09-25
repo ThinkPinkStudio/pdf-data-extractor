@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Il job sorgente è ancora in esecuzione o in coda' }, { status: 409 })
   }
 
-  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number } = {}
+  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number; ocr?: string } = {}
   try { body = await req.json() } catch { /* body vuoto = tutti i default */ }
 
   const settings = await getSettings()
@@ -52,11 +52,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Ragionamento per fase e tetto di contesto: A/B senza toccare le impostazioni globali.
   if (body.think && ['off', 'abbinamento', 'estrazione', 'tutto'].includes(body.think)) settingsOverride.polizzaThink = body.think
   if (typeof body.ctx === 'number' && body.ctx > 0) settingsOverride.polizzaBatchContext = Math.round(body.ctx)
+  // Motore OCR delle scansioni: 'tesseract' o il nome di un modello visivo Ollama.
+  if (typeof body.ocr === 'string' && body.ocr.trim()) settingsOverride.polizzaOcrEngine = body.ocr.trim()
 
   const engineBit = typeof body.perField === 'boolean'
     ? (body.perField ? ' · per-campo' : (body.stagedCascade ? ' · cascata' : ' · gruppi'))
     : (typeof body.stagedCascade === 'boolean' ? (body.stagedCascade ? ' · cascata' : ' · gruppi') : '')
-  const extraBit = `${settingsOverride.polizzaThink ? ` · ragionamento ${settingsOverride.polizzaThink}` : ''}${settingsOverride.polizzaBatchContext ? ` · ctx ${settingsOverride.polizzaBatchContext}` : ''}`
+  const extraBit = `${settingsOverride.polizzaThink ? ` · ragionamento ${settingsOverride.polizzaThink}` : ''}${settingsOverride.polizzaBatchContext ? ` · ctx ${settingsOverride.polizzaBatchContext}` : ''}${settingsOverride.polizzaOcrEngine ? ` · OCR ${settingsOverride.polizzaOcrEngine}` : ''}`
   const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}${extraBit}`
   const job = await createTestJob({
     sourceJobId: src.id, email: session.email, fieldDefs, promptExtra, settingsOverride, label,
