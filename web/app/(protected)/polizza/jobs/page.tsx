@@ -10,6 +10,7 @@ import {
   decisionCount, fmtDate, segmentsFromCounts, summarizeJobs,
 } from '@/components/jobs/model'
 import { StackedBar } from '@/components/jobs/StackedBar'
+import { StatusPill } from '@/components/jobs/StatusPill'
 import { IcAlert, IcChevRight, IcDownload, IcSearch, IcZip } from '@/components/jobs/Icons'
 
 // ELABORAZIONI — lista dei batch: una card per batch (barra segmentata,
@@ -20,6 +21,21 @@ export default function PolizzaJobsPage() {
   const [batches, setBatches] = useState<BatchSummary[] | null>(null)
   const [singles, setSingles] = useState<JobSnapshot[] | null>(null)
   const [query, setQuery] = useState('')
+  // RICERCA GLOBALE: dalla terza lettera cerca le polizze in TUTTI i batch
+  // (cartella, file, n° polizza, contraente, P.IVA…), non solo i nomi dei batch.
+  const [hits, setHits] = useState<SearchHit[] | null>(null)
+  useEffect(() => {
+    const term = query.trim()
+    if (term.length < 3) { setHits(null); return }
+    let alive = true
+    const id = setTimeout(() => {
+      fetch(`/api/polizza/search?q=${encodeURIComponent(term)}`)
+        .then((r) => (r.ok ? r.json() : { results: [] }))
+        .then((d) => { if (alive) setHits(Array.isArray(d?.results) ? d.results : []) })
+        .catch(() => { if (alive) setHits([]) })
+    }, 250)
+    return () => { alive = false; clearTimeout(id) }
+  }, [query])
 
   const load = useCallback(async () => {
     try { const d = await (await fetch('/api/polizza/batch')).json(); setBatches(d.batches || []) } catch { setBatches((p) => p || []) }
@@ -45,7 +61,7 @@ export default function PolizzaJobsPage() {
           <p style={{ fontSize: 12, color: 'var(--c-text-muted)', margin: 0 }}>{t('jobsDash.subtitle')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label className="jb-search" style={{ width: 240 }}>
+          <label className="jb-search" style={{ width: 340 }}>
             <IcSearch />
             <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('jobsDash.searchBatches')} aria-label={t('jobsDash.searchBatches')} />
           </label>
@@ -58,12 +74,63 @@ export default function PolizzaJobsPage() {
         <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 13, marginBottom: 16 }}>{t('jobsDash.empty')}</div>
       )}
 
+      {hits !== null && <SearchResults hits={hits} />}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
         {shown.map((b) => <BatchCard key={b.id} b={b} href={`/polizza/jobs/${b.id}`} />)}
         {showSingles && singlesSummary && (
           <BatchCard b={singlesSummary} href={`/polizza/jobs/${SINGLES_ID}`} subtitle={t('jobsDash.singlesCardDesc')} virtual />
         )}
       </div>
+    </div>
+  )
+}
+
+interface SearchHit {
+  jobId: string
+  batchId: string | null
+  batchLabel: string | null
+  dossierName: string | null
+  status: string
+  error: string | null
+  verdict: string | null
+  profileName: string | null
+  updatedAt: number
+  matchedIn: { kind: 'folder' | 'file' | 'field'; label?: string; value: string }[]
+}
+
+// Polizze trovate dalla ricerca globale: cartella finale + percorso, batch,
+// stato, profilo e DOVE è stata trovata la ricerca. Un clic apre la polizza
+// nella pagina del suo batch (?polizza=…).
+function SearchResults({ hits }: { hits: SearchHit[] }) {
+  const t = useT()
+  return (
+    <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--c-border)', fontSize: 12, fontWeight: 600 }}>
+        {hits.length ? t('jobsDash.searchHits', { n: hits.length }) : t('jobsDash.searchNoHits')}
+      </div>
+      {hits.map((h) => {
+        const segs = (h.dossierName || h.jobId).split('/').map((x) => x.trim()).filter(Boolean)
+        const name = segs[segs.length - 1] || h.jobId
+        const path = segs.slice(0, -1).join(' / ')
+        const href = `/polizza/jobs/${h.batchId || SINGLES_ID}?polizza=${encodeURIComponent(h.jobId)}`
+        const where = h.matchedIn.map((m) => m.kind === 'field' ? `${m.label}: ${m.value}` : m.kind === 'file' ? `${t('jobsDash.searchInFile')}: ${m.value}` : t('jobsDash.searchInFolder'))
+        return (
+          <Link key={h.jobId} href={href} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderBottom: '1px solid var(--c-border)', color: 'inherit', textDecoration: 'none' }}>
+            <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+              <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {[h.batchLabel || t('jobsDash.singlesShort'), path].filter(Boolean).join(' / ')}
+              </span>
+              {where.length > 0 && <span style={{ fontSize: 11, color: 'var(--c-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{where.join(' · ')}</span>}
+            </div>
+            <span className="jb-pill neutral" style={{ flex: 'none' }}>{h.profileName || t('jobsDash.profileNone')}</span>
+            <span style={{ flex: 'none' }}><StatusPill job={{ jobId: h.jobId, dossierName: h.dossierName, status: h.status, error: h.error, values: {}, precheck: h.verdict ? { verdict: h.verdict } : null }} /></span>
+            <span style={{ flex: 'none', fontSize: 11, color: 'var(--c-text-muted)', width: 120, textAlign: 'right' }}>{fmtDate(h.updatedAt)}</span>
+            <IcChevRight />
+          </Link>
+        )
+      })}
     </div>
   )
 }

@@ -122,6 +122,30 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_batch ON polizza_jobs(batch_id);
 
+    -- STORICO delle run (25/09/2026): ogni volta che un job arriva a un esito
+    -- (estratto, abbinato, da verificare, non pertinente, errore) se ne salva
+    -- una fotografia. Prima ogni rilancio sovrascriveva il precedente e
+    -- l'andamento tra una run e l'altra non si poteva ricostruire.
+    CREATE TABLE IF NOT EXISTS polizza_job_runs (
+      id           SERIAL PRIMARY KEY,
+      job_id       TEXT NOT NULL REFERENCES polizza_jobs(id) ON DELETE CASCADE,
+      batch_id     TEXT,
+      finished_at  BIGINT NOT NULL,
+      status       TEXT NOT NULL,
+      profile_id   TEXT,
+      profile_name TEXT,
+      model        TEXT,
+      ctx          INTEGER,
+      verdict      TEXT,
+      summary      TEXT,
+      error        TEXT,
+      fields       JSONB NOT NULL DEFAULT '[]',
+      field_values JSONB NOT NULL DEFAULT '{}',
+      filled       INTEGER NOT NULL DEFAULT 0,
+      total        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_polizza_job_runs_job ON polizza_job_runs(job_id, finished_at);
+
     -- PDF di input del job (base64, come la tabella sessions): consente la ripresa
     -- del job anche dopo un riavvio, senza che il client ricarichi i file.
     CREATE TABLE IF NOT EXISTS polizza_job_files (

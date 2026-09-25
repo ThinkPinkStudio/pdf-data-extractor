@@ -553,6 +553,69 @@ export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, 
   sets.push(`updated_at = $${i}`); vals.push(now()); i++
   vals.push(id)
   await pool.query(`UPDATE polizza_jobs SET ${sets.join(', ')} WHERE id = $${i}`, vals)
+  // Esito raggiunto → fotografia nello STORICO. Mai bloccante: un errore qui
+  // non deve far fallire il job.
+  if (typeof patch.status === 'string' && RUN_END_STATUSES.has(patch.status)) {
+    try { await recordJobRun(id) } catch (err) { console.warn('[polizza] storico run non salvato:', (err as Error)?.message) }
+  }
+}
+
+// ── STORICO DELLE RUN ────────────────────────────────────────────────────────
+// Stati che chiudono una run (canceled no: una run annullata non ha esito).
+const RUN_END_STATUSES = new Set(['done', 'error', 'mismatch', 'review', 'matched'])
+
+export interface JobRunRow {
+  id: number
+  job_id: string
+  batch_id: string | null
+  finished_at: number
+  status: string
+  profile_id: string | null
+  profile_name: string | null
+  model: string | null
+  ctx: number | null
+  verdict: string | null
+  summary: string | null
+  error: string | null
+  fields: { id: string; label: string }[]
+  field_values: Record<string, string>
+  filled: number
+  total: number
+}
+
+async function recordJobRun(id: string): Promise<void> {
+  const job = await getJob(id)
+  if (!job) return
+  const { getSettings } = await import('./settingsStore')
+  const settings: any = await getSettings().catch(() => ({}))
+  const ov: any = job.settings_override || {}
+  const model = ov.ollamaModel || settings.ollamaModel || null
+  const ctxRaw = parseInt(ov.polizzaBatchContext ?? settings.polizzaBatchContext, 10)
+  const pc: any = job.precheck || {}
+  const fieldDefs = (job.field_defs || []) as { id: string; label?: string }[]
+  const flat = flattenRollingState(job.rolling_state) as Record<string, unknown>
+  const values: Record<string, string> = {}
+  for (const f of fieldDefs) {
+    const v = flat[f.id]
+    if (v !== undefined && v !== null && String(v).trim() !== '') values[f.id] = String(v)
+  }
+  await pool.query(
+    `INSERT INTO polizza_job_runs (job_id, batch_id, finished_at, status, profile_id, profile_name, model, ctx, verdict, summary, error, fields, field_values, filled, total)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15)`,
+    [job.id, job.batch_id || null, now(), job.status, job.profile_id || null, job.profile_name || null, model,
+      Number.isFinite(ctxRaw) ? ctxRaw : 8192, pc.verdict || null, pc.summary || pc.reason || null, job.error || null,
+      JSON.stringify(fieldDefs.map((f) => ({ id: f.id, label: f.label || f.id }))), JSON.stringify(values),
+      Object.keys(values).length, fieldDefs.length],
+  )
+}
+
+/** Storico delle run di un job, dalla più recente. */
+export async function getJobRuns(jobId: string, limit = 50): Promise<JobRunRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM polizza_job_runs WHERE job_id = $1 ORDER BY finished_at DESC, id DESC LIMIT $2`,
+    [jobId, limit],
+  )
+  return rows.map((r: any) => ({ ...r, finished_at: Number(r.finished_at) }))
 }
 
 // Snapshot pubblico per il client (valori piatti + metadati job).
@@ -800,4 +863,54 @@ export async function cancelJob(id: string): Promise<boolean> {
     [now(), id]
   )
   return (rowCount ?? 0) > 0
+}
+
+// ── RICERCA GLOBALE ──────────────────────────────────────────────────────────
+export interface JobSearchHit {
+  jobId: string
+  batchId: string | null
+  batchLabel: string | null
+  dossierName: string | null
+  status: string
+  error: string | null
+  verdict: string | null
+  profileName: string | null
+  updatedAt: number
+  // Dove è stata trovata la ricerca: nel nome della cartella/batch, in un file, in un valore estratto.
+  matchedIn: { kind: 'folder' | 'file' | 'field'; label?: string; value: string }[]
+}
+
+/** Polizze di tutti i batch che contengono TUTTE le parole di `q` (cartella, batch, file, valori). */
+export async function searchJobs(q: string, limit = 60): Promise<JobSearchHit[]> {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6)
+  if (!terms.length) return []
+  const esc = (t: string) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+  const hay = `(COALESCE(j.dossier_name,'') || ' ' || COALESCE(b.label,'') || ' ' || j.scanned_files::text || ' ' || j.rolling_state::text)`
+  const where = terms.map((_, i) => `${hay} ILIKE $${i + 1}`).join(' AND ')
+  const { rows } = await pool.query(
+    `SELECT j.id, j.batch_id, b.label AS batch_label, j.dossier_name, j.status, j.error, j.precheck, j.profile_name,
+            j.updated_at, j.scanned_files, j.rolling_state, j.field_defs
+       FROM polizza_jobs j LEFT JOIN batch_jobs b ON b.id = j.batch_id
+      WHERE ${where}
+      ORDER BY j.updated_at DESC
+      LIMIT ${Math.max(1, Math.min(limit, 200))}`,
+    terms.map(esc),
+  )
+  return rows.map((r: any) => {
+    const matchedIn: JobSearchHit['matchedIn'] = []
+    const has = (text: string) => terms.some((t) => text.toLowerCase().includes(t))
+    if (has(`${r.dossier_name || ''} ${r.batch_label || ''}`)) matchedIn.push({ kind: 'folder', value: r.dossier_name || r.batch_label || '' })
+    for (const f of (r.scanned_files || []) as string[]) if (has(String(f))) { matchedIn.push({ kind: 'file', value: String(f) }); if (matchedIn.length > 3) break }
+    const flat = flattenRollingState(r.rolling_state) as Record<string, string>
+    const defs = (r.field_defs || []) as { id: string; label?: string }[]
+    for (const [id, v] of Object.entries(flat)) {
+      if (has(String(v))) matchedIn.push({ kind: 'field', label: defs.find((d) => d.id === id)?.label || id, value: String(v).slice(0, 80) })
+      if (matchedIn.length > 5) break
+    }
+    return {
+      jobId: r.id, batchId: r.batch_id || null, batchLabel: r.batch_label || null, dossierName: r.dossier_name || null,
+      status: r.status, error: r.error || null, verdict: r.precheck?.verdict || null, profileName: r.profile_name || null,
+      updatedAt: Number(r.updated_at), matchedIn,
+    }
+  })
 }
