@@ -127,6 +127,43 @@
     "Custodia documenti / valori": {
       "value": "Sì",
       "mode": "yes"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "Canada",
+        "antitrust",
+        "terrorismo",
+        "inquinamento",
+        "insolvenza",
+        "amianto",
+        "muffa",
+        "titoli al portatore",
+        "sindaco"
+      ],
+      "note": "Frontespizio art. 8 (p.2) 'Mondo intero esclusi USA e Canada'; art. 4 'Esclusioni : Quello che NON copriamo' (pp. 9-11): 4.1 Antitrust, 4.4 Guerra/terrorismo, 4.5 Inquinamento, 4.6 Insolvenza, 4.8 Muffa tossica e amianto, 4.10 U.S.A./Canada, 4.11 Titoli al portatore, 4.16 attività diversa (Sindaco/Revisore, CdA, ODV 231), 4.17 O.F.A.C. Non uso 'USA', 'RCO', 'OFAC' come token: normalizzati diventano sottostringhe di 'causa'/'esclusa' o 'avranno facoltà' e darebbero falsi positivi. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "RCT",
+        "conduzione",
+        "prestatori di lavoro",
+        "committenza",
+        "INAIL",
+        "uso ufficio"
+      ],
+      "note": "Art. 10 'Condizioni Aggiuntive' (testo pp. 18-19, richiamato nell'elenco 1341 di p.17): 10.1 'Responsabilità civile verso Terzi (RCT) e verso i prestatori di lavoro (RCO)' — '1. RCT – CONDUZIONE DEI LOCALI ADIBITI AD USO UFFICIO', '2. RESPONSABILITA’ CIVILE VERSO I PRESTATORI DI LAVORO (RCO)', rivalsa INAIL/INPS, '4. COMMITTENZA AUTO' (p.19). Parte integrante del contratto ('Fanno parte integrante n. 19 pagine compreso il frontespizio', p.3); nessuna appendice. Non uso 'condizioni aggiuntive' (compare anche nelle esclusioni 4.16/4.18 'Altre condizioni aggiuntive'), né 'RCO' ('per conto'), né 'appendice' (citata solo in modo generico, pp. 6 e 13). [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Visto leggero": {
+      "mode": "emptyOrNo",
+      "value": null,
+      "note": "Il fascicolo non nomina mai 'visto leggero', 'assistenza fiscale' o 'compensazione crediti'. Ci sono solo la garanzia B 'Consulenza Fiscale' (p.4) e l'estensione 3.7 'Attività di tributarista' (p.8), che la descrizione non elenca. È la stessa decisione del golden SPALLINO RC, che ha lo stesso testo AIG. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Incarichi giudiziari": {
+      "mode": "yes",
+      "value": "Sì",
+      "note": "Garanzia C 'Funzioni Pubbliche/Giudiziali' (p.4): '...funzioni di carattere pubblico o di natura giudiziale ad esso competenti; è compreso l’incarico di Curatore nelle procedure di fallimento, di Commissario Giudiziale...'. Anche l'estensione 3.4 Commissione Tributaria (p.7). [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
     }
   },
   "nonVerificati": [
