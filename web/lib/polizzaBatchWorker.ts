@@ -8,8 +8,10 @@
 // (llmSemaphore, dentro runJobAndWait): job di batch diversi e job singoli non girano
 // mai in parallelo tra loro (protegge VRAM e rate limit LLM/OCR condivisi).
 
-import { getNextPendingBatchJob, isUploadComplete, claimBatchNotification } from './polizzaJobStore'
+import { getNextPendingBatchJob, isUploadComplete, claimBatchNotification, batchNeedsReconcile } from './polizzaJobStore'
 import { runJobAndWait } from './polizzaJobWorker'
+import { reconcileBatch } from './polizzaReconcile'
+import { withGlobalLock } from './llmSemaphore'
 import { sendBatchCompleteEmail } from './mailer'
 
 // A batch finito: email di riepilogo al proprietario (chi ha lanciato il lavoro).
@@ -34,6 +36,14 @@ export function startBatch(batchId: string): void {
 }
 
 async function runBatch(batchId: string): Promise<void> {
+  // BATCH NUOVO: prima di elaborare si aspetta la fine del caricamento e si
+  // uniscono i dossier che sono la stessa polizza (numero di polizza in comune,
+  // polizzaReconcile). Sotto il semaforo globale: la lettura fa OCR e resta
+  // «una sola run alla volta» con gli altri job.
+  if (await batchNeedsReconcile(batchId)) {
+    while (!(await isUploadComplete(batchId))) await new Promise((r) => setTimeout(r, 2000))
+    await withGlobalLock(() => reconcileBatch(batchId))
+  }
   for (;;) {
     const jobId = await getNextPendingBatchJob(batchId)
     if (jobId) {
