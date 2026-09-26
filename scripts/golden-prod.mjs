@@ -142,9 +142,13 @@ const version = await api('/api/version').catch(() => null)
 const settings = await api('/api/settings')
 const prodProfiles = settings.polizzaProfiles || []
 console.log(`App ${BASE} — versione ${version?.version || '?'} — Ollama ${settings.ollamaUrl || '?'} — modello ${settings.ollamaModel || '?'}${MODEL ? ` → run di test con ${MODEL}` : ''} — strategia ${settings.polizzaStagedCascade ? 'cascata' : 'gruppi'}${STRATEGY ? ` → run di test ${STRATEGY}` : ''} — pre-controllo ${settings.polizzaPrecheckMode || 'default'} — contesto ${settings.polizzaBatchContext || 8192}`)
-if (version?.features) console.log(`  feature: ${[].concat(version.features).slice(-6).join(' · ')}`)
+// Codice deployato = marcatori di BUILD_FEATURES (la versione resta 1.0.153 su
+// test_branch). Prima si leggeva `features` (campo inesistente): le misure non
+// registravano su quale codice giravano e la notte del 26/09 è andata sul vecchio.
+const buildFeatures = [].concat(version?.buildFeatures || [])
+console.log(`  codice deployato (ultimi marcatori): ${buildFeatures.slice(-6).join(' · ') || 'sconosciuto'}`)
 
-const summary = { base: BASE, version: version?.version || null, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, flags: FLAGS || settings.polizzaEngineFlags || '', precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
+const summary = { base: BASE, version: version?.version || null, buildFeatures, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, flags: FLAGS || settings.polizzaEngineFlags || '', precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
 const t00 = Date.now()
 for (const c of FULL_CASES) {
   if (ONLY && !ONLY.has(c.id)) continue
@@ -236,7 +240,7 @@ for (const c of FULL_CASES) {
 
 const done = summary.cases.filter((s) => s.total)
 const R = done.reduce((a, s) => a + s.right, 0), N = done.reduce((a, s) => a + s.total, 0)
-console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragionamento ${summary.think} · ctx ${summary.ctx}${summary.ocr && summary.ocr !== 'tesseract' ? ` · OCR ${summary.ocr}` : ''}${summary.flags ? ` · flag ${summary.flags}` : ''} · versione ${summary.version} — ${Math.round((Date.now() - t00) / 60000)} min ===`)
+console.log(`\n=== RIEPILOGO — ${summary.model} · ${summary.strategy} · ragionamento ${summary.think} · ctx ${summary.ctx}${summary.ocr && summary.ocr !== 'tesseract' ? ` · OCR ${summary.ocr}` : ''}${summary.flags ? ` · flag ${summary.flags}` : ''} · versione ${summary.version} (${(summary.buildFeatures || []).slice(-1)[0] || '?'}) — ${Math.round((Date.now() - t00) / 60000)} min ===`)
 for (const s of summary.cases) {
   if (s.skipped) { console.log(`  ${s.id.padEnd(18)} saltato`); continue }
   if (s.error) { console.log(`  ${s.id.padEnd(18)} ERRORE ${s.error.slice(0, 100)}`); continue }

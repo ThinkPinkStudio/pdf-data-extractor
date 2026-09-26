@@ -65,9 +65,14 @@ export const MAX_BATCH_CTX_8GB = 8192
 // Tetto CONFIGURABILE (25/09/2026, nuovo server RTX 6000 Ada 48 GB): il valore
 // «Tetto contesto batch» di Impostazioni tecniche (polizzaBatchContext) vale
 // per TUTTE le chiamate che prima erano cappate a 8192; assente = 8192 (default
-// sicuro per 8 GB di VRAM). Mai oltre 32768: è il contesto NATIVO di
-// Qwen2.5/Qwen3 (oltre servirebbe YaRN, che Ollama non attiva).
-export const MAX_CTX_ABSOLUTE = 32768
+// sicuro per 8 GB di VRAM). Tetto assoluto 131072 (26/09/2026): il limite VERO
+// è il contesto NATIVO del modello (n_ctx_train da /api/show, YaRN non attivo
+// nelle tag di Ollama): qwen2.5:32b 32768, qwen3:32b 40960, qwen3:30b-a3b e
+// qwen3-vl 262144, mistral-small3.2 e gemma3 131072. Il motore a stadi riduce
+// ogni chiamata a min(tetto, limite del modello). VRAM (48 GB, KV f16): un 32B
+// costa ~256 KB/token (64k ≈ 36 GB in tutto, 128k non entra), qwen3:30b-a3b
+// ~96 KB/token (128k ≈ 31 GB).
+export const MAX_CTX_ABSOLUTE = 131072
 export function ctxCap(settings) {
   const v = parseInt(settings?.polizzaBatchContext, 10)
   if (!Number.isFinite(v) || v <= 0) return MAX_BATCH_CTX_8GB
@@ -1975,7 +1980,11 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
     // modello ripeteva «-» fino al limite di token e la pagina restava TRONCATA
     // (BOLCHINI 2025: premi 562,50/618,75/137,67/756,42 persi); con 1,1 la
     // pagina esce intera e le cifre restano esatte (misurato 25/09/2026).
-    options: { temperature: 0, num_ctx: 16384, num_predict: 6144, repeat_penalty: 1.1 },
+    // num_predict 16384 / num_ctx 32768 (26/09/2026): i Qwen3-VL ragionano anche
+    // con think:false e il ragionamento consuma lo STESSO tetto di token: con
+    // 6144 la trascrizione di una pagina lunga restava vuota o tronca. Per i
+    // modelli che non ragionano è solo un tetto (la pagina finisce prima).
+    options: { temperature: 0, num_ctx: 32768, num_predict: 16384, repeat_penalty: 1.1 },
   }
   const { content } = await ollamaChatStream(url, payload, { hardCapMs: 900000, cancelFlag: settings.__cancelFlag || null })
   // Trattini/puntini di riempimento tra etichetta e valore («Premio Netto-----562,50»)
@@ -4885,9 +4894,13 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // su una GPU che regge la KV cache (RTX 6000 Ada 48 GB).
   const batchLimit = ctxCap(settings)
   if (settings.polizzaBatchContext > MAX_CTX_ABSOLUTE) {
-    diag.push(`AVVISO: batchContext richiesto ${settings.polizzaBatchContext} supera il MASSIMO ${MAX_CTX_ABSOLUTE} (contesto nativo Qwen) — forzato a ${MAX_CTX_ABSOLUTE}`)
+    diag.push(`AVVISO: batchContext richiesto ${settings.polizzaBatchContext} supera il MASSIMO ${MAX_CTX_ABSOLUTE} — forzato a ${MAX_CTX_ABSOLUTE}`)
   }
   const batchCtx = Math.min(modelLimit || batchLimit, batchLimit)
+  if (modelLimit && batchLimit > modelLimit) diag.push(`Contesto richiesto ${batchLimit} oltre il nativo di ${ollamaModel} (${modelLimit}): ogni chiamata usa ${modelLimit} (oltre, Ollama troncherebbe il prompt in silenzio)`)
+  // Tutte le chiamate che leggono il tetto da s2 (recupero, verifiche…) restano
+  // entro il contesto nativo del modello.
+  s2.polizzaBatchContext = batchCtx
 
   // ── AFFINITÀ SEMANTICA descrizione↔testo (agnostica: niente classi keyword) ─
   // La DESCRIZIONE del campo è l'unica verità semantica disponibile: guida DOVE
