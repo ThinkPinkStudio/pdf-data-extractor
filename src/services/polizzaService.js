@@ -3606,9 +3606,16 @@ const STAGED_RECOVERY_SYSTEM =
  * l'oggetto con le parole della descrizione. Decide la descrizione ("Verifica
  * se…"), mai la label.
  */
-export function paraphraseHint(fields) {
+export function paraphraseHint(fields, loose = false) {
   const verif = (fields || []).filter((f) => descriptionAsksVerification(f?.description))
   if (!verif.length) return 'anche con parole diverse'
+  // [flag verifiche] Anche per le VERIFICHE la frase può usare parole diverse
+  // dalla descrizione: il vincolo «nominare con le parole della descrizione»
+  // del ciclo 1 faceva rispondere null a verifiche vere (11 «Sì» persi sui
+  // golden RC: incarichi giudiziari, Merloni, attività giudiziale, custodia).
+  // Resta il controllo in absorbStagedEntries: la citazione deve nominare
+  // l'oggetto verificato (evidenceNamesObject).
+  if (loose) return 'anche con parole diverse; per una VERIFICA copia la frase del documento che nomina ciò che si verifica'
   if (verif.length === (fields || []).length) return 'per una VERIFICA la frase copiata deve nominare ciò che si verifica con le parole della descrizione'
   return 'anche con parole diverse, TRANNE per i campi che chiedono di VERIFICARE se qualcosa è coperto o presente: lì la frase copiata deve nominarlo con le parole della descrizione'
 }
@@ -5731,7 +5738,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const fieldLines = fields
         .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
         .join('\n')
-      return (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (${paraphraseHint(fields)}), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${fields.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
+      return (text) => `CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO (ogni campo è un indice 0,1,2…; rispondi con chiavi c0, c1, …):\n${fieldLines}\n${promptExtra ? `\nISTRUZIONI AGGIUNTIVE (priorità massima):\n${promptExtra}\n` : ''}\nLa DESCRIZIONE è l'istruzione di ricerca: trova il dato o la FRASE che le corrisponde (${paraphraseHint(fields, engineFlag(settings, 'verifiche'))}), rispettando le sue esclusioni (i "NON …").\n\n${docHeader}\n${text}\n\nRestituisci SOLO il JSON con UNA voce per OGNUNO dei ${fields.length} campi elencati: {"c0": {"valore":"...","evidenza":"testo esatto copiato"}, ...} (indici nell'ordine sopra), e {"valore": null} per i campi il cui valore NON è in questo documento.`
     }
     // [flag cascata4] Campi chiesti a gruppi di FIELDS_PER_CALL sullo STESSO
     // testo (come i gruppi); senza flag, tutti i mancanti in una chiamata.
@@ -6170,7 +6177,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         const columnsHint = recE
           ? `ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE. Cerca ATTIVAMENTE il valore vicino all'etichetta, anche se distante una riga.`
           : `ATTENZIONE ALLE COLONNE: il testo conserva l'impaginazione, quindi l'etichetta e il suo valore possono stare su RIGHE DIVERSE (es. '5. Massimale' in testa alla pagina e l'importo '€ 2.500.000,00' nella riga sotto). Cerca ATTIVAMENTE il valore numerico vicino all'etichetta, anche se distante una riga.`
-        const buildRecoveryPrompt = (ctxText) => `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctxText}\n\nSe trovi il dato (o la frase che lo contiene, ${paraphraseHint(b.fields)}) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.\n${columnsHint}`
+        const buildRecoveryPrompt = (ctxText) => `Sto cercando UN SOLO dato nei documenti. Leggi con attenzione gli estratti qui sotto.\n\nDATI DA TROVARE (ogni campo ha un indice; rispondi con le chiavi c0, c1, …):\n${fieldLines}\n\nESTRATTI DEI DOCUMENTI:\n${ctxText}\n\nSe trovi il dato (o la frase che lo contiene, ${paraphraseHint(b.fields, engineFlag(settings, 'verifiche'))}) restituisci un JSON con la chiave dell'INDICE corrispondente (c0, c1, …), con {"valore":"...","evidenza":"testo esatto copiato"}. Se NON è presente, restituisci {c0: {"valore": null}} (o {c1: ...} ecc.). Usa esattamente gli indici qui sopra come chiavi del JSON.\n${columnsHint}`
         // [flag recupero] Budget dal contesto REALE (come i batch), non 8000 fissi.
         const RECOVERY_CTX_CHARS = recE
           ? Math.max(8000, computeSafeContextBudget(ctxCap(s2), { systemChars: STAGED_RECOVERY_SYSTEM.length, userChars: buildRecoveryPrompt('').length }))
