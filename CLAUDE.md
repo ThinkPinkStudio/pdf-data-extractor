@@ -1013,6 +1013,40 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   99,84» della scheda «POLIZZA RAMO TUTELA GIUDIZIARIA»); in quel caso non
   servono né la parola nella riga né la riga «copertura + importo». Mai un
   numero di certificato come importo (LUCCA «TLM190942268»).
+  **Rivista il 27/09/2026** (verifica avversaria di 11 casi sui PDF veri:
+  catalogo giusto in tutti; 6 polizze SENZA tutela legale abbinate, 11 DAS
+  condominio ancora «Da verificare»; poi due revisioni avversarie del codice).
+  Causa comune: una riga ‡ spuria apriva da sola il batch 1 e il primo «ok»
+  chiudeva il dossier. (1) la **✓ è una spunta solo come ultimo segno della
+  riga dopo il nome** (i DIP la usano come punto elenco: «✓ Ambito civile
+  extracontrattuale : tutela legale», «✓ Tutela Legale» delle auto Allianz);
+  la **casella** [x]/☒/☑/X conta subito prima del nome o come ultimo segno
+  dopo il nome, mai la X di un'altra voce («X Ritiro Patente Tutela Legale X
+  Assistenza», «…SUL MEDESIMO RISCHIO? X NO») — `boxNextToCoverName`;
+  (2) il numero subito dopo «art./artt./articolo» non è un importo (clausola
+  1341 ITAS «art, 6,13»), la riga ‡ vuole un importo coi decimali, non nullo,
+  non percentuale (`lineHasStructuralAmount`, `strictAmount`: «€ 15.000» di una
+  frase del DIP Allianz, «8,46%»); la riga della copertura che contraddice un
+  «non operante» resta con `lineHasNonZeroAmount` («ESCLUSA 31.000»);
+  (3) **intestazione di colonna spezzata** («TUTELA» sopra «LEGALE» nella stessa
+  colonna, `verticalCoverColumns`): la pagina nomina la copertura e la riga
+  col premio IN QUELLA COLONNA è ‡ (`coverColumnRows`: «Difesa Condominio -
+  ed.2019 298,55» sì, «63,44» sotto IMPOSTE no); la prova del prodotto (b) ora
+  è quella riga, oppure il frontespizio col nome nel TITOLO (`pageHead`, stessa
+  finestra di isQuestionnairePageTitle) e una casella barrata con premio.
+  TOLTI: «qualsiasi importo nella citazione + documento che nomina la TL»
+  (passavano «INCENDIO … 315,41» di un'ITAS con «TUTELA LEGALE non
+  acquistata» e «Indicizzazione [X] € 176,46» di Helvetia) e il nome cercato
+  sull'intero documento; (4) regola (a): un «no» da una pagina ‡
+  (`structuralPage`) non zittisce un «non determinabile» (DAS OneClick con
+  «non operante» letto sull'intestazione della scheda col premio); (5) nel
+  log la fine dello stream Ollama (done_reason, errore, stream senza done).
+  A tavolino sulle griglie pdf.js dei 184 dossier: le 12 DAS condominio hanno
+  la scheda come pagina ‡, i non pertinenti con ‡ spurie da 10 a 0. Aperti:
+  domanda sulla polizza con preventivi/offerte (SUSA «VITTORIA» = preventivo
+  abbinato; «assente» non è forzabile: misurare), le PARTI sorelle di una
+  pagina lunga mai lette (`pageKey` in runOperativita), «non operante» senza
+  citazione su tutti i batch (BIANCA MARIA).
 
 - **Riepilogo generale (26/09/2026, grafica approvata dall'utente sui
   mockup)**: il cliente spunta in Elaborazioni (pagina del batch e «Estrazioni
