@@ -5,7 +5,7 @@ import type { JobSnapshot, ReprofileMode } from './types'
 import { shortName } from './model'
 import { IcFlask, IcPlay, IcRefresh, IcSwap } from './Icons'
 
-export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string; extractAfter: boolean }
+export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string; extractAfter: boolean; reconcile: boolean }
 
 // Ultima scelta di «Estrai subito dopo l'abbinamento» (preferenza per utente/browser).
 const EXTRACT_AFTER_KEY = 'jobsRematchExtract'
@@ -15,7 +15,7 @@ function writeExtractAfter(v: boolean) { try { localStorage.setItem(EXTRACT_AFTE
 // Dialog universale di rilancio: run di TEST (copia, profilo opzionale),
 // RIELABORA CON PROFILO (stesso job in coda coi campi del profilo scelto),
 // RIABBINA (solo OCR dalla cache + pertinenza, profilo attuale / scelto / Automatico).
-export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, initialProfileId, onCancel, onSubmit }: {
+export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, initialProfileId, canReconcile, onCancel, onSubmit }: {
   mode: ReprofileMode
   jobs: JobSnapshot[]
   profiles: { id: string; name: string }[]
@@ -23,6 +23,8 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   busy: boolean
   error: string
   initialProfileId?: string | null
+  // Riabbina di più dossier di UN batch: si può riconciliare prima (non per le singole).
+  canReconcile?: boolean
   onCancel: () => void
   onSubmit: (v: RelaunchValues) => void
 }) {
@@ -39,6 +41,10 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   // (come un'elaborazione normale); spento = si ferma in «Abbinato».
   const [extractAfter, setExtractAfter] = useState(false)
   useEffect(() => { if (isRematch) setExtractAfter(readExtractAfter()) }, [isRematch])
+  // RICONCILIA prima dell'abbinamento: unisce i dossier con lo stesso numero di
+  // polizza (batch caricati prima della riconciliazione). Mai ricordata: è rara.
+  const [reconcile, setReconcile] = useState(false)
+  const showReconcile = isRematch && isBatch && !!canReconcile
 
   // Preselezione (rielabora con profilo, singolo): l'ultimo profilo di QUESTO
   // job, se esiste ancora; i profili arrivano in asincrono.
@@ -88,6 +94,12 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
             <span>{t('jobsDash.rematchExtractAfter')}<br /><span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.rematchExtractAfterHelp')}</span></span>
           </label>
         )}
+        {showReconcile && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, margin: '8px 0 4px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={reconcile} style={{ marginTop: 2 }} onChange={(e) => setReconcile(e.target.checked)} />
+            <span>{t('jobsDash.rematchReconcile')}<br /><span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.rematchReconcileHelp')}</span></span>
+          </label>
+        )}
         {!isRematch && (<>
           <div className="form-group">
             <label className="label">{t('jobsDash.testModel')}</label>
@@ -111,7 +123,7 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
         {error && <p style={{ fontSize: 11, color: 'var(--c-error)', margin: '0 0 10px' }}>{error}</p>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
           <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={onCancel}>{t('jobsDash.testCancel')}</button>
-          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt, extractAfter: isRematch && extractAfter })}>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt, extractAfter: isRematch && extractAfter, reconcile: showReconcile && reconcile })}>
             <IcPlay /> {startLabel}
           </button>
         </div>

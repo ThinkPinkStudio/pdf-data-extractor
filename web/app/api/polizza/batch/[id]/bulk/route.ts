@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
-import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob } from '@/lib/polizzaJobStore'
+import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob, markBatchNeedsReconcile, markBatchReconciled } from '@/lib/polizzaJobStore'
 import { startBatch } from '@/lib/polizzaBatchWorker'
 import { startJob } from '@/lib/polizzaJobWorker'
 import { isNotValidJob, NOT_VALID_REFUSAL } from '@/lib/jobValidity'
@@ -39,6 +39,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     promptExtra?: string
     // Riabbina + estrai in un colpo solo (action 'rematch'): niente sosta in 'matched'.
     extract?: boolean
+    // Riabbina di un batch GIÀ CARICATO con riconciliazione (action 'rematch'):
+    // prima si uniscono i dossier con lo stesso NUMERO DI POLIZZA (stesse regole
+    // dei batch nuovi, polizzaReconcile), poi l'abbinamento.
+    reconcile?: boolean
   } = {}
   try { body = await req.json() } catch { /* body vuoto = nessuna azione */ }
 
@@ -85,6 +89,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (typeof body.stagedCascade === 'boolean') settingsOverride.polizzaStagedCascade = body.stagedCascade
   if (typeof body.perField === 'boolean') settingsOverride.polizzaPerField = body.perField
   const override = Object.keys(settingsOverride).length ? settingsOverride : null
+
+  // RICONCILIA (batch caricati prima del 25/09, o da rifare): la riconciliazione
+  // gira sui dossier IN CODA prima che l'orchestratore li elabori e annulla tutto
+  // se un dossier coinvolto non è più in coda. Con un job del batch già in corso
+  // l'orchestratore è partito e non la farebbe: si rifiuta.
+  const reconcile = action === 'rematch' && body.reconcile === true
+  if (reconcile) {
+    const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
+    if (active.length) {
+      return NextResponse.json({ error: `Riconciliazione non avviata: ${active.length} dossier del batch sono in corso o in coda. Riprova quando hanno finito.` }, { status: 409 })
+    }
+    await markBatchNeedsReconcile(params.id)
+  }
 
   let done = 0
   let skipped = 0
@@ -150,11 +167,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
+  // Nessun dossier rimesso in coda: la riconciliazione accesa resterebbe in
+  // sospeso per un rilancio futuro qualsiasi.
+  if (reconcile && done === 0) await markBatchReconciled(params.id)
   // Ripartenza dell'orchestratore: un solo startBatch per i job rilanciati del batch.
   if (done > 0) startBatch(params.id)
 
   await logAction({
-    email: session.email, action: `polizza.batch.bulk.${action}`,
+    email: session.email, action: `polizza.batch.bulk.${action}${reconcile ? '.reconcile' : ''}`,
     resource: `${batch.label} (${done}/${targets.length}${skipped ? `, ${skipped} saltati` : ''}${notValid ? `, ${notValid} non validi` : ''})`, ip,
   })
   return NextResponse.json({

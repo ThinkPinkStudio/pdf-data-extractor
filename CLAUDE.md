@@ -869,6 +869,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   APPROVARE» col numero provvisorio (EX/TPO17428237) dalla polizza definitiva
   (EX/M16548705): numeri diversi, nessun legame nei documenti.
 
+  **Batch GIÀ CARICATI (26/09/2026, scelta dell'utente)**: i batch del
+  cliente (PIZZAMIGLIO 18/09, BESA e CONDOMINI 22/09) sono anteriori alla
+  riconciliazione (`needs_reconcile` FALSE). Il Riabbina di batch ha la
+  casella «Riunisci prima i dossier con lo stesso numero di polizza» (body
+  `reconcile: true` della bulk `rematch`, solo nei batch, non nelle singole):
+  riaccende `needs_reconcile`, rimette in coda i dossier e l'orchestratore
+  (`runBatch`) riconcilia PRIMA di abbinare, come per un batch nuovo. Rifiutata
+  (409) se un dossier del batch è già in corso/in coda (l'orchestratore partito
+  non la rifarebbe); nessun dossier rimesso in coda → flag spento. Solo NUMERO
+  DI POLIZZA: stesso contraente o stessa P.IVA non uniscono mai.
 - **Pertinenza: polizze VERE bloccate, correzioni dalla prova** (26/09/2026,
   golden in produzione dopo «Senza polizza = Non valido», che non forza più;
   rivedute da due revisori avversari con replay sulle griglie vere di 779 PDF):

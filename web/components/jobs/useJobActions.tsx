@@ -105,6 +105,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
     const body: Record<string, unknown> = {}
     if (v.profileId) body.profileId = v.profileId
     if (isRematch && v.extractAfter) body.extract = true
+    if (isRematch && v.reconcile && !isSingles) body.reconcile = true
     if (!isRematch) {
       if (v.model.trim()) body.model = v.model.trim()
       if (v.strategy === 'perfield') body.perField = true
@@ -198,7 +199,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
 
   const dialog = dial ? (
     <RelaunchDialog mode={dial.mode} jobs={dial.jobs} profiles={profiles} models={models} busy={busy} error={dialogError}
-      initialProfileId={dial.mode === 'reprofile' ? dial.jobs[0]?.profileId : ''} onCancel={() => setDial(null)} onSubmit={submitDialog} />
+      initialProfileId={dial.mode === 'reprofile' ? dial.jobs[0]?.profileId : ''} canReconcile={!isSingles} onCancel={() => setDial(null)} onSubmit={submitDialog} />
   ) : null
 
   return {

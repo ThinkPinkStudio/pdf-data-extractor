@@ -29,6 +29,7 @@ const BUILD_FEATURES = [
   'pertinenza-questionario', // «non operante» provato solo in pagine di questionario non contraddice il contratto; nome copertura in ogni forma sul frontespizio (26/09/2026)
   'flag-verifiche',    // flag del motore «verifiche»: le verifiche possono citare con parole diverse (26/09/2026)
   'riepilogo-generale', // Riepiloghi: polizze estratte dello stesso profilo sommate per anno, confronto, export (26/09/2026)
+  'riconcilia-esistenti', // Riabbina di batch con «Riunisci prima i dossier con lo stesso numero di polizza» (26/09/2026)
 ]
 
 export async function GET() {

@@ -1073,6 +1073,15 @@ export async function markBatchReconciled(batchId: string): Promise<void> {
   await pool.query('UPDATE batch_jobs SET needs_reconcile = FALSE, updated_at = $1 WHERE id = $2', [now(), batchId])
 }
 
+/**
+ * Batch GIÀ CARICATO (anteriore alla riconciliazione, o da rifare): la riaccende.
+ * Vale per il prossimo giro dell'orchestratore, che la esegue sui dossier in
+ * coda prima di elaborarli — il Riabbina li rimette in coda subito dopo.
+ */
+export async function markBatchNeedsReconcile(batchId: string): Promise<void> {
+  await pool.query('UPDATE batch_jobs SET needs_reconcile = TRUE, updated_at = $1 WHERE id = $2', [now(), batchId])
+}
+
 /** Dossier IN CODA del batch con i loro file (senza i PDF): la riconciliazione tocca solo quelli mai elaborati. */
 export async function listQueuedBatchDossiers(batchId: string): Promise<{ id: string; dossier_name: string | null; files: { idx: number; file_name: string; file_hash: string | null }[] }[]> {
   const { rows: jobs } = await pool.query<{ id: string; dossier_name: string | null }>(
