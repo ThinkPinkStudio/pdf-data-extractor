@@ -879,6 +879,30 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (409) se un dossier del batch è già in corso/in coda (l'orchestratore partito
   non la rifarebbe); nessun dossier rimesso in coda → flag spento. Solo NUMERO
   DI POLIZZA: stesso contraente o stessa P.IVA non uniscono mai.
+  **Due unioni sbagliate nei batch del cliente (26/09 sera) e correzioni**:
+  «212044» (testa comune dei numeri Vittoria rimasta dall'OCR delle copie
+  firmate) univa COLAUTTI, RAMAZZINI e LIPPI → un numero che è l'INIZIO di un
+  altro numero del batch più lungo di ≥4 caratteri è un frammento (solo tra i
+  dossier riconciliati insieme: su una selezione parziale il numero intero può
+  mancare); «NUMERO   POLIZZA   1/63317/48/165043362» (etichetta spezzata
+  dall'OCR, numero a destra) non si leggeva e la Unipol di COSTA 1A, «senza
+  numeri», finiva nella DAS della sottocartella → etichetta letta anche con la
+  cella prima, numero anche nella cella a DESTRA (cella intera se fatta solo di
+  cifre/separatori e con ≤3 lettere, mai una data), MAI se l'etichetta o le due
+  righe sopra dicono sostituita/annulla/precedente (rinnovo Vittoria COLAUTTI:
+  «POLIZZE SOSTITUITE … Polizza numero 212 . 044 . 0000902058»). **Separa per
+  cartella d'origine** (bulk `split`, voce di menu solo se l'ultima unione è
+  dopo l'ultima separazione): i file tornano nelle cartelle di `rel_path`
+  (bulk: dossier = cartella; unioni manuali dell'upload si separano anch'esse
+  per cartella), resta nel dossier la cartella del suo PRIMO file (l'id non
+  cambia polizza: il nome dato dalla riconciliazione è il percorso più corto e
+  può essere di un altro dossier), UNA transazione, dossier nuovi 'canceled' o
+  riabbinati (`rematch`, anche `reconcile`); «Automatico» ripristinato, 
+  `duplicate_of` azzerato (anche di chi puntava al dossier), punti Qdrant del
+  dossier tolti, rifiuto con run di test in corso; 409 se nel processo gira
+  ancora l'orchestratore del batch o un dossier toccato (`isBatchRunning`,
+  `isJobRunning`: stato del DB e memoria possono divergere). Revisione
+  avversaria: 24 difetti confermati, corretti tutti tranne i limiti scritti qui.
 - **Pertinenza: polizze VERE bloccate, correzioni dalla prova** (26/09/2026,
   golden in produzione dopo «Senza polizza = Non valido», che non forza più;
   rivedute da due revisori avversari con replay sulle griglie vere di 779 PDF):

@@ -177,6 +177,11 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   return { pages, ocrPages }
 }
 
+/** Il job sta girando in questo processo (anche se nel DB risulta annullato). */
+export function isJobRunning(jobId: string): boolean {
+  return running.has(jobId)
+}
+
 export function startJob(jobId: string): void {
   if (running.has(jobId)) return
   running.add(jobId)

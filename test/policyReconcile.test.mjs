@@ -180,8 +180,9 @@ test('extractPolicyNumbersFromPages: etichetta spezzata dall\'OCR in due celle, 
 test('planSplitByOrigin: i file tornano nelle cartelle da cui sono stati caricati', () => {
   // COSTA 1A: la Unipol della cartella madre e la DAS di «TUT. LEGALE» unite
   const f = (idx, rel_path) => ({ idx, rel_path })
+  // Il job era la DAS (file 0); la riconciliazione gli ha dato il nome della madre
   const costa = planSplitByOrigin('C/COSTA 1A COND', [f(0, 'C/COSTA 1A COND/TUT. LEGALE/DAS.pdf'), f(1, 'C/COSTA 1A COND/polizza 2018.pdf')])
-  assert.deepEqual(costa, { home: 'C/COSTA 1A COND', keep: [1], groups: [{ folder: 'C/COSTA 1A COND/TUT. LEGALE', idxs: [0] }] })
+  assert.deepEqual(costa, { home: 'C/COSTA 1A COND/TUT. LEGALE', keep: [0], groups: [{ folder: 'C/COSTA 1A COND', idxs: [1] }] })
   // Tre cartelle: resta quella col nome del dossier, le altre si separano
   const col = planSplitByOrigin('C/COLAUTTI/M', [f(0, 'C/COLAUTTI/M/a.pdf'), f(1, 'C/RAMAZZINI/R/b.pdf'), f(2, 'C/RAMAZZINI/R/c.pdf'), f(3, 'C/COLAUTTI/M/RINNOVO/d.pdf'), f(4, 'C/LIPPI/L/e.pdf')])
   assert.deepEqual(col.keep, [0])
@@ -189,6 +190,17 @@ test('planSplitByOrigin: i file tornano nelle cartelle da cui sono stati caricat
   // Una sola cartella, o percorsi mancanti: niente da separare; i senza percorso restano
   assert.deepEqual(planSplitByOrigin('C/X', [f(0, 'C/X/a.pdf'), f(1, 'C/X/b.pdf')]).groups, [])
   assert.deepEqual(planSplitByOrigin('C/X', [f(0, null), f(1, 'C/X/b.pdf'), f(2, 'C/Y/c.pdf')]), { home: 'C/X', keep: [0, 1], groups: [{ folder: 'C/Y', idxs: [2] }] })
-  // Nome del dossier che non è una delle cartelle: resta la più numerosa
-  assert.deepEqual(planSplitByOrigin('C/Z', [f(0, 'C/A/a.pdf'), f(1, 'C/B/b.pdf'), f(2, 'C/B/c.pdf')]).keep, [1, 2])
+  // Resta la cartella del primo file, qualunque sia il nome del dossier
+  assert.deepEqual(planSplitByOrigin('C/Z', [f(0, 'C/A/a.pdf'), f(1, 'C/B/b.pdf'), f(2, 'C/B/c.pdf')]).keep, [0])
+})
+
+test('extractPolicyNumbersFromPages: mai il numero della polizza SOSTITUITA o una data, numero spezzato riattaccato', () => {
+  // Rinnovo Vittoria COLAUTTI 902378: «POLIZZE SOSTITUITE» sopra «Polizza numero   212 . 044 . 0000902058»
+  const renewal = ['Numero   212.044.0000902378\nPOLIZZE SOSTITUITE\nLa presente polizza annulla e sostituisce le seguenti:\nPolizza numero   212 . 044 . 0000902058   Scadenza   Ore 24  del 28/09/2026']
+  assert.deepEqual(extractPolicyNumbersFromPages(renewal), [])
+  // Modulo ARAG: sotto «Polizza/e   sostituita/e» c'è una data
+  assert.deepEqual(extractPolicyNumbersFromPages(['N.   Polizza/e   sostituita/e\n       12/03/2024']), [])
+  assert.deepEqual(extractPolicyNumbersFromPages(['NUMERO   POLIZZA   DATA\n         12/03/2024   01/01/2025']), [])
+  // Kerning nella cella a destra: gruppi riattaccati
+  assert.deepEqual(extractPolicyNumbersFromPages(['NUMERO   POLIZZA   212 . 044 . 0000902378']), ['2120440000902378'])
 })

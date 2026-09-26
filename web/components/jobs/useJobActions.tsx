@@ -76,13 +76,17 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
   const reuse = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'reuse')) })
   const rematchWith = (j: JobSnapshot, profileId: string) => run(async () => { await jobPost(j, 'rematch', { profileId }) })
   const split = isSingles ? null : async (j: JobSnapshot) => {
-    if (!(await ask(t('jobsDash.splitConfirm'), { title: t('jobsDash.split'), okLabel: t('jobsDash.splitOk') }))) return
+    if (!(await ask(t('jobsDash.splitConfirm'), { title: t('jobsDash.split'), okLabel: t('jobsDash.splitOk'), danger: true }))) return
     await run(async () => {
-      const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action: 'split', jobIds: [j.jobId], rematch: true })
+      // Riconosciuto in automatico: i dossier separati tornano ad «Automatico».
+      const auto = !!(j.precheck as { auto?: boolean } | null | undefined)?.auto
+      const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action: 'split', jobIds: [j.jobId], rematch: true, ...(auto ? { profileId: 'auto' } : {}) })
       const d = await res.json().catch(() => ({}))
-      if (!res.ok) void ask(d.error || 'Errore', { title: t('jobsDash.split'), okLabel: 'OK', hideCancel: true })
-      else if (!d.done) void ask(t('jobsDash.splitNothing'), { title: t('jobsDash.split'), okLabel: 'OK', hideCancel: true })
-      else setBulkResult(t('jobsDash.splitDone', { n: (d.created || []).length + 1 }))
+      const info = (msg: string) => void ask(msg, { title: t('jobsDash.split'), okLabel: 'OK', hideCancel: true })
+      if (!res.ok) info(d.error || 'Errore')
+      else if (d.refused?.length) info(d.refused.join('\n'))
+      else if (!d.done) info(t('jobsDash.splitNothing'))
+      else info(t('jobsDash.splitDone', { n: (d.created || []).length + 1 }))
     })
   }
 

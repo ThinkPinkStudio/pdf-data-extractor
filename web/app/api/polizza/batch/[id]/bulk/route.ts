@@ -3,8 +3,9 @@ import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
 import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob, markBatchNeedsReconcile, markBatchReconciled, splitJobByOrigin } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
-import { startJob } from '@/lib/polizzaJobWorker'
+import { isBatchRunning, startBatch } from '@/lib/polizzaBatchWorker'
+import { isJobRunning, startJob } from '@/lib/polizzaJobWorker'
+import { importSharedService } from '@/lib/sharedServices'
 import { isNotValidJob, NOT_VALID_REFUSAL } from '@/lib/jobValidity'
 
 export const runtime = 'nodejs'
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const needsProfile = action === 'reprofile' || action === 'reprofileBatch'
     // Riabbina CON un profilo scelto (profileId ≠ auto/vuoto): il profilo deve esistere,
     // come nel route /rematch — niente ripiego silenzioso sul profilo attuale.
-    || (action === 'rematch' && !!body.profileId && !wantsAuto)
+    || ((action === 'rematch' || (action === 'split' && body.rematch === true)) && !!body.profileId && !wantsAuto)
   if (needsProfile && !profile) {
     return NextResponse.json({ error: 'Profilo non trovato' }, { status: 400 })
   }
@@ -98,6 +99,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // se un dossier coinvolto non è più in coda. Con un job del batch già in corso
   // l'orchestratore è partito e non la farebbe: si rifiuta.
   const reconcile = (action === 'rematch' || (action === 'split' && body.rematch === true)) && body.reconcile === true
+  // Stato del DB e memoria del processo possono divergere (un dossier annullato
+  // ancora in esecuzione, l'orchestratore del batch ancora vivo): Riunisci e
+  // Separa non partono finché nel processo gira qualcosa di questo batch.
+  if ((reconcile || action === 'split') && (isBatchRunning(params.id) || targets.some((id) => isJobRunning(id)))) {
+    return NextResponse.json({ error: 'Operazione non avviata: il batch sta ancora elaborando (anche dossier annullati in chiusura). Riprova tra poco.' }, { status: 409 })
+  }
   if (reconcile) {
     const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
     if (active.length) {
@@ -114,6 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // SEPARA (annulla un'unione): con un dossier del batch in corso l'orchestratore
   // potrebbe prendere i nuovi prima del Riabbina: si rifiuta, come per Riconcilia.
   const splitCreated: { from: string; id: string; folder: string; files: number }[] = []
+  const splitRefused: string[] = []
   if (action === 'split' && !reconcile) {
     const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
     if (active.length) {
@@ -158,8 +166,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (res) done++; else { skipped++; skippedIds.push(id) }
     } else if (action === 'split') {
       const res = await splitJobByOrigin(id, session.email)
-      if (!res) { skipped++; skippedIds.push(id); continue }
+      if (!res || 'refused' in res) { skipped++; skippedIds.push(id); if (res && 'refused' in res) splitRefused.push(`${job.dossier_name || id}: ${res.refused}`); continue }
       done++
+      // I punti dell'indice vettoriale del dossier valevano per l'unione: via
+      // (best-effort); la prossima estrazione lo reindicizza.
+      try {
+        const vec = await importSharedService<{ isVectorIndexEnabled: (s: unknown) => boolean; deletePointsByFilter: (f: { jobId: string }, s: unknown) => Promise<unknown> }>('vectorIndexService.js')
+        if (vec.isVectorIndexEnabled(settings)) await vec.deletePointsByFilter({ jobId: id }, settings)
+      } catch { /* best-effort */ }
       for (const c of res.created) splitCreated.push({ from: id, ...c })
       if (body.rematch === true) {
         for (const jid of [id, ...res.created.map((c) => c.id)]) await resetJobForRetry(jid, session.email, rematchOpts())
@@ -207,6 +221,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({
     ok: true, action, done, skipped, requested: targets.length, skippedIds,
     notValid, notValidIds, ...(notValid ? { notValidReason: NOT_VALID_REFUSAL } : {}),
-    ...(action === 'split' ? { created: splitCreated } : {}),
+    ...(action === 'split' ? { created: splitCreated, refused: splitRefused } : {}),
   })
 }

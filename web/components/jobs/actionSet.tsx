@@ -37,7 +37,8 @@ export function actionSet(j: JobSnapshot, A: JobActions, t: T, openTab: (tab: De
   const reusable = isReusable(j) ? [reuse] : []
   // Dossier nato da un'UNIONE della riconciliazione: si può disfare (i file
   // tornano nelle cartelle da cui sono stati caricati) e riabbinare.
-  const merged = (j.logs || []).some((l) => l.includes('Riconciliazione per numero di polizza'))
+  const lastIdx = (needle: string) => (j.logs || []).reduce((at, l, i) => (l.includes(needle) ? i : at), -1)
+  const merged = lastIdx('Riconciliazione per numero di polizza') > lastIdx("Separazione per cartella d'origine")
   const splitFn = A.split
   const split = merged && splitFn ? [mk('split', t('jobsDash.split'), <IcSwap />, () => void splitFn(j), { title: t('jobsDash.splitTitle') })] : []
 

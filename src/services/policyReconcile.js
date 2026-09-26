@@ -98,6 +98,13 @@ function gridCells(line) {
 const LABEL_CELL_RE = /polizz/i
 const LABEL_NUM_RE = /\b(?:n(?:r|um(?:ero)?)?\b\.?|n[°º]|numero)/i
 const OTHER_POLICY_RE = /sostituit|precedent/i
+// Contesto di un'altra polizza nelle righe SOPRA l'etichetta: «POLIZZE SOSTITUITE /
+// La presente polizza annulla e sostituisce le seguenti: / Polizza numero …»
+// (rinnovo Vittoria COLAUTTI: la 902058 sostituita dalla 902378).
+const OTHER_POLICY_CTX_RE = /sostitui|annull|precedent/i
+// Un valore a forma di data non è un numero di polizza (modulo ARAG: la data
+// sotto «Polizza/e sostituita/e»).
+const DATE_LIKE_RE = /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/
 
 /**
  * Numeri di polizza di un documento dalla GRIGLIA spaziale (pagine del text
@@ -125,8 +132,16 @@ export function extractPolicyNumbersFromPages(pages) {
         const ci = cells.findIndex((c) => c.start === cell.start)
         const labelCtx = `${ci > 0 ? cells[ci - 1].text : ''} ${cell.text}`
         if (!LABEL_NUM_RE.test(labelCtx)) continue
+        // Etichetta di un'ALTRA polizza (sostituita, annullata, precedente) nella
+        // cella prima o nelle due righe sopra: né a destra né sotto si legge nulla.
+        if (OTHER_POLICY_CTX_RE.test(`${labelCtx} ${lines[i - 1] || ''} ${lines[i - 2] || ''}`)) continue
         const right = cells[ci + 1]
-        const rightNum = right ? normalizePolicyNumber(right.text.split(/\s+/)[0]) : ''
+        // Stessa cattura del numero in cella: riattacca i gruppi spezzati dal
+        // kerning («212 . 044 . 0000902058»), mai una data.
+        const rightNum = !right || DATE_LIKE_RE.test(right.text.split(/\s+/)[0]) ? ''
+          : /^[A-Z0-9](?:[A-Z0-9./\-]| (?=[A-Z0-9./\-]))*$/i.test(right.text) && (normalizePolicyNumber(right.text).match(/[A-Z]/g) || []).length <= 3
+            ? normalizePolicyNumber(right.text) // ≤ 3 lettere: «01469DAS00040», mai «1I85112T48I163616294I4»
+            : normalizePolicyNumber(right.text.split(/\s+/)[0])
         if (rightNum) { out.add(rightNum); continue }
         // Colonna della parola «polizza» nella cella: un'intestazione di modulo
         // sta spesso in UNA cella («COD. AG. COD. SUBAG. RAMO NR. POLIZZA
@@ -136,7 +151,7 @@ export function extractPolicyNumbersFromPages(pages) {
         for (let k = i + 1; k <= Math.min(i + 3, lines.length - 1); k++) {
           const under = gridCells(lines[k]).filter((c) => c.start < cell.end && c.end > cell.start)
           if (!under.length) continue
-          const nums = under.map((c) => ({ c, n: normalizePolicyNumber(c.text.split(/\s+/)[0]) })).filter((x) => x.n)
+          const nums = under.filter((c) => !DATE_LIKE_RE.test(c.text.split(/\s+/)[0])).map((c) => ({ c, n: normalizePolicyNumber(c.text.split(/\s+/)[0]) })).filter((x) => x.n)
           if (nums.length) {
             const dist = (c) => (at < c.start ? c.start - at : at > c.end ? at - c.end : 0)
             nums.sort((a, b) => dist(a.c) - dist(b.c))
@@ -287,8 +302,12 @@ export function planReconcile(dossiers) {
  * SEPARA un dossier nelle cartelle da cui i suoi file sono stati caricati
  * (l'INVERSO della riconciliazione): ogni file ha il suo percorso d'origine
  * (`rel_path`, «RADICE/CARTELLA/…/file.pdf»), che l'unione non tocca. Resta nel
- * dossier il gruppo della cartella che porta il suo nome (o, se nessuna, il più
- * numeroso); gli altri gruppi diventano dossier a parte. I file senza percorso
+ * dossier il gruppo della cartella del suo PRIMO file (indice più basso: la
+ * riconciliazione accoda i file uniti dopo quelli della destinazione, quindi è
+ * un file suo di prima dell'unione — il NOME invece è il percorso più corto
+ * tra quelli uniti e può essere di un altro dossier: COSTA 1A); senza percorsi,
+ * la cartella col nome del dossier o la più numerosa. Gli altri gruppi
+ * diventano dossier a parte. I file senza percorso
  * d'origine restano dove sono. Serve a disfare un'unione sbagliata (CONDOMINI
  * 26/09/2026: COLAUTTI + RAMAZZINI per il frammento «212044»; COSTA 1A: la
  * Unipol scansionata unita alla DAS).
@@ -309,7 +328,9 @@ export function planSplitByOrigin(dossierName, files) {
   if (byFolder.size < 2) return { home: [...byFolder.keys()][0] || '', keep: (files || []).map((f) => f.idx), groups: [] }
   const own = String(dossierName || '').replace(/\\/g, '/').replace(/\/+$/, '')
   const folders = [...byFolder.keys()]
-  const home = folders.includes(own) ? own : folders.sort((a, b) => byFolder.get(b).length - byFolder.get(a).length || a.localeCompare(b))[0]
+  const first = [...(files || [])].filter((f) => folderOf(f.rel_path)).sort((a, b) => a.idx - b.idx)[0]
+  const home = first ? folderOf(first.rel_path)
+    : folders.includes(own) ? own : folders.sort((a, b) => byFolder.get(b).length - byFolder.get(a).length || a.localeCompare(b))[0]
   return {
     home,
     keep: [...byFolder.get(home), ...noPath].sort((a, b) => a - b),

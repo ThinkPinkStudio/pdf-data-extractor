@@ -1168,7 +1168,7 @@ type SplitSvc = { planSplitByOrigin: (name: string, files: { idx: number; rel_pa
  * UNA transazione; mai su un dossier in coda o in corso.
  * @returns il dossier rimasto e i nuovi, o null se non c'è niente da separare
  */
-export async function splitJobByOrigin(jobId: string, byEmail?: string): Promise<{ kept: string; created: { id: string; folder: string; files: number }[] } | null> {
+export async function splitJobByOrigin(jobId: string, byEmail?: string): Promise<{ kept: string; created: { id: string; folder: string; files: number }[] } | { refused: string } | null> {
   const svc = await importSharedService<SplitSvc>('policyReconcile.js')
   const client = await pool.connect()
   try {
@@ -1181,17 +1181,27 @@ export async function splitJobByOrigin(jobId: string, byEmail?: string): Promise
     )
     const plan = svc.planSplitByOrigin(job.dossier_name || '', files)
     if (!plan.groups.length) { await client.query('ROLLBACK'); return null }
+    // Una run di TEST in corso legge i file del sorgente per indice: dopo la
+    // separazione leggerebbe file rinumerati o spariti.
+    const { rows: tests } = await client.query(`SELECT count(*)::int AS n FROM polizza_jobs WHERE source_job_id = $1 AND status IN ('queued','running')`, [jobId])
+    if (tests[0]?.n) { await client.query('ROLLBACK'); return { refused: `${tests[0].n} run di test su questo dossier sono in corso o in coda` } }
+    // Riconosciuto in AUTOMATICO: i dossier separati tornano ad «Automatico»
+    // (il profilo adottato valeva per l'unione).
+    const wasAuto = !!(job.precheck && typeof job.precheck === 'object' && job.precheck.auto)
     const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
     const who = byEmail ? ` da ${byEmail}` : ''
-    const fieldDefs = Array.isArray(job.field_defs) ? job.field_defs : []
+    const fieldDefs = wasAuto ? [] : (Array.isArray(job.field_defs) ? job.field_defs : [])
+    const prof = wasAuto
+      ? { id: 'auto', name: 'Automatico (semantico)', prompt: null }
+      : { id: job.profile_id ?? null, name: job.profile_name ?? null, prompt: job.prompt_extra ?? null }
     const created: { id: string; folder: string; files: number }[] = []
     for (const g of plan.groups) {
       const id = randomUUID()
       await client.query(
         `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, settings_override, created_at, updated_at, logs)
          VALUES ($1,$2,$3,$4,'canceled',$5,'[]'::jsonb,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$12,$13::jsonb)`,
-        [id, job.email, job.batch_id, g.folder, job.whole_dossier, JSON.stringify(fieldDefs), job.prompt_extra ?? null,
-          job.profile_id ?? null, job.profile_name ?? null, JSON.stringify(initRollingState(fieldDefs)),
+        [id, job.email, job.batch_id, g.folder, job.whole_dossier, JSON.stringify(fieldDefs), prof.prompt,
+          prof.id, prof.name, JSON.stringify(initRollingState(fieldDefs)),
           job.settings_override ? JSON.stringify(job.settings_override) : null, now(),
           JSON.stringify([`${stamp} Separato${who} da "${job.dossier_name || jobId}": i ${g.idxs.length} file caricati dalla cartella "${g.folder}" tornano in un dossier a parte (unione annullata). Da riabbinare.`])]
       )
@@ -1210,9 +1220,13 @@ export async function splitJobByOrigin(jobId: string, byEmail?: string): Promise
     const line = `${stamp} Separazione per cartella d'origine${who}: ${created.map((c) => `${c.files} file → "${c.folder}"`).join('; ')}; qui restano i file di "${plan.home}". Risultati precedenti azzerati (valevano per l'unione): da riabbinare.`
     await client.query(
       `UPDATE polizza_jobs SET status = 'canceled', dossier_name = $1, error = NULL, precheck = NULL, cursor = '{}'::jsonb, progress = '{}'::jsonb,
-         sources = '{}'::jsonb, rolling_state = $2::jsonb, logs = logs || $3::jsonb, updated_at = $4 WHERE id = $5`,
-      [plan.home || job.dossier_name, JSON.stringify(initRollingState(fieldDefs)), JSON.stringify([line]), now(), jobId]
+         sources = '{}'::jsonb, rolling_state = $2::jsonb, logs = logs || $3::jsonb, updated_at = $4,
+         field_defs = $6::jsonb, profile_id = $7, profile_name = $8, prompt_extra = $9, duplicate_of = NULL WHERE id = $5`,
+      [plan.home || job.dossier_name, JSON.stringify(initRollingState(fieldDefs)), JSON.stringify([line]), now(), jobId,
+        JSON.stringify(fieldDefs), prof.id, prof.name, prof.prompt]
     )
+    // «Già elaborato» (riuso dei risultati) valeva per l'insieme di file di prima.
+    await client.query('UPDATE polizza_jobs SET duplicate_of = NULL WHERE duplicate_of = $1', [jobId])
     await client.query('COMMIT')
     return { kept: jobId, created }
   } catch (e) {

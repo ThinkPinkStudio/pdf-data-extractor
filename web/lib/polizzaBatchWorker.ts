@@ -29,6 +29,11 @@ async function notifyOwnerBatchComplete(batchId: string): Promise<void> {
 
 const running = new Set<string>()
 
+/** L'orchestratore del batch è vivo in questo processo (un nuovo startBatch non farebbe nulla). */
+export function isBatchRunning(batchId: string): boolean {
+  return running.has(batchId)
+}
+
 export function startBatch(batchId: string): void {
   if (running.has(batchId)) return
   running.add(batchId)
