@@ -114,7 +114,7 @@ export function recognitionAllowsSection(recognition) {
  * premio o somma assicurata propri della copertura.
  */
 export function lineHasNonZeroAmount(line) {
-  return amountMatches(line, /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d[\d.]*/g).some((a) => /[1-9]/.test(a))
+  return amountMatches(line, /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)(?!\s*%)|€\s*\d[\d.]*/g).some((a) => /[1-9]/.test(a))
 }
 
 // Numero di ARTICOLO («art. 6,13», «artt. 5,1,1», «articolo n. 12,30»): non è
@@ -125,14 +125,18 @@ export function lineHasNonZeroAmount(line) {
 // Solo il numero SUBITO dopo «art.»: in un elenco «artt. 6,13, 6,14» il secondo
 // resta (un premio vero dopo un trattino non si deve perdere).
 const ARTICLE_BEFORE_RE = /\b(?:artt?|articol[oi])\s*[.,:]?\s*(?:n\s*[.°º]\s*)?$/i
-function amountMatches(text, re) {
+// Il testo prima dell'importo si guarda con gli spazi COMPRESSI: nelle griglie
+// OCR tra «art.» e «6,13» possono esserci centinaia di spazi.
+function amountMatchesAt(text, re) {
   const s = String(text || '')
   const out = []
   for (const m of s.matchAll(re)) {
-    if (!ARTICLE_BEFORE_RE.test(s.slice(Math.max(0, m.index - 24), m.index))) out.push(m[0])
+    const before = s.slice(Math.max(0, m.index - 200), m.index).replace(/\s+/g, ' ')
+    if (!ARTICLE_BEFORE_RE.test(before)) out.push({ text: m[0], index: m.index })
   }
   return out
 }
+function amountMatches(text, re) { return amountMatchesAt(text, re).map((m) => m.text) }
 
 /**
  * Importo che fa di una riga una riga STRUTTURALE (premio della copertura):
@@ -144,8 +148,9 @@ function amountMatches(text, re) {
  * riga della copertura con un importo che contraddice un «non operante»
  * (proofIsCoverageRow, «ESCLUSA 31.000») resta con lineHasNonZeroAmount.
  */
+const STRUCTURAL_AMOUNT_RE = /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?![\d,])(?!\s*%)/g
 export function lineHasStructuralAmount(line) {
-  return amountMatches(line, /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?![\d,])(?!\s*%)/g).some((a) => /[1-9]/.test(a))
+  return amountMatches(line, STRUCTURAL_AMOUNT_RE).some((a) => /[1-9]/.test(a))
 }
 
 /**
@@ -252,7 +257,72 @@ export function pageNamesCoverage(page, names) {
   const text = page?.flat || page?.text || ''
   const exact = namesCoverage(text, names)
   if (exact !== false) return exact
+  if (verticalCoverColumns(page?.text || '', names).length) return true
   return page?.first ? namesCoverageAnyForm(text, names) === true : false
+}
+
+// Celle di una riga della griglia: testi separati da ≥2 spazi, con la colonna.
+const gridCellsOf = (line) => [...String(line || '').matchAll(/\S+(?: \S+)*/g)]
+  .map((m) => ({ start: m.index, end: m.index + m[0].length, norm: normForMatch(m[0]) }))
+
+/**
+ * Nome della copertura in un'INTESTAZIONE DI COLONNA spezzata su righe
+ * consecutive: «TUTELA» su una riga e «LEGALE» nella STESSA colonna della riga
+ * sotto (celle sovrapposte). È la scheda dei prodotti DAS condominio:
+ *   «TUTELA   PERDITE      ASSISTENZA   IMPOSTE   PREMIO
+ *    LEGALE   PECUNIARIE                          LORDO
+ *    Difesa Condominio - ed.2019   298,55   63,44   361,99»
+ * Letta riga per riga la pagina non nominava mai la tutela legale e la riga del
+ * premio sembrava una prova «generica» (11 DAS condominio «Da verificare»,
+ * produzione 26/09/2026). Solo nomi di ≥2 parole, ogni parola una cella intera.
+ * @returns {{start:number,end:number,line:number}[]} colonne (caratteri) e ultima riga dell'intestazione
+ */
+export function verticalCoverColumns(text, names) {
+  if (!Array.isArray(names) || !names.length) return []
+  const lines = String(text || '').split('\n')
+  const cells = lines.map(gridCellsOf)
+  const out = []
+  for (const nm of names) {
+    if (!Array.isArray(nm) || nm.length < 2) continue
+    for (let i = 0; i + nm.length <= lines.length; i++) {
+      for (const a of cells[i]) {
+        if (a.norm !== nm[0]) continue
+        let span = { start: a.start, end: a.end, line: i }
+        let ok = true
+        for (let k = 1; k < nm.length && ok; k++) {
+          const b = cells[i + k].find((c) => c.norm === nm[k] && c.start < span.end && c.end > span.start)
+          if (!b) ok = false
+          else span = { start: Math.min(span.start, b.start), end: Math.max(span.end, b.end), line: i + k }
+        }
+        if (ok) out.push(span)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Righe della TABELLA sotto un'intestazione di colonna che nomina la copertura
+ * (verticalCoverColumns) il cui importo (coi decimali, non nullo, non
+ * percentuale) sta IN QUELLA COLONNA: è il premio proprio della copertura
+ * («Difesa Condominio - ed.2019   298,55» sotto «TUTELA / LEGALE»; non «63,44»
+ * sotto «IMPOSTE»). La tabella finisce alla prima riga non vuota senza importi.
+ * @returns {Set<number>} indici delle righe
+ */
+export function coverColumnRows(text, names) {
+  const rows = new Set()
+  const cols = verticalCoverColumns(text, names)
+  if (!cols.length) return rows
+  const lines = String(text || '').split('\n')
+  for (const col of cols) {
+    for (let j = col.line + 1; j < lines.length; j++) {
+      if (!lines[j].trim()) continue
+      const amounts = amountMatchesAt(lines[j], STRUCTURAL_AMOUNT_RE)
+      if (!amounts.length) break
+      if (amounts.some((m) => /[1-9]/.test(m.text) && m.index < col.end && m.index + m.text.length > col.start)) rows.add(j)
+    }
+  }
+  return rows
 }
 
 /**
@@ -279,9 +349,30 @@ export function lineHasCheck(line) {
   return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|✓|✔|X)(?:\s|$)/.test(String(line || ''))
 }
 
-/** CASELLA barrata ([x], ☒, ☑, X isolata): la ✓ / ✔ no, vedi tickAfterCoverName. */
+/** CASELLA barrata ([x], ☒, ☑, X isolata) in un punto qualsiasi della riga; la ✓ / ✔ no. */
 export function lineHasBoxCheck(line) {
   return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|X)(?:\s|$)/.test(String(line || ''))
+}
+
+/**
+ * La casella barrata è DELLA COPERTURA: subito prima del suo nome (solo spazi
+ * in mezzo: «X Tutela legale del condominio», «[x]   Tutela Legale»), oppure
+ * ultimo segno della riga dopo il nome («Tutela Legale   X»). Una X in mezzo
+ * alla riga è la casella di un'ALTRA voce: «X Ritiro Patente   Tutela Legale
+ * X Assistenza» (questionario auto di BESA-083: le X sono di Ritiro Patente e
+ * Assistenza), «…DI TUTELA LEGALE SUL MEDESIMO RISCHIO?   X NO   SI» (la
+ * risposta a una domanda). Prima bastava una X qualsiasi sulla riga.
+ */
+function boxNextToCoverName(line, names) {
+  const l = String(line || '')
+  const heads = names.filter((nm) => Array.isArray(nm) && nm.length).map((nm) => nm.join(''))
+  for (const m of l.matchAll(/(?:^|\s)(\[x\]|\[X\]|☒|☑|X)(?=\s|$)/g)) {
+    const end = m.index + m[0].length
+    const after = normForMatch(l.slice(end))
+    if (heads.some((h) => after.startsWith(h))) return true
+    if (!l.slice(end).trim() && namesCoverage(l.slice(0, end - m[1].length), names) === true) return true
+  }
+  return false
 }
 
 /**
@@ -296,7 +387,9 @@ export function lineHasBoxCheck(line) {
  */
 function tickAfterCoverName(line, names) {
   const l = String(line || '')
-  for (const m of l.matchAll(/[✓✔]/g)) if (namesCoverage(l.slice(0, m.index), names) === true) return true
+  // ultimo segno della riga: in un layout a due colonne «Tutela Legale   ✓ Nella
+  // sezione…» la ✓ è il punto elenco della colonna accanto
+  for (const m of l.matchAll(/[✓✔]/g)) if (!l.slice(m.index + 1).trim() && namesCoverage(l.slice(0, m.index), names) === true) return true
   return false
 }
 
@@ -311,8 +404,10 @@ function tickAfterCoverName(line, names) {
 export function structuralCoverLines(text, nameTokens, { strictAmount = false } = {}) {
   if (!Array.isArray(nameTokens) || !nameTokens.length) return null
   const amount = strictAmount ? lineHasStructuralAmount : pageHasAmount
-  return String(text || '').split('\n').filter((l) => namesCoverage(l, nameTokens)
-    && (amount(l) || lineHasBoxCheck(l) || tickAfterCoverName(l, nameTokens)))
+  // + le righe col premio nella colonna intestata alla copertura (coverColumnRows)
+  const colRows = coverColumnRows(text, nameTokens)
+  return String(text || '').split('\n').filter((l, i) => colRows.has(i) || (namesCoverage(l, nameTokens)
+    && (amount(l) || boxNextToCoverName(l, nameTokens) || tickAfterCoverName(l, nameTokens))))
 }
 
 /** Marcatore di pagina nei prompt: MAI il nome file (stessa regola di stagedDocTag). */
@@ -389,23 +484,11 @@ export function selectOperativitaPages(candidates, { budgetChars, maxPageChars =
   const budget = Math.max(0, Number(budgetChars) || 0)
   const chosen = []
   let used = 0
-  // Finché ci sono pagine STRUTTURALI il batch è fatto SOLO di quelle (più le
-  // prime pagine dei loro documenti, sotto): messe
+  // Finché ci sono pagine STRUTTURALI il batch è fatto SOLO di quelle: messe
   // insieme alla prosa, il modello sceglieva come prova la frase delle
   // condizioni («Condizioni Tutela Legale: art. 6.7…») invece della riga della
   // scheda due pagine più in là (BOIARDO). Il resto arriva nei batch dopo.
-  // Dopo le pagine ‡ entrano, se c'è posto, le PRIME 3 pagine dei loro stessi
-  // documenti (frontespizio e scheda): la pagina ‡ da sola può essere la
-  // valutazione delle esigenze del questionario DAS («X Tutela legale del
-  // condominio», e sotto «…DI TUTELA LEGALE SUL MEDESIMO RISCHIO? X NO»), e il
-  // modello deve vedere accanto la scheda col premio (CALDARA 7, LE TERRAZZE,
-  // PIAVE 4: pag. 18 e pag. 1 dello stesso PDF). Solo pagine dello stesso
-  // documento, mai la prosa di altri documenti (BOIARDO).
-  const structDocs = new Set(structural.map((c) => c.ord))
-  const companions = structural.length
-    ? list.filter((c) => structDocs.has(c.ord) && c.page <= 3 && !isStructural(c)).sort((a, b) => (a.ord - b.ord) || (a.page - b.page) || ((a.part || 0) - (b.part || 0)))
-    : []
-  const order = structural.length ? [...structural, ...companions] : [...namedAmount, ...namedProse, ...firsts, ...rest]
+  const order = structural.length ? structural : [...namedAmount, ...namedProse, ...firsts, ...rest]
   for (const c of order) {
     let text = cutUseful(c.text, maxPageChars)
     let len = usefulLength(text)
@@ -710,13 +793,8 @@ export function parseOperativitaAnswer(raw) {
  * del contratto, qualunque sia l'ordine dei documenti.
  * @returns {{found:boolean, names:boolean|null, structural:boolean|null, proofIsCoverageRow?:boolean, formPage?:boolean, ord:number|null, page:number|null, where:'citata'|'altra pagina'|null, reason:string}}
  */
-// Importo in euro NON nullo scritto coi decimali («431,81», «1.047,47»): un
-// numero di certificato («TLM190942268») o di polizza non è un premio.
-function hasEuroAmount(text) {
-  return amountMatches(text, /(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?![\d,])(?!\s*%)/g).some((a) => /[1-9]/.test(a))
-}
 
-export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], namedDocs = null } = {}) {
+export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {}) {
   const ev = String(answer?.evidenza || '').trim()
   const ne = normForMatch(ev)
   // La prova NOMINA la copertura? (null = nessuna parola distintiva: non giudicabile)
@@ -754,38 +832,34 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], name
   const names = exactNames === false && b.first ? namesCoverageAnyForm(ev, lexTokens) === true : exactNames
   const formPage = found.every((x) => !!x.questionnaire)
   // PRODOTTO di tutela legale (decisione dell'utente 26/09/2026, «accetta se il
-  // documento nomina la copertura»): nei prodotti DAS la riga del premio si
-  // chiama «Difesa Condominio 431,81 91,76 523,57» (la colonna «TUTELA /
-  // LEGALE» è un'intestazione spezzata su due righe) e la scheda dice
-  // «garanzie prescelte (si intendono operative quelle crocesegnate)» sotto
-  // «POLIZZA RAMO TUTELA GIUDIZIARIA». La prova vale se il DOCUMENTO della prova
-  // nomina la copertura in una delle sue prime 3 pagine inviate, la prova non
-  // sta in un questionario, e: la riga citata ha un importo non nullo, oppure
-  // la prova sta sul frontespizio che nomina la copertura e ha una riga con una
-  // casella barrata e un premio («[x] Difesa Penale e Civile 99,84»: la scheda
-  // delle garanzie scelte; mai la riga «ATTIVITÀ:» del certificato LUCCA).
-  // «Il documento nomina la copertura» è un fatto del DOCUMENTO, non del batch
-  // (`namedDocs`: ordinali dei documenti con il nome nelle prime 3 pagine,
-  // calcolato da runOperativita su TUTTE le pagine candidate). Guardando solo
-  // le pagine di questo batch le 11 DAS condominio restavano «Da verificare»:
-  // il DIP a pag. 2 (l'unica pagina che dice «tutela legale»: nella scheda
-  // l'intestazione è spezzata in «TUTELA / LEGALE») andava da solo nel batch 1,
-  // e nel batch 2 la riga «Difesa Condominio - ed.2019 298,55 …» del
-  // frontespizio non trovava il nome (produzione 26/09/2026). Senza `namedDocs`
-  // (test, chiamate dirette) valgono le pagine inviate.
-  const sameDoc = (blocks || []).filter((x) => x.ord === b.ord && x.page <= 3)
-  const docNamed = namedDocs ? namedDocs.has(b.ord) : sameDoc.some((x) => pageNamesCoverage(x, lexTokens) === true)
-  // Ramo FRONTESPIZIO: il nome deve stare nel TITOLO della pagina (`head`,
-  // pageHead), non in una riga qualunque: il frontespizio Helvetia di BESA-093
-  // (non pertinente) ha «5. Tutela legale € = = =» (voce NON scelta) e
-  // «Indicizzazione [X] … € 176,46», e un «operante» generico sarebbe passato.
-  // Senza `head` (test, chiamate dirette) vale la pagina intera.
+  // documento nomina la copertura»), fuori dai questionari, in due forme:
+  // (1) la riga citata è il PREMIO della copertura in una colonna intestata a
+  //     lei (coverColumnRows): «Difesa Condominio - ed.2019 298,55 63,44
+  //     361,99» sotto «TUTELA / LEGALE», intestazione spezzata su due righe
+  //     (DAS condominio). Prima bastava un importo qualsiasi nella citazione e
+  //     un documento che nominasse la copertura: la revisione avversaria del
+  //     27/09 ha fatto passare «INCENDIO … 3.400.000,00 315,41» di una ITAS con
+  //     «TUTELA LEGALE non acquistata» (MORANDI 11) e «Indicizzazione [X] €
+  //     176,46» del frontespizio Helvetia (BESA-093/152). Ora l'importo deve
+  //     stare nella colonna della copertura.
+  // (2) la prova sta sul FRONTESPIZIO che la nomina nel TITOLO (pageHead:
+  //     «POLIZZA RAMO TUTELA GIUDIZIARIA»; mai «5. Tutela legale € = = =» a metà
+  //     pagina) e la pagina ha una riga con una casella barrata e un premio
+  //     («[x] Difesa Penale e Civile 99,84»: le garanzie scelte). Mai la riga
+  //     «ATTIVITÀ:» del certificato LUCCA. Senza `head` (test) vale la pagina.
+  const lineMatches = (l) => {
+    const nl = normForMatch(l)
+    if (!nl) return false
+    if (nl.includes(ne) || (nl.length >= OPERATIVITA_MIN_EVIDENCE && ne.includes(nl))) return true
+    return tokens.length >= 2 && tokens.every((t) => nl.includes(normForMatch(t))) && digitRuns.length > 0 && digitRuns.every((d) => nl.includes(d))
+  }
+  const colRows = coverColumnRows(b.text, lexTokens)
+  const onCoverColumn = colRows.size > 0 && String(b.text || '').split('\n').some((l, i) => colRows.has(i) && lineMatches(l))
   const titleNamed = typeof b.head === 'string'
     ? namesCoverageAnyForm(b.head, lexTokens) === true
     : pageNamesCoverage(b, lexTokens) === true
-  const productProof = !formPage && docNamed
-    && (hasEuroAmount(ev) || (!!b.first && titleNamed
-      && String(b.text || '').split('\n').some((l) => lineHasBoxCheck(l) && hasEuroAmount(l))))
+  const productProof = !formPage && (onCoverColumn || (!!b.first && titleNamed
+    && String(b.text || '').split('\n').some((l) => lineHasBoxCheck(l) && lineHasStructuralAmount(l))))
   return {
     found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), formPage, productProof, ord: b.ord, page: b.page,
     where: cited ? 'citata' : 'altra pagina', reason: cited ? 'prova trovata nella pagina citata' : `prova trovata in Documento ${b.ord} pag. ${b.page}`,
@@ -899,7 +973,7 @@ export function coverNeverNamed(pageTexts, names, { titlePages = [] } = {}) {
   if (!Array.isArray(names) || !names.length) return false
   const texts = (pageTexts || []).filter((t) => String(t || '').trim())
   if (!texts.length) return false
-  if (texts.some((t) => namesCoverage(t, names))) return false
+  if (texts.some((t) => namesCoverage(t, names) || verticalCoverColumns(t, names).length)) return false
   return !(titlePages || []).some((t) => String(t || '').trim() && namesCoverageAnyForm(t, names) === true)
 }
 

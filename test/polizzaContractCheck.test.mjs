@@ -272,12 +272,15 @@ test('BOLCHINI RC 2025: questionario «non operante» + polizza «operante» →
   const diag = []
   const r = await runOperativita({ docs: BOLCHINI, profile: RC_V3, profiles: REAL, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
   assert.equal(r.verdict, 'ok', diag.join('\n'))
-  assert.equal(m.calls.op, 2)
+  // Dal 27/09 le righe «…professionale? ⃝ Sì ⃝ X No» NON sono più ‡: la X sta
+  // davanti a «No», è la risposta a una domanda su altro (boxNextToCoverName).
+  // Il questionario non apre più da solo il batch 1: polizza e questionario
+  // arrivano insieme e decide la polizza. La combinazione «no» del questionario
+  // in un batch prima + «operante» del contratto dopo resta coperta da
+  // combineOperativitaBatches (test in polizzaOperativita.test.mjs).
   const b1 = diag.find((l) => /Rc Professionale V3» batch 1: \d+ pagine/.test(l))
-  assert.match(b1, /D1p2‡€?§.*D1p3‡€?§/, 'batch 1 = sole pagine del questionario (righe «professionale … X No»)')
-  assert.ok(diag.some((l) => /batch 1: mismatch — .*questionario\/proposta/.test(l)), diag.join('\n'))
+  assert.doesNotMatch(b1, /D1p\d‡/, 'nessuna pagina del questionario è ‡')
   assert.equal(r.documento, 3)
-  assert.match(r.reason, /solo da un questionario\/proposta/)
   // lo stesso fascicolo con il contratto che dice «non operante» (provato): scarto, come prima
   const POL_NO = { ...POL_OK, esito: 'non operante', motivo: 'm' }
   const m2 = fakeModel({ op: (user) => (user.includes('[Documento 3 · pag. 1]') ? POL_NO : Q_NO), contract: () => PRESENTE(3) })
@@ -359,4 +362,21 @@ test('la forma flessa NON riapre gli scarti «mai nominata» fuori dal frontespi
   const m4 = fakeModel({ op: { ...OK('Lett. F) Malattie professionali X'), pagina: 4 }, contract: () => PRESENTE(1) })
   const r4 = await runOperativita({ docs: [doc('rct.pdf', RCT)], profile: RC_V3, profiles: REAL, settings: SETTINGS, deps: { callModel: m4.callModel, embed } })
   assert.equal(r4.verdict, 'review'); assert.match(r4.reason, /generica/)
+})
+
+test('runOperativita, DAS condominio: la scheda col premio nella colonna TUTELA / LEGALE è ‡ e basta da sola (11 DAS «Da verificare» del 26/09)', async () => {
+  const SCHEDA = [
+    '   POLIZZA NR. 0146905086   DIFESA CONDOMINIO',
+    '                                                                                      TUTELA       PERDITE    ASSISTENZA    IMPOSTE      PREMIO',
+    '                                                                                       LEGALE     PECUNIARIE                              LORDO',
+    '     Difesa Condominio - ed.2019                                                         298,55                                  63,44      361,99',
+  ].join('\n')
+  const DIP = 'Polizza di tutela legale per i condomini   DIFESA LEGALE\n   ✓ Ambito civile extracontrattuale : tutela legale'
+  const ROW = { esito: 'operante', documento: 'Documento 1', pagina: 1, evidenza: 'Difesa Condominio - ed.2019 298,55 63,44 361,99', motivo: 'premio proprio' }
+  const m = fakeModel({ op: (user) => (user.includes('[Documento 1 · pag. 1]') ? ROW : { esito: 'non determinabile', documento: '', pagina: 0, evidenza: '', motivo: 'x' }), contract: () => PRESENTE(1) })
+  const diag = []
+  const r = await runOperativita({ docs: [doc('CESARE BATTISTI 15 CONDOMINIO.pdf', [SCHEDA.replace(/\s{2,}/g, ' '), DIP.replace(/\s{2,}/g, ' ')])], spatialDocs: [{ pages: [SCHEDA, DIP] }], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.verdict, 'ok', diag.join('\n'))
+  assert.match(diag.find((l) => /batch 1: \d+ pagine/.test(l)), /D1p1‡/)
+  assert.equal(m.calls.op, 1)
 })

@@ -1466,6 +1466,17 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
         } catch { /* riga NDJSON parziale: completata al prossimo chunk */ }
       }
     }
+    // Ultima riga senza «\n» finale: si legge lo stesso (altrimenti un «done»
+    // arrivato così sembrava uno stream interrotto).
+    const tail = buf.trim()
+    if (tail) {
+      try {
+        const j = JSON.parse(tail)
+        if (j.message?.content) content += j.message.content
+        if (j.done) { done = true; doneReason = j.done_reason ?? null; promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
+        if (j.error) streamError = String(j.error).slice(0, 300)
+      } catch { /* resto non JSON: ignorato come prima */ }
+    }
     return { content, promptEval, evalCount, thinkingChars, done, doneReason, streamError }
   } catch (err) {
     // L'abort chiude la connessione → Ollama CANCELLA la generazione (niente zombie).

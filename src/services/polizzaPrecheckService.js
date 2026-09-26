@@ -345,10 +345,6 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     let remaining = candidates
     const results = []
     const pagesSent = []
-    // Documenti che NOMINANO la copertura nelle prime 3 pagine (tutte le parti
-    // candidate, non solo quelle di un batch): la prova di un PRODOTTO di tutela
-    // legale vale se il suo documento la nomina (verifyOperativitaEvidence).
-    const namedDocs = new Set(candidates.filter((c) => c.page <= 3 && pageNamesCoverage(c, lexTokens) === true).map((c) => c.ord))
     for (let b = 0; b < maxBatches && remaining.length; b++) {
       const blocks = selectOperativitaPages(remaining, { budgetChars, lexTokens })
       if (!blocks.length) break
@@ -360,7 +356,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       const answer = parseOperativitaAnswer(raw)
-      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens, namedDocs }) : null
+      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
       const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
       results.push(decision)

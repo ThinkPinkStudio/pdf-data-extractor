@@ -16,7 +16,7 @@ import {
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   selectContrattoPages, decideContract, applyContractVerdict, operativitaVerdictLabel, checkContractAnswer,
-  namesCoverageAnyForm, pageNamesCoverage, pageHead, lineHasStructuralAmount, lineHasBoxCheck,
+  namesCoverageAnyForm, pageNamesCoverage, pageHead, lineHasStructuralAmount, lineHasBoxCheck, coverColumnRows, verticalCoverColumns,
 } from '../src/services/polizzaOperativita.js'
 import { isQuestionnairePageTitle, isQuestionnaireTitle } from '../src/services/polizzaFactsRegistry.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
@@ -298,8 +298,7 @@ test('selectOperativitaPages: pagine che nominano la copertura CON importi prima
   assert.equal(one[0].amount, true)
   // batch pieno: NON si salta alla pagina più corta successiva
   const two = selectOperativitaPages(cands, { budgetChars: cands[2].text.length + cands[0].text.length - 5, lexTokens: tokens })
-  // con la scheda ‡ entra il frontespizio dello STESSO documento (3.1), mai la prosa di altri (2.6)
-  assert.deepEqual(two.map((b) => `${b.ord}.${b.page}`), ['3.1', '3.3'], 'la prosa di un altro documento resta per il batch dopo')
+  assert.deepEqual(two.map((b) => `${b.ord}.${b.page}`), ['3.3'], 'batch di sole pagine ‡: la prosa resta per il batch dopo')
   // batch successivo (senza 3.3): riparte da 2.6
   const next = selectOperativitaPages(cands.filter((c) => !(c.ord === 3 && c.page === 3)), { budgetChars: cands[0].text.length + 2, lexTokens: tokens })
   assert.deepEqual(next.map((b) => `${b.ord}.${b.page}`), ['2.6'])
@@ -607,7 +606,9 @@ test('DECISIONE: un «NO [X]» del questionario non contraddice l\'«operante» 
   // questionario RC di BOLCHINI è una domanda sui sub-appaltatori: una regola per forma la
   // renderebbe contraddittoria e bloccherebbe di nuovo la polizza vera
   assert.equal(combineOperativitaBatches([no, ok]).verdict, 'ok')
-  assert.equal(structuralCoverLines(BOLCHINI_Q3, RC_NAME).filter(lineHasCheck).length, 1)
+  // quella forma nel questionario RC di BOLCHINI («…professionale? ⃝ Sì ⃝ X No») dal 27/09 non è
+  // più ‡: la X precede «No», non il nome della copertura (boxNextToCoverName)
+  assert.equal(structuralCoverLines(BOLCHINI_Q3, RC_NAME).length, 0)
 })
 
 test('non operanti VERI restano tali: la prova sta nel contratto (BESA RUZZA ET103PP, SANTANGELO FV180JE, DAS «ESCLUSA»)', () => {
@@ -754,17 +755,27 @@ test('isQuestionnairePageTitle: una CELLA della testa della pagina comincia col 
   assert.equal(isQuestionnairePageTitle(''), false)
 })
 
-test('prova «operante» di un PRODOTTO di tutela legale: la riga del premio o la scheda che nomina la copertura (DAS, decisione dell\'utente 26/09)', () => {
+// Griglia pdf.js VERA della scheda DAS «Difesa Condominio» (AGRIPPA 12, pag. 1):
+// l'intestazione della colonna del premio è «TUTELA / LEGALE» su due righe.
+const DAS_SCHEDA = [
+  '   MASSIMALE PER SINISTRO EURO   31.000,00   MASSIMALE PER ANNO   ILLIMITATO',
+  '                                                                                   TUTELA       PERDITE    ASSISTENZA   IMPOSTE     PREMIO',
+  '                                                                                    LEGALE    PECUNIARIE                             LORDO',
+  '    Difesa Condominio                                                                 431,81                                91,76      523,57',
+  '   PARAMETRI TARIFFA ATTIVATI',
+].join('\n')
+
+test('prova «operante» di un PRODOTTO di tutela legale: il premio nella colonna intestata alla copertura, o la scheda che la nomina nel titolo (DAS, decisione dell\'utente 26/09)', () => {
   const TL = [['tutela', 'legale']]
-  // AGRIPPA 12 (DAS Difesa Condominio): intestazione «TUTELA / LEGALE» spezzata, riga del premio senza la parola
-  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: '   TUTELA   PERDITE   ASSISTENZA   IMPOSTE   PREMIO\n   LEGALE   PECUNIARIE   LORDO\n   Difesa Condominio   431,81   91,76   523,57' }
-  const p2 = { ord: 1, page: 2, first: false, questionnaire: false, text: 'DISPOSIZIONI PARTICOLARI CHE REGOLANO LE COPERTURE (TUTELA LEGALE)' }
+  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: DAS_SCHEDA }
+  assert.equal(pageNamesCoverage(p1, TL), true, 'la scheda nomina la copertura nell\'intestazione di colonna')
+  assert.deepEqual([...coverColumnRows(DAS_SCHEDA, TL)], [3], 'solo la riga del premio, non il massimale sopra')
   const ans = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Difesa Condominio 431,81 91,76 523,57', motivo: 'm' }
-  const ev = verifyOperativitaEvidence(ans, [p1, p2], { lexTokens: TL })
-  assert.equal(ev.names, false); assert.equal(ev.productProof, true)
+  const ev = verifyOperativitaEvidence(ans, [p1], { lexTokens: TL })
+  assert.equal(ev.names, false); assert.equal(ev.productProof, true); assert.equal(ev.structural, true)
   assert.equal(decideOperativita({ answer: ans, evidence: ev }).verdict, 'ok')
-  // Stessa riga ma il documento non nomina mai la copertura: resta un dubbio
-  const ev2 = verifyOperativitaEvidence(ans, [{ ...p1, text: 'Difesa Condominio   431,81   91,76   523,57' }], { lexTokens: TL })
+  // stessa riga senza l'intestazione della colonna: resta un dubbio
+  const ev2 = verifyOperativitaEvidence(ans, [{ ...p1, text: DAS_SCHEDA.split('\n').filter((l) => !/TUTELA|LEGALE/.test(l)).join('\n') }], { lexTokens: TL })
   assert.equal(decideOperativita({ answer: ans, evidence: ev2 }).verdict, 'review')
   // Scheda DAS «POLIZZA RAMO TUTELA GIUDIZIARIA»: la frase delle garanzie prescelte sul frontespizio con importi
   const TG = [['tutela', 'giudiziaria']]
@@ -776,19 +787,20 @@ test('prova «operante» di un PRODOTTO di tutela legale: la riga del premio o l
   assert.equal(decideOperativita({ answer: a2, evidence: verifyOperativitaEvidence(a2, [q1], { lexTokens: TG }) }).verdict, 'review')
 })
 
-test('prodotto di tutela legale: «il documento nomina la copertura» vale per il DOCUMENTO, anche se la pagina col nome era in un altro batch (DAS condominio)', () => {
+test('prodotto: una riga con un importo NON basta se il documento nomina la tutela legale altrove (ITAS «non acquistata», revisione del 27/09)', () => {
   const TL = [['tutela', 'legale']]
-  // BATTISTI 15: scheda a pag. 1 con «TUTELA / LEGALE» spezzato, il nome solo nel DIP a pag. 2 (letto nel batch 1)
-  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: '   TUTELA   PERDITE   ASSISTENZA   IMPOSTE   PREMIO\n   LEGALE   PECUNIARIE   LORDO\n   Difesa Condominio - ed.2019   298,55   63,44   361,99' }
-  const ans = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Difesa Condominio - ed.2019 298,55', motivo: 'm' }
-  // batch 2 senza la pag. 2: con le sole pagine inviate il documento non la nomina
-  assert.equal(decideOperativita({ answer: ans, evidence: verifyOperativitaEvidence(ans, [p1], { lexTokens: TL }) }).verdict, 'review')
-  // con namedDocs (calcolato su tutte le pagine candidate) sì
-  const ev = verifyOperativitaEvidence(ans, [p1], { lexTokens: TL, namedDocs: new Set([1]) })
-  assert.equal(ev.productProof, true)
-  assert.equal(decideOperativita({ answer: ans, evidence: ev }).verdict, 'ok')
-  // un ALTRO documento che nomina la copertura non basta
-  assert.equal(decideOperativita({ answer: ans, evidence: verifyOperativitaEvidence(ans, [p1], { lexTokens: TL, namedDocs: new Set([2]) }) }).verdict, 'review')
+  // MORANDI 11 (ITAS): pag. 2 scheda incendio, «TUTELA LEGALE non acquistata» nella stessa pagina
+  const itas = { ord: 6, page: 2, first: false, questionnaire: false, text: 'GARANZIE   SOMMA ASSICURATA   PREMIO\nINCENDIO E RISCHI COLLEGATI SUL FABBRICATO   3.400.000,00   315,41\nTUTELA LEGALE   non acquistata' }
+  const a = { esito: 'operante', documento: 6, pagina: 2, evidenza: 'INCENDIO E RISCHI COLLEGATI SUL FABBRICATO 3.400.000,00 315,41', motivo: 'm' }
+  const ev = verifyOperativitaEvidence(a, [itas], { lexTokens: TL })
+  assert.equal(ev.productProof, false)
+  assert.equal(decideOperativita({ answer: a, evidence: ev }).verdict, 'review')
+  // Helvetia (BESA-152): «Indicizzazione [X] € 176,46» citata dal frontespizio che ha «5. Tutela legale € = = =»
+  const hText = 'HELVETIA   Compagnia Svizzera d\'Assicurazioni\nDNAzienda   POLIZZA N. 1234567\nContraente BESA SAS   Via Roma 1   20100 Milano\nDecorrenza 31/12/2025   Scadenza 31/12/2026\nSEZIONI ASSICURATE   PREMIO\n5. Tutela legale   € = = =\nIndicizzazione [X]   € 176,46'
+  const hel = { ord: 1, page: 1, first: true, questionnaire: false, text: hText, head: pageHead(hText) }
+  assert.doesNotMatch(hel.head, /Tutela legale/)
+  const ah = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Indicizzazione [X] € 176,46', motivo: 'm' }
+  assert.equal(decideOperativita({ answer: ah, evidence: verifyOperativitaEvidence(ah, [hel], { lexTokens: TL }) }).verdict, 'review')
 })
 
 test('regola (a) più stretta: un «no» da una pagina con la riga «copertura + premio/casella» non zittisce un «non determinabile» (BESA-110)', () => {
@@ -867,15 +879,46 @@ test('importo di una riga: un numero di ARTICOLO non è un importo; per la riga 
 })
 
 
-test('batch delle pagine ‡: entrano anche le prime 3 pagine dello STESSO documento, non gli altri documenti né le altre pagine (CALDARA 7 pag. 18 + scheda)', () => {
+test('batch delle pagine ‡: la scheda DAS (premio nella colonna TUTELA / LEGALE) è ‡ e sta nel batch 1 con la pag. 18, il DIP a punto elenco no (CALDARA 7)', () => {
   const TL = [['tutela', 'legale']]
   const mk = (ord, page, text, score) => ({ ord, page, text, flat: text.replace(/\s+/g, ' '), score })
   const p18 = mk(1, 18, 'VALUTAZIONE DELLE RICHIESTE ED ESIGENZE ASSICURATIVE\nALTRO SOGGETTO   X Condominio   X Tutela legale del condominio\nDISPONE GIÀ DI UNA COPERTURA ASSICURATIVA DI TUTELA LEGALE SUL MEDESIMO RISCHIO?   X NO   SI', 0.64)
-  const p1 = mk(1, 1, 'TUTELA   PERDITE\nLEGALE   PECUNIARIE\nDifesa Condominio - ed.2019   159,99   34,00   193,99', 0.57)
+  const p1 = mk(1, 1, DAS_SCHEDA, 0.57)
   const p2 = mk(1, 2, 'Polizza di tutela legale per i condomini\n   ✓ Ambito civile extracontrattuale : tutela legale', 0.71)
   const p9 = mk(1, 9, 'SEZIONE GARANZIE DI TUTELA LEGALE   Artt. 1-6', 0.72)
-  const other = mk(2, 1, 'QUIETANZA   Polizza 0146905086   Premio 193,99', 0.5)
-  const b = selectOperativitaPages([p18, p1, p2, p9, other], { budgetChars: 5000, lexTokens: TL })
-  assert.deepEqual(b.map((x) => `${x.ord}:${x.page}`), ['1:1', '1:2', '1:18'])
-  assert.equal(b.find((x) => x.page === 18).structural, true)
+  const b = selectOperativitaPages([p18, p1, p2, p9], { budgetChars: 5000, lexTokens: TL })
+  assert.deepEqual(b.map((x) => `${x.ord}:${x.page}`), ['1:1', '1:18'])
+  assert.ok(b.every((x) => x.structural))
+  // della pag. 18 è ‡ la riga «X Tutela legale del condominio», non la domanda «…X NO»
+  assert.deepEqual(structuralCoverLines(p18.text, TL).map((l) => l.trim().slice(0, 14)), ['ALTRO SOGGETTO'])
+})
+
+test('casella e spunta DELLA copertura: prima del nome o ultimo segno della riga; la X di un\'altra voce no (BESA-083), la ✓ della colonna accanto no', () => {
+  const TL = [['tutela', 'legale']]
+  assert.deepEqual(structuralCoverLines('X   Ritiro Patente   Tutela Legale   X Assistenza   Infortuni Conducente   Oltre', TL), [], 'questionario auto: le X sono di Ritiro Patente e Assistenza')
+  assert.deepEqual(structuralCoverLines('DISPONE GIÀ DI UNA COPERTURA ASSICURATIVA DI TUTELA LEGALE SUL MEDESIMO RISCHIO?   X NO   SI', TL), [])
+  assert.equal(structuralCoverLines('[x]   Tutela Legale', TL).length, 1)
+  assert.equal(structuralCoverLines('Tutela Legale   X', TL).length, 1)
+  assert.equal(structuralCoverLines('Tutela Legale   ✓', TL).length, 1)
+  assert.deepEqual(structuralCoverLines('Tutela Legale              ✓ Nella sezione sono garantiti gli oneri', TL), [], 'due colonne: la ✓ è il punto elenco della colonna destra')
+})
+
+test('importi: «art.» seguito da molti spazi OCR resta un articolo; una percentuale non è l\'importo della copertura (BESA-172)', () => {
+  const TL = [['tutela', 'legale']]
+  assert.deepEqual(structuralCoverLines('SEZIONE TUTELA LEGALE: art.' + ' '.repeat(40) + '6,13 -', TL), [])
+  assert.equal(lineHasNonZeroAmount('Tutela Legale   8,46%'), false)
+  assert.equal(lineHasNonZeroAmount('Tutela Legale   ESCLUSA   31.000,00'), true)
+})
+
+test('strictAmount nell\'ordine dei batch e nella prova: la frase del DIP «€ 15.000» non è una scheda (BESA-156)', () => {
+  const TG = [['tutela', 'giudiziaria']]
+  const dip = { ord: 1, page: 4, text: 'DIP aggiuntivo\n › Tutela giudiziaria : opera con il massimale di € 15.000 , raddoppiabile se ci si avvale del patrocinio', flat: 'DIP aggiuntivo Tutela giudiziaria opera con il massimale di € 15.000', score: 0.7 }
+  const other = { ord: 2, page: 1, text: 'POLIZZA MOTO   RCA   605,50', flat: 'POLIZZA MOTO RCA 605,50', score: 0.4 }
+  const b = selectOperativitaPages([dip, other], { budgetChars: 5000, lexTokens: TG })
+  assert.equal(b.some((x) => x.structural), false)
+  assert.equal(b.length, 2, 'senza pagine ‡ il DIP non apre da solo il batch')
+  const a = { esito: 'operante', documento: 1, pagina: 4, evidenza: 'Tutela giudiziaria : opera con il massimale di € 15.000', motivo: 'm' }
+  const ev = verifyOperativitaEvidence(a, [dip], { lexTokens: TG })
+  assert.equal(ev.structural, false)
+  assert.equal(decideOperativita({ answer: a, evidence: ev, requireStructural: true }).verdict, 'review')
 })
