@@ -22,6 +22,8 @@ export interface JobActions {
   proceed: (j: JobSnapshot) => Promise<void>
   reuse: (j: JobSnapshot) => Promise<void>
   rematchWith: (j: JobSnapshot, profileId: string) => Promise<void>
+  // Separa per cartella d'origine (annulla un'unione della riconciliazione): solo nei batch.
+  split: ((j: JobSnapshot) => Promise<void>) | null
   openRematch: (jobs: JobSnapshot[]) => void
   openReprofile: (jobs: JobSnapshot[]) => void
   openTest: (jobs: JobSnapshot[]) => void
@@ -73,6 +75,16 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
   const proceed = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'proceed')) })
   const reuse = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'reuse')) })
   const rematchWith = (j: JobSnapshot, profileId: string) => run(async () => { await jobPost(j, 'rematch', { profileId }) })
+  const split = isSingles ? null : async (j: JobSnapshot) => {
+    if (!(await ask(t('jobsDash.splitConfirm'), { title: t('jobsDash.split'), okLabel: t('jobsDash.splitOk') }))) return
+    await run(async () => {
+      const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action: 'split', jobIds: [j.jobId], rematch: true })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) void ask(d.error || 'Errore', { title: t('jobsDash.split'), okLabel: 'OK', hideCancel: true })
+      else if (!d.done) void ask(t('jobsDash.splitNothing'), { title: t('jobsDash.split'), okLabel: 'OK', hideCancel: true })
+      else setBulkResult(t('jobsDash.splitDone', { n: (d.created || []).length + 1 }))
+    })
+  }
 
   async function loadDialogData() {
     if (!profiles.length) {
@@ -204,7 +216,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
 
   return {
     busy, bulkResult, dialogOpen: !!dial,
-    cancel, retry, extract, proceed, reuse, rematchWith, openRematch, openReprofile, openTest, exportExcel,
+    cancel, retry, extract, proceed, reuse, rematchWith, split, openRematch, openReprofile, openTest, exportExcel,
     extractAll, rematchAll, retryFailed, bulk, exportBatch,
     pdfsUrl: isSingles ? null : `/api/polizza/batch/${batchId}/pdfs`,
     dialog, confirmPanel: panel,

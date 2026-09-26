@@ -35,28 +35,33 @@ export function actionSet(j: JobSnapshot, A: JobActions, t: T, openTab: (tab: De
   const log = mk('log', t('jobsDash.tabLog'), <IcList />, () => openTab('log'))
   const files = mk('files', t('jobsDash.tabFiles'), <IcFile />, () => openTab('files'), { title: t('jobsDash.filesTitle') })
   const reusable = isReusable(j) ? [reuse] : []
+  // Dossier nato da un'UNIONE della riconciliazione: si può disfare (i file
+  // tornano nelle cartelle da cui sono stati caricati) e riabbinare.
+  const merged = (j.logs || []).some((l) => l.includes('Riconciliazione per numero di polizza'))
+  const splitFn = A.split
+  const split = merged && splitFn ? [mk('split', t('jobsDash.split'), <IcSwap />, () => void splitFn(j), { title: t('jobsDash.splitTitle') })] : []
 
   switch (st) {
     case 'running':
     case 'queued':
       return { primary: cancel, secondary: [], menu: [log, files] }
     case 'matched':
-      return { primary: extract, secondary: [rematch, reprofile], menu: [reprocess, log, files] }
+      return { primary: extract, secondary: [rematch, reprofile], menu: [reprocess, ...split, log, files] }
     case 'notValid':
-      return { primary: { ...rematch, tone: 'primary' }, secondary: [], menu: [log, files] }
+      return { primary: { ...rematch, tone: 'primary' }, secondary: [], menu: [...split, log, files] }
     case 'review':
     case 'mismatch':
     case 'discarded':
       return useSugg
-        ? { primary: useSugg, secondary: [proceed, rematch, reprofile], menu: [reprocess, log, files] }
-        : { primary: proceed, secondary: [rematch, reprofile], menu: [reprocess, log, files] }
+        ? { primary: useSugg, secondary: [proceed, rematch, reprofile], menu: [reprocess, ...split, log, files] }
+        : { primary: proceed, secondary: [rematch, reprofile], menu: [reprocess, ...split, log, files] }
     case 'error':
-      return { primary: retry, secondary: [...reusable, rematch, reprofile], menu: [test, log, files] }
+      return { primary: retry, secondary: [...reusable, rematch, reprofile], menu: [test, ...split, log, files] }
     case 'canceled':
-      return { primary: { ...reprocess, tone: 'primary' }, secondary: [...reusable, rematch, reprofile], menu: [log, files] }
+      return { primary: { ...reprocess, tone: 'primary' }, secondary: [...reusable, rematch, reprofile], menu: [...split, log, files] }
     case 'done':
     default:
-      return { primary: hasValues(j) ? excel : null, secondary: [rematch, reprofile], menu: [reprocess, test, values, log, files] }
+      return { primary: hasValues(j) ? excel : null, secondary: [rematch, reprofile], menu: [reprocess, test, ...split, values, log, files] }
   }
 }
 

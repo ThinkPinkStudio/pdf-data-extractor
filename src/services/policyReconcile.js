@@ -116,7 +116,18 @@ export function extractPolicyNumbersFromPages(pages) {
         if (!LABEL_CELL_RE.test(cell.text) || OTHER_POLICY_RE.test(cell.text)) continue
         const inline = extractPolicyNumbers(cell.text)
         if (inline.length) { inline.forEach((n) => out.add(n)); continue }
-        if (!LABEL_NUM_RE.test(cell.text)) continue
+        // Etichetta spezzata dall'OCR in due celle («NUMERO   POLIZZA   1/63317/48/
+        // 165043362» della Unipol scansionata di COSTA 1A): la parola del numero
+        // sta nella cella PRIMA. Col numero nella cella SUBITO A DESTRA sulla
+        // stessa riga lo si prende lì; senza, la cartella sembrava «senza numeri»
+        // e veniva unita alla polizza DAS della sottocartella.
+        const cells = gridCells(lines[i])
+        const ci = cells.findIndex((c) => c.start === cell.start)
+        const labelCtx = `${ci > 0 ? cells[ci - 1].text : ''} ${cell.text}`
+        if (!LABEL_NUM_RE.test(labelCtx)) continue
+        const right = cells[ci + 1]
+        const rightNum = right ? normalizePolicyNumber(right.text.split(/\s+/)[0]) : ''
+        if (rightNum) { out.add(rightNum); continue }
         // Colonna della parola «polizza» nella cella: un'intestazione di modulo
         // sta spesso in UNA cella («COD. AG. COD. SUBAG. RAMO NR. POLIZZA
         // PRODOTTO») e sotto ci sono i valori di tutte le colonne: il numero è
@@ -154,7 +165,16 @@ function unionFind() {
 export function planReconcile(dossiers) {
   // 0. Un numero che FINISCE con un altro di almeno 8 caratteri è lo stesso col
   // ramo o l'agenzia davanti («30/210502137» e «RAMO 30 · NR. POLIZZA 210502137»).
+  // Un numero che è l'INIZIO di un altro numero del batch più lungo di almeno 4
+  // caratteri è un frammento, non una polizza: l'OCR di una copia firmata
+  // spezza «212.044.0000902030» e ne resta la testa «212044» (codice agenzia
+  // Vittoria, uguale in tutte le sue polizze), che univa COLAUTTI, RAMAZZINI e
+  // LIPPI (CONDOMINI, 26/09/2026). Le appendici «…00040» / «…000401» (una cifra
+  // in più) restano numeri distinti.
+  const heads = [...new Set((dossiers || []).flatMap((d) => (d?.files || []).flatMap((f) => f.numbers || [])))]
+  const fragment = new Set(heads.filter((n) => heads.some((o) => o.length >= n.length + 4 && o.startsWith(n))))
   const raw = (dossiers || []).filter((d) => d && d.id)
+    .map((d) => ({ ...d, files: (d.files || []).map((f) => ({ ...f, numbers: (f.numbers || []).filter((n) => !fragment.has(n)) })) }))
   const all = [...new Set(raw.flatMap((d) => (d.files || []).flatMap((f) => f.numbers || [])))].sort((a, b) => b.length - a.length)
   const canon = new Map()
   for (const num of all) {
@@ -261,4 +281,38 @@ export function planReconcile(dossiers) {
     })
   }
   return plan
+}
+
+/**
+ * SEPARA un dossier nelle cartelle da cui i suoi file sono stati caricati
+ * (l'INVERSO della riconciliazione): ogni file ha il suo percorso d'origine
+ * (`rel_path`, «RADICE/CARTELLA/…/file.pdf»), che l'unione non tocca. Resta nel
+ * dossier il gruppo della cartella che porta il suo nome (o, se nessuna, il più
+ * numeroso); gli altri gruppi diventano dossier a parte. I file senza percorso
+ * d'origine restano dove sono. Serve a disfare un'unione sbagliata (CONDOMINI
+ * 26/09/2026: COLAUTTI + RAMAZZINI per il frammento «212044»; COSTA 1A: la
+ * Unipol scansionata unita alla DAS).
+ * @param {string} dossierName
+ * @param {{idx:number, rel_path?:string|null}[]} files
+ * @returns {{ home:string, keep:number[], groups:{ folder:string, idxs:number[] }[] }} groups vuoto = niente da separare
+ */
+export function planSplitByOrigin(dossierName, files) {
+  const folderOf = (p) => { const s = String(p || '').replace(/\\/g, '/'); const i = s.lastIndexOf('/'); return i > 0 ? s.slice(0, i) : '' }
+  const byFolder = new Map()
+  const noPath = []
+  for (const f of files || []) {
+    const folder = folderOf(f.rel_path)
+    if (!folder) { noPath.push(f.idx); continue }
+    if (!byFolder.has(folder)) byFolder.set(folder, [])
+    byFolder.get(folder).push(f.idx)
+  }
+  if (byFolder.size < 2) return { home: [...byFolder.keys()][0] || '', keep: (files || []).map((f) => f.idx), groups: [] }
+  const own = String(dossierName || '').replace(/\\/g, '/').replace(/\/+$/, '')
+  const folders = [...byFolder.keys()]
+  const home = folders.includes(own) ? own : folders.sort((a, b) => byFolder.get(b).length - byFolder.get(a).length || a.localeCompare(b))[0]
+  return {
+    home,
+    keep: [...byFolder.get(home), ...noPath].sort((a, b) => a - b),
+    groups: folders.filter((f) => f !== home).sort().map((folder) => ({ folder, idxs: byFolder.get(folder).sort((a, b) => a - b) })),
+  }
 }

@@ -2,6 +2,7 @@ import { pool } from './db'
 import { createHash, randomUUID } from 'crypto'
 import { flattenRollingState, initRollingState } from './polizzaRolling'
 import { forcedWithoutPolicy, isNotValidJob } from './jobValidity'
+import { importSharedService } from './sharedServices'
 
 // Identità del contenuto: SHA-256 dei byte del PDF. Stesso file = stesso hash,
 // in qualunque cartella e con qualunque nome (cache OCR, dedup, riconoscimento
@@ -1148,6 +1149,72 @@ export async function applyReconcilePlan(
     }
     await client.query('COMMIT')
     return plan.length
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+type SplitSvc = { planSplitByOrigin: (name: string, files: { idx: number; rel_path?: string | null }[]) => { home: string; keep: number[]; groups: { folder: string; idxs: number[] }[] } }
+
+/**
+ * SEPARA un dossier nelle cartelle d'origine dei suoi file (l'INVERSO della
+ * riconciliazione: `planSplitByOrigin`, sul `rel_path` che l'unione non tocca).
+ * I gruppi separati diventano dossier nuovi dello stesso batch, con lo stesso
+ * profilo; il dossier e i nuovi restano FERMI in 'canceled' (i risultati di
+ * prima valevano per l'unione) col perché nel log, pronti per un Riabbina.
+ * UNA transazione; mai su un dossier in coda o in corso.
+ * @returns il dossier rimasto e i nuovi, o null se non c'è niente da separare
+ */
+export async function splitJobByOrigin(jobId: string, byEmail?: string): Promise<{ kept: string; created: { id: string; folder: string; files: number }[] } | null> {
+  const svc = await importSharedService<SplitSvc>('policyReconcile.js')
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows: jr } = await client.query('SELECT * FROM polizza_jobs WHERE id = $1 FOR UPDATE', [jobId])
+    const job = jr[0]
+    if (!job || job.status === 'running' || job.status === 'queued') { await client.query('ROLLBACK'); return null }
+    const { rows: files } = await client.query<{ idx: number; file_name: string; rel_path: string | null }>(
+      'SELECT idx, file_name, rel_path FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [jobId]
+    )
+    const plan = svc.planSplitByOrigin(job.dossier_name || '', files)
+    if (!plan.groups.length) { await client.query('ROLLBACK'); return null }
+    const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
+    const who = byEmail ? ` da ${byEmail}` : ''
+    const fieldDefs = Array.isArray(job.field_defs) ? job.field_defs : []
+    const created: { id: string; folder: string; files: number }[] = []
+    for (const g of plan.groups) {
+      const id = randomUUID()
+      await client.query(
+        `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, settings_override, created_at, updated_at, logs)
+         VALUES ($1,$2,$3,$4,'canceled',$5,'[]'::jsonb,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$12,$13::jsonb)`,
+        [id, job.email, job.batch_id, g.folder, job.whole_dossier, JSON.stringify(fieldDefs), job.prompt_extra ?? null,
+          job.profile_id ?? null, job.profile_name ?? null, JSON.stringify(initRollingState(fieldDefs)),
+          job.settings_override ? JSON.stringify(job.settings_override) : null, now(),
+          JSON.stringify([`${stamp} Separato${who} da "${job.dossier_name || jobId}": i ${g.idxs.length} file caricati dalla cartella "${g.folder}" tornano in un dossier a parte (unione annullata). Da riabbinare.`])]
+      )
+      let next = 3000000 // fuori dagli indici di chiunque, ricalcolati sotto
+      for (const idx of g.idxs) {
+        await client.query('UPDATE polizza_job_files SET job_id = $1, idx = $2 WHERE job_id = $3 AND idx = $4', [id, next++, jobId, idx])
+      }
+      created.push({ id, folder: g.folder, files: g.idxs.length })
+    }
+    for (const id of [jobId, ...created.map((c) => c.id)]) {
+      const { rows: fs } = await client.query<{ idx: number; file_name: string }>('SELECT idx, file_name FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [id])
+      await client.query('UPDATE polizza_job_files SET idx = -idx - 1 WHERE job_id = $1', [id])
+      for (let i = 0; i < fs.length; i++) await client.query('UPDATE polizza_job_files SET idx = $1 WHERE job_id = $2 AND idx = $3', [i, id, -fs[i].idx - 1])
+      await client.query('UPDATE polizza_jobs SET scanned_files = $1::jsonb, updated_at = $2 WHERE id = $3', [JSON.stringify(fs.map((f) => f.file_name)), now(), id])
+    }
+    const line = `${stamp} Separazione per cartella d'origine${who}: ${created.map((c) => `${c.files} file → "${c.folder}"`).join('; ')}; qui restano i file di "${plan.home}". Risultati precedenti azzerati (valevano per l'unione): da riabbinare.`
+    await client.query(
+      `UPDATE polizza_jobs SET status = 'canceled', dossier_name = $1, error = NULL, precheck = NULL, cursor = '{}'::jsonb, progress = '{}'::jsonb,
+         sources = '{}'::jsonb, rolling_state = $2::jsonb, logs = logs || $3::jsonb, updated_at = $4 WHERE id = $5`,
+      [plan.home || job.dossier_name, JSON.stringify(initRollingState(fieldDefs)), JSON.stringify([line]), now(), jobId]
+    )
+    await client.query('COMMIT')
+    return { kept: jobId, created }
   } catch (e) {
     await client.query('ROLLBACK')
     throw e

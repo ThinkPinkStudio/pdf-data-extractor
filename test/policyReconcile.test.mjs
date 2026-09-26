@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { extractPolicyNumbers, extractPolicyNumbersFromPages, fiscalNumbers, normalizePolicyNumber, planReconcile } from '../src/services/policyReconcile.js'
+import { extractPolicyNumbers, extractPolicyNumbersFromPages, fiscalNumbers, normalizePolicyNumber, planReconcile, planSplitByOrigin } from '../src/services/policyReconcile.js'
 
 test('extractPolicyNumbers: numeri dopo l\'etichetta di polizza, forma canonica', () => {
   assert.deepEqual(extractPolicyNumbers('Polizza n. 01469DAS00040 — Contraente BESA'), ['1469DAS00040'])
@@ -142,4 +142,53 @@ test('cartella senza numeri: la copia di una polizza di FUORI archiviata sotto d
   const home = D('h', 'G/Y', [['EXM16548705']])
   const plan2 = planReconcile([home, lone, stray])
   assert.ok(!plan2.some((x) => x.moves.some((m) => m.from === 'l')))
+})
+
+test('frammento di numero (testa comune a più polizze) non unisce polizze diverse', () => {
+  // CONDOMINI 26/09: l'OCR delle copie firmate Vittoria lascia «212044» (la testa
+  // di «212.044.0000902030»): COLAUTTI, RAMAZZINI e LIPPI finivano in un dossier.
+  const colautti = D('c', 'G/COLAUTTI/COLAUTTI MIRABELLO', [['2120440000902058'], ['212044']])
+  const ramazzini = D('r', 'G/RAMAZZINI 2 COND/RAMAZZINI 2', [['2120440000902030'], ['212044']])
+  const lippi = D('l', 'G/LIPPI 19 COND/LIPPI 19 CONDOMINIO', [['2120440000902206'], ['212044']])
+  assert.deepEqual(planReconcile([colautti, ramazzini, lippi]), [])
+  // Anche due dossier col SOLO frammento non si legano se nel batch c'è il numero intero
+  const a = D('a', 'G/A', [['212044']])
+  const b = D('b', 'G/B', [['212044']])
+  assert.deepEqual(planReconcile([a, b, D('x', 'G/X', [['2120440000902030']])]), [])
+  // Stessa polizza col numero intero in due cartelle: l'unione resta
+  const r2 = D('r2', 'G/RAMAZZINI 2 COND/RAMAZZINI 2/POLIZZA', [['2120440000902030'], ['212044']])
+  const plan = planReconcile([ramazzini, r2])
+  assert.equal(plan.length, 1)
+  assert.equal(plan[0].target, 'r')
+  // Numero con UNA cifra in più (appendice): numeri distinti, nessun frammento
+  assert.deepEqual(planReconcile([D('p', 'G/P', [['1469DAS00040']]), D('q', 'G/Q', [['1469DAS000401']])]), [])
+})
+
+test('extractPolicyNumbersFromPages: etichetta spezzata dall\'OCR in due celle, numero a destra o sotto', () => {
+  // COSTA 1A (Unipol scansionata): «NUMERO   POLIZZA   1/63317/48/165043362»
+  const ocr = ['7264   Polizza\nNUMERO   POLIZZA   1/63317/48/165043362\nNumero  fabbricati   1']
+  assert.deepEqual(extractPolicyNumbersFromPages(ocr), ['16331748165043362'])
+  // Stessa etichetta spezzata, numero nella riga sotto, colonna di «POLIZZA»
+  const below = ['NUMERO   POLIZZA   DATA EMISSIONE\n         M16181009   22/05/2025']
+  assert.deepEqual(extractPolicyNumbersFromPages(below), ['M16181009'])
+  // «Polizza» senza parola del numero accanto: a destra non si legge nulla
+  assert.deepEqual(extractPolicyNumbersFromPages(['Tipo   Polizza   123456789']), [])
+  // «n. polizze» con un conteggio corto a destra: non è un numero di polizza
+  assert.deepEqual(extractPolicyNumbersFromPages(['N.   polizze   3']), [])
+})
+
+test('planSplitByOrigin: i file tornano nelle cartelle da cui sono stati caricati', () => {
+  // COSTA 1A: la Unipol della cartella madre e la DAS di «TUT. LEGALE» unite
+  const f = (idx, rel_path) => ({ idx, rel_path })
+  const costa = planSplitByOrigin('C/COSTA 1A COND', [f(0, 'C/COSTA 1A COND/TUT. LEGALE/DAS.pdf'), f(1, 'C/COSTA 1A COND/polizza 2018.pdf')])
+  assert.deepEqual(costa, { home: 'C/COSTA 1A COND', keep: [1], groups: [{ folder: 'C/COSTA 1A COND/TUT. LEGALE', idxs: [0] }] })
+  // Tre cartelle: resta quella col nome del dossier, le altre si separano
+  const col = planSplitByOrigin('C/COLAUTTI/M', [f(0, 'C/COLAUTTI/M/a.pdf'), f(1, 'C/RAMAZZINI/R/b.pdf'), f(2, 'C/RAMAZZINI/R/c.pdf'), f(3, 'C/COLAUTTI/M/RINNOVO/d.pdf'), f(4, 'C/LIPPI/L/e.pdf')])
+  assert.deepEqual(col.keep, [0])
+  assert.deepEqual(col.groups.map((g) => [g.folder, g.idxs]), [['C/COLAUTTI/M/RINNOVO', [3]], ['C/LIPPI/L', [4]], ['C/RAMAZZINI/R', [1, 2]]])
+  // Una sola cartella, o percorsi mancanti: niente da separare; i senza percorso restano
+  assert.deepEqual(planSplitByOrigin('C/X', [f(0, 'C/X/a.pdf'), f(1, 'C/X/b.pdf')]).groups, [])
+  assert.deepEqual(planSplitByOrigin('C/X', [f(0, null), f(1, 'C/X/b.pdf'), f(2, 'C/Y/c.pdf')]), { home: 'C/X', keep: [0, 1], groups: [{ folder: 'C/Y', idxs: [2] }] })
+  // Nome del dossier che non è una delle cartelle: resta la più numerosa
+  assert.deepEqual(planSplitByOrigin('C/Z', [f(0, 'C/A/a.pdf'), f(1, 'C/B/b.pdf'), f(2, 'C/B/c.pdf')]).keep, [1, 2])
 })
