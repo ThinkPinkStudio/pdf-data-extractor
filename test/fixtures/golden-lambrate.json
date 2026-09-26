@@ -1,0 +1,31 @@
+{
+  "id": "golden-lambrate",
+  "label": "LAMBRATE 3 COND. - TUT. LEGALE (verita dal PDF, text layer)",
+  "source": "LAMBRATE 3 COND. - STUDIO MA_TUT. LEGALE_LAMBRATE 3 CONDOMINIO (1).pdf",
+  "note": "Golden costruito leggendo il PDF (frontespizio p1 + tabella premi). Riga premi usata: PREMIO RATA SUCCESSIVA (207,83 imponibile / 2,48 diritti / 44,69 imposte / 255,00 lordo; interessi 0,00). Valori correggibili manualmente.",
+  "fields": {
+    "N° Polizza": { "value": "0146905092", "mode": "exact" },
+    "Compagnia": { "value": "D.A.S. Difesa Automobilistica Sinistri SpA", "mode": "contains" },
+    "Contraente/Assicurato": { "value": "LAMBRATE 3 CONDOMINIO", "mode": "contains" },
+    "P. IVA / Cod. Fiscale": { "value": "80186580157", "mode": "vat" },
+    "Indirizzo": { "value": "VIA LAMBRATE 3", "mode": "contains" },
+    "Decorrenza": { "value": "27/04/2020", "mode": "date" },
+    "Scadenza": { "value": "30/09/2021", "mode": "date" },
+    "Frazionamento": { "value": "ANNUALE", "mode": "contains" },
+    "Attività assicurata": { "value": "CONDOMINIO", "mode": "contains" },
+    "Massimale per sinistro tutela legale": { "value": "31.000,00", "mode": "amount" },
+    "Massimale per anno tutela legale": { "value": "ILLIMITATO", "mode": "contains" },
+    "Parametro regolazione ": { "value": null, "mode": "text" },
+    "Importo preventivo parametro regolazione": { "value": null, "mode": "amount" },
+    "Tasso regolazione ‰ ": { "value": null, "mode": "text" },
+    "Franchigia generica o minima": { "value": null, "mode": "amount" },
+    "Garanzie scelte/operanti": { "value": "Difesa Condominio", "mode": "contains" },
+    "Garanzie non operanti": { "value": null, "mode": "text" },
+    "Premio imponibile tutela legale": { "value": "207,83", "mode": "amount" },
+    "Interessi di frazionamento": { "value": "0,00", "mode": "amount" },
+    "Diritti": { "value": "2,48", "mode": "amount" },
+    "Imposte": { "value": "44,69", "mode": "amount" },
+    "Premio lordo totale tutela legale": { "value": "255,00", "mode": "amount" },
+    "Tipologia tutela legale": { "value": "CONDOMINIO", "mode": "contains" }
+  }
+}

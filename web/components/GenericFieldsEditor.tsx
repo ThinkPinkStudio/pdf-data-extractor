@@ -6,7 +6,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 interface Field { id: string; label: string; description?: string; type?: string; enabled?: boolean }
 interface Profile { id: string; name: string; fields: Field[] }
 
-function uid() { return 'campo_' + Math.random().toString(36).slice(2, 9) }
+function uid() { return crypto.randomUUID ? crypto.randomUUID() : 'campo_' + Math.random().toString(36).slice(2, 9) }
 
 // Editor dei Campi/Profili di estrazione GENERICI (pagina Estrattore), come nel desktop.
 // Salva `extractions` e `profiles` nelle impostazioni; l'Estrattore può poi caricare
@@ -44,7 +44,7 @@ export default function GenericFieldsEditor() {
   async function save() { await persist({ extractions: fields }); setSaved(true); setTimeout(() => setSaved(false), 2500) }
   async function saveProfile() {
     if (!profileName.trim()) return
-    const next = [...profiles, { id: String(Date.now()), name: profileName.trim(), fields }]
+    const next = [...profiles, { id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: profileName.trim(), fields }]
     setProfiles(next); setProfileName(''); await persist({ profiles: next })
   }
   async function applyProfile(p: Profile) {
@@ -61,7 +61,7 @@ export default function GenericFieldsEditor() {
     try {
       const parsed = JSON.parse(await file.text())
       const arr: Profile[] = Array.isArray(parsed) ? parsed : [parsed]
-      const stamped = arr.map((p, i) => ({ ...p, id: String(Date.now() + i) }))
+      const stamped = arr.map((p, i) => ({ ...p, id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + i)) }))
       const next = [...profiles, ...stamped]
       setProfiles(next)
       const last = stamped[stamped.length - 1]

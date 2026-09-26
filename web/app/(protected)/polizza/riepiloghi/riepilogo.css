@@ -1,0 +1,186 @@
+/* ─── RIEPILOGHI GENERALI (26/09/2026) ──────────────────────────────────────
+   Pagine /polizza/riepiloghi e /polizza/riepiloghi/[id], dai mockup approvati
+   (Cruscotto, Tabella, Campo, Confronto). SOLO token dell'app: seguono il tema
+   chiaro e scuro. Tutto sotto .rp-scope (layout della sezione). Barra della
+   selezione e pannelli condivisi con Elaborazioni stanno in globals.css. */
+
+.rp-scope { min-width: 0; }
+.rp-scope .rp-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rp-scope .rp-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+/* Testata */
+.rp-scope .rp-crumb { font-size: 12px; color: var(--c-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-scope .rp-crumb a { color: var(--c-accent); }
+.rp-scope .rp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.rp-scope .rp-title { margin: 4px 0 6px; font-size: 22px; font-weight: 700; line-height: 1.25; letter-spacing: -0.2px; overflow-wrap: anywhere; }
+.rp-scope .rp-meta { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--c-text-secondary); flex-wrap: wrap; }
+.rp-scope .rp-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Toolbar: switch delle viste a sinistra, filtri a destra */
+.rp-scope .rp-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rp-scope .rp-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.rp-scope .rp-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: 8px; overflow: hidden; background: var(--c-bg-input); flex-wrap: wrap; }
+.rp-scope .rp-seg button { height: 32px; padding: 0 13px; background: transparent; border: 0; border-radius: 0; color: var(--c-text-secondary); font-size: 13px; font-weight: 500; box-shadow: none; }
+.rp-scope .rp-seg button:hover:not(.on) { color: var(--c-text-primary); background: var(--c-bg-hover); }
+.rp-scope .rp-seg button.on { background: var(--c-bg-active); color: var(--c-text-primary); }
+.rp-scope .jb-btn.rp-sel { height: 32px; padding: 0 12px; gap: 8px; border-radius: 8px; border: 1px solid var(--c-border); background: var(--c-bg-input); color: var(--c-text-primary); font-size: 13px; font-weight: 500; max-width: 280px; }
+.rp-scope .jb-btn.rp-sel:hover:not(:disabled) { background: var(--c-bg-hover); color: var(--c-text-primary); border-color: var(--c-border); }
+.rp-scope .rp-sel-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-scope .rp-noic { display: inline-block; width: 12px; flex: none; }
+.rp-scope .jb-menu { z-index: 80; max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; }
+
+/* Card */
+.rp-scope .rp-card { background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 16px 18px; min-width: 0; box-shadow: var(--shadow-sm); }
+.rp-scope .rp-ch { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rp-scope .rp-h { font-size: 13px; font-weight: 600; margin: 0; color: var(--c-text-primary); }
+.rp-scope .rp-sub { font-size: 12px; color: var(--c-text-secondary); }
+.rp-scope .rp-muted { color: var(--c-text-secondary); }
+.rp-scope .rp-empty { font-size: 13px; color: var(--c-text-secondary); padding: 8px 0; }
+.rp-scope .rp-note { font-size: 12px; color: var(--c-text-secondary); margin-top: 8px; }
+.rp-scope .rp-ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rp-scope .rp-grow { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-scope .rp-link { color: var(--c-text-primary); }
+.rp-scope .rp-link:hover { color: var(--c-accent); }
+.rp-scope .rp-open { font-size: 12px; width: 90px; text-align: right; flex: none; }
+.rp-scope .rp-date { width: 84px; text-align: right; flex: none; }
+.rp-scope .rp-linkbtn { background: transparent; border: 0; padding: 6px 0 0; color: var(--c-accent); font-size: 12px; font-weight: 500; box-shadow: none; border-radius: 0; }
+.rp-scope .rp-linkbtn:hover { color: var(--c-accent-hover); }
+.rp-scope .rp-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: var(--r-full); font-size: 11px; background: var(--c-bg-card-alt); color: var(--c-text-secondary); border: 1px solid var(--c-border); white-space: nowrap; }
+
+/* Griglie */
+.rp-scope .rp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.rp-scope .rp-g2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 12px; }
+.rp-scope .rp-g3 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.rp-scope .rp-g2e { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.rp-scope .rp-g13 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
+.rp-scope .rp-cmps { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+
+/* KPI */
+.rp-scope .rp-kv { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-scope .rp-kl { font-size: 12px; color: var(--c-text-secondary); margin-top: 2px; }
+.rp-scope .rp-up { font-size: 12px; margin-top: 8px; }
+
+/* Righe con barra */
+.rp-scope .rp-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--c-bg-hover); font-variant-numeric: tabular-nums; min-width: 0; }
+.rp-scope .rp-row:last-child { border-bottom: 0; }
+.rp-scope .rp-rowbtn { width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--c-bg-hover); border-radius: 0; color: var(--c-text-primary); font-weight: 400; text-align: left; justify-content: flex-start; white-space: normal; box-shadow: none; cursor: pointer; }
+.rp-scope .rp-rowbtn:last-child { border-bottom: 0; }
+.rp-scope .rp-rowbtn:hover:not(:disabled) { background: var(--c-bg-hover); }
+.rp-scope .rp-rowbtn.on { background: var(--c-accent-faint); box-shadow: inset 3px 0 0 var(--c-accent); }
+.rp-scope .rp-rl { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-scope .rp-rn { width: 34px; text-align: right; flex: none; }
+.rp-scope .rp-rx { width: 76px; text-align: right; flex: none; white-space: nowrap; }
+.rp-scope .rp-meter { display: block; height: 8px; border-radius: 4px; background: var(--c-bg-hover); flex: 1 1 0; overflow: hidden; min-width: 40px; }
+.rp-scope .rp-fill { display: block; height: 8px; border-radius: 4px; background: var(--c-accent); min-width: 2px; }
+.rp-scope .rp-fill.info { background: var(--c-info); }
+.rp-scope .rp-fill.ok { background: var(--c-success); }
+.rp-scope .rp-fill.muted { background: var(--c-text-muted); }
+
+/* Grafici SVG (mai colori scritti negli attributi) */
+.rp-scope svg text { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+.rp-scope .rp-col { fill: var(--c-accent); }
+.rp-scope .rp-col.info { fill: var(--c-info); }
+.rp-scope .rp-col.muted { fill: var(--c-text-muted); }
+.rp-scope .rp-col.partial { fill: none; stroke: var(--c-accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.rp-scope .rp-axis { stroke: var(--c-border); stroke-width: 1; }
+.rp-scope .rp-grid { stroke: var(--c-border); stroke-width: 1; stroke-dasharray: 3 5; }
+.rp-scope .rp-tick { fill: var(--c-text-muted); font-size: 10px; }
+.rp-scope .rp-val { fill: var(--c-text-primary); font-size: 12px; }
+.rp-scope .rp-val.ref { font-weight: 700; }
+.rp-scope .rp-val.dim { fill: var(--c-text-secondary); }
+.rp-scope .rp-xl { fill: var(--c-text-primary); font-size: 12px; }
+.rp-scope .rp-xl.dim { fill: var(--c-text-secondary); }
+.rp-scope .rp-xs { fill: var(--c-text-secondary); font-size: 11px; }
+
+/* Tabelle */
+.rp-scope .rp-tablecard { padding: 6px 8px 8px; }
+.rp-scope .rp-tablecard > .rp-ch { padding: 10px 10px 0; }
+.rp-scope .rp-scrollx { overflow-x: auto; max-width: 100%; }
+.rp-scope .rp-scrolly { max-height: 420px; overflow-y: auto; }
+.rp-scope .rp-table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.rp-scope .rp-table th { text-align: right; font-weight: 500; color: var(--c-text-secondary); font-size: 12px; padding: 9px 12px; border-bottom: 1px solid var(--c-border); white-space: nowrap; text-transform: none; letter-spacing: 0; }
+.rp-scope .rp-table td { text-align: right; padding: 0 12px; height: 38px; border-bottom: 1px solid var(--c-bg-hover); white-space: nowrap; }
+.rp-scope .rp-table tr:last-child td { border-bottom: 0; }
+.rp-scope .rp-table th.l, .rp-scope .rp-table td.l { text-align: left; }
+.rp-scope .rp-table tr.grp td { background: var(--c-bg-card-alt); color: var(--c-text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; text-align: left; padding: 7px 12px; height: auto; border-bottom: 1px solid var(--c-bg-hover); }
+.rp-scope .rp-table .cur { background: var(--c-accent-faint); }
+.rp-scope .rp-table .neu { color: var(--c-text-secondary); }
+.rp-scope .rp-table .rp-arr { color: var(--c-text-muted); }
+.rp-scope .rp-table.rp-mini td { height: 36px; }
+.rp-scope .rp-cellname { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Chip del calcolo (statico o menu) */
+.rp-scope .rp-op, .rp-scope .jb-btn.rp-op { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; font-size: 11px; font-weight: 500; line-height: 16px; padding: 2px 6px; border-radius: 6px; background: var(--c-bg-input); border: 1px solid var(--c-border); color: var(--c-text-secondary); white-space: nowrap; }
+.rp-scope .jb-btn.rp-op:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-text-primary); background: var(--c-bg-input); }
+.rp-scope .jb-btn.rp-op .jb-ico { width: 10px; height: 10px; }
+
+/* Vista «Per campo» */
+.rp-scope .rp-fv { display: flex; gap: 14px; align-items: flex-start; min-width: 0; }
+.rp-scope .rp-fl { width: 268px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px; }
+.rp-scope .rp-flg { display: flex; flex-direction: column; gap: 2px; }
+.rp-scope .rp-fc { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.rp-scope .rp-gt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-text-secondary); padding: 12px 10px 6px; }
+.rp-scope .rp-fi { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; border: 0; background: transparent; color: var(--c-text-primary); font-size: 13px; font-weight: 400; text-align: left; white-space: normal; box-shadow: none; }
+.rp-scope .rp-fi:hover:not(.on) { background: var(--c-bg-hover); }
+.rp-scope .rp-fi.on { background: var(--c-bg-active); font-weight: 500; }
+.rp-scope .rp-fi .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-scope .rp-k { margin-left: auto; font-size: 11px; color: var(--c-text-secondary); flex: none; font-weight: 400; }
+.rp-scope .rp-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.rp-scope .rp-st { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rp-scope .rp-sv { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-scope .rp-sl { font-size: 12px; color: var(--c-text-secondary); }
+
+/* Vista «Confronto» */
+.rp-scope .rp-cmp { display: flex; flex-direction: column; gap: 6px; }
+.rp-scope .rp-cl { font-size: 12px; color: var(--c-text-secondary); }
+.rp-scope .rp-cv { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.rp-scope .rp-old { font-size: 15px; color: var(--c-text-secondary); }
+.rp-scope .rp-arr { color: var(--c-text-muted); }
+.rp-scope .rp-nw { font-size: 22px; font-weight: 700; }
+.rp-scope .rp-d { display: inline-block; font-size: 12px; padding: 2px 7px; border-radius: var(--r-full); background: color-mix(in srgb, var(--c-success) 12%, transparent); white-space: nowrap; }
+.rp-scope .rp-d.neg { background: color-mix(in srgb, var(--c-error) 12%, transparent); }
+.rp-scope .rp-d.n { background: var(--c-bg-card-alt); color: var(--c-text-secondary); }
+.rp-scope .rp-tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: var(--r-full); border: 1px solid var(--c-border); color: var(--c-text-secondary); margin-right: 4px; white-space: nowrap; }
+.rp-scope .rp-tag.new { border-color: color-mix(in srgb, var(--c-info) 60%, transparent); }
+.rp-scope .rp-tag.out { border-color: color-mix(in srgb, var(--c-warning) 55%, transparent); }
+.rp-scope .rp-cont { display: flex; gap: 2px; height: 14px; border-radius: 7px; overflow: hidden; margin: 16px 0 12px; }
+.rp-scope .rp-cont > span { display: block; height: 100%; min-width: 2px; }
+.rp-scope .rp-cont > .rp-cont-empty { flex: 1 1 0; background: var(--c-bg-hover); }
+.rp-scope .rp-cont-n { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rp-scope .rp-big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rp-scope .rp-sq { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+/* Drawer «Modifica selezione» (sopra la pagina, a destra) */
+.rp-scope .rp-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 100vw; z-index: 65; }
+.rp-scope .rp-dhead { display: flex; align-items: center; gap: 10px; padding: 14px 20px 12px; border-bottom: 1px solid var(--c-border); }
+.rp-scope .rp-dbody { display: flex; flex-direction: column; gap: 14px; padding: 14px 20px 16px; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.rp-scope .rp-dlist { display: flex; flex-direction: column; gap: 6px; flex: 1 1 0; min-height: 120px; }
+.rp-scope .rp-dbody input[type="text"] { height: 34px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
+.rp-scope .rp-mlist { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.rp-scope .rp-mrow { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--c-bg-hover); }
+.rp-scope .rp-mrow:last-child { border-bottom: 0; }
+.rp-scope .rp-mstate { font-size: 11px; }
+
+/* Elenco dei riepiloghi */
+.rp-scope .rp-listgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.rp-scope .rp-listempty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 24px; text-align: center; font-size: 13px; color: var(--c-text-secondary); }
+.rp-scope .rp-listempty p { max-width: 520px; }
+.rp-scope .rp-bigico { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--r-md); background: var(--c-accent-faint); color: var(--c-accent); }
+.rp-scope .rp-bigico .jb-ico { width: 22px; height: 22px; }
+
+/* Larghezze ridotte: la classe la mette la pagina misurando il proprio contenitore. */
+.rp-scope .rp-narrow .rp-g2, .rp-scope .rp-narrow .rp-g3, .rp-scope .rp-narrow .rp-g2e, .rp-scope .rp-narrow .rp-g13 { grid-template-columns: minmax(0, 1fr); }
+.rp-scope .rp-narrow .rp-fv { flex-direction: column; align-items: stretch; }
+.rp-scope .rp-narrow .rp-fl { width: auto; max-height: 300px; overflow-y: auto; }
+.rp-scope .rp-narrow .rp-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rp-scope .rp-narrow .rp-toolbar { justify-content: flex-start; }
+.rp-scope .rp-narrow .rp-filters { justify-content: flex-start; }
+.rp-scope .rp-tiny .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rp-scope .rp-tiny .rp-cont-n { grid-template-columns: minmax(0, 1fr); }
+.rp-scope .rp-tiny .rp-open, .rp-scope .rp-tiny .rp-rx { width: auto; }
+@media (max-width: 520px) {
+  .rp-scope .rp-drawer { width: 100vw; }
+}
+
+/* Revisione 26/09/2026: «*» su una cella in cui non tutte le polizze dell'anno hanno il valore. */
+.rp-scope .rp-part { margin-left: 1px; font-size: 10px; vertical-align: super; color: var(--c-text-secondary); }

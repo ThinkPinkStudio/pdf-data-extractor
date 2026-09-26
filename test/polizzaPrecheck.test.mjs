@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
-  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
+  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms, hasPolicyEvidence,
   KEYWORD_MIN_RATIO, SEMANTIC_MIN, LLM_MIN,
 } from '../src/services/polizzaPrecheck.js'
 
@@ -112,8 +112,10 @@ test('decidePrecheck: verdetti ai bordi delle soglie', () => {
   assert.equal(decidePrecheck({ ...base, mode: 'keywords', keyword: { ratio: KEYWORD_MIN_RATIO } }).verdict, 'ok')
   assert.equal(decidePrecheck({ ...base, mode: 'keywords', keyword: { ratio: KEYWORD_MIN_RATIO - 0.01 } }).verdict, 'mismatch')
   // semantic sopra/sotto
-  assert.equal(decidePrecheck({ ...base, mode: 'semantic', semantic: SEMANTIC_MIN }).verdict, 'ok')
-  assert.equal(decidePrecheck({ ...base, mode: 'semantic', semantic: SEMANTIC_MIN - 0.01 }).verdict, 'mismatch')
+  // semantico = CONFRONTO tra profili (nessuna soglia): passa se il profilo del job è il più affine
+  const rk = [{ id: 'a', name: 'A', score: 0.6 }, { id: 'b', name: 'B', score: 0.5 }]
+  assert.equal(decidePrecheck({ ...base, mode: 'semantic', semanticRanking: rk, jobProfileId: 'a' }).verdict, 'ok')
+  assert.equal(decidePrecheck({ ...base, mode: 'semantic', semanticRanking: rk, jobProfileId: 'b' }).verdict, 'mismatch')
   // llm sopra/sotto
   assert.equal(decidePrecheck({ ...base, mode: 'llm', llm: LLM_MIN }).verdict, 'ok')
   assert.equal(decidePrecheck({ ...base, mode: 'llm', llm: LLM_MIN - 0.01 }).verdict, 'mismatch')
@@ -125,7 +127,7 @@ test('decidePrecheck: TUTTE le degradazioni → mai bloccare per guasti o config
   // nessun profilo (campi globali) → skipped
   assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false }).verdict, 'skipped')
   // keywords senza contentKeywords → degrada a semantic (e la usa davvero)
-  const d = decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: false, semantic: 0.9 })
+  const d = decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: false, semanticRanking: [{ id: 'a', name: 'A', score: 0.9 }], jobProfileId: 'a' })
   assert.equal(d.mode, 'semantic')
   assert.equal(d.verdict, 'ok')
   // embeddings assenti nel modo semantic → skipped, MAI mismatch
@@ -169,4 +171,89 @@ test('topContentTerms: termini frequenti senza boilerplate assicurativo', () => 
   const terms = topContentTerms(norm, 3)
   assert.deepEqual(terms.slice(0, 2), ['incendio', 'fabbricati'])
   assert.ok(!terms.includes('polizza') && !terms.includes('compagnia'))
+})
+
+test('hasPolicyEvidence: frontee "polizza vera" vs solo informativo/quietanza', () => {
+  const withPol = normalizeForPrecheck('Numero polizza: BL05000049\nContraente: Pilato\nMassimale per sinistro: 2.500.000,00\nPremio: 3.300,00')
+  const infoOnly = normalizeForPrecheck('Questo fascicolo contiene il prospetto informativo e la quietanza di rinnovo. Le condizioni generali di assicurazione sono allegate.')
+  const tooShort = normalizeForPrecheck('Breve.')
+  assert.equal(hasPolicyEvidence(withPol), true)
+  assert.equal(hasPolicyEvidence(infoOnly), false)
+  assert.equal(hasPolicyEvidence(tooShort), null) // non giudicabile → null → MAI mismatch
+  assert.equal(hasPolicyEvidence(''), null)
+})
+
+test('decidePrecheck: la validità «polizza vera» la decide la domanda al modello, non la regex (26/09/2026)', () => {
+  const base = { mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0.6 }, requireValidPolicy: true }
+  // la vecchia regex (hasPolicyEvidence) non decide più: nessun blocco a parole
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: true }).verdict, 'ok')
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: false }).verdict, 'ok')
+  // contratto «assente» (risposta del modello) → Non valido, con la ragione
+  const d = decidePrecheck({ ...base, contract: { esito: 'assente', reason: 'nessuna polizza tra i documenti letti: solo informativa' } })
+  assert.equal(d.verdict, 'mismatch'); assert.equal(d.notValid, true)
+  assert.match(d.reason, /nessuna polizza/)
+  // guasto della domanda → mai Non valido: da verificare
+  const g = decidePrecheck({ ...base, contract: { esito: 'non verificata', reason: 'controllo della polizza non eseguibile', error: true } })
+  assert.equal(g.verdict, 'review'); assert.ok(!g.notValid)
+  // «non determinabile» = polizza NON VISTA dal modello: da soli non si
+  // estrae (un «ok» diventa «da verificare», con la nota nel perché); un
+  // blocco resta un blocco, con la nota (chi forza sa cosa forza)
+  const nd = decidePrecheck({ ...base, contract: { esito: 'non determinabile', reason: 'il modello non ha potuto dire se c\'è una polizza' } })
+  assert.equal(nd.verdict, 'review'); assert.ok(!nd.notValid)
+  assert.match(nd.reason, /polizza non vista dal modello \(non determinabile\)/)
+  const ndBlock = decidePrecheck({ ...base, keyword: { ratio: 0 }, contract: { esito: 'non determinabile', reason: 'x' } })
+  assert.equal(ndBlock.verdict, 'mismatch'); assert.ok(!ndBlock.notValid); assert.match(ndBlock.reason, /polizza non vista dal modello/)
+  // la nota non si ripete se l'operatività l'ha già messa (applyContractVerdict)
+  const once = decidePrecheck({ mode: 'llm', hasProfile: true, hasRecognition: true, operativita: { verdict: 'review', reason: 'copertura operante; polizza non vista dal modello (non determinabile): x' }, contract: { esito: 'non determinabile', reason: 'x' } })
+  assert.equal(once.reason.match(/polizza non vista dal modello/g).length, 1)
+  // pre-controllo spento: la polizza vista serve lo stesso
+  assert.equal(decidePrecheck({ mode: 'off', hasProfile: true, contract: { esito: 'non determinabile', reason: 'x' } }).verdict, 'review')
+  assert.equal(decidePrecheck({ mode: 'off', hasProfile: true, contract: { esito: 'presente', reason: 'polizza presente' } }).verdict, 'skipped')
+  // il flag non spegne più la regola (SEMPRE)
+  assert.equal(decidePrecheck({ ...base, requireValidPolicy: false, contract: { esito: 'assente', reason: 'nessuna polizza' } }).notValid, true)
+  // nessun profilo: la polizza si verifica lo stesso
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false }).verdict, 'skipped')
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false, contract: { esito: 'assente', reason: 'nessuna polizza' } }).notValid, true)
+})
+
+test('rankProfilesSemantic + semanticRankingVerdict: confronto tra profili, nessuna soglia', async () => {
+  const { rankProfilesSemantic, semanticRankingVerdict, decidePrecheck } = await import('../src/services/polizzaPrecheck.js')
+  const ranking = rankProfilesSemantic([
+    { id: 'tl', name: 'Tutela Legale 3', perFieldMax: [0.5, 0.6, 0.7] },
+    { id: 'rc', name: 'Rc Professionale V3', perFieldMax: [0.4, 0.5, 0.3] },
+    { id: 'x', name: 'Senza embeddings', perFieldMax: [] },
+  ])
+  assert.deepEqual(ranking.map((r) => r.id), ['tl', 'rc', 'x'])
+  assert.equal(semanticRankingVerdict('tl', ranking).verdict, 'ok')
+  const m = semanticRankingVerdict('rc', ranking)
+  assert.equal(m.verdict, 'mismatch')
+  assert.equal(m.best.id, 'tl')
+  assert.ok(/Tutela Legale 3/.test(m.reason))
+  assert.equal(semanticRankingVerdict('x', ranking).verdict, 'skipped', 'senza punteggio mai mismatch')
+  assert.equal(semanticRankingVerdict('tl', ranking.slice(0, 1)).verdict, 'ok', 'profilo unico: nessun confronto')
+  // decidePrecheck integra la classifica; senza classifica → skipped (niente soglia)
+  const d = decidePrecheck({ mode: 'semantic', hasProfile: true, hasContentKeywords: false, semanticRanking: ranking, jobProfileId: 'rc' })
+  assert.equal(d.verdict, 'mismatch'); assert.equal(d.threshold, null)
+  assert.equal(decidePrecheck({ mode: 'semantic', hasProfile: true, hasContentKeywords: false, semantic: 0.3 }).verdict, 'skipped')
+})
+
+test('policyEvidenceReport: diagnostica a parole (non decide più), dice cosa manca', async () => {
+  const { policyEvidenceReport, decidePrecheck, normalizeForPrecheck, REQUIRE_VALID_POLICY_DEFAULT } = await import('../src/services/polizzaPrecheck.js')
+  assert.equal(REQUIRE_VALID_POLICY_DEFAULT, true)
+  const dip = normalizeForPrecheck('Set informativo. Documento informativo precontrattuale. Il presente documento contiene informazioni sul prodotto assicurativo e sulla società; le condizioni complete sono nel contratto. ' + 'x'.repeat(40))
+  const rep = policyEvidenceReport(dip)
+  assert.equal(rep.ok, false)
+  assert.ok(rep.missing.some((m) => /numero di polizza/.test(m)))
+  // a pre-controllo spento e senza risposta sul contratto la regex non ferma nulla
+  const d = decidePrecheck({ mode: 'off', hasProfile: true, hasPolicyEvidence: rep.ok, policyMissing: rep.missing, requireValidPolicy: true })
+  assert.equal(d.verdict, 'skipped'); assert.ok(!d.setAside && !d.notValid)
+  const ok = policyEvidenceReport(normalizeForPrecheck('Polizza n. 01469DAS00074 Contraente BOLCHINI MARGHERITA Massimale per sinistro 25.000,00 Premio lordo 244,00 ' + 'y'.repeat(30)))
+  assert.equal(ok.ok, true); assert.deepEqual(ok.missing, [])
+})
+
+test('policyEvidenceReport: "Polizza n. 0146905119" della quietanza DAS è una voce di polizza', async () => {
+  const { policyEvidenceReport, normalizeForPrecheck } = await import('../src/services/polizzaPrecheck.js')
+  const q = normalizeForPrecheck('QUIETANZA DI PAGAMENTO DEL PREMIO Quietanza n. 693689027 Polizza n. 0146905119 Intestata a: ALZAIA NAV. PAVESE 104 CONDOMINIO Dal 31/01/26 al 31/01/27 Tutela Legale ESCLUSA 31.000,00 Premio netto Imposte Premio lordo € 615,25 € 130,75 € 746,00')
+  const rep = policyEvidenceReport(q)
+  assert.equal(rep.ok, true, rep.missing.join(' / '))
 })

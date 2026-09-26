@@ -15,22 +15,28 @@ import {
   applyDeterministicOverrides, isBareGlobalFranchigia, NUMERIC_SCAN_KINDS,
 } from '../src/services/polizzaNumericScan.js'
 
-// ── Regola 2: auto-kind da label (anti-0 universale senza type esplicito) ────
-test('R2 autoKind: label testuali senza type esplicito → kind text', () => {
-  for (const label of ['Tacito Rinnovo', 'Frazionamento', 'Esclusioni',
-    'Condizioni particolari', 'Visto leggero', 'Sottolimiti', 'Retroattività']) {
-    const k = autoKind({ label })
-    assert.equal(k, 'text', `label "${label}" dovrebbe essere text, got ${k}`)
+// ── Regola 2: auto-kind dalla DESCRIZIONE (anti-0 senza type esplicito) ─────
+// [13/09/2026] La label non decide più nulla (Regola 1): "Frazionamento" e
+// "Tacito Rinnovo" in RC V3 chiedono imponibile e imposte. Decide la descrizione.
+test('R2 autoKind: descrizioni testuali (domanda, esempi di sole parole, "come TESTO") → kind text; la sola label non basta', () => {
+  assert.equal(autoKind({ label: 'Visto leggero', description: 'Verifica se la polizza comprende visto leggero. Indica: presente, escluso o non indicato.' }), 'text')
+  assert.equal(autoKind({ label: 'Frazionamento', description: 'Frazionamento del premio: la periodicità di pagamento del premio, come TESTO (es. Annuale, Semestrale).' }), 'text')
+  assert.equal(autoKind({ label: 'Parametro regolazione', description: 'Parametro utilizzato per la regolazione del premio: il NOME del parametro (es. Retribuzioni, Fatturato).' }), 'text')
+  for (const label of ['Tacito Rinnovo', 'Frazionamento', 'Esclusioni', 'Sottolimiti', 'Retroattività']) {
+    assert.notEqual(autoKind({ label }), 'text', `la sola label "${label}" non deve decidere il tipo`)
   }
+  // label fuorviante + descrizione numerica con esempi in ELENCO → number
+  assert.equal(autoKind({ label: 'Tacito Rinnovo', description: "Imposte della polizza RC per l'intero periodo annuo (es. 49,05, 137,67): la cifra nella colonna IMPOSTE." }), 'number')
+  assert.equal(autoKind({ label: 'Frazionamento', description: 'Premio imponibile della polizza RC (es. 220,45, 618,75): la voce IMPONIBILE della tabella premi.' }), 'number')
 })
 
-test('R2 isTextualField: label testuale con type assente → true (anti-0)', () => {
-  const f = { id: 'rcp_frazionamento', label: 'Frazionamento' }
-  assert.equal(isTextualField(f), true)
+test('R2 isTextualField: descrizione testuale con type assente → true (anti-0); la label da sola no', () => {
+  assert.equal(isTextualField({ id: 'x', label: 'Frazionamento', description: 'Frazionamento del premio come TESTO (es. Annuale, Semestrale)' }), true)
+  assert.notEqual(isTextualField({ id: 'x', label: 'Frazionamento', description: 'Premio imponibile della polizza RC (es. 220,45): la voce IMPONIBILE' }), true)
 })
 
 test('R2 isTextualZeroPlaceholder: "0" su campo text → scartato', () => {
-  const f = { id: 'rcp_imposta', type: 'text', label: 'Visto leggero' }
+  const f = { id: 'rcp_imposta', type: 'text', label: 'Visto leggero', description: 'Verifica se la polizza comprende visto leggero. Indica: presente, escluso o non indicato.' }
   assert.equal(isTextualField(f), true)
   assert.equal(isTextualZeroPlaceholder(f, '0'), true)
 })
@@ -42,8 +48,17 @@ test('R2 fieldKind esplicito non regredisce: "0" su campo number resta valorizza
 
 // ── Regola 7: anti-label blacklist (intestazioni di sezione) ────────────────
 test('R7 isLabelLikeValue: intestazioni di sezione → true (scartate)', () => {
-  for (const v of ['IL CONTRAENTE', 'Contratto di Assicurazione per la Responsabilità Civile Professionale del Medico', 'Ramo di competenza: RC']) {
+  for (const v of ['IL CONTRAENTE', 'Contratto di Assicurazione', 'Ramo di competenza', 'Condizioni particolari', 'Esclusioni', 'Massimale per sinistro']) {
     assert.equal(isLabelLikeValue(v), true, `"${v}" dovrebbe essere scartata`)
+  }
+})
+
+// [25/09/2026, F09] Match sull'INTERA stringa: un valore che CONTIENE le parole
+// di un'intestazione non è un'intestazione. Prima (substring) anche questi due
+// erano scartati; il revisore ha accettato di perderli come costo dell'ancoraggio.
+test('R7 isLabelLikeValue: frasi che CONTENGONO un\'intestazione non sono intestazioni', () => {
+  for (const v of ['Contratto di Assicurazione per la Responsabilità Civile Professionale del Medico', 'Ramo di competenza: RC']) {
+    assert.equal(isLabelLikeValue(v), false, `"${v}" non è più scartata (match full-string)`)
   }
 })
 

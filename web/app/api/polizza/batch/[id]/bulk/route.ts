@@ -2,17 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
-import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
-import { startJob } from '@/lib/polizzaJobWorker'
+import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob, markBatchNeedsReconcile, markBatchReconciled, splitJobByOrigin } from '@/lib/polizzaJobStore'
+import { isBatchRunning, startBatch } from '@/lib/polizzaBatchWorker'
+import { isJobRunning, startJob } from '@/lib/polizzaJobWorker'
+import { importSharedService } from '@/lib/sharedServices'
+import { isNotValidJob, NOT_VALID_REFUSAL } from '@/lib/jobValidity'
 
 export const runtime = 'nodejs'
 
 // Azioni in BULK nella pagina Elaborazioni: applica l'azione scelta a una lista
 // di jobId di un batch, riusando le logiche per-job esistenti (resetJobForRetry,
-// reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob) con
-// un unico startBatch alla fine. Le azioni non applicabili a un dato stato vengono
+// reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, createTestJob,
+// confirmMatchAndRequeue) con un unico startBatch alla fine.
+// 'rematch': RIABBINA — rifà OCR (cache) e pertinenza e si ferma in 'matched';
+//   profileId '' = profilo attuale del job, 'auto' = riconoscimento automatico,
+//   altrimenti il profilo scelto. 'extract': ▶ sui job abbinati. Le azioni non applicabili a un dato stato vengono
 // saltate: la risposta riporta quanti job sono stati eseguiti e quanti saltati.
+// I «Non valido» (nessuna polizza, regola dell'utente del 26/09/2026) non si
+// forzano mai: 'proceed', 'extract' e 'reuse' li contano a parte (`notValid`,
+// `notValidIds`, con il perché in `notValidReason`); rematch/retry/reprofile/
+// test restano permessi perché rifanno il controllo, polizza compresa.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()
@@ -29,10 +38,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     perField?: boolean
     stagedCascade?: boolean
     promptExtra?: string
+    // Riabbina + estrai in un colpo solo (action 'rematch'): niente sosta in 'matched'.
+    extract?: boolean
+    // Riabbina di un batch GIÀ CARICATO con riconciliazione (action 'rematch'):
+    // prima si uniscono i dossier con lo stesso NUMERO DI POLIZZA (stesse regole
+    // dei batch nuovi, polizzaReconcile), poi l'abbinamento.
+    reconcile?: boolean
+    // 'split': dopo la separazione per cartella d'origine rimette in coda per
+    // l'abbinamento il dossier e i nuovi (con profileId/reconcile come il Riabbina).
+    rematch?: boolean
   } = {}
   try { body = await req.json() } catch { /* body vuoto = nessuna azione */ }
 
   const action = body.action || ''
+  const wantsAuto = body.profileId === 'auto'
   const jobIds = Array.isArray(body.jobIds) ? [...new Set(body.jobIds.map(String))].filter(Boolean) : []
   if (!action) return NextResponse.json({ error: 'Azione mancante' }, { status: 400 })
   if (!jobIds.length) return NextResponse.json({ error: 'Nessun job selezionato' }, { status: 400 })
@@ -47,12 +66,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const settings = await getSettings()
   // Risoluzione del profilo (per le azioni che lo richiedono): autoritativa lato
   // server, come nel route /reprofile e /test.
-  const profile = body.profileId
+  const profile = body.profileId && !wantsAuto
     ? (settings.polizzaProfiles || []).find((p) => p.id === body.profileId) || null
     : null
   // Le azioni "rielabora con profilo" richiedono un profilo: risolto in modo
   // autoritativo lato server (come nel route /reprofile e /test).
   const needsProfile = action === 'reprofile' || action === 'reprofileBatch'
+    // Riabbina CON un profilo scelto (profileId ≠ auto/vuoto): il profilo deve esistere,
+    // come nel route /rematch — niente ripiego silenzioso sul profilo attuale.
+    || ((action === 'rematch' || (action === 'split' && body.rematch === true)) && !!body.profileId && !wantsAuto)
   if (needsProfile && !profile) {
     return NextResponse.json({ error: 'Profilo non trovato' }, { status: 400 })
   }
@@ -72,13 +94,53 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (typeof body.perField === 'boolean') settingsOverride.polizzaPerField = body.perField
   const override = Object.keys(settingsOverride).length ? settingsOverride : null
 
+  // RICONCILIA (batch caricati prima del 25/09, o da rifare): la riconciliazione
+  // gira sui dossier IN CODA prima che l'orchestratore li elabori e annulla tutto
+  // se un dossier coinvolto non è più in coda. Con un job del batch già in corso
+  // l'orchestratore è partito e non la farebbe: si rifiuta.
+  const reconcile = (action === 'rematch' || (action === 'split' && body.rematch === true)) && body.reconcile === true
+  // Stato del DB e memoria del processo possono divergere (un dossier annullato
+  // ancora in esecuzione, l'orchestratore del batch ancora vivo): Riunisci e
+  // Separa non partono finché nel processo gira qualcosa di questo batch.
+  if ((reconcile || action === 'split') && (isBatchRunning(params.id) || targets.some((id) => isJobRunning(id)))) {
+    return NextResponse.json({ error: 'Operazione non avviata: il batch sta ancora elaborando (anche dossier annullati in chiusura). Riprova tra poco.' }, { status: 409 })
+  }
+  if (reconcile) {
+    const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
+    if (active.length) {
+      return NextResponse.json({ error: `Riconciliazione non avviata: ${active.length} dossier del batch sono in corso o in coda. Riprova quando hanno finito.` }, { status: 409 })
+    }
+    await markBatchNeedsReconcile(params.id)
+  }
+
   let done = 0
   let skipped = 0
   const skippedIds: string[] = []
+  let notValid = 0
+  const notValidIds: string[] = []
+  // SEPARA (annulla un'unione): con un dossier del batch in corso l'orchestratore
+  // potrebbe prendere i nuovi prima del Riabbina: si rifiuta, come per Riconcilia.
+  const splitCreated: { from: string; id: string; folder: string; files: number }[] = []
+  const splitRefused: string[] = []
+  if (action === 'split' && !reconcile) {
+    const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
+    if (active.length) {
+      return NextResponse.json({ error: `Separazione non avviata: ${active.length} dossier del batch sono in corso o in coda. Riprova quando hanno finito.` }, { status: 409 })
+    }
+  }
+  // Opzioni del Riabbina (anche per i dossier separati da rimettere in coda).
+  const rematchOpts = () => wantsAuto
+    ? { fieldDefs: [] as NonNullable<Awaited<ReturnType<typeof getJob>>>['field_defs'], promptExtra: null, profileId: 'auto', profileName: 'Automatico (semantico)', matchOnly: true }
+    : profile && profileFields
+      ? { fieldDefs: profileFields, promptExtra: profile.promptExtra || null, profileId: profile.id, profileName: profile.name, matchOnly: true }
+      : { matchOnly: true }
 
   for (const id of targets) {
     const job = await getJob(id)
     if (!job) { skipped++; skippedIds.push(id); continue }
+    if ((action === 'proceed' || action === 'extract' || action === 'reuse') && isNotValidJob(job)) {
+      notValid++; notValidIds.push(id); continue
+    }
 
     if (action === 'retry' || action === 'reprocess') {
       // Rielabora: stesso campo del job, azzera pre-check. Vale per errori, annullati
@@ -99,6 +161,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } else if (action === 'proceed') {
       const res = await overridePrecheckAndRequeue(id, session.email)
       if (res) done++; else { skipped++; skippedIds.push(id) }
+    } else if (action === 'extract') {
+      const res = await confirmMatchAndRequeue(id, session.email)
+      if (res) done++; else { skipped++; skippedIds.push(id) }
+    } else if (action === 'split') {
+      const res = await splitJobByOrigin(id, session.email)
+      if (!res || 'refused' in res) { skipped++; skippedIds.push(id); if (res && 'refused' in res) splitRefused.push(`${job.dossier_name || id}: ${res.refused}`); continue }
+      done++
+      // I punti dell'indice vettoriale del dossier valevano per l'unione: via
+      // (best-effort); la prossima estrazione lo reindicizza.
+      try {
+        const vec = await importSharedService<{ isVectorIndexEnabled: (s: unknown) => boolean; deletePointsByFilter: (f: { jobId: string }, s: unknown) => Promise<unknown> }>('vectorIndexService.js')
+        if (vec.isVectorIndexEnabled(settings)) await vec.deletePointsByFilter({ jobId: id }, settings)
+      } catch { /* best-effort */ }
+      for (const c of res.created) splitCreated.push({ from: id, ...c })
+      if (body.rematch === true) {
+        for (const jid of [id, ...res.created.map((c) => c.id)]) await resetJobForRetry(jid, session.email, rematchOpts())
+      }
+    } else if (action === 'rematch') {
+      // Riabbina: stesso profilo (nessun profileId), Automatico ('auto': campi
+      // congelati dal worker sul profilo riconosciuto) o un profilo scelto.
+      const opts = wantsAuto
+        ? { fieldDefs: [] as typeof job.field_defs, promptExtra: null, profileId: 'auto', profileName: 'Automatico (semantico)', matchOnly: true }
+        : profile && profileFields
+          ? { fieldDefs: profileFields, promptExtra: profile.promptExtra || null, profileId: profile.id, profileName: profile.name, matchOnly: true }
+          : { matchOnly: true }
+      const res = await resetJobForRetry(id, session.email, body.extract === true ? { ...opts, matchOnly: false, andExtract: true } : opts)
+      if (res) done++; else { skipped++; skippedIds.push(id) }
     } else if (action === 'cancel') {
       const res = await cancelJob(id)
       if (res) done++; else { skipped++; skippedIds.push(id) }
@@ -110,6 +199,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         sourceJobId: job.id, email: session.email, fieldDefs: srcFieldDefs,
         promptExtra: body.promptExtra !== undefined ? (body.promptExtra || null) : (profile ? (profile.promptExtra || null) : job.prompt_extra || null),
         settingsOverride: override || {}, label: `TEST · ${job.dossier_name || job.id.slice(0, 8)}${model ? ` · ${model}` : ''}`,
+        ...(profile ? { profileId: profile.id, profileName: profile.name } : {}),
       })
       if (res) { done++; startJob(res.id) } else { skipped++; skippedIds.push(id) }
     } else {
@@ -117,12 +207,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
-  // Ripartenza dell'orchestratore: un solo startBatch per i job rilanciati del batch.
-  if (done > 0) startBatch(params.id)
+  // Nessun dossier rimesso in coda: la riconciliazione accesa resterebbe in
+  // sospeso per un rilancio futuro qualsiasi.
+  if (reconcile && done === 0) await markBatchReconciled(params.id)
+  // Ripartenza dell'orchestratore: un solo startBatch per i job rilanciati del
+  // batch (una separazione senza Riabbina non rimette in coda nulla).
+  if (done > 0 && (action !== 'split' || body.rematch === true)) startBatch(params.id)
 
   await logAction({
-    email: session.email, action: `polizza.batch.bulk.${action}`,
-    resource: `${batch.label} (${done}/${targets.length}${skipped ? `, ${skipped} saltati` : ''})`, ip,
+    email: session.email, action: `polizza.batch.bulk.${action}${reconcile ? '.reconcile' : ''}`,
+    resource: `${batch.label} (${done}/${targets.length}${skipped ? `, ${skipped} saltati` : ''}${notValid ? `, ${notValid} non validi` : ''})`, ip,
   })
-  return NextResponse.json({ ok: true, action, done, skipped, requested: targets.length, skippedIds })
+  return NextResponse.json({
+    ok: true, action, done, skipped, requested: targets.length, skippedIds,
+    notValid, notValidIds, ...(notValid ? { notValidReason: NOT_VALID_REFUSAL } : {}),
+    ...(action === 'split' ? { created: splitCreated, refused: splitRefused } : {}),
+  })
 }

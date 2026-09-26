@@ -18,8 +18,10 @@
  * `looseAmount`. Nessun accoppiamento ai servizi di import: testabile in Node
  * puro come gli altri test del repo.
  */
-import { looseAmount, factNature, descriptionDeniesNature } from './polizzaValidation.js'
+import { looseAmount, factNature, descriptionDeniesNature, descriptionNamesQuestionnaire } from './polizzaValidation.js'
+import { fieldValueKind } from './gbnfSchema.js'
 import { scanKindForField, NUMERIC_SCAN_KINDS } from './polizzaNumericScan.js'
+import { fieldNatura } from './polizzaFieldKind.js'
 
 // Importo "LARGO": sotto questa soglia un candidato senza riscontro nel registro
 // non viene MAI bloccato (troppo facile far scattare falsi veto su cifre piccole,
@@ -230,6 +232,140 @@ export function detectOptionLikeText(text) {
 }
 
 /**
+ * Il documento È un questionario/proposta: lo dice il suo TITOLO (le prime
+ * righe della prima pagina con testo), non una parola qualunque nel corpo. Un
+ * contratto di 34 pagine che cita "il Questionario è parte integrante della
+ * polizza" NON è un questionario: con la parola cercata ovunque i suoi
+ * massimali (scheda di copertura) finivano vetati come "opzioni".
+ */
+export function isQuestionnaireTitle(firstPageText) {
+  const head = String(firstPageText || '').replace(/\s+/g, ' ').trim().slice(0, 120).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return QUESTIONNAIRE_TITLE_RE.test(head)
+}
+const QUESTIONNAIRE_TITLE_RE = /questionario|modulo di proposta|proposta di assicurazione|proposta\s*\/\s*questionario/
+
+/**
+ * La PAGINA ha un titolo di questionario/proposta: nella sua testa (gli stessi
+ * primi 120 caratteri di isQuestionnaireTitle) una CELLA della griglia \u2014 una
+ * riga, o un tratto separato da \u22652 spazi \u2014 COMINCIA con le stesse parole
+ * (\u00abQuestionario di Assicurazione Rc Professionale\u00bb, \u00ab\u2026 POLIZZA N. \u2026
+ * QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE\u00bb). Per le pagine
+ * interne a un documento la parola \u00abovunque nella testa\u00bb di isQuestionnaireTitle
+ * marcava anche la prosa e gli elenchi del contratto (\u00ab\u2026definiti nella proposta
+ * di Assicurazione\u2026\u00bb a pag. 6 di una polizza XL, \u00ab\u25aa Questionario medico -
+ * sportivo\u00bb in un elenco MetLife). Limiti noti (misurati sulle 10.044 pagine
+ * locali, 26/09/2026): restano marcati un glossario (\u00abModulo di Proposta / il
+ * formulario\u2026\u00bb) e un frontespizio che elenca \u00abScheda di copertura |
+ * Questionario | Condizioni\u00bb; perdono il marchio le pagine \u00abDICHIARAZIONI
+ * RELATIVE AL QUESTIONARIO\u2026\u00bb (Aviva); le pagine di un questionario SENZA il
+ * titolo ripetuto restano pagine qualsiasi.
+ * @param {string} pageText  griglia (o testo piatto) GREZZA della pagina
+ */
+export function isQuestionnairePageTitle(pageText) {
+  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const starts = new RegExp(`^(?:${QUESTIONNAIRE_TITLE_RE.source})`)
+  let used = 0
+  for (const line of String(pageText || '').split('\n')) {
+    const flat = line.replace(/\s+/g, ' ').trim()
+    if (!flat) continue
+    if (used >= 120) break
+    if (line.split(/\s{2,}/).some((cell) => starts.test(norm(cell.trim())))) return true
+    used += flat.length + 1
+  }
+  return false
+}
+
+/** Riga con una CASELLA e un IMPORTO: l'importo è un'opzione tra più scelte. */
+const OPTION_LINE_RE = /(?:[\u2610\u2611\u2612\u2751\u2752\u25EF\u20DD\u25CB\u25A1]|\[[ xX]\])[^\n]*\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d{1,3}(?:\.\d{3})+(?:,\d{2})?[^\n]*(?:[\u2610\u2611\u2612\u2751\u2752\u25EF\u20DD\u25CB\u25A1]|\[[ xX]\])/
+export function hasOptionAmountLine(pageText) {
+  return String(pageText || '').split('\n').some((l) => OPTION_LINE_RE.test(l))
+}
+
+// ─── CHECKBOX / SELEZIONI (lettura, non solo rivelazione di "opzioni") ───────
+// C'è una classe di campi in cui il dato NON è scritto ma SPIUNTATO su una
+// tabella a checkbox (es. "Tipologia tutela legale": [x] Azienda, [ ] Studente,
+// ...). Le utility Opzioni esistenti trattano questi documenti come "scelte da
+// scartare" (vetoOptionSourceOnly). Qui invece serve il percorso ESPOSTO:
+// capire QUALE riga è spuntata (o, se più righe, TUTTE le spuntate) per leggere
+// il valore come dato reale. Funzioni PURE e TESTABILI (zero LLM).
+
+/** Glifi di una casella di selezione: spuntata / non spuntata. */
+export const CHECKBOX_CHECKED_RE = /(?:\[[xX✓✔]\]|☒|✓|✔|х\b)/u
+export const CHECKBOX_EMPTY_RE = /(?:\[[\s_]*\]|☐|○|◯)/u
+// Indica una checkbox/opzione nel TESTO (colonna "selezione" o riga di scelta).
+export const CHECKBOX_HINT_RE = /checkbox|casella|spunt|barrar|selezion|opzion|tipologia|categor|☐|☒|\[[ xX]?\]/iu
+// Isola il glifo all'INIZIO di una cella/riga (eventuale "X" o "☑" protagonisti).
+export const CHECKBOX_LEAD_RE = /^\s*(?:\[[xX✓✔\s_]+\]|☒|☐|✓|✔|[xXх])\s*/iu
+
+/**
+ * Classifica lo stato di selezione di una singola cella/riga di testo
+ * (tipicamente la PRIMA colonna di una tabella a checkbox).
+ *
+ * @param {string} cell  testo della cella (può contenere solo il glifo,
+ *                       o glifo + testo).
+ * @returns {'checked'|'unchecked'|'none'}
+ */
+export function classifyCheckboxState(cell) {
+  const c = String(cell || '').trim()
+  if (!c) return 'none'
+  if (CHECKBOX_CHECKED_RE.test(c)) return 'checked'
+  if (CHECKBOX_EMPTY_RE.test(c)) return 'unchecked'
+  // "X" isolata come prima parola (OCR delle caselle barrate a mano).
+  const first = c.split(/\s+/)[0] || ''
+  if (/^[xXх]$/.test(first) && c.split(/\s+/).length <= 2) return 'checked'
+  return 'none'
+}
+
+/**
+ * Estrae da una riga di testo spaziale la coppia {checked, value} quando la
+ * riga porta una checkbox.
+ *
+ * @param {string} line  riga della griglia spaziale (già con colonne/indentazione)
+ * @returns {{checked:boolean, value:string, raw:string}|null}
+ *          null se la riga NON ha una checkbox riconoscibile.
+ */
+export function detectCheckedRow(line) {
+  const l = String(line || '')
+  if (!CHECKBOX_HINT_RE.test(l) && !CHECKBOX_CHECKED_RE.test(l) && !CHECKBOX_EMPTY_RE.test(l)) return null
+  const m = l.match(CHECKBOX_LEAD_RE)
+  if (!m) return null
+  const state = classifyCheckboxState(m[0])
+  if (state === 'none') return null
+  const rest = l.slice(m[0].length).replace(/\s+/g, ' ').trim()
+  return { checked: state === 'checked', value: rest, raw: l }
+}
+
+/**
+ * Scansiona una pagina spaziale (o un array di righe) e restituisce i valori
+ * delle checkbox SPIUNTATE, nell'ordine in cui compaiono.
+ *
+ * Gestisce anche PIÙ checkbox sulla STESSA riga (tabella a colonne): la riga
+ * viene spezzata sui gap larghi (≥2 spazi, come la griglia spaziale) e ogni
+ * "cella" viene valutata singolarmente. Così "[x] Azienda    [ ] Studente"
+ * produce SOLO "Azienda".
+ *
+ * @param {string|string[]} page  testo spaziale (multi-riga) o array di righe
+ * @returns {Array<{value:string, row:number}>}  valori checked (non vuoti)
+ */
+export function detectCheckedValues(page) {
+  const lines = Array.isArray(page) ? page : String(page || '').split('\n')
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    for (const cell of lines[i].split(/ {2,}/)) {
+      const hit = detectCheckedRow(cell)
+      if (hit && hit.checked && hit.value) out.push({ value: hit.value, row: i + 1 })
+    }
+  }
+  return out
+}
+
+/** true se una DESCRIPTION di campo parla di checkbox/selezione multipla. */
+export function descriptionAsksCheckbox(description) {
+  return CHECKBOX_HINT_RE.test(String(description || ''))
+}
+
+/**
  * Vetta un candidato che per un campo STRUTTURALE (massimale/franchigia/scoperto/
  * tutela) porta un importo LARGO il cui UNICO diritto nel fascicolo è un documento
  * questionario/opzioni: è una scelta tra più possibilità, non il valore effettivo.
@@ -241,14 +377,28 @@ export function detectOptionLikeText(text) {
  * altro documento. `optionPages` è un Set di `nomeDoc|numeroPagina` (1-based)
  * rivelate come opzioni; senza di esso resta il comportamento storico (per-file).
  *
+ * CAMPO (analisi errori 25/09/2026, F09): il veto vale SOLO per i campi che
+ * la testa della descrizione dichiara IMPORTO (fieldValueKind). Prima girava
+ * su qualunque valore: looseAmount prendeva il PRIMO numero di un elenco di
+ * testo ("Perdita o interruzione di attività di Terzi: 2.500.000; …", i
+ * Sottolimiti di GUFFANTI RC 2026) e buttava tutto l'elenco perché quella
+ * cifra stava solo nel questionario. E non vale per un campo la cui parte
+ * positiva della descrizione nomina il questionario/proposta come FONTE del
+ * dato ("il Fatturato … nella scheda di copertura, nel questionario o nella
+ * proposta", descriptionNamesQuestionnaire): lì il questionario è la fonte
+ * giusta, non un elenco di opzioni. Senza `field` resta il comportamento
+ * storico (solo registro e documenti).
+ *
  * @param registry registro {facts,index}
  * @param {Array<string>|Set<string>} optionDocs nomi documento rivelati come opzioni
  * @param {object} cand candidato { valore, file }
  * @param {Set<string>} [optionPages] chiavi `doc|page` delle pagine-opzione
+ * @param {object} [field] definizione del campo del candidato
  * @returns {boolean} true = vetto (la cifra esiste SOLO in pagine-opzione)
  */
-export function vetoOptionSourceOnly(registry, optionDocs, cand, optionPages = null) {
+export function vetoOptionSourceOnly(registry, optionDocs, cand, optionPages = null, field = null) {
   if (!registry || !cand || !optionDocs) return false
+  if (field && (fieldValueKind(field) !== 'amount' || descriptionNamesQuestionnaire(field))) return false
   const amt = looseAmount(cand?.valore)
   if (amt == null || !Number.isFinite(amt) || amt < LARGE_AMOUNT_THRESHOLD) return false
   const matches = findFactsByValue(registry, amt)
@@ -433,8 +583,15 @@ function isPremiumNature(f) {
  */
 export function vetoFranchigiaAsMassimale(registry, field, candidateAmount) {
   if (!registry || !field) return false
-  const blob = `${String(field.id || '')} ${String(field.label || '')} ${String(field.description || '')}`
-  if (!/massimal/i.test(blob)) return false // solo campi massimale
+  // Solo campi che sono DAVVERO un massimale (natura massimale_*). Il controllo
+  // sul solo id/blob ("massimale" nel nome, es. rct_massimale_danni) era un bug:
+  // un campo la cui NATURA è franchigia (label "Franchigia") NON deve essere
+  // vetato come "franchigia-come-massimale" — la franchigia È il suo valore.
+  const nat = fieldNatura(field)
+  const isMassimale = nat === 'massimale' || nat === 'massimale_sinistro' || nat === 'massimale_annuo'
+    || nat === 'massimale_danni' || nat === 'massimale_persona' || nat === 'massimale_prestatore'
+    || nat === 'massimale_mat' || nat === 'massimale_interr'
+  if (!isMassimale) return false
   const amt = looseAmount(candidateAmount)
   if (amt == null || !Number.isFinite(amt)) return false
   if (amt >= 1000000) return false // importo da massimale: mai veto
@@ -477,7 +634,14 @@ export function vetoForeignNatureMassimale(registry, field, candidateAmount) {
   const kind = scanKindForField(field)
   const isScanSinistro = kind === NUMERIC_SCAN_KINDS.MASSIMALE_SINISTRO
   const isScanAnnuo = kind === NUMERIC_SCAN_KINDS.MASSIMALE_ANNUO
-  if (isScanSinistro || isScanAnnuo) return false
+  // Fallback type-blind via fieldNatura (label+descrizione): un campo la cui
+  // natura è un massimale-per-sinistro/annuo è legittimamente un massimale
+  // ANCHE se il profilo lo dichiara type:'text' (profilo Rc Professionale V3),
+  // che farebbe tornare scanKindForField = null e il veto scattare in errore.
+  const nat = fieldNatura(field)
+  const isNatSinistro = nat === 'massimale_sinistro'
+  const isNatAnnuo = nat === 'massimale_annuo'
+  if (isScanSinistro || isScanAnnuo || isNatSinistro || isNatAnnuo) return false
   const amt = looseAmount(candidateAmount)
   if (amt == null || !Number.isFinite(amt)) return false
   if (amt < 100000) return false // valori piccoli: mai veto

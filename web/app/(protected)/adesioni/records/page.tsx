@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useConfirmPanel } from '@/components/ConfirmPanel'
 import AdesioniRecordForm, { type AdesioniRecord } from '@/components/AdesioniRecordForm'
 import { defaultAdesioniConfig, type AdesioniConfig } from '@/lib/adesioni/config'
 import { validateRecord, missingIddAnswers } from '@/lib/adesioni/recordMapper.js'
@@ -28,6 +29,7 @@ export default function AdesioniRecordsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Row | null>(null)
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -60,17 +62,18 @@ export default function AdesioniRecordsPage() {
    * il questionario incompleto: l'export resta possibile (l'archivio storico può
    * averne), ma non parte più di nascosto.
    */
-  function confirmIdd(): boolean {
+  async function confirmIdd(): Promise<boolean> {
     const scope = sel.size ? rows.filter((r) => sel.has(r.id)) : rows
     const bad = scope.filter((r) => iddMissing(r) > 0)
     if (!bad.length) return true
     const names = bad.slice(0, 8).map((r) => `${r.cognome} ${r.nome} (${r.identificativo})`).join('\n')
     const more = bad.length > 8 ? `\n… +${bad.length - 8}` : ''
-    return confirm(`${t('ad.records.confirmIddIncomplete', { n: bad.length })}\n\n${names}${more}`)
+    // Pannello interno all'app (niente window.confirm)
+    return askConfirm(`${t('ad.records.confirmIddIncomplete', { n: bad.length })}\n\n${names}${more}`)
   }
 
   async function doExport(reexport: boolean) {
-    if (!confirmIdd()) return
+    if (!(await confirmIdd())) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/adesioni/records/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids(), reexport }) })
@@ -82,7 +85,7 @@ export default function AdesioniRecordsPage() {
   }
   async function exportAppend(file: File | undefined) {
     if (!file) return
-    if (!confirmIdd()) return
+    if (!(await confirmIdd())) return
     setBusy(true)
     const form = new FormData()
     form.append('file', file); form.append('ids', ids().join(','))
@@ -94,7 +97,7 @@ export default function AdesioniRecordsPage() {
   }
   async function ftp(target: 'staging' | 'prod') {
     if (!sel.size) return
-    if (!confirmIdd()) return
+    if (!(await confirmIdd())) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/adesioni/ftp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target, ids: ids() }) })
@@ -104,7 +107,7 @@ export default function AdesioniRecordsPage() {
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
   async function del() {
-    if (!sel.size || !confirm(t('ad.records.confirmDelete', { n: sel.size }))) return
+    if (!sel.size || !(await askConfirm(t('ad.records.confirmDelete', { n: sel.size }), { danger: true }))) return
     for (const id of ids()) await fetch(`/api/adesioni/records/${id}`, { method: 'DELETE' })
     setSel(new Set()); load(q, statusFilter); setMsg({ ok: true, text: t('ad.records.deleted') })
   }
@@ -121,6 +124,7 @@ export default function AdesioniRecordsPage() {
 
   return (
     <>
+      {confirmPanel}
       <h1 className="page-title">{t('nav.adRecords')}</h1>
       <p className="view-subtitle">{t('ad.records.subtitle')}</p>
 

@@ -1,0 +1,174 @@
+{
+  "id": "rcp-saporiti",
+  "label": "Saporiti Massimo BL05002415 (XL) — golden completo 35 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "BL05002415",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "XL Insurance",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "Saporiti Massimo",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "09935700154",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "Viale Papiniano",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "Piquadro",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "31/03/2022",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "31/03/2023",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "145,60",
+      "mode": "amount",
+      "note": "descrizione del campo = imposte"
+    },
+    "Premio lordo": {
+      "value": "800,00",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "654,40",
+      "mode": "amount",
+      "note": "descrizione del campo = premio imponibile"
+    },
+    "Professione dichiarata": {
+      "value": "Avvocato",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "text"
+    },
+    "Massimale per sinistro": {
+      "value": "2.000.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "2.000.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "1.000,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sottolimiti": {
+      "value": "150.000",
+      "mode": "contains"
+    },
+    "Estensioni operative": {
+      "value": "Perdita di Documenti",
+      "mode": "contains"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Progettazione / DL": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": "No",
+      "mode": "emptyOrNo"
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Custodia documenti / valori": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Incarichi giudiziari": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "Canada",
+        "antitrust",
+        "insolvenza",
+        "amianto",
+        "sindaco",
+        "titoli al portatore",
+        "terrorismo",
+        "mancata iscrizione",
+        "inquinamento",
+        "rischio contrattuale"
+      ],
+      "note": "Frontespizio art. 8 (p. 2): 'Mondo intero esclusi Usa e Canada'. Art. 4 'Esclusioni : Quello che NON copriamo' (pp. 10-12): 4.1 Antitrust, 4.2 atti dolosi, 4.3 radiazioni, 4.4 guerra/terrorismo, 4.5 inquinamento, 4.6 insolvenza, 4.7 mancata iscrizione all'albo, 4.8 muffa tossica e amianto, 4.9 circostanze pregresse, 4.10 U.S.A./Canada, 4.11 titoli al portatore, 4.12 valore futuro, 4.13 enti pubblici/authority, 4.14 rischio contrattuale puro, 4.15 danni a cose e persone, 4.16 attività diversa (Sindaco/Revisore, CDA, ODV 231/2001). 'USA' non è tra i token: dopo la normalizzazione dello scorer 'usa' compare dentro 'esclusa'/'inclusa'/'causa'; 'revisore' neanche, perché compare anche nell'estensione 3.7 ('revisore di enti locali', coperta). [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "condizioni aggiuntive",
+        "RCT",
+        "conduzione",
+        "prestatori di lavoro",
+        "committenza",
+        "uso ufficio"
+      ],
+      "note": "Art. 10 'Condizioni Aggiuntive' (pp. 21-23): 10.1 'Responsabilità civile verso Terzi (RCT) e verso i prestatori di lavoro (RCO)' con 1. RCT conduzione dei locali ad uso ufficio (massimale 500.000,00, franchigia 250,00), 2. RCO, 3. rivalsa istituti, 4. committenza auto. Fanno parte integrante del contratto (p. 3: 'Fanno parte integrante n. 24 pagine'), sono approvate ex 1341 a p. 20 ('10. Condizioni Aggiuntive') e sono richiamate dall'esclusione 4.16 (p. 12). Il frontespizio non richiama appendici né condizioni speciali, e non c'è nessun 'Non operante'. Coerente con full-spallino-rc (stesso modulo XL). [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Visto leggero": {
+      "mode": "emptyOrNo",
+      "value": null,
+      "note": "Il fascicolo non nomina mai 'visto' (leggero o di conformità), 'assistenza fiscale' o 'compensazione crediti'. Ci sono solo la garanzia B 'Consulenza Fiscale' (p. 4, 'dell’attività di consulenza fiscale') e l'estensione 3.7 'Attività di tributarista' (p. 10), che non sono la garanzia richiesta dalla descrizione: non si deduce dalla professione. Coerente con full-spallino-rc (stesso modulo XL). [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    }
+  },
+  "nonVerificati": [
+    "Esclusioni particolari",
+    "Condizioni particolari",
+    "Visto leggero"
+  ]
+}

@@ -301,6 +301,8 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Badge «nuovo» di una voce di menu (Riepiloghi, 26/09/2026). */
+.nav-item span.nav-new { margin-left: auto; flex: none; font-size: 10px; font-weight: 500; line-height: 1.5; padding: 0 6px; border-radius: var(--r-full); background: var(--c-accent-dim); color: var(--c-text-primary); }
 
 .sidebar-footer {
   padding: 14px 16px;
@@ -463,3 +465,176 @@ tr:last-child td { border-bottom: none; }
 ::-webkit-scrollbar-track { background: var(--c-bg-card); }
 ::-webkit-scrollbar-thumb { background: var(--c-text-muted); border-radius: var(--r-sm); border: 2px solid var(--c-bg-card); }
 ::-webkit-scrollbar-thumb:hover { background: var(--c-text-secondary); }
+
+/* ─── Elaborazioni (batch di polizze): tabella densa, pillole, KPI, dettaglio ── */
+.jb-ico { width: 12px; height: 12px; flex: none; }
+.jb-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--r-full); font-size: 11px; font-weight: 600; white-space: nowrap; line-height: 16px; }
+.jb-pill.info { background: rgba(59,130,246,.15); color: #93c5fd; }
+.jb-pill.warn { background: rgba(245,158,11,.15); color: #fbbf24; }
+.jb-pill.orange { background: rgba(251,146,60,.15); color: #fb923c; }
+.jb-pill.ok { background: rgba(34,197,94,.15); color: #4ade80; }
+.jb-pill.ok.outline { border: 1px solid rgba(34,197,94,.4); }
+.jb-pill.err { background: rgba(239,68,68,.15); color: #f87171; }
+.jb-pill.muted { background: rgba(160,160,192,.15); color: var(--c-text-secondary); }
+.jb-pill.neutral { background: var(--c-bg-card-alt); color: var(--c-text-secondary); }
+[data-theme="light"] .jb-pill.info { color: #1d4ed8; }
+[data-theme="light"] .jb-pill.warn { color: #b45309; }
+[data-theme="light"] .jb-pill.orange { color: #c2410c; }
+[data-theme="light"] .jb-pill.ok { color: #15803d; }
+[data-theme="light"] .jb-pill.err { color: #b91c1c; }
+
+/* Pulsanti compatti (tabella, pannello, barra bulk): si combinano con btn-primary/btn-secondary. */
+.jb-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--r-sm); font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.jb-btn.ghost { background: transparent; border: 1px solid transparent; color: var(--c-text-secondary); box-shadow: none; }
+.jb-btn.ghost:hover:not(:disabled) { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.jb-btn.icon { padding: 4px 6px; }
+.jb-btn.tone-warn { color: #fbbf24; }
+.jb-btn.tone-ok { color: #4ade80; }
+.jb-btn.tone-danger { color: var(--c-error); }
+[data-theme="light"] .jb-btn.tone-warn { color: #b45309; }
+[data-theme="light"] .jb-btn.tone-ok { color: #15803d; }
+.jb-btn.active { border-color: var(--c-accent); color: var(--c-text-primary); }
+
+/* Tabella densa: righe a 44px, una riga per polizza, ellissi nelle celle. */
+.jb-table { table-layout: fixed; width: 100%; border-collapse: collapse; }
+.jb-table th { font-size: 10px; padding: 8px 12px; letter-spacing: .06em; color: var(--c-text-secondary); border-bottom: 1px solid var(--c-border); white-space: nowrap; }
+.jb-table td { height: 44px; padding: 0 12px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
+.jb-table tbody tr { cursor: pointer; }
+.jb-table tbody tr:hover td { background: var(--c-bg-hover); }
+/* Righe spuntate (mockup Main.dc.html): tinta accento al 6%; la riga aperta (sel) resta più marcata. */
+.jb-table tbody tr.chk td { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
+.jb-table tbody tr.chk:hover td { background: color-mix(in srgb, var(--c-accent) 10%, transparent); }
+.jb-table tbody tr.sel td { background: var(--c-bg-active); }
+.jb-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--c-accent); }
+.jb-table td.right, .jb-table th.right { text-align: right; }
+.jb-table input[type="checkbox"] { margin: 0; vertical-align: middle; }
+.jb-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jb-name .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.jb-name .s { font-size: 10px; color: var(--c-text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.jb-muted { color: var(--c-text-secondary); }
+
+/* Striscia KPI: un riquadro per stato, cliccabile = filtro. */
+.jb-kpi { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; flex: 1 1 0; min-width: 0; padding: 10px 14px 0; border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-bg-card); color: var(--c-text-primary); text-align: left; font-weight: 400; white-space: nowrap; }
+.jb-kpi:hover:not(:disabled) { background: var(--c-bg-hover); }
+.jb-kpi.active { border-color: var(--c-accent); }
+.jb-kpi.zero { opacity: .55; }
+.jb-kpi .l { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--c-text-secondary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.jb-kpi .n { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.jb-kpi .b { height: 3px; border-radius: 2px; margin-top: 6px; }
+
+/* Barra segmentata di avanzamento. */
+.jb-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; background: var(--c-bg-input); }
+.jb-bar > span { display: block; min-width: 2px; }
+.jb-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--c-text-secondary); white-space: nowrap; }
+.jb-leg b { color: var(--c-text-primary); font-weight: 700; }
+.jb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* Card del batch nella lista. */
+.jb-card { display: flex; flex-direction: column; gap: 12px; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 16px 18px; min-width: 0; box-shadow: var(--shadow-sm); }
+.jb-card.attention { border-color: rgba(245,158,11,.5); }
+.jb-card .title { font-size: 15px; font-weight: 700; color: var(--c-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jb-card .title:hover { color: var(--c-accent); }
+.jb-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 12px; background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.35); }
+.jb-callout.calm { background: var(--c-bg-card-alt); border-color: var(--c-border); color: var(--c-text-secondary); }
+
+/* Pannello di dettaglio (a lato nella Tabella, in linea nella Coda). */
+.jb-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--c-bg-card); }
+.jb-detail.drawer { width: 460px; flex: none; border-left: 1px solid var(--c-border); box-shadow: -12px 0 32px rgba(0,0,0,.25); }
+.jb-detail.inline { flex: 1 1 0; }
+.jb-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-border); padding: 0 20px; }
+.jb-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 9px 10px; font-size: 12px; font-weight: 600; color: var(--c-text-secondary); box-shadow: none; }
+.jb-tab:hover:not(:disabled) { color: var(--c-text-primary); }
+.jb-tab.active { color: var(--c-text-primary); border-bottom-color: var(--c-accent); }
+.jb-tab .c { margin-left: 4px; color: var(--c-text-muted); font-weight: 500; }
+.jb-sec { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--c-text-secondary); font-weight: 600; margin: 0 0 6px; }
+.jb-quote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--c-warning); background: var(--c-bg-card-alt); border-radius: 0 6px 6px 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+.jb-text { margin: 0; font-size: 12px; line-height: 1.5; color: var(--c-text-primary); white-space: pre-wrap; }
+.jb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.jb-filelink { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-text-primary); padding: 6px 8px; border-radius: 6px; background: var(--c-bg-card-alt); }
+.jb-filelink:hover { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.jb-filelink .f { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jb-log { margin: 0; font-size: 10px; line-height: 1.5; color: var(--c-text-secondary); white-space: pre-wrap; font-family: var(--font-mono); }
+.jb-values td { font-size: 11px; padding: 5px 8px; vertical-align: top; }
+.jb-values td.v { font-weight: 600; }
+.jb-values td.src { color: var(--c-text-muted); font-family: var(--font-mono); font-size: 10px; }
+
+/* Lista della vista Coda. */
+.jb-item { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 10px 14px 10px 16px; border: 0; border-bottom: 1px solid var(--c-border); border-radius: 0; background: transparent; color: var(--c-text-primary); text-align: left; font-weight: 400; white-space: normal; box-shadow: none; }
+.jb-item:hover:not(:disabled) { background: var(--c-bg-hover); }
+.jb-item.sel { background: var(--c-bg-card-alt); box-shadow: inset 3px 0 0 var(--c-accent); }
+.jb-item .n { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+.jb-item .r { font-size: 11px; color: var(--c-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+
+/* Menu ⋯ (posizionato in fixed: le celle hanno overflow hidden). */
+.jb-menu { position: fixed; min-width: 230px; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 8px; padding: 6px; box-shadow: var(--shadow-lg); z-index: 60; display: flex; flex-direction: column; gap: 1px; }
+.jb-menu button { display: flex; justify-content: flex-start; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--c-text-primary); font-size: 12px; font-weight: 500; text-align: left; box-shadow: none; }
+.jb-menu button:hover:not(:disabled) { background: var(--c-bg-hover); }
+.jb-menu button.danger { color: var(--c-error); }
+.jb-menu hr { border: 0; border-top: 1px solid var(--c-border); margin: 4px 0; }
+
+/* Barra delle azioni collettive: appare solo con una selezione. */
+.jb-bulk { position: absolute; left: 0; right: 0; bottom: 14px; margin: 0 auto; width: max-content; max-width: calc(100% - 24px); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; background: var(--c-bg-card); border: 1px solid var(--c-accent); border-radius: 10px; box-shadow: var(--shadow-lg); z-index: 20; flex-wrap: wrap; justify-content: center; }
+.jb-bulk .sep { width: 1px; height: 18px; background: var(--c-border); }
+
+/* Campo di ricerca compatto. */
+.jb-search { display: flex; align-items: center; gap: 6px; background: var(--c-bg-input); border: 1px solid var(--c-border); border-radius: var(--r-sm); padding: 4px 10px; color: var(--c-text-secondary); box-sizing: border-box; }
+.jb-search input { background: transparent; border: 0; outline: 0; padding: 0; color: var(--c-text-primary); font-size: 12px; width: 100%; box-shadow: none; }
+.jb-search input:focus { box-shadow: none; }
+
+/* Switch di vista Tabella | Coda. */
+.jb-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-sm); overflow: hidden; }
+.jb-seg button { border: 0; border-radius: 0; background: transparent; color: var(--c-text-secondary); padding: 4px 10px; font-size: 11px; font-weight: 600; box-shadow: none; }
+.jb-seg button.active { background: var(--c-bg-active); color: var(--c-text-primary); }
+.jb-seg button + button { border-left: 1px solid var(--c-border); }
+.jb-c-info { color: #93c5fd; } .jb-c-warn { color: #fbbf24; } .jb-c-orange { color: #fb923c; } .jb-c-ok { color: #4ade80; } .jb-c-err { color: #f87171; }
+[data-theme="light"] .jb-c-info { color: #1d4ed8; } [data-theme="light"] .jb-c-warn { color: #b45309; } [data-theme="light"] .jb-c-orange { color: #c2410c; } [data-theme="light"] .jb-c-ok { color: #15803d; } [data-theme="light"] .jb-c-err { color: #b91c1c; }
+
+/* Motivo apribile per riga (tabella e albero) + vista Albero delle cartelle. */
+.jb-table td.reason { cursor: zoom-in; }
+.jb-table td.reason.exp { white-space: normal; line-height: 1.45; cursor: zoom-out; }
+.jb-table tr.exp td { height: auto; padding-top: 10px; padding-bottom: 10px; }
+.jb-schema { list-style: none; margin: 0 0 0 7px; padding: 0 0 0 18px; border-left: 1px solid var(--c-border); }
+.jb-schema > li { position: relative; }
+.jb-schema > li::before { content: ''; position: absolute; left: -18px; top: 13px; width: 14px; border-top: 1px solid var(--c-border); }
+.jb-schema .row, .jb-schema-root { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12px; min-width: 0; }
+.jb-schema .row .nm, .jb-schema-root .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jb-schema .row.leaf .nm { font-weight: 500; }
+.jb-schema .cnt, .jb-schema-root .cnt { font-size: 11px; color: var(--c-text-secondary); white-space: nowrap; }
+.jb-schema .fold, .jb-schema-root .fold { color: var(--c-warning); display: inline-flex; }
+
+/* ─── Riepiloghi generali (26/09/2026): pezzi usati ANCHE in Elaborazioni ───
+   Barra della selezione, pannello «Nuovo riepilogo» e «Personalizza»,
+   pulsanti alti 32px dei mockup. Il resto sta in polizza/riepiloghi/riepilogo.css. */
+.jb-btn.rp-btn { height: 32px; padding: 0 12px; gap: 6px; border-radius: 8px; font-size: 12px; }
+.rp-selbar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; flex: none; padding: 12px 16px; border-radius: 12px; background: var(--c-bg-card-alt); border: 1px solid var(--c-accent); }
+.rp-selbar .txt { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
+.rp-selbar .acts { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.rp-selbar .c { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.rp-selbar .s { font-size: 12px; color: var(--c-text-secondary); }
+/* .s colora in secondario: gli esiti sulla stessa riga tengono il loro colore semantico. */
+.rp-selbar .s.jb-c-ok { color: #4ade80; }
+.rp-selbar .s.jb-c-warn { color: #fbbf24; }
+[data-theme="light"] .rp-selbar .s.jb-c-ok { color: #15803d; }
+[data-theme="light"] .rp-selbar .s.jb-c-warn { color: #b45309; }
+.rp-selbar .jb-btn.btn-secondary, .rp-selbar .jb-btn.rp-menubtn { background: var(--c-bg-card); border: 1px solid var(--c-border); color: var(--c-text-primary); }
+.rp-selbar .jb-btn.rp-menubtn:hover:not(:disabled), .rp-selbar .jb-btn.btn-secondary:hover:not(:disabled) { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.rp-selbar .jb-menu { z-index: 80; max-height: min(360px, calc(100vh - 16px)); overflow-y: auto; }
+
+.rp-panel { position: fixed; right: 40px; top: 120px; width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 140px); overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 16px; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--r-md); box-shadow: var(--shadow-lg); z-index: 70; font-size: 13px; }
+.rp-panel .rp-ptitle { font-size: 16px; font-weight: 700; }
+.rp-panel .rp-lbl { display: block; font-size: 12px; color: var(--c-text-secondary); margin-bottom: 6px; }
+.rp-panel .rp-sub { font-size: 12px; color: var(--c-text-secondary); }
+.rp-panel .rp-prow { display: flex; gap: 12px; }
+.rp-panel .rp-pbtns { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.rp-panel input[type="text"], .rp-panel select { height: 36px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
+.rp-panel .rp-ro { height: 36px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; border: 1px solid var(--c-border); background: var(--c-bg-input); color: var(--c-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.rp-opt.on { border-color: var(--c-accent); background: var(--c-accent-faint); }
+.rp-opt input[type="radio"] { margin-top: 3px; }
+.rp-err { font-size: 12px; color: var(--c-error); }
+.rp-ok { font-size: 12px; color: #4ade80; }
+[data-theme="light"] .rp-ok { color: #15803d; }
+@media (max-width: 520px) {
+  .rp-panel { left: 16px; right: 16px; width: auto; top: 72px; max-height: calc(100vh - 88px); }
+  .rp-panel .rp-prow { flex-direction: column; }
+}

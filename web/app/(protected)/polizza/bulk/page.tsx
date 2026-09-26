@@ -106,6 +106,9 @@ export default function PolizzaBulkPage() {
 
   const [batchId, setBatchId] = useState<string | null>(null)
   const [phase, setPhase] = useState<'select' | 'uploading' | 'started'>('select')
+  // «Solo abbinamento»: OCR + riconoscimento del profilo, poi ogni dossier si
+  // ferma in «Abbinato» e l'estrazione parte dal ▶ della pagina Elaborazioni.
+  const [matchOnly, setMatchOnly] = useState(false)
   const [dossierStatus, setDossierStatus] = useState<Record<string, DossierStatus>>({})
   const [dossierError, setDossierError] = useState<Record<string, string>>({})
   const [finishing, setFinishing] = useState(false)
@@ -245,23 +248,31 @@ export default function PolizzaBulkPage() {
   }, [baseDossiers, included, groupOf, root])
 
   // Auto-riconoscimento del profilo di un dossier dal percorso: primo profilo la cui
-  // parola di abbinamento compare (sottostringa, case-insensitive) nel label/percorso.
+  // parola di abbinamento compare nel label/percorso a INIZIO DI PAROLA («prof»
+  // trova «PROFESSIONALE», non «SPROFONDO»). Resta un indizio debole («med»
+  // trova anche «VIA MEDA»): per questo il nome decide solo senza un profilo scelto.
   function detectProfile(label: string): string {
-    const path = label.toLowerCase()
+    const path = ' ' + label.toLowerCase().split(/[^a-z0-9àèéìòù]+/).filter(Boolean).join(' ')
     for (const p of profiles) {
-      if (profileKeywords(p).some((k) => path.includes(k))) return p.id
+      if (p.enabled === false) continue // profilo non attivo: mai riconosciuto in automatico
+      if (profileKeywords(p).some((k) => path.includes(' ' + k))) return p.id
     }
     return ''
   }
-  // Assegna a ogni dossier (gid) il profilo: auto-riconosciuto dal nome, altrimenti il
-  // tipo predefinito. Le scelte manuali (manualProfile) vengono preservate.
+  // Assegna a ogni dossier (gid) il profilo. Con un PROFILO SCELTO come tipo
+  // predefinito vale quello per tutte le cartelle (25/09/2026, verifica del
+  // cliente: «la macchina non deve usare profili diversi da quello selezionato»
+  // — il nome cartella con «prof»/«med» passava 4 condomìni a RC/Medica). Il
+  // nome della cartella decide solo con «Nessun tipo» o «Automatico». Le
+  // scelte manuali per riga (manualProfile) vengono sempre preservate.
   useEffect(() => {
+    const explicit = !!defaultType && defaultType !== 'auto'
     setProfileOf((prev) => {
       const next: Record<string, string> = {}
       for (const d of finalDossiers) {
         next[d.gid] = (manualProfile.has(d.gid) && prev[d.gid] !== undefined)
           ? prev[d.gid]
-          : (detectProfile(d.label) || defaultType)
+          : explicit ? defaultType : (detectProfile(d.label) || defaultType)
       }
       return next
     })
@@ -308,6 +319,9 @@ export default function PolizzaBulkPage() {
   // riempie il filtro "parole da accettare" → l'elenco mostra solo le cartelle di quel tipo.
   function applyDefaultType(id: string) {
     setDefaultType(id)
+    // "auto": nessuna parola di filtro sul nome cartella — decide il contenuto
+    // (classifica semantica dei profili nel worker).
+    if (id === 'auto') { setIncludeText(''); return }
     const p = profiles.find((x) => x.id === id)
     if (p) setIncludeText(profileKeywords(p).join(', '))
   }
@@ -341,6 +355,7 @@ export default function PolizzaBulkPage() {
     })
   }
 
+  const matchOnlyRef = useRef(false)
   async function uploadDossier(id: string, d: FinalDossier) {
     setDossierStatus((p) => ({ ...p, [d.gid]: 'uploading' }))
     try {
@@ -350,6 +365,7 @@ export default function PolizzaBulkPage() {
       // le parole effettivamente in uso in questa esecuzione, non solo quelle salvate.
       form.append('includeWords', includeText)
       form.append('excludeWords', excludeText)
+      if (matchOnlyRef.current) form.append('matchOnly', '1')
       const pid = d.profileId !== undefined ? d.profileId : profileOf[d.gid]
       if (pid) form.append('profileId', pid) // profilo/tipo scelto per questo dossier
       for (const idx of d.fileIndexes) {
@@ -387,8 +403,9 @@ export default function PolizzaBulkPage() {
     return out
   }
 
-  async function handleStartUpload() {
+  async function handleStartUpload(onlyMatch = false) {
     if (!finalDossiers.length) return
+    setMatchOnly(onlyMatch); matchOnlyRef.current = onlyMatch
     const list = expandSplits(finalDossiers)
     setUploadList(list)
     setPhase('uploading'); setPickError(null)
@@ -521,7 +538,8 @@ export default function PolizzaBulkPage() {
                 <label className="label" htmlFor="bulk-type">{t('bulk.defaultType')}</label>
                 <select id="bulk-type" value={defaultType} onChange={(e) => applyDefaultType(e.target.value)}>
                   <option value="">{t('bulk.noType')}</option>
-                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="auto">{t('bulk.autoProfile')}</option>
+                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.enabled === false ? ` ${t('bulk.profileInactive')}` : ''}</option>)}
                 </select>
                 <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('bulk.defaultTypeHelp')}</p>
               </div>
@@ -665,7 +683,8 @@ export default function PolizzaBulkPage() {
                             <td style={{ fontSize: 12 }}>
                               <select value={profileOf[gid] || ''} disabled={!inc} onChange={(e) => chooseProfile(gid, e.target.value)} style={{ fontSize: 11, padding: '2px 4px', maxWidth: 160 }}>
                                 <option value="">{t('bulk.globalFields')}</option>
-                                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                <option value="auto">{t('bulk.autoProfile')}</option>
+                                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.enabled === false ? ` ${t('bulk.profileInactive')}` : ''}</option>)}
                               </select>
                             </td>
                           )}
@@ -703,9 +722,22 @@ export default function PolizzaBulkPage() {
                 n: finalDossiers.reduce((n, d) => n + (splitOf.has(d.gid) && d.fileIndexes.length > 1 ? d.fileIndexes.length : 1), 0),
                 m: selectedFiles,
               })}</p>
-              <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={handleStartUpload} disabled={finalDossiers.length === 0}>
-                {t('bulk.startBtn')}
-              </button>
+              {/* Due avvii: «Abbina ed estrai» (tutto in un colpo, com'era) e
+                  «Solo abbinamento» (OCR + pertinenza, poi ▶ da Elaborazioni). */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                <div>
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => handleStartUpload(false)} disabled={finalDossiers.length === 0} title={t('bulk.startBtnHelp')}>
+                    {t('bulk.startBtn')}
+                  </button>
+                  <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6, marginBottom: 0 }}>{t('bulk.startBtnHelp')}</p>
+                </div>
+                <div>
+                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => handleStartUpload(true)} disabled={finalDossiers.length === 0} title={t('bulk.matchOnlyHelp')}>
+                    {t('bulk.startMatchOnlyBtn')}
+                  </button>
+                  <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6, marginBottom: 0 }}>{t('bulk.matchOnlyHelp')}</p>
+                </div>
+              </div>
             </div>
           )}
         </>
@@ -763,8 +795,8 @@ export default function PolizzaBulkPage() {
 
       {phase === 'started' && (
         <div className="card" style={{ padding: 24 }}>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-success)', marginBottom: 6 }}>{t('bulk.startedTitle')}</p>
-          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 16 }}>{t('bulk.startedText')}</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-success)', marginBottom: 6 }}>{matchOnly ? t('bulk.startedTitleMatchOnly') : t('bulk.startedTitle')}</p>
+          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginBottom: 16 }}>{matchOnly ? t('bulk.startedTextMatchOnly') : t('bulk.startedText')}</p>
           <Link href="/polizza/jobs" className="btn btn-primary">{t('bulk.goToDashboard')}</Link>
         </div>
       )}

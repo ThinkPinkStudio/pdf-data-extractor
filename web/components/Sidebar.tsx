@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
+import { NAV_EXTRACTOR_ITEMS, visibleExtractorNav } from '@/lib/navExtractor'
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || ''
+const SUMMARIES_SEEN_KEY = 'rpNavSeen'
 
 /* ─── Icone (allineate all'app desktop) ─────────────────────────────── */
 const IconPDF = () => (
@@ -103,6 +105,12 @@ const IconTable = () => (
     <line x1="15" y1="9" x2="15" y2="21" /><line x1="9" y1="9" x2="9" y2="21" />
   </svg>
 )
+// Riepiloghi: tre barre verticali (come nel mockup approvato il 26/09/2026).
+const IconChart = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+  </svg>
+)
 const IconHome = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
@@ -114,27 +122,31 @@ const IconHome = () => (
 type NavItem = { href: string; key: string; icon: React.ReactNode }
 type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'hub'
 
-const NAV_EXTRACTOR: NavItem[] = [
-  { href: '/extractor', key: 'nav.extractor', icon: <IconPDF /> },
-  { href: '/polizza', key: 'nav.polizza', icon: <IconShield /> },
-  { href: '/polizza/bulk', key: 'nav.bulk', icon: <IconBatch /> },
-  { href: '/polizza/jobs', key: 'nav.jobsDash', icon: <IconHistory /> },
-  { href: '/batch', key: 'nav.batch', icon: <IconBatch /> },
-  { href: '/archive', key: 'nav.archive', icon: <IconSearch /> },
-  { href: '/chat', key: 'nav.chat', icon: <IconSearch /> },
-  { href: '/maintenance', key: 'nav.data', icon: <IconBatch /> },
-  { href: '/history', key: 'nav.history', icon: <IconHistory /> },
-  { href: '/settings', key: 'nav.settings', icon: <IconSettings /> },
-  { href: '/settings/technical', key: 'nav.settingsTech', icon: <IconActivity /> },
-  { href: '/diagnostics', key: 'nav.security', icon: <IconActivity /> },
-  { href: '/contacts', key: 'nav.contacts', icon: <IconUser /> },
-]
+// Icone delle voci PDF Extractor: la LISTA (href + chiave) sta in
+// lib/navExtractor.ts, condivisa con gli switch delle Impostazioni tecniche.
+const EXTRACTOR_ICONS: Record<string, React.ReactNode> = {
+  '/extractor': <IconPDF />,
+  '/polizza': <IconShield />,
+  '/polizza/bulk': <IconBatch />,
+  '/polizza/jobs': <IconHistory />,
+  '/polizza/riepiloghi': <IconChart />,
+  '/batch': <IconBatch />,
+  '/archive': <IconSearch />,
+  '/chat': <IconSearch />,
+  '/maintenance': <IconBatch />,
+  '/history': <IconHistory />,
+  '/settings': <IconSettings />,
+  '/settings/technical': <IconActivity />,
+  '/diagnostics': <IconActivity />,
+  '/contacts': <IconUser />,
+}
+const NAV_EXTRACTOR: NavItem[] = NAV_EXTRACTOR_ITEMS.map((i) => ({ ...i, icon: EXTRACTOR_ICONS[i.href] }))
 
 const NAV_COMPARE: NavItem[] = [
   { href: '/compare', key: 'nav.cmpCompare', icon: <IconCompare /> },
-  // «Ricerca» e «In Entrambi» sono FUSE in «Confronto righe» (/compare/both):
-  // stessa operazione, due viste (esito per riga / dettaglio corrispondenze).
-  { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconSearch /> },
+  // «Confronto righe» (/compare/both) è confluito nella Comparazione come
+  // modalità «Uguale a»: voce nascosta, la pagina resta nel codice.
+  // { href: '/compare/both', key: 'nav.cmpBoth', icon: <IconSearch /> },
   { href: '/compare/settings', key: 'nav.cmpSettings', icon: <IconSettings /> },
   { href: '/compare/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
@@ -175,7 +187,7 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email }: { email: string }) {
+export default function Sidebar({ email, navHidden }: { email: string; navHidden?: string[] }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
@@ -183,7 +195,9 @@ export default function Sidebar({ email }: { email: string }) {
 
   const section = sectionFor(pathname)
   const meta = SECTION_META[section]
-  const NAV = meta.nav
+  // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
+  const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
+  const NAV = visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.
@@ -191,6 +205,21 @@ export default function Sidebar({ email }: { email: string }) {
     .map((i) => i.href)
     .filter((h) => pathname === h || pathname.startsWith(h + '/'))
     .sort((a, b) => b.length - a.length)[0]
+
+  // Badge «nuovo» accanto a Riepiloghi (mockup approvato il 26/09/2026): resta
+  // finché la sezione non viene aperta una volta (per browser; senza storage
+  // il badge semplicemente non compare).
+  const [summariesSeen, setSummariesSeen] = useState(true)
+  useEffect(() => {
+    try {
+      if (pathname === '/polizza/riepiloghi' || pathname.startsWith('/polizza/riepiloghi/')) {
+        localStorage.setItem(SUMMARIES_SEEN_KEY, '1')
+        setSummariesSeen(true)
+      } else {
+        setSummariesSeen(localStorage.getItem(SUMMARIES_SEEN_KEY) === '1')
+      }
+    } catch { setSummariesSeen(true) }
+  }, [pathname])
 
   useEffect(() => {
     const saved = (localStorage.getItem('theme') as 'dark' | 'light' | null) || 'dark'
@@ -241,6 +270,7 @@ export default function Sidebar({ email }: { email: string }) {
           >
             {item.icon}
             <span>{t(item.key)}</span>
+            {item.href === '/polizza/riepiloghi' && !summariesSeen && <span className="nav-new">{t('nav.new')}</span>}
           </Link>
         ))}
       </nav>
