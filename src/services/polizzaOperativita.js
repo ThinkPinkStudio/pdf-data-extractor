@@ -287,12 +287,12 @@ export function verticalCoverColumns(text, names) {
     for (let i = 0; i + nm.length <= lines.length; i++) {
       for (const a of cells[i]) {
         if (a.norm !== nm[0]) continue
-        let span = { start: a.start, end: a.end, line: i }
+        let span = { start: a.start, end: a.end, line: i, first: i }
         let ok = true
         for (let k = 1; k < nm.length && ok; k++) {
           const b = cells[i + k].find((c) => c.norm === nm[k] && c.start < span.end && c.end > span.start)
           if (!b) ok = false
-          else span = { start: Math.min(span.start, b.start), end: Math.max(span.end, b.end), line: i + k }
+          else span = { start: Math.min(span.start, b.start), end: Math.max(span.end, b.end), line: i + k, first: i }
         }
         if (ok) out.push(span)
       }
@@ -303,26 +303,81 @@ export function verticalCoverColumns(text, names) {
 
 /**
  * Righe della TABELLA sotto un'intestazione di colonna che nomina la copertura
- * (verticalCoverColumns) il cui importo (coi decimali, non nullo, non
- * percentuale) sta IN QUELLA COLONNA: è il premio proprio della copertura
- * («Difesa Condominio - ed.2019   298,55» sotto «TUTELA / LEGALE»; non «63,44»
- * sotto «IMPOSTE»). La tabella finisce alla prima riga non vuota senza importi.
+ * (verticalCoverColumns, horizontalCoverColumns) il cui PREMIO sta in quella
+ * colonna: «Difesa Condominio - ed.2019   298,55» sotto «TUTELA / LEGALE»; non
+ * «63,44» sotto «IMPOSTE». Come in una tabella vera: l'importo (coi decimali,
+ * non nullo, non percentuale) è una CELLA A SÉ (non «€ 210,00 relative a
+ * controversie…» della prosa di un DIP) e l'intestazione più VICINA sopra di
+ * lui — la prima riga senza importi con una cella sovrapposta — è proprio
+ * quella della copertura (non «Premio alla firma … Responsabilità Civile …»
+ * fra «Tutela Legale della Circolazione» e la riga dei premi di un'auto
+ * Helvetia, BESA-086). La tabella finisce alla prima riga con testo senza
+ * importi dopo le righe dei premi; prima di loro, le righe senza cifre sono il
+ * seguito dell'intestazione («PECUNIARIE», «LORDO»).
  * @returns {Set<number>} indici delle righe
  */
 export function coverColumnRows(text, names) {
   const rows = new Set()
-  const cols = verticalCoverColumns(text, names)
+  const cols = [...verticalCoverColumns(text, names), ...horizontalCoverColumns(text, names)]
   if (!cols.length) return rows
   const lines = String(text || '').split('\n')
+  const noise = (l) => !/[\p{L}\p{N}]/u.test(l)
+  const amountsOf = (l) => amountMatchesAt(l, STRUCTURAL_AMOUNT_RE)
+  const cells = lines.map(gridCellsOf)
+  // intestazione più vicina sopra la riga j per l'intervallo [a, b)
+  const headerAbove = (j, a, b) => {
+    for (let k = j - 1; k >= 0; k--) {
+      if (noise(lines[k]) || amountsOf(lines[k]).length) continue
+      if (cells[k].some((c) => c.start < b && c.end > a)) return k
+    }
+    return -1
+  }
   for (const col of cols) {
+    let started = false
     for (let j = col.line + 1; j < lines.length; j++) {
-      if (!lines[j].trim()) continue
-      const amounts = amountMatchesAt(lines[j], STRUCTURAL_AMOUNT_RE)
-      if (!amounts.length) break
-      if (amounts.some((m) => /[1-9]/.test(m.text) && m.index < col.end && m.index + m.text.length > col.start)) rows.add(j)
+      if (noise(lines[j])) continue
+      const amounts = amountsOf(lines[j])
+      if (!amounts.length) {
+        if (!started && !/\d/.test(lines[j])) continue
+        break
+      }
+      started = true
+      const ok = amounts.some((m) => {
+        const a = m.index, b = m.index + m.text.length
+        if (!/[1-9]/.test(m.text) || a >= col.end || b <= col.start) return false
+        const cell = cells[j].find((c) => c.start <= a && c.end >= b)
+        if (!cell || /\p{L}/u.test(lines[j].slice(cell.start, cell.end).replace(m.text, '').replace(/€|EUR|euro/gi, ''))) return false
+        const k = headerAbove(j, a, b)
+        return k >= col.first && k <= col.line
+      })
+      if (ok) rows.add(j)
     }
   }
   return rows
+}
+
+/**
+ * Intestazione di colonna su UNA riga: una riga SENZA importi che contiene il
+ * nome della copertura; la colonna è l'intervallo di caratteri delle parole del
+ * nome in quella riga (non l'intera cella: «TUTELA LEGALE PERDITE ASSISTENZA
+ * IMPOSTE PREMIO LORDO» può essere una cella sola). Scheda DAS OneClick di
+ * RUZZA FABIO: «Circolazione Stradale Standard - AB   24,00   0,00 …» con 24,00
+ * sotto «TUTELA LEGALE».
+ */
+function horizontalCoverColumns(text, names) {
+  const out = []
+  const lines = String(text || '').split('\n')
+  lines.forEach((line, i) => {
+    if (!namesCoverage(line, names) || amountMatchesAt(line, STRUCTURAL_AMOUNT_RE).length) return
+    // stessa lunghezza della riga: si piegano solo maiuscole e accenti composti
+    const low = [...line].map((c) => c.toLowerCase().normalize('NFD')[0]).join('')
+    for (const nm of names) {
+      if (!Array.isArray(nm) || !nm.length) continue
+      const re = new RegExp(nm.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\p{L}\\p{N}]+'), 'gu')
+      for (const m of low.matchAll(re)) out.push({ start: m.index, end: m.index + m[0].length, line: i, first: i })
+    }
+  })
+  return out
 }
 
 /**
@@ -370,7 +425,9 @@ function boxNextToCoverName(line, names) {
     const end = m.index + m[0].length
     const after = normForMatch(l.slice(end))
     if (heads.some((h) => after.startsWith(h))) return true
-    if (!l.slice(end).trim() && namesCoverage(l.slice(0, end - m[1].length), names) === true) return true
+    // dopo il nome: nel resto della riga nessuna PAROLA (bordi «|», «]», importi
+    // «€ 15.000» sì; «Tutela Legale X Assistenza» no: la X è di Assistenza)
+    if (!/\p{L}/u.test(l.slice(end)) && namesCoverage(l.slice(0, end - m[1].length), names) === true) return true
   }
   return false
 }
@@ -1048,7 +1105,9 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   // l'intestazione della scheda col premio € 18,67) — con un batch «non
   // determinabile» dopo, la regola (a) l'avrebbe scartata.
   const contractNo = list.some((r) => r.verdict === 'mismatch' && !r.formEvidence && !r.structuralPage)
-  const nd = (r) => r.verdict === 'review' && r.esito === 'non determinabile'
+  // …ma non il «non determinabile» di un batch che conteneva pagine ‡ (la scheda
+  // col premio): lì la copertura c'è, e il silenzio del modello è un dubbio.
+  const nd = (r) => r.verdict === 'review' && r.esito === 'non determinabile' && !r.structuralBatch
   const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante' && !r.evidenceFound) || (contractNo && nd(r)))
   if (allSayNo && list.some((r) => r.verdict === 'mismatch') && list.some((r) => r.verdict === 'review')) {
     const proven = list.filter((r) => r.verdict === 'mismatch')

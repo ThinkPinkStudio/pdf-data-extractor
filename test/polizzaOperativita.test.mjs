@@ -922,3 +922,41 @@ test('strictAmount nell\'ordine dei batch e nella prova: la frase del DIP «€ 
   assert.equal(ev.structural, false)
   assert.equal(decideOperativita({ answer: a, evidence: ev, requireStructural: true }).verdict, 'review')
 })
+
+test('colonna intestata su UNA riga (DAS OneClick di RUZZA FABIO) e righe di rumore OCR dentro la tabella', () => {
+  const TL = [['tutela', 'legale']]
+  const one = [
+    '     OneClick - Circolazione Stradale',
+    '                                                                                             TUTELA LEGALE PERDITE ASSISTENZA IMPOSTE PREMIO LORDO',
+    '                                                                                                       PECUNIARIE',
+    '       Circolazione Stradale Standard - AB                                                     24,00    0,00      0,00    3,00     27,00',
+    '                                                                                PREMIO ANNUO  24,00     0,00     0,00     3,00     27,00',
+  ].join('\n')
+  assert.deepEqual([...coverColumnRows(one, TL)], [3, 4])
+  const a = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Circolazione Stradale Standard - AB 24,00 0,00 0,00 3,00 27,00', motivo: 'm' }
+  assert.equal(decideOperativita({ answer: a, evidence: verifyOperativitaEvidence(a, [{ ord: 1, page: 1, first: true, text: one }], { lexTokens: TL }) }).verdict, 'ok')
+  // riga di rumore OCR tra la riga del premio e «PREMIO ANNUO»: la tabella continua
+  const noisy = DAS_SCHEDA.split('\n')
+  noisy.splice(4, 0, '                                        "', '    Segue Elenco Rischi   PREMIO ANNUO                                            431,81   0,00   0,00   91,76   523,57')
+  assert.deepEqual([...coverColumnRows(noisy.join('\n'), TL)], [3, 5])
+  // una riga di prosa con cifre ma senza importi chiude la tabella
+  const altro = '    Altro' + ' '.repeat(DAS_SCHEDA.split('\n')[3].indexOf('431,81') - 9) + '431,81'
+  const after = DAS_SCHEDA.replace('   PARAMETRI TARIFFA ATTIVATI', '   Unità immobiliari: 40\n' + altro)
+  assert.deepEqual([...coverColumnRows(DAS_SCHEDA.replace('   PARAMETRI TARIFFA ATTIVATI', altro), TL)], [3, 4], 'controprova: senza la riga di prosa la riga «Altro» sta nella colonna')
+  assert.deepEqual([...coverColumnRows(after, TL)], [3], 'con la riga di prosa in mezzo la tabella è finita')
+})
+
+test('casella DOPO il nome seguita da bordi o importi senza parole: resta della copertura', () => {
+  const TL = [['tutela', 'legale']]
+  assert.equal(structuralCoverLines('Tutela Legale   [X]   € 15.000', TL).length, 1)
+  assert.equal(structuralCoverLines('| Tutela Legale | X |', TL).length, 1)
+  assert.equal(structuralCoverLines('Tutela Legale   [ X ]', TL).length, 1)
+  assert.deepEqual(structuralCoverLines('i. Tutela legale   X   l. Assistenza', TL), [])
+})
+
+test('regola (a): il «non determinabile» di un batch con pagine ‡ non viene zittito da un «no» provato altrove', () => {
+  const mm = { verdict: 'mismatch', reason: 'copertura non operante: x', esito: 'non operante' }
+  const ndPlain = { verdict: 'review', reason: 'copertura non determinabile', esito: 'non determinabile' }
+  assert.equal(combineOperativitaBatches([mm, ndPlain]).verdict, 'mismatch')
+  assert.equal(combineOperativitaBatches([{ ...ndPlain, structuralBatch: true }, mm]).verdict, 'review')
+})
