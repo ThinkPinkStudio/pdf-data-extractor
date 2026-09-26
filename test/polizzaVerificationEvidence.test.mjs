@@ -43,9 +43,10 @@ test('descriptionHeadText: la testa finisce ai due punti o a [.;] + spazio + MAI
 
 test('verificationObjectPhrases: alternative dalla testa della descrizione, parole generiche mai obbligatorie (profilo Rc Professionale V3 reale)', () => {
   // "garanzia" sta anche nelle teste di Sottolimiti ed Estensioni: non è l'oggetto.
-  // "visto leggero" resta anche se la testa del "Massimale visto leggero" lo
-  // ripete: quella testa parla della STESSA garanzia e non conta.
-  assert.deepEqual(altTexts(RC, 'Visto leggero'), ['visto leggero', 'assistenza fiscale', 'compensazione crediti'])
+  // Dal 26/09 anche «Visto pesante / bonus edilizi» e i due massimali visto sono
+  // verifiche: "visto" sta nelle teste di quattro verifiche e non distingue più,
+  // resta "leggero" (la parola che separa il visto leggero dal pesante).
+  assert.deepEqual(altTexts(RC, 'Visto leggero'), ['leggero', 'assistenza fiscale', 'compensazione crediti'])
   // "incarichi" sta nelle teste di tre verifiche: non è obbligatorio
   assert.deepEqual(altTexts(RC, 'Sindaco / Revisore'), ['sindaco', 'revisore legale', 'collegio sindacale', 'organo controllo'])
   // riferimento normativo = alternativa a sé; "società/enti" (parola corta)
@@ -58,9 +59,10 @@ test('verificationObjectPhrases: alternative dalla testa della descrizione, paro
     ['progettista', 'direttore lavori appalti pubblici', 'legge merloni', '109/1994', '163/2006', '50/2016', '36/2023'])
   // esempi citati nella parte positiva ("es. 'rappresentanza e difesa…'") come alternative
   const giud = altTexts(RC, 'Attività giudiziale / stragiudiziale')
-  assert.ok(giud.includes('giudiziale') && giud.includes('stragiudiziale') && giud.includes('arbitrato'))
+  // Dal 26/09 (descrizioni nuove) "attività" non sta più nella testa di un'altra
+  // verifica: la frase è "attività giudiziale", le alternative restano.
+  assert.ok(giud.includes('attivita giudiziale') && giud.includes('stragiudiziale') && giud.includes('arbitrato'))
   assert.ok(giud.includes('rappresentanza difesa autorita giudiziaria') && giud.includes('perizie giudiziali'))
-  assert.ok(!giud.some((a) => a.startsWith('attivita')), '"attività" sta in un\'altra testa: non obbligatoria')
   assert.deepEqual(altTexts(RC, 'Incarichi giudiziari'), ['curatore', 'custode giudiziario', 'delegato vendite', 'consulente tecnico ufficio', 'conferiti autorita giudiziaria'])
   assert.deepEqual(altTexts(RC, 'Custodia documenti / valori'), ['perdita', 'custodia documenti', 'somme', 'titoli', 'valori', 'perdita documenti'])
   // "risultano DICHIARATI sinistri": il predicato chiude il preambolo; "sinistri"
@@ -68,8 +70,10 @@ test('verificationObjectPhrases: alternative dalla testa della descrizione, paro
   assert.deepEqual(altTexts(RC, 'Sinistri e circostanze'), ['questionario', 'sinistri', 'richieste risarcimento', 'circostanze note'])
   // profilo medico: "Verifica se presente garanzia Tutela e/o Tutela Legale."
   assert.deepEqual(altTexts(MED, 'Tutela'), ['tutela', 'tutela legale'])
+  // dal 26/09 il massimale del visto leggero è una verifica («Indica se e con
+  // quale massimale…»): stesso oggetto del Visto leggero
+  assert.deepEqual(altTexts(RC, 'Massimale visto leggero'), ['leggero', 'assistenza fiscale', 'compensazione crediti'])
   // campi che non pongono una verifica: nessuna alternativa
-  assert.deepEqual(phrasesOf(RC, 'Massimale visto leggero'), [])
   assert.deepEqual(phrasesOf(RC, 'Esclusioni particolari'), [])
 })
 
