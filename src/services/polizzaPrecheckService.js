@@ -359,7 +359,10 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
       const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
-      results.push({ ...decision, structuralBatch: blocks.some((x) => x.structural) })
+      // la ‡ protegge un «non determinabile» solo dove la definizione ammette una
+      // SEZIONE (lì la riga copertura+premio è la prova); per gli altri profili è
+      // solo l'ordine di lettura
+      results.push({ ...decision, structuralBatch: recognitionAllowsSection(recognition) && blocks.some((x) => x.structural) })
       pagesSent.push(...blocks.map((x) => ({ ord: x.ord, page: x.page, score: x.score, batch: b + 1 })))
       // «Operante» provato: combineOperativitaBatches guarda il primo «ok» e i
       // batch PRIMA, quelli dopo non contano. La polizza è già decisa.

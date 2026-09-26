@@ -960,3 +960,34 @@ test('regola (a): il «non determinabile» di un batch con pagine ‡ non viene 
   assert.equal(combineOperativitaBatches([mm, ndPlain]).verdict, 'mismatch')
   assert.equal(combineOperativitaBatches([{ ...ndPlain, structuralBatch: true }, mm]).verdict, 'review')
 })
+
+test('intestazione su una riga: solo parole intere («professionale» non sta in «extraprofessionale», infortuni GUFFANTI)', () => {
+  const RC = [['professionale']]
+  const inf = [
+    '     Rischio Assicurato:                                    Professionale ed extraprofessionale',
+    '     GARANZIE',
+    '     In caso di Morte da Infortunio per una somma corrispondente a  € 35.000,00',
+  ].join('\n')
+  const at = inf.split('\n')[0].indexOf('extraprofessionale')
+  const row = '     Morte' + ' '.repeat(at - 10) + '35.000,00'
+  assert.deepEqual([...coverColumnRows(inf.split('\n')[0] + '\n' + row, RC)], [], 'la colonna «extraprofessionale» non è della copertura')
+})
+
+test('citazione della riga del premio che salta le colonne di mezzo: le cifre si confrontano numero per numero', () => {
+  const TL = [['tutela', 'legale']]
+  const scheda = DAS_SCHEDA.replace('    Difesa Condominio          ', '    Difesa Condominio - ed.2019')
+  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: scheda }
+  for (const evidenza of ['Difesa Condominio - ed.2019 523,57', 'Difesa Condominio - ed.2019 431,81 523,57', 'Difesa Condominio - ed.2019 431,81 91,76 523,57']) {
+    const a = { esito: 'operante', documento: 1, pagina: 1, evidenza, motivo: 'm' }
+    assert.equal(decideOperativita({ answer: a, evidence: verifyOperativitaEvidence(a, [p1], { lexTokens: TL }) }).verdict, 'ok', evidenza)
+  }
+})
+
+test('structuralPage vale solo se la definizione ammette una sezione (requireStructural)', () => {
+  const TL = [['tutela', 'legale']]
+  const sheet = { ord: 1, page: 1, first: true, questionnaire: false, text: 'TUTELA LEGALE   PERDITE PECUNIARIE\nPROD-000423   Tutela legale circolazione stradale base   € 18,67   € 2,33   € 21,00' }
+  const no = { esito: 'non operante', documento: 1, pagina: 1, evidenza: 'TUTELA LEGALE PERDITE PECUNIARIE', motivo: 'm' }
+  const ev = verifyOperativitaEvidence(no, [sheet], { lexTokens: TL })
+  assert.equal(decideOperativita({ answer: no, evidence: ev, requireStructural: true }).structuralPage, true)
+  assert.equal(decideOperativita({ answer: no, evidence: ev, requireStructural: false }).structuralPage, false)
+})

@@ -373,7 +373,8 @@ function horizontalCoverColumns(text, names) {
     const low = [...line].map((c) => c.toLowerCase().normalize('NFD')[0]).join('')
     for (const nm of names) {
       if (!Array.isArray(nm) || !nm.length) continue
-      const re = new RegExp(nm.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\p{L}\\p{N}]+'), 'gu')
+      // parole INTERE: «professionale» non sta dentro «extraprofessionale»
+      const re = new RegExp('(?<![\\p{L}\\p{N}])' + nm.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\p{L}\\p{N}]+') + '(?![\\p{L}\\p{N}])', 'gu')
       for (const m of low.matchAll(re)) out.push({ start: m.index, end: m.index + m[0].length, line: i, first: i })
     }
   })
@@ -859,7 +860,10 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
   if (ne.length < OPERATIVITA_MIN_EVIDENCE) return { found: false, names: exactNames, ord: null, page: null, where: null, reason: ev ? 'prova troppo corta' : 'nessuna prova citata' }
   const tokens = valueTokens(ev).filter((t) => t.length >= 4)
   // Cifre della citazione (importi, numeri di polizza): devono esserci tutte.
-  const digitRuns = [...new Set((ne.match(/\d{3,}/g) || []))]
+  // Numero per numero sul testo GREZZO: normalizzato, «ed.2019 361,99» diventava
+  // un solo «201936199» che nella pagina non c'è (la citazione salta le colonne
+  // di mezzo della riga del premio DAS).
+  const digitRuns = [...new Set([...ev.matchAll(/\d[\d.,]*\d|\d/g)].map((m) => m[0].replace(/\D/g, '')).filter((d) => d.length >= 3))]
   const matches = (b) => {
     // SOLO il testo che il modello ha visto (b.text, eventualmente tagliato):
     // la pagina intera (flat) conterrebbe righe mai inviate.
@@ -1001,7 +1005,7 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
   // premio o una casella — i segni dell'«operante» nella definizione. Un «no»
   // da lì resta uno scarto, ma non basta alla regola (a) per zittire un «non
   // determinabile» (combineOperativitaBatches).
-  return { ...base, verdict: 'mismatch', structuralPage: evidence.structural === true, reason: `copertura non operante${why}` }
+  return { ...base, verdict: 'mismatch', structuralPage: requireStructural && evidence.structural === true, reason: `copertura non operante${why}` }
 }
 
 /**
