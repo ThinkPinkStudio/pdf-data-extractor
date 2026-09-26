@@ -1441,6 +1441,11 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
     }
     const decoder = new TextDecoder()
     let buf = '', content = '', promptEval = null, evalCount = null, thinkingChars = 0
+    // Fine dello stream: `done` con il suo `done_reason` («stop», «length»), o
+    // una riga {"error": …} di Ollama. Prima si ignoravano entrambi e una
+    // risposta interrotta arrivava come JSON illeggibile senza una causa
+    // (BESA-083, 26/09/2026: «risposta del modello non leggibile»).
+    let done = false, doneReason = null, streamError = null
     for await (const value of res.stream) {
       lastChunkAt = Date.now()
       buf += decoder.decode(value, { stream: true })
@@ -1456,11 +1461,12 @@ async function ollamaChatStream(url, payload, { firstChunkMs = envMs('OLLAMA_FIR
           // suo campo e NON va nel JSON della risposta; spento resta il vecchio
           // ripiego (modelli che rispondono solo in `thinking`).
           else if (j.message?.thinking) { if (payload.think === true) thinkingChars += j.message.thinking.length; else content += j.message.thinking }
-          if (j.done) { promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
+          if (j.done) { done = true; doneReason = j.done_reason ?? null; promptEval = j.prompt_eval_count ?? null; evalCount = j.eval_count ?? null }
+          if (j.error) streamError = String(j.error).slice(0, 300)
         } catch { /* riga NDJSON parziale: completata al prossimo chunk */ }
       }
     }
-    return { content, promptEval, evalCount, thinkingChars }
+    return { content, promptEval, evalCount, thinkingChars, done, doneReason, streamError }
   } catch (err) {
     // L'abort chiude la connessione → Ollama CANCELLA la generazione (niente zombie).
     if (abortReason) throw new Error(`Ollama interrotto: ${abortReason}`)
@@ -1511,12 +1517,15 @@ export async function callOllamaRolling(settings, systemPrompt, userPrompt, opts
       num_predict: thinking ? Math.max(opts.numPredict || 3000, 8192) : (opts.numPredict || 3000)
     }
   }
-  const { content, promptEval, evalCount, thinkingChars } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * (thinking ? 12 : 4), envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
+  const { content, promptEval, evalCount, thinkingChars, done, doneReason, streamError } = await ollamaChatStream(url, payload, { hardCapMs: Math.max(timeoutMs * (thinking ? 12 : 4), envMs('OLLAMA_HARD_CAP_MS', 1800000)), cancelFlag: settings.__cancelFlag || null })
   if (diag) {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
     diag.push(`Ollama: modello ${settings.ollamaModel}${thinking ? ` · ragionamento ON (${thinkingChars} char)` : ''} · num_ctx ${numCtx} · durata ${secs}s` +
       (promptEval != null ? ` · token letti dal server: ${promptEval}` : '') +
-      (evalCount != null ? ` · token generati: ${evalCount}` : ''))
+      (evalCount != null ? ` · token generati: ${evalCount}` : '') +
+      (doneReason && doneReason !== 'stop' ? ` · fine: ${doneReason}${doneReason === 'length' ? ' (risposta TAGLIATA al limite di token)' : ''}` : '') +
+      (!done ? ' · ATTENZIONE: stream chiuso senza «done» (risposta forse incompleta)' : '') +
+      (streamError ? ` · ERRORE di Ollama: ${streamError}` : ''))
     // Stima dei token del prompt inviato (~3,5 char/token per italiano/OCR):
     // se il server ne ha letti molti meno, il prompt è stato troncato in silenzio
     // (la guida dei campi o parte del testo NON sono mai arrivate al modello).

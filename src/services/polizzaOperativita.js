@@ -114,8 +114,38 @@ export function recognitionAllowsSection(recognition) {
  * premio o somma assicurata propri della copertura.
  */
 export function lineHasNonZeroAmount(line) {
-  const amounts = String(line || '').match(/(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d[\d.]*/g) || []
-  return amounts.some((a) => /[1-9]/.test(a))
+  return amountMatches(line, /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d[\d.]*/g).some((a) => /[1-9]/.test(a))
+}
+
+// Numero di ARTICOLO («art. 6,13», «artt. 5,1,1», «articolo n. 12,30»): non è
+// un importo. La clausola di approvazione specifica (art. 1341 c.c.) della
+// polizza ITAS di MORANDI 11 (COND-052) — «SEZIONE TUTELA LEGALE: art, 5,1,1 …
+// art, 6,13» — diventava una riga «copertura + importo» e il suo batch, fatto
+// solo di quella, dava un «operante» su una tutela legale NON acquistata.
+// Solo il numero SUBITO dopo «art.»: in un elenco «artt. 6,13, 6,14» il secondo
+// resta (un premio vero dopo un trattino non si deve perdere).
+const ARTICLE_BEFORE_RE = /\b(?:artt?|articol[oi])\s*[.,:]?\s*(?:n\s*[.°º]\s*)?$/i
+function amountMatches(text, re) {
+  const s = String(text || '')
+  const out = []
+  for (const m of s.matchAll(re)) {
+    if (!ARTICLE_BEFORE_RE.test(s.slice(Math.max(0, m.index - 24), m.index))) out.push(m[0])
+  }
+  return out
+}
+
+/**
+ * Importo che fa di una riga una riga STRUTTURALE (premio della copertura):
+ * coi decimali («240,00», «1.047,47»), non nullo, non una percentuale («Tutela
+ * Legale 8,46%»). «€ 15.000» senza decimali in una frase del DIP («opera con il
+ * massimale di € 15.000, raddoppiabile…», Allianz, BESA-156) non lo è: quella
+ * frase apriva il batch 1 da sola e il modello la prendeva per la scheda.
+ * Vale SOLO per l'ordine dei batch e per la pagina della prova (struct): la
+ * riga della copertura con un importo che contraddice un «non operante»
+ * (proofIsCoverageRow, «ESCLUSA 31.000») resta con lineHasNonZeroAmount.
+ */
+export function lineHasStructuralAmount(line) {
+  return amountMatches(line, /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?![\d,])(?!\s*%)/g).some((a) => /[1-9]/.test(a))
 }
 
 /**
@@ -129,7 +159,7 @@ export function lineHasNonZeroAmount(line) {
  * batch la scheda non arrivava mai al modello. Decide sempre il modello.
  */
 export function pageHasAmount(text) {
-  return /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d/.test(String(text || ''))
+  return amountMatches(text, /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)|€\s*\d/g).length > 0
 }
 
 /**
@@ -249,6 +279,27 @@ export function lineHasCheck(line) {
   return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|✓|✔|X)(?:\s|$)/.test(String(line || ''))
 }
 
+/** CASELLA barrata ([x], ☒, ☑, X isolata): la ✓ / ✔ no, vedi tickAfterCoverName. */
+export function lineHasBoxCheck(line) {
+  return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|X)(?:\s|$)/.test(String(line || ''))
+}
+
+/**
+ * Una ✓ / ✔ è una SPUNTA della copertura solo se sulla riga sta DOPO il suo
+ * nome (segno di colonna: «Tutela Legale   ✓»). Aperta la riga o prima del
+ * nome è un PUNTO ELENCO: i DIP scrivono ogni voce così («✓ Ambito civile
+ * extracontrattuale : tutela legale», «✓ Tutela Legale» nell'elenco delle
+ * garanzie offerte dal prodotto Allianz). Prima quelle righe erano «copertura +
+ * spunta»: il DIP andava da solo nel batch 1 e il modello lo leggeva come la
+ * scheda (LAMBRATE 24, due auto Allianz di BESA con «Tutela Legale NON
+ * OPERANTE» nel contratto: tre polizze senza tutela legale abbinate).
+ */
+function tickAfterCoverName(line, names) {
+  const l = String(line || '')
+  for (const m of l.matchAll(/[✓✔]/g)) if (namesCoverage(l.slice(0, m.index), names) === true) return true
+  return false
+}
+
 /**
  * Riga STRUTTURALE: nomina la copertura E porta un importo o una spunta sulla
  * stessa riga («Tutela Legale  240,00  42,06», «TUTELA LEGALE  Imponibile annuo
@@ -257,9 +308,11 @@ export function lineHasCheck(line) {
  * elenco («TUTELA LEGALE (opzionale)») non ce l'ha. Nessun valore o soglia:
  * solo la forma della riga.
  */
-export function structuralCoverLines(text, nameTokens) {
+export function structuralCoverLines(text, nameTokens, { strictAmount = false } = {}) {
   if (!Array.isArray(nameTokens) || !nameTokens.length) return null
-  return String(text || '').split('\n').filter((l) => namesCoverage(l, nameTokens) && (pageHasAmount(l) || lineHasCheck(l)))
+  const amount = strictAmount ? lineHasStructuralAmount : pageHasAmount
+  return String(text || '').split('\n').filter((l) => namesCoverage(l, nameTokens)
+    && (amount(l) || lineHasBoxCheck(l) || tickAfterCoverName(l, nameTokens)))
 }
 
 /** Marcatore di pagina nei prompt: MAI il nome file (stessa regola di stagedDocTag). */
@@ -324,7 +377,7 @@ export function selectOperativitaPages(candidates, { budgetChars, maxPageChars =
   // Nomina la copertura: forma esatta ovunque, forma flessa sul frontespizio
   // (pageNamesCoverage: stessa regola delle pagine nominate non lette).
   const hasLex = (c) => pageNamesCoverage(c, lexTokens) === true
-  const isStructural = (c) => (structuralCoverLines(c.text, lexTokens) || []).length > 0
+  const isStructural = (c) => (structuralCoverLines(c.text, lexTokens, { strictAmount: true }) || []).length > 0
   const named = list.filter(hasLex)
   // (0) righe strutturali (nome + importo/spunta sulla stessa riga: la scheda);
   // (1) nominano con importi altrove nella pagina; (2) prosa che nomina.
@@ -336,11 +389,23 @@ export function selectOperativitaPages(candidates, { budgetChars, maxPageChars =
   const budget = Math.max(0, Number(budgetChars) || 0)
   const chosen = []
   let used = 0
-  // Finché ci sono pagine STRUTTURALI il batch è fatto SOLO di quelle: messe
+  // Finché ci sono pagine STRUTTURALI il batch è fatto SOLO di quelle (più le
+  // prime pagine dei loro documenti, sotto): messe
   // insieme alla prosa, il modello sceglieva come prova la frase delle
   // condizioni («Condizioni Tutela Legale: art. 6.7…») invece della riga della
   // scheda due pagine più in là (BOIARDO). Il resto arriva nei batch dopo.
-  const order = structural.length ? structural : [...namedAmount, ...namedProse, ...firsts, ...rest]
+  // Dopo le pagine ‡ entrano, se c'è posto, le PRIME 3 pagine dei loro stessi
+  // documenti (frontespizio e scheda): la pagina ‡ da sola può essere la
+  // valutazione delle esigenze del questionario DAS («X Tutela legale del
+  // condominio», e sotto «…DI TUTELA LEGALE SUL MEDESIMO RISCHIO? X NO»), e il
+  // modello deve vedere accanto la scheda col premio (CALDARA 7, LE TERRAZZE,
+  // PIAVE 4: pag. 18 e pag. 1 dello stesso PDF). Solo pagine dello stesso
+  // documento, mai la prosa di altri documenti (BOIARDO).
+  const structDocs = new Set(structural.map((c) => c.ord))
+  const companions = structural.length
+    ? list.filter((c) => structDocs.has(c.ord) && c.page <= 3 && !isStructural(c)).sort((a, b) => (a.ord - b.ord) || (a.page - b.page) || ((a.part || 0) - (b.part || 0)))
+    : []
+  const order = structural.length ? [...structural, ...companions] : [...namedAmount, ...namedProse, ...firsts, ...rest]
   for (const c of order) {
     let text = cutUseful(c.text, maxPageChars)
     let len = usefulLength(text)
@@ -648,7 +713,7 @@ export function parseOperativitaAnswer(raw) {
 // Importo in euro NON nullo scritto coi decimali («431,81», «1.047,47»): un
 // numero di certificato («TLM190942268») o di polizza non è un premio.
 function hasEuroAmount(text) {
-  return (String(text || '').match(/(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?![\d,])/g) || []).some((a) => /[1-9]/.test(a))
+  return amountMatches(text, /(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?![\d,])(?!\s*%)/g).some((a) => /[1-9]/.test(a))
 }
 
 export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], namedDocs = null } = {}) {
@@ -673,7 +738,7 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], name
   }
   // structural: la pagina della prova ha una riga col nome della copertura E un
   // importo/spunta (null = nome non determinabile).
-  const struct = (b) => { const l = structuralCoverLines(b.text, lexTokens); return l === null ? null : l.length > 0 }
+  const struct = (b) => { const l = structuralCoverLines(b.text, lexTokens, { strictAmount: true }); return l === null ? null : l.length > 0 }
   // La prova È una riga strutturale con un importo non nullo? (la copertura
   // con un suo premio/somma: «Tutela Legale  ESCLUSA  31.000,00» della
   // quietanza DAS, dove ESCLUSA è la colonna dell'indicizzazione).
@@ -720,7 +785,7 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], name
     : pageNamesCoverage(b, lexTokens) === true
   const productProof = !formPage && docNamed
     && (hasEuroAmount(ev) || (!!b.first && titleNamed
-      && String(b.text || '').split('\n').some((l) => lineHasCheck(l) && hasEuroAmount(l))))
+      && String(b.text || '').split('\n').some((l) => lineHasBoxCheck(l) && hasEuroAmount(l))))
   return {
     found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), formPage, productProof, ord: b.ord, page: b.page,
     where: cited ? 'citata' : 'altra pagina', reason: cited ? 'prova trovata nella pagina citata' : `prova trovata in Documento ${b.ord} pag. ${b.page}`,

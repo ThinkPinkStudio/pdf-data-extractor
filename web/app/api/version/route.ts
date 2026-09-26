@@ -32,6 +32,8 @@ const BUILD_FEATURES = [
   'riconcilia-esistenti', // Riabbina di batch con «Riunisci prima i dossier con lo stesso numero di polizza» (26/09/2026)
   'riconcilia-frammenti', // riconciliazione: niente frammenti di numero, numero a destra dell'etichetta; «Separa per cartella d'origine» (26/09/2026)
   'pertinenza-prodotto', // «non determinabile» non contraddice un «non operante» provato; prova di un prodotto TL dal documento che la nomina (26/09/2026)
+  'pertinenza-documento', // il documento che nomina la copertura su tutte le sue pagine; regola (a) senza i «no» della scheda; frontespizio dal titolo (26/09/2026)
+  'pertinenza-spunte',   // ✓ punto elenco ≠ spunta, «art. 6,13» ≠ importo, riga ‡ con importo coi decimali; fine dello stream Ollama nel log (27/09/2026)
 ]
 
 export async function GET() {

@@ -16,7 +16,7 @@ import {
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   selectContrattoPages, decideContract, applyContractVerdict, operativitaVerdictLabel, checkContractAnswer,
-  namesCoverageAnyForm, pageNamesCoverage, pageHead,
+  namesCoverageAnyForm, pageNamesCoverage, pageHead, lineHasStructuralAmount, lineHasBoxCheck,
 } from '../src/services/polizzaOperativita.js'
 import { isQuestionnairePageTitle, isQuestionnaireTitle } from '../src/services/polizzaFactsRegistry.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
@@ -298,7 +298,8 @@ test('selectOperativitaPages: pagine che nominano la copertura CON importi prima
   assert.equal(one[0].amount, true)
   // batch pieno: NON si salta alla pagina più corta successiva
   const two = selectOperativitaPages(cands, { budgetChars: cands[2].text.length + cands[0].text.length - 5, lexTokens: tokens })
-  assert.deepEqual(two.map((b) => `${b.ord}.${b.page}`), ['3.3'], 'con 2.6 che non entra ci si ferma: aprirà il batch dopo')
+  // con la scheda ‡ entra il frontespizio dello STESSO documento (3.1), mai la prosa di altri (2.6)
+  assert.deepEqual(two.map((b) => `${b.ord}.${b.page}`), ['3.1', '3.3'], 'la prosa di un altro documento resta per il batch dopo')
   // batch successivo (senza 3.3): riparte da 2.6
   const next = selectOperativitaPages(cands.filter((c) => !(c.ord === 3 && c.page === 3)), { budgetChars: cands[0].text.length + 2, lexTokens: tokens })
   assert.deepEqual(next.map((b) => `${b.ord}.${b.page}`), ['2.6'])
@@ -827,3 +828,54 @@ test('prodotto, ramo frontespizio: il nome della copertura deve stare nel TITOLO
   assert.equal(decideOperativita({ answer: a, evidence: ev }).verdict, 'review')
 })
 
+test('riga strutturale: la ✓ è una spunta solo DOPO il nome della copertura, mai come punto elenco (DIP: LAMBRATE 24, auto Allianz di BESA)', () => {
+  const TL = [['tutela', 'legale']]
+  assert.deepEqual(structuralCoverLines('   ✓ Tutela Legale', TL), [])
+  assert.deepEqual(structuralCoverLines('   ✓ Ambito civile extracontrattuale : tutela legale', TL), [])
+  assert.deepEqual(structuralCoverLines('Garanzie: ✓ Tutela Legale', TL), [])
+  assert.equal(structuralCoverLines('Tutela Legale   ✓', TL).length, 1)
+  assert.equal(structuralCoverLines('[x] Tutela Legale', TL).length, 1)
+  assert.equal(structuralCoverLines('X   Tutela legale del condominio', TL).length, 1)
+  assert.equal(lineHasBoxCheck('✓ Tutela Legale'), false)
+  assert.equal(lineHasBoxCheck('[x] Difesa Penale e Civile   99,84'), true)
+  // il DIP con le voci a punto elenco non apre più da solo il batch 1
+  const dip = { ord: 1, page: 2, text: 'Polizza di tutela legale per i condomini\n   ✓ Ambito penale : assistenza penale\n   ✓ Ambito civile extracontrattuale : tutela legale', flat: 'Polizza di tutela legale per i condomini ✓ Ambito civile extracontrattuale : tutela legale', score: 0.7 }
+  const sheet = { ord: 1, page: 1, text: 'TUTELA   PERDITE\nLEGALE   PECUNIARIE\nDifesa Condominio   298,55   63,44   361,99', flat: 'TUTELA PERDITE LEGALE PECUNIARIE Difesa Condominio 298,55 63,44 361,99', score: 0.5 }
+  const b = selectOperativitaPages([dip, sheet], { budgetChars: 5000, lexTokens: TL })
+  assert.equal(b.some((x) => x.structural), false)
+  assert.equal(b.length, 2, 'senza pagine ‡ il DIP e la scheda vanno nello stesso batch')
+})
+
+test('importo di una riga: un numero di ARTICOLO non è un importo; per la riga ‡ servono i decimali, non nulli, non una percentuale', () => {
+  const TL = [['tutela', 'legale']]
+  const itas = 'SEZIONE TUTELA LEGALE: art, 5,1,1 - Insorgenza del sinistro - operatività della garanzia, art, 6,13 -'
+  assert.deepEqual(structuralCoverLines(itas, TL), [], 'MORANDI 11 (COND-052): clausola art. 1341')
+  assert.equal(pageHasAmount('vedi art. 6,13 delle condizioni'), false)
+  assert.equal(pageHasAmount('Tutela Legale (art. 5)   240,00'), true)
+  assert.equal(structuralCoverLines('Tutela Legale (art. 5)   240,00', TL).length, 1)
+  assert.equal(lineHasNonZeroAmount('artt. 6,13'), false)
+  // ‡ stretta: decimali, non nulli, niente percentuali
+  const allianz = 'Tutela giudiziaria : opera con il massimale di € 15.000 , raddoppiabile se ci si avvale del patrocinio'
+  assert.deepEqual(structuralCoverLines(allianz, [['tutela', 'giudiziaria']], { strictAmount: true }), [], 'BESA-156: frase del DIP')
+  assert.equal(structuralCoverLines(allianz, [['tutela', 'giudiziaria']]).length, 1, 'senza strictAmount (proofIsCoverageRow) resta come prima')
+  assert.equal(lineHasStructuralAmount('Tutela Legale   8,46%'), false)
+  assert.equal(lineHasStructuralAmount('Tutela Legale   8,46 %'), false)
+  assert.equal(lineHasStructuralAmount('TUTELA LEGALE   Imponibile annuo € 249,06'), true)
+  assert.equal(lineHasStructuralAmount('Tutela Legale   0,00'), false)
+  assert.equal(lineHasStructuralAmount('Tutela Legale   1047,47'), true)
+  assert.equal(structuralCoverLines('Tutela Legale   ESCLUSA   31.000,00', TL, { strictAmount: true }).length, 1, 'quietanza DAS: resta ‡')
+})
+
+
+test('batch delle pagine ‡: entrano anche le prime 3 pagine dello STESSO documento, non gli altri documenti né le altre pagine (CALDARA 7 pag. 18 + scheda)', () => {
+  const TL = [['tutela', 'legale']]
+  const mk = (ord, page, text, score) => ({ ord, page, text, flat: text.replace(/\s+/g, ' '), score })
+  const p18 = mk(1, 18, 'VALUTAZIONE DELLE RICHIESTE ED ESIGENZE ASSICURATIVE\nALTRO SOGGETTO   X Condominio   X Tutela legale del condominio\nDISPONE GIÀ DI UNA COPERTURA ASSICURATIVA DI TUTELA LEGALE SUL MEDESIMO RISCHIO?   X NO   SI', 0.64)
+  const p1 = mk(1, 1, 'TUTELA   PERDITE\nLEGALE   PECUNIARIE\nDifesa Condominio - ed.2019   159,99   34,00   193,99', 0.57)
+  const p2 = mk(1, 2, 'Polizza di tutela legale per i condomini\n   ✓ Ambito civile extracontrattuale : tutela legale', 0.71)
+  const p9 = mk(1, 9, 'SEZIONE GARANZIE DI TUTELA LEGALE   Artt. 1-6', 0.72)
+  const other = mk(2, 1, 'QUIETANZA   Polizza 0146905086   Premio 193,99', 0.5)
+  const b = selectOperativitaPages([p18, p1, p2, p9, other], { budgetChars: 5000, lexTokens: TL })
+  assert.deepEqual(b.map((x) => `${x.ord}:${x.page}`), ['1:1', '1:2', '1:18'])
+  assert.equal(b.find((x) => x.page === 18).structural, true)
+})
