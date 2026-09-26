@@ -23,7 +23,8 @@ const BUILD_FEATURES = [
   'riconciliazione-cf', // riconciliazione: niente CF come numero, copie di fuori non dividono la cartella (26/09/2026)
   'campi-compilabili', // valori dei campi AcroForm nella griglia; pagine digitali dal text layer di adesso (26/09/2026)
   'flag-motore',       // flag del motore per le run di test: campi, cascata4, a78, recupero, elenchi (26/09/2026)
-  'contesto-128k',     // tetto contesto 131072 (48 GB), ridotto al nativo del modello; OCR visivo con 16k token d'uscita (26/09/2026)
+  'contesto-128k',     // (storico) tetto contesto 131072; OCR visivo con 16k token d'uscita (26/09/2026)
+  'contesto-256k',     // tetto contesto 262144, ridotto al nativo del modello (qwen3:30b-a3b a 256k ≈ 43 GB) (26/09/2026)
 ]
 
 export async function GET() {

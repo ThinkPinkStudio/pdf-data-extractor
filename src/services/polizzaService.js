@@ -65,15 +65,15 @@ export const MAX_BATCH_CTX_8GB = 8192
 // Tetto CONFIGURABILE (25/09/2026, nuovo server RTX 6000 Ada 48 GB): il valore
 // «Tetto contesto batch» di Impostazioni tecniche (polizzaBatchContext) vale
 // per TUTTE le chiamate che prima erano cappate a 8192; assente = 8192 (default
-// sicuro per 8 GB di VRAM). Tetto assoluto 131072 (26/09/2026, deciso dall'utente
+// sicuro per 8 GB di VRAM). Tetto assoluto 262144 (26/09/2026, deciso dall'utente
 // sui 48 GB della RTX 6000 Ada): il limite VERO
 // è il contesto NATIVO del modello (n_ctx_train da /api/show, YaRN non attivo
 // nelle tag di Ollama): qwen2.5:32b 32768, qwen3:32b 40960, qwen3:30b-a3b e
 // qwen3-vl 262144, mistral-small3.2 e gemma3 131072. Il motore a stadi riduce
 // ogni chiamata a min(tetto, limite del modello). VRAM (48 GB, KV f16): un 32B
 // costa ~256 KB/token (64k ≈ 36 GB in tutto, 128k non entra), qwen3:30b-a3b
-// ~96 KB/token (128k ≈ 31 GB).
-export const MAX_CTX_ABSOLUTE = 131072
+// ~96 KB/token (128k ≈ 31 GB, 256k ≈ 43 GB: ci sta, al limite).
+export const MAX_CTX_ABSOLUTE = 262144
 export function ctxCap(settings) {
   const v = parseInt(settings?.polizzaBatchContext, 10)
   if (!Number.isFinite(v) || v <= 0) return MAX_BATCH_CTX_8GB

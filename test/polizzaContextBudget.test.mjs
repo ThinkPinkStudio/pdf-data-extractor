@@ -168,14 +168,15 @@ test('regressione budget: un documento ~1800 char entra INTERO nel batch (num_ct
   const totalTokens = estimateOllamaTokens(batches[0].text.length) + estimateOllamaTokens(systemChars + userChars)
   assert.ok(totalTokens <= maxTokens, `${totalTokens} token > numCtx-margine ${maxTokens}`)
 })
-test('ctxCap: default 8192, valore di Impostazioni rispettato fino a 131072, mai oltre (il nativo del modello lo applica il motore)', () => {
+test('ctxCap: default 8192, valore di Impostazioni rispettato fino a 262144, mai oltre (il nativo del modello lo applica il motore)', () => {
   assert.equal(ctxCap({}), 8192)
   assert.equal(ctxCap(null), 8192)
   assert.equal(ctxCap({ polizzaBatchContext: 'abc' }), 8192)
   assert.equal(ctxCap({ polizzaBatchContext: 16384 }), 16384)
   assert.equal(ctxCap({ polizzaBatchContext: '32768' }), 32768)
   assert.equal(ctxCap({ polizzaBatchContext: 131072 }), 131072)
-  assert.equal(ctxCap({ polizzaBatchContext: 262144 }), 131072)
+  assert.equal(ctxCap({ polizzaBatchContext: 262144 }), 262144)
+  assert.equal(ctxCap({ polizzaBatchContext: 524288 }), 262144)
   assert.equal(ctxCap({ polizzaBatchContext: 512 }), 2048)
 })
 
