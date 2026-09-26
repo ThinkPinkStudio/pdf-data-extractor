@@ -1047,7 +1047,7 @@
       {
         "id": "e8357f80-629c-415f-97cf-f29b5d1ba511",
         "label": "Massimale visto leggero",
-        "description": "Massimale specifico della garanzia visto leggero / assistenza fiscale / compensazione crediti, se la polizza la prevede con un proprio limite (importo); se opera entro il massimale generale scrivi 'entro il massimale di polizza'; vuoto se la garanzia non è prevista.",
+        "description": "Indica se e con quale massimale è limitata la garanzia visto leggero, assistenza fiscale o compensazione crediti: riporta l'importo del limite dedicato a quella garanzia, massimale o sottolimite (es. 1.000.000,00), e cita la frase che nomina la garanzia insieme all'importo. Se una garanzia, estensione o voce della scheda nomina come coperti il visto leggero, l'assistenza fiscale o la compensazione dei crediti e quella garanzia opera entro il massimale generale senza un importo proprio, scrivi 'entro il massimale di polizza' e cita la frase che la nomina. Vuoto se il fascicolo non nomina la garanzia come coperta o se è esclusa; una frase sul massimale di polizza, sulle estensioni in generale o sui sottolimiti che non nomina la garanzia non basta. Il valore è sempre un importo o quella frase, mai una risposta Sì/No. NON sono questa garanzia la consulenza fiscale, la tenuta della contabilità o la redazione delle dichiarazioni. NON è il massimale generale della polizza. NON dedurla dal tipo di professione.",
         "type": "text",
         "sheet": "RCT_O",
         "enabled": true,
@@ -1111,7 +1111,7 @@
       {
         "id": "e5e9215e-60db-47f2-9ab1-ff1c32528bdc",
         "label": "Visto pesante / bonus edilizi",
-        "description": "Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00",
+        "description": "Verifica se la polizza comprende espressamente la garanzia visto pesante o il visto di conformità per bonus edilizi: 'presente' solo se una garanzia, estensione o voce della scheda la nomina come coperta, cita la frase (es. 'visto di conformità per Superbonus', 'visto di conformità per Sismabonus', 'bonus edilizi: visto di conformità'); 'escluso' solo se una clausola esclude espressamente il visto pesante o il visto di conformità per i bonus edilizi, cita la frase; vuoto se il fascicolo non la nomina. Il visto pesante è la certificazione tributaria; per i bonus edilizi (superbonus, sismabonus) è il visto di conformità richiesto per la cessione del credito o lo sconto in fattura. NON è questa garanzia il visto di conformità sulle dichiarazioni o sulla compensazione dei crediti, che è il visto leggero. NON è questa garanzia, né la sua esclusione, l'asseverazione tecnica di un progettista, anche per i bonus edilizi. NON dedurla dal tipo di professione né da garanzie fiscali generiche (consulenza fiscale, tenuta della contabilità, redazione delle dichiarazioni).",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
@@ -1125,7 +1125,7 @@
       {
         "id": "c0d77dfd-8e78-4717-92c1-5e516a87caab",
         "label": "Massimale visto pesante",
-        "description": "Massimale RC Prodotti per danni da interruzione o sospensione di attività, es. 500.000,00",
+        "description": "Indica se e con quale massimale è limitata la garanzia visto pesante o il visto di conformità per bonus edilizi: riporta l'importo del limite dedicato a quella garanzia, massimale o sottolimite (es. 1.000.000,00), e cita la frase che nomina la garanzia insieme all'importo (es. 'visto di conformità per Superbonus', 'visto di conformità per Sismabonus', 'bonus edilizi: visto di conformità'). Vuoto se il fascicolo non nomina la garanzia come coperta, se è esclusa o se opera entro il massimale generale senza un importo proprio. Il valore è sempre un importo, mai una risposta Sì/No. NON è il massimale generale della polizza, NON è il sottolimite di un'altra garanzia o estensione, NON è il massimale del visto leggero, NON è la franchigia.",
         "type": "text",
         "sheet": "RCP",
         "enabled": true,
