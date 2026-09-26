@@ -19,9 +19,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   dall'utente il 25/09/2026): ogni DEPLOY di `test_branch` va al cliente
   (https://genius.csabroker.it). **Il push NON deploya** (26/09/2026): Coolify
   sta dietro la VPN e i webhook di GitHub non arrivano; il deploy si lancia a
-  mano da Coolify. Il 26/09 la produzione era 10 commit indietro e una notte di
-  misure ha girato sul codice vecchio: prima di misurare, controllare in
-  `/api/version` il marcatore `buildFeatures` del codice atteso. `main` è fermo alla 1.0.153 e la versione
+  mano da Coolify o con `scripts/deploy-prod.mjs` (API Coolify, token
+  deploy+read fuori dal repo: pusha, mette PAUSE, aspetta la produzione libera,
+  deploya, verifica i marcatori). Prima di misurare, controllare in
+  `/api/version` il marcatore `buildFeatures` del codice atteso (golden-prod
+  ora lo registra in summary.json). **A temperatura 0 le run sono
+  deterministiche**: stesso codice e stessa configurazione danno gli stessi
+  valori (qwen2.5 senza flag sul codice del 26/09 = run b1, 0 differenze),
+  quindi una differenza tra due configurazioni è segnale, non rumore. `main` è fermo alla 1.0.153 e la versione
   mostrata resta 1.0.153 anche col codice nuovo: per sapere cosa gira, provare
   una route recente. Mai pushare mentre gira una misura in produzione (il
   redeploy riavvia il server a metà run). Storicamente: merge su `main` →
@@ -863,6 +868,80 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   dossier). Resta separata — giustamente, per la prova — una «BOZZA DA
   APPROVARE» col numero provvisorio (EX/TPO17428237) dalla polizza definitiva
   (EX/M16548705): numeri diversi, nessun legame nei documenti.
+
+- **Pertinenza: polizze VERE bloccate, correzioni dalla prova** (26/09/2026,
+  golden in produzione dopo «Senza polizza = Non valido», che non forza più;
+  rivedute da due revisori avversari con replay sulle griglie vere di 779 PDF):
+  (1) **«non operante» provato SOLO in pagine di QUESTIONARIO/PROPOSTA =
+  scarto MARCATO** (`decideOperativita` → mismatch con `formEvidence`): da solo
+  resta non pertinente (l'opzione non barrata del questionario delle esigenze
+  è la prova più comune del non acquisto: Vittoria «Tutela Legale» senza X,
+  Unipol «o la fornitura di servizi di tutela legale…» — con la prima versione
+  «dubbio neutro» CASORETTO, EH448TD e RUZZA MI X4919 passavano da scartati a
+  Da verificare), ma NON contraddice un «operante» provato nel contratto
+  (`combineOperativitaBatches`: i formEvidence non sono `earlierNo`). BOLCHINI
+  RC 2025: batch 1 = questionario AIG (righe «professionale … ⃝ X No» → ‡),
+  «non operante» citando «Indicare il massimale per il quale si richiede
+  copertura: € 250.000», batch 2 = polizza «operante» → prima «esiti
+  contraddittori», ora ok. Vale anche per un «NO [X]» sulla riga della
+  copertura: per forma non si distingue dalle domande su altro («…sub-
+  appaltatori dispongano di una loro polizza per la responsabilità
+  professionale? ⃝ Sì ⃝ X No» di BOLCHINI); rischio residuo: questionario «no»
+  + «operante» sbagliato altrove passa (prima lo fermava la contraddizione).
+  Pagina § = `isQuestionnairePageTitle` (facts registry): una CELLA della
+  testa della pagina (primi 120 caratteri) COMINCIA con le parole di
+  isQuestionnaireTitle — la parola «ovunque nella testa» marcava la prosa del
+  contratto (Saporiti p6 «…definiti nella proposta di Assicurazione…»,
+  MetLife «▪ Questionario medico-sportivo»). Per PAGINA (il questionario IDD
+  rilegato nella polizza Santangelo marca solo p1/p9/p17 di 24). Prova § solo
+  se TUTTE le pagine inviate che la contengono sono §. Limiti misurati:
+  restano § un glossario («Modulo di Proposta / il formulario…») e un
+  frontespizio-indice; le pagine di un questionario senza titolo ripetuto
+  (GUFFANTI RINNOVO 2026: 6 pagine, marcata solo la 1) restano contratto →
+  lì un «no» contraddice ancora (Da verificare, come prima). Tolta
+  `proofIsUnselectedOption` (solo glifi ☐/[ ]: 1 riga su 8.779 pagine).
+  **Scartata** (per ora): «operante» provato su pagina § → dubbio neutro
+  (simmetria): bolchini-rc-2026 e guffanti-rc-2026 in produzione avevano il
+  batch 1 «ok» dal questionario, ma BOIARDO/RAMAZZINI/SUSA/ZELO hanno «X Tutela
+  Legale» nel questionario nello STESSO batch della scheda: se il modello cita
+  il questionario la scheda non viene riletta e la polizza vera si blocca. Va
+  misurata a parte.
+  (2) **Nome della copertura in forma FLESSA solo sul FRONTESPIZIO**
+  (`namesCoverageAnyForm`: parola intera senza le vocali finali, «medica» =
+  «medico» = «medici», «sanitaria» = «sanitario»; `pageNamesCoverage`: forma
+  esatta ovunque, flessa solo sulla prima pagina con testo di ogni documento,
+  `first`). UNA regola per ordine dei batch (†), pagine nominate non lette,
+  «mai nominata» (`coverNeverNamed(…, { titlePages })`) e prova «generica»
+  (flessa solo se la prova sta sul frontespizio). Misura sulle 205 cartelle
+  locali: la radice `objectRadix` (6 caratteri) faceva combaciare parole
+  diverse («profes» = professione/professionista, «medic» = medicina) e su
+  tutte le pagine 62 dossier su 205 perdevano lo scarto «mai nominata» per la
+  RC medica (55 di altri rami; 19 per la RC V3); flessa sul solo
+  frontespizio: 14 per la RC medica (5 polizze mediche vere — Badran,
+  Bartoli, CALZAVARA, Kaisermann, PRINA rcprof — più PRINA tl e 8 cartelle di
+  altri rami: set informativi DAS «ambito medico-sanitario», informative
+  privacy), 0 per RC V3 e TL. LUCCA: «AMTRUST PROFESSIONISTA SANITARIO PROTETTO» (p1)
+  nomina la RC sanitaria, «AMTRUST TUTELA MEDICI» (p2) no. Rischio residuo:
+  frontespizi di altri rami col nome flesso («Giovane Medico» di PRINA tl):
+  decide il modello, misura in `test/fixtures/pertinenza-negativi-expected.json`
+  (8 negativi per RC V3 e RC MED). Righe strutturali (‡): sempre forma esatta.
+  (3) LUCCA «non operante» con «ATTIVITÀ: PERSONALE SANITARIO NON MEDICO»
+  (qwen3:32b, dal certificato di TUTELA LEGALE della pag. 2) è un errore di
+  LETTURA del modello: nessuna regola di codice lo separa da un non operante
+  vero. BOZZA di «Come riconoscerla» di RC PROF MED V2 (TESTA invariata:
+  cambiarla cambia i nomi): professioni sanitarie mediche e non mediche, la
+  professione dell'assicurato (anche «non medico») è la sua categoria, la TL
+  per medici non lo è, «certificato di adesione» invece di «questionario».
+  Da importare dall'UTENTE (i test controllano solo i fatti derivati: nomi,
+  sezione ammessa). (C) BESA Allianz «Tutela Giudiziaria SI 18,19»: nessun
+  codice, basta la testa «TUTELA LEGALE / TUTELA GIUDIZIARIA» della bozza.
+  In produzione (B) e (C) dipendono dai testi che cambia l'utente.
+  Misure: `pertinenza-eval.mjs` ora legge anche le fixture nel formato di
+  bulk-prod (`root` + `match`: pertinenza-pizzamiglio/besa-expected.json,
+  cartella + sottocartelle tranne i `match` di altri casi, come la
+  riconciliazione del bulk) e SALTA un caso con file dichiarati mancanti;
+  fixture golden `pertinenza-golden-expected.json` (13 casi, profilo per
+  caso, allineata a FULL_CASES da `test/pertinenzaGoldenFixture.test.mjs`).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
