@@ -16,7 +16,9 @@ import {
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   selectContrattoPages, decideContract, applyContractVerdict, operativitaVerdictLabel, checkContractAnswer,
+  namesCoverageAnyForm, pageNamesCoverage,
 } from '../src/services/polizzaOperativita.js'
+import { isQuestionnairePageTitle, isQuestionnaireTitle } from '../src/services/polizzaFactsRegistry.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
 
 const page = (ord, page, text, score) => ({ ord, page, text, flat: text.replace(/\s{2,}/g, ' '), score })
@@ -493,4 +495,255 @@ test('coverNeverNamed: copertura mai nominata in nessuna pagina = non operante p
   assert.equal(coverNeverNamed(['Garanzie: RCA, Incendio', 'Tutela Giudiziaria   SI   18,19'], names), false)
   assert.equal(coverNeverNamed(['', '  '], names), false, 'senza testo non si giudica')
   assert.equal(coverNeverNamed(['qualunque testo'], []), false, 'nome non determinabile: non si giudica')
+})
+
+// ─── 26/09/2026: polizze vere bloccate dalla pertinenza (BOLCHINI RC 2025, LUCCA) ───
+
+// BOLCHINI RC 2025, questionario AIG (griglia pdf.js vera, pag. 3, accorciata):
+// ogni pagina porta il titolo «Questionario di Assicurazione Rc Professionale».
+const BOLCHINI_Q3 = [
+  'Questionario di Assicurazione Rc Professionale',
+  '                                     Ingegneri & Architetti',
+  '       12  La società si avvale di sub - appaltatori / consulenti esterni? ⃝ Sì ⃝ X No',
+  '            b) Richiedete che tali sub - appaltatori dispongano di una loro polizza di assicurazione per la responsabilità',
+  '            professionale?                                                   ⃝ Sì ⃝ X No',
+  '          OPZIONI DI COPERTURA',
+  '          Indicare il massimale per il quale si richiede copertura:',
+  '           € 250.000   € 500.000    € 1.000.000  €1.500.000   € 2.000.000  € 2.500.000',
+  '               ⃝            ⃝            ⃝            ⃝            ⃝           ⃝',
+].join('\n')
+// La polizza (appendice di rinnovo AIG, stessa cartella).
+const BOLCHINI_APP = [
+  'APPENDICE          N. 1    - RINNOVO',
+  '                                             POLIZZA       IPD0017417',
+  "          Descrizione del rischio            RESPONSABILITA' CIVILE PROFESSIONALE  INGEGNERI E ARCHITETTI",
+  '          Totale Premio annuo lordo risultante dal Calcolo del Premio (in euro)                     756,42',
+].join('\n')
+const RC_NAME = [['professionale']]
+const MED = [['medica'], ['sanitaria']]
+const TL_NAME = [['tutela', 'legale'], ['tutela', 'giudiziaria']]
+const Q_MASSIMALE = 'Indicare il massimale per il quale si richiede copertura: € 250.000'
+const POL_OK = { esito: 'operante', documento: 3, pagina: 1, evidenza: "Descrizione del rischio RESPONSABILITA' CIVILE PROFESSIONALE INGEGNERI E ARCHITETTI", motivo: 'premio lordo 756,42' }
+
+test('BOLCHINI RC 2025: «non operante» provato SOLO nel questionario = scarto marcato, che non contraddice la polizza «operante»', () => {
+  const q = { ord: 1, page: 3, text: BOLCHINI_Q3, questionnaire: true, first: false }
+  const pol = { ord: 3, page: 1, text: BOLCHINI_APP, questionnaire: false, first: true }
+  // le due prove di produzione: la DOMANDA del modulo (qwen3:32b n9) e il TITOLO della pagina (think off)
+  const noOf = (evidenza) => {
+    const ans = { esito: 'non operante', documento: 1, pagina: 3, evidenza, motivo: 'citata come opzione richiesta' }
+    const ev = verifyOperativitaEvidence(ans, [q], { lexTokens: RC_NAME })
+    assert.equal(ev.found, true, evidenza); assert.equal(ev.formPage, true)
+    return decideOperativita({ answer: ans, evidence: ev, requireStructural: false })
+  }
+  for (const evidenza of [Q_MASSIMALE, 'Questionario di Assicurazione Rc Professionale']) {
+    const d = noOf(evidenza)
+    assert.equal(d.verdict, 'mismatch', evidenza)
+    assert.equal(d.formEvidence, true)
+    assert.match(d.reason, /questionario\/proposta/)
+  }
+  const no = noOf(Q_MASSIMALE)
+  const okEv = verifyOperativitaEvidence(POL_OK, [pol], { lexTokens: RC_NAME })
+  assert.equal(okEv.found, true); assert.equal(okEv.formPage, false)
+  const ok = decideOperativita({ answer: POL_OK, evidence: okEv, requireStructural: false })
+  assert.equal(ok.verdict, 'ok')
+  // [questionario «no», polizza «operante»] → ok (prima: «esiti contraddittori» → Da verificare)
+  const both = combineOperativitaBatches([no, ok])
+  assert.equal(both.verdict, 'ok'); assert.equal(both.batches, 2)
+  assert.match(both.reason, /solo da un questionario\/proposta/)
+  // il «non operante» provato nel CONTRATTO resta una contraddizione (CAMPESTRE invariato)
+  const mm = { verdict: 'mismatch', reason: 'copertura non operante: x', esito: 'non operante', evidenceFound: true, evidenza: 'Tutela legale solo nelle condizioni' }
+  assert.match(combineOperativitaBatches([mm, ok]).reason, /contraddittori/)
+  assert.equal(combineOperativitaBatches([no, mm, ok]).verdict, 'review')
+  // [questionario «no», contratto «no» provato] → mismatch; riportata la prova del contratto
+  const r = combineOperativitaBatches([no, mm])
+  assert.equal(r.verdict, 'mismatch'); assert.ok(!r.formEvidence); assert.equal(r.evidenza, mm.evidenza)
+  // il SOLO questionario che dice «no» resta uno scarto (come prima: è la prova più comune del non acquisto)
+  assert.equal(combineOperativitaBatches([no]).verdict, 'mismatch')
+  assert.equal(combineOperativitaBatches([no, no]).verdict, 'mismatch')
+  // … e con la polizza muta («non determinabile») è un dubbio, come prima
+  assert.equal(combineOperativitaBatches([no, { verdict: 'review', esito: 'non determinabile', evidenceFound: false, reason: 'x' }]).verdict, 'review')
+  // con pagine nominate non lette resta un dubbio
+  assert.equal(combineOperativitaBatches([no, mm], { unreadNamed: 1 }).verdict, 'review')
+  // la stessa frase in una pagina che NON è di questionario è una prova del contratto
+  const plain = verifyOperativitaEvidence({ documento: 1, pagina: 3, evidenza: Q_MASSIMALE }, [{ ...q, questionnaire: false }], { lexTokens: RC_NAME })
+  assert.equal(plain.formPage, false)
+  const dPlain = decideOperativita({ answer: { esito: 'non operante', evidenza: Q_MASSIMALE }, evidence: plain, requireStructural: false })
+  assert.equal(dPlain.verdict, 'mismatch'); assert.ok(!dPlain.formEvidence)
+  // la stessa frase sia nel questionario sia nel contratto: vale il contratto, qualunque sia l'ordine
+  const twice = verifyOperativitaEvidence({ documento: 1, pagina: 3, evidenza: Q_MASSIMALE }, [q, { ...q, ord: 2, page: 1, questionnaire: false }], { lexTokens: RC_NAME })
+  assert.equal(twice.found, true); assert.equal(twice.formPage, false)
+})
+
+test('questionario delle esigenze: l\'opzione della copertura NON barrata, in qualsiasi forma, resta uno scarto (CASORETTO, EH448TD)', () => {
+  // Vittoria (IDD rilegato nella polizza fabbricati): la riga «Tutela Legale» senza X, nessun glifo di casella
+  const vittoria = { ord: 1, page: 8, questionnaire: true, first: false, text: 'QUESTIONARIO DI VALUTAZIONE DELLE\nRICHIESTE ED ESIGENZE DEL CONTRAENTE\n   X   Incendio          X   Responsabilità Civile\n       IMPRESA Assistenza Tutela Legale Welfare Aziendale' }
+  // Unipol ADEGUATEZZA: l'opzione è una lettera «o», non una casella
+  const unipol = { ord: 1, page: 1, questionnaire: true, first: true, text: 'QUESTIONARIO DEMANDS & NEEDS\n  o   la fornitura di servizi di tutela legale per problematiche correlate alla circolazione stradale (garanzia Tutela Legale )' }
+  for (const [b, evidenza] of [[vittoria, 'IMPRESA Assistenza Tutela Legale Welfare Aziendale'], [unipol, 'o la fornitura di servizi di tutela legale per problematiche correlate alla circolazione stradale (garanzia Tutela Legale )']]) {
+    const ans = { esito: 'non operante', documento: b.ord, pagina: b.page, evidenza, motivo: 'non selezionata' }
+    const ev = verifyOperativitaEvidence(ans, [b], { lexTokens: TL_NAME })
+    const d = decideOperativita({ answer: ans, evidence: ev, requireStructural: true })
+    assert.equal(d.verdict, 'mismatch', evidenza); assert.equal(d.formEvidence, true)
+    // da solo, o con gli altri batch «non operante» senza prova: non pertinente
+    assert.equal(combineOperativitaBatches([d, { verdict: 'review', esito: 'non operante', evidenceFound: false, reason: 'x' }]).verdict, 'mismatch')
+  }
+})
+
+test('DECISIONE: un «NO [X]» del questionario non contraddice l\'«operante» del contratto (per forma non si distingue da una domanda su altro)', () => {
+  const quest = { ord: 1, page: 1, questionnaire: true, first: true, text: 'QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE\nTutela legale                 SI [ ]   NO [X]' }
+  const no = decideOperativita({ answer: { esito: 'non operante', documento: 1, pagina: 1, evidenza: 'Tutela legale SI [ ] NO [X]', motivo: 'm' }, evidence: verifyOperativitaEvidence({ documento: 1, pagina: 1, evidenza: 'Tutela legale SI [ ] NO [X]' }, [quest], { lexTokens: TL_NAME }), requireStructural: true })
+  assert.equal(no.verdict, 'mismatch'); assert.equal(no.formEvidence, true)
+  const scheda = { ord: 2, page: 1, questionnaire: false, first: true, text: 'POLIZZA N. 123\nSEZIONE TUTELA LEGALE          Premio annuo imponibile  25,00' }
+  const okAns = { esito: 'operante', documento: 2, pagina: 1, evidenza: 'SEZIONE TUTELA LEGALE Premio annuo imponibile 25,00', motivo: 'premio proprio' }
+  const ok = decideOperativita({ answer: okAns, evidence: verifyOperativitaEvidence(okAns, [scheda], { lexTokens: TL_NAME }), requireStructural: true })
+  assert.equal(ok.verdict, 'ok')
+  // il contratto dice che cosa è stato acquistato; la stessa forma (nome + X) nelle righe del
+  // questionario RC di BOLCHINI è una domanda sui sub-appaltatori: una regola per forma la
+  // renderebbe contraddittoria e bloccherebbe di nuovo la polizza vera
+  assert.equal(combineOperativitaBatches([no, ok]).verdict, 'ok')
+  assert.equal(structuralCoverLines(BOLCHINI_Q3, RC_NAME).filter(lineHasCheck).length, 1)
+})
+
+test('non operanti VERI restano tali: la prova sta nel contratto (BESA RUZZA ET103PP, SANTANGELO FV180JE, DAS «ESCLUSA»)', () => {
+  const cases = [
+    ['Tutela Legale                                        NON OPERANTE', 'Tutela Legale NON OPERANTE'],
+    ['Tutela Giudiziaria                                                      NON   OPERANTE', 'Tutela Giudiziaria NON OPERANTE'],
+  ]
+  for (const [row, evidenza] of cases) {
+    const b = { ord: 4, page: 5, questionnaire: false, text: `RIEPILOGO GARANZIE\nResponsabilità Civile Auto       OPERANTE\n${row}` }
+    const ans = { esito: 'non operante', documento: 4, pagina: 5, evidenza, motivo: 'indicata come NON OPERANTE' }
+    const ev = verifyOperativitaEvidence(ans, [b], { lexTokens: TL_NAME })
+    assert.equal(ev.found, true); assert.equal(ev.formPage, false)
+    const d = decideOperativita({ answer: ans, evidence: ev, requireStructural: true })
+    assert.equal(d.verdict, 'mismatch', evidenza); assert.ok(!d.formEvidence)
+  }
+  // la riga della copertura con un suo importo resta una contraddizione (dubbio), anche in un modulo
+  const das = { ord: 1, page: 1, questionnaire: false, text: 'Garanzia            Indicizzazione     Massimale\nTutela Legale       ESCLUSA            31.000,00' }
+  const dasAns = { esito: 'non operante', documento: 1, pagina: 1, evidenza: 'Tutela Legale ESCLUSA 31.000,00', motivo: 'esclusa' }
+  for (const questionnaire of [false, true]) {
+    const d = decideOperativita({ answer: dasAns, evidence: verifyOperativitaEvidence(dasAns, [{ ...das, questionnaire }], { lexTokens: TL_NAME }), requireStructural: true })
+    assert.equal(d.verdict, 'review'); assert.ok(!d.formEvidence)
+    assert.equal(combineOperativitaBatches([d, { verdict: 'mismatch', esito: 'non operante', evidenceFound: true, reason: 'x' }]).verdict, 'review')
+  }
+})
+
+test('namesCoverageAnyForm: il nome della copertura in forma FLESSA (vocali finali), mai per troncamento', () => {
+  // i titoli veri che per forma esatta non nominavano la copertura
+  for (const t of ['AMTRUST PROFESSIONISTA SANITARIO PROTETTO', 'Assicurazione della Responsabilità Civile Professionale del Medico', 'COPERTURE ACQUISTATE - Professioni Sanitarie', 'RC professionale dei medici']) {
+    assert.equal(namesCoverage(t, MED), false, t)
+    assert.equal(namesCoverageAnyForm(t, MED), true, t)
+  }
+  // la sottostringa esatta resta (kerning: «M edical Malpractice» contiene «medica»)
+  assert.equal(namesCoverageAnyForm('CSMM C entro S tudi M edical M alpractice', MED), true)
+  assert.equal(namesCoverageAnyForm('qualsiasi', []), null)
+  // parole DIVERSE non combaciano (col troncamento a 6 caratteri sì: «profes», «medic», «giudiz»)
+  assert.equal(namesCoverageAnyForm('assicurazione fabbricati e medicina del lavoro', MED), false)
+  assert.equal(namesCoverageAnyForm('Contraente   Professione/Attività   AMMINISTRATORE', RC_NAME), false)
+  assert.equal(namesCoverageAnyForm('DAS Tutela Legale del Professionista', RC_NAME), false)
+  assert.equal(namesCoverageAnyForm('Tutela giudiziale delle controversie', TL_NAME), false)
+  // la flessione della STESSA parola sì (per questo vale solo sul frontespizio: pageNamesCoverage)
+  assert.equal(namesCoverageAnyForm('Lett. F) Malattie professionali X', RC_NAME), true)
+  assert.equal(namesCoverageAnyForm('AMTRUST TUTELA MEDICI', MED), true)
+  // tutela legale: stesse risposte di sempre
+  assert.equal(namesCoverageAnyForm('Tutela Giudiziaria   SI   18,19', TL_NAME), true)
+  assert.equal(namesCoverageAnyForm('per ricevere supporto legale per la tutela dei suoi diritti', TL_NAME), false)
+  // le righe STRUTTURALI restano per forma esatta: una domanda di questionario RC non diventa «copertura + importo»
+  assert.equal(structuralCoverLines('svolto attività professionali per opere il cui valore è superiore ad € 3.500.000,00 ? SI NO', RC_NAME).length, 0)
+})
+
+test('pageNamesCoverage / coverNeverNamed: la forma flessa vale SOLO sul frontespizio del documento', () => {
+  assert.equal(pageNamesCoverage({ text: 'AMTRUST PROFESSIONISTA SANITARIO PROTETTO', first: true }, MED), true)
+  assert.equal(pageNamesCoverage({ text: 'AMTRUST TUTELA MEDICI', first: false }, MED), false, 'pag. 2 di LUCCA: il certificato di tutela legale')
+  assert.equal(pageNamesCoverage({ text: 'Rimborso spese sanitarie massimale 50.000,00', first: false }, MED), false)
+  assert.equal(pageNamesCoverage({ text: 'attività sanitaria', first: false }, MED), true, 'forma esatta: ovunque')
+  assert.equal(pageNamesCoverage({ text: 'x', first: true }, []), null)
+  // polizze «…del Medico» / «Professioni Sanitarie»: nominate dal frontespizio, decide il modello
+  const badran = 'Assicurazione della Responsabilità Civile Professionale del Medico — massimale 1.000.000,00'
+  assert.equal(coverNeverNamed([badran], MED, { titlePages: [badran] }), false)
+  // lo stesso titolo in una pagina interna non basta: PRINA tl «PROFESSIONE ASSICURATA: Giovane Medico» a pag. 3
+  assert.equal(coverNeverNamed(['MyLegalProtection', 'Condizioni', 'PROFESSIONE ASSICURATA: Giovane Medico'], MED, { titlePages: ['MyLegalProtection'] }), true)
+  // infortuni: «certificato medico» nelle condizioni → mai nominata, niente modello
+  assert.equal(coverNeverNamed(['POLIZZA INFORTUNI N. 46211795', 'la denuncia va corredata da certificato medico'], MED, { titlePages: ['POLIZZA INFORTUNI N. 46211795'] }), true)
+  assert.equal(coverNeverNamed(['Polizza fabbricati condominio — incendio, RC del fabbricato'], MED), true)
+})
+
+test('selectOperativitaPages: il frontespizio che nomina la copertura in forma flessa è una pagina † (stessa regola delle pagine non lette)', () => {
+  const cands = [
+    { ord: 1, page: 1, first: true, text: 'AMTRUST PROFESSIONISTA SANITARIO PROTETTO\nPREMIO LORDO ALLA FIRMA € 145,36', score: 0.3 },
+    { ord: 1, page: 2, first: false, text: 'AMTRUST TUTELA MEDICI\nATTIVITÀ: PERSONALE SANITARIO NON MEDICO', score: 0.9 },
+    { ord: 1, page: 3, first: false, text: 'condizioni generali di assicurazione', score: 0.8 },
+  ].map((c) => ({ ...c, flat: c.text }))
+  const sel = selectOperativitaPages(cands, { budgetChars: 5000, lexTokens: MED })
+  assert.deepEqual(sel.map((c) => [c.page, c.lex]), [[1, true], [2, false], [3, false]])
+  assert.equal(sel.find((c) => c.page === 1).structural, false, 'righe strutturali solo per forma esatta')
+})
+
+test('LUCCA (RC sanitaria di un\'infermiera): la prova dal titolo del certificato basta; la TL per medici a pag. 2 no', () => {
+  const real = JSON.parse(readFileSync(new URL('../polizze_test/profili-polizza-riconoscimento.json', import.meta.url), 'utf8'))
+  const med = real.find((p) => p.name === 'RC PROF MED V2')
+  // fatti DERIVATI dal testo del profilo (mai le sue frasi: le scrive l'utente)
+  assert.deepEqual(recognitionCoverName(real, med.id), MED)
+  assert.equal(recognitionAllowsSection(med.recognition), false, 'la copertura È il prodotto: nessuna riga strutturale richiesta')
+  // LUCCA_VIVIANA.pdf, griglia pdf.js (accorciata): pag. 1 RC sanitaria, pag. 2 tutela legale per medici
+  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: [
+    '                          CERTIFICATO DI ADESIONE',
+    '                                Polizza di Assicurazione',
+    '                   AMTRUST PROFESSIONISTA SANITARIO PROTETTO',
+    '                            Certificato N° RCSPEM00000098',
+    '    ASSICURATO: LUCCA VIVIANA',
+    "    ATTIVITÀ: INFERMIERE PROFESSIONALE/INFERMIERE PEDIATRICO/VIGILATRICE D'INFANZIA",
+    '    MASSIMALE PER SINISTRO / ANNO         PERIODO DI RETROATTIVITA',
+    '          € 1.000.000/3.000.000                      ILLIMITATA',
+    '    PREMIO NETTO ALLA FIRMA IMPOSTE ALLA FIRMA      PREMIO LORDO ALLA FIRMA',
+    '                   € 118,90                 € 26,46                € 145,36',
+  ].join('\n') }
+  const p2 = { ord: 1, page: 2, first: false, questionnaire: false, text: [
+    '                             AMTRUST TUTELA MEDICI',
+    '                             Certificato N° TLM190942268',
+    '    ASSICURATO: LUCCA VIVIANA',
+    '    ATTIVITÀ: PERSONALE SANITARIO NON MEDICO CON ESCLUSIONE DI OSTETRICHE',
+  ].join('\n') }
+  const blocks = [p1, p2]
+  const decide = (esito, pagina, evidenza) => {
+    const ans = { esito, documento: 1, pagina, evidenza, motivo: 'm' }
+    const ev = verifyOperativitaEvidence(ans, blocks, { lexTokens: MED })
+    return { ev, d: decideOperativita({ answer: ans, evidence: ev, requireStructural: false }) }
+  }
+  const title = decide('operante', 1, 'AMTRUST PROFESSIONISTA SANITARIO PROTETTO')
+  assert.equal(title.ev.names, true)
+  assert.equal(title.d.verdict, 'ok', 'prima: «prova generica: non nomina la copertura» → Da verificare')
+  assert.equal(decide('operante', 1, 'Polizza di Assicurazione AMTRUST PROFESSIONISTA SANITARIO PROTETTO Certificato N° RCSPEM00000098').d.verdict, 'ok')
+  // il titolo del certificato di TUTELA LEGALE (pag. 2, non frontespizio) non nomina la RC sanitaria
+  const tl = decide('operante', 2, 'AMTRUST TUTELA MEDICI Certificato N° TLM190942268')
+  assert.equal(tl.ev.names, false); assert.equal(tl.d.verdict, 'review'); assert.match(tl.d.reason, /generica/)
+  // la riga dell'attività o del massimale non nomina la copertura: resta da verificare
+  const act = decide('operante', 1, "ATTIVITÀ: INFERMIERE PROFESSIONALE/INFERMIERE PEDIATRICO/VIGILATRICE D'INFANZIA")
+  assert.equal(act.ev.names, false); assert.equal(act.d.verdict, 'review'); assert.match(act.d.reason, /generica/)
+  assert.equal(decide('operante', 1, 'MASSIMALE PER SINISTRO / ANNO € 1.000.000/3.000.000').d.verdict, 'review')
+  // «non operante» sulla riga ATTIVITÀ del certificato di TUTELA LEGALE: nessuna regola di
+  // codice lo distingue da un non operante vero (Medica su una RC ingegneri: «Attività:
+  // Ingegnere»): lo corregge la definizione del profilo, non il codice
+  assert.equal(decide('non operante', 2, 'ASSICURATO: LUCCA VIVIANA ATTIVITÀ: PERSONALE SANITARIO NON MEDICO').d.verdict, 'mismatch')
+})
+
+test('isQuestionnairePageTitle: una CELLA della testa della pagina comincia col titolo; la prosa e gli elenchi del contratto no', () => {
+  // titoli veri (pagine di questionario)
+  for (const t of [
+    BOLCHINI_Q3,
+    'Abitazione\n                                     POLIZZA N. 789401723-07\n                  QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE DEL CONTRAENTE',
+    'PROFILO CLIENTE E CONSULENZA ASSICURATIVA\nCOLLEGATO ALLA POLIZZA N. 01469DAS00074          01469DAS00074_AA\nQUESTIONARIO DEMANDS & NEEDS',
+    'Questionario: GUFFANTI GROUP             Quote Id: 1046945',
+    'Multibusiness     INTERMEDIARIO 001190 PANIZZA        QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE',
+    'MODULO DI PROPOSTA / QUESTIONARIO\nPER L’ ASSICURAZIONE DELLA RESPONSABILITÀ CIVILE PROFESSIONALE',
+  ]) assert.equal(isQuestionnairePageTitle(t), true, t.slice(0, 60))
+  // pagine di CONTRATTO che isQuestionnaireTitle (pensata per la prima pagina di un documento) marcava
+  const saporiti = 'per l’esecuzione dell’ attività) in favore di Terzi e definiti nella proposta di Assicurazione compilata dall’\nAssicurato , nel materiale ad essa incorporato'
+  const metlife = 'per un capitale assicurato superiore a €\n400.000,00=, anche a seguito di aumenti di\n▪ Questionario medico - sportivo'
+  for (const t of [saporiti, metlife]) {
+    assert.equal(isQuestionnaireTitle(t), true)
+    assert.equal(isQuestionnairePageTitle(t), false, t.slice(0, 40))
+  }
+  // limiti noti (documentati): una pagina di questionario SENZA titolo ripetuto non è marcata
+  assert.equal(isQuestionnairePageTitle('Sono mai state annullate o rifiutate coperture assicurative di questo tipo?   SI  X  NO'), false)
+  assert.equal(isQuestionnairePageTitle(''), false)
 })

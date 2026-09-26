@@ -241,7 +241,39 @@ export function detectOptionLikeText(text) {
 export function isQuestionnaireTitle(firstPageText) {
   const head = String(firstPageText || '').replace(/\s+/g, ' ').trim().slice(0, 120).toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  return /questionario|modulo di proposta|proposta di assicurazione|proposta\s*\/\s*questionario/.test(head)
+  return QUESTIONNAIRE_TITLE_RE.test(head)
+}
+const QUESTIONNAIRE_TITLE_RE = /questionario|modulo di proposta|proposta di assicurazione|proposta\s*\/\s*questionario/
+
+/**
+ * La PAGINA ha un titolo di questionario/proposta: nella sua testa (gli stessi
+ * primi 120 caratteri di isQuestionnaireTitle) una CELLA della griglia \u2014 una
+ * riga, o un tratto separato da \u22652 spazi \u2014 COMINCIA con le stesse parole
+ * (\u00abQuestionario di Assicurazione Rc Professionale\u00bb, \u00ab\u2026 POLIZZA N. \u2026
+ * QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE\u00bb). Per le pagine
+ * interne a un documento la parola \u00abovunque nella testa\u00bb di isQuestionnaireTitle
+ * marcava anche la prosa e gli elenchi del contratto (\u00ab\u2026definiti nella proposta
+ * di Assicurazione\u2026\u00bb a pag. 6 di una polizza XL, \u00ab\u25aa Questionario medico -
+ * sportivo\u00bb in un elenco MetLife). Limiti noti (misurati sulle 10.044 pagine
+ * locali, 26/09/2026): restano marcati un glossario (\u00abModulo di Proposta / il
+ * formulario\u2026\u00bb) e un frontespizio che elenca \u00abScheda di copertura |
+ * Questionario | Condizioni\u00bb; perdono il marchio le pagine \u00abDICHIARAZIONI
+ * RELATIVE AL QUESTIONARIO\u2026\u00bb (Aviva); le pagine di un questionario SENZA il
+ * titolo ripetuto restano pagine qualsiasi.
+ * @param {string} pageText  griglia (o testo piatto) GREZZA della pagina
+ */
+export function isQuestionnairePageTitle(pageText) {
+  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const starts = new RegExp(`^(?:${QUESTIONNAIRE_TITLE_RE.source})`)
+  let used = 0
+  for (const line of String(pageText || '').split('\n')) {
+    const flat = line.replace(/\s+/g, ' ').trim()
+    if (!flat) continue
+    if (used >= 120) break
+    if (line.split(/\s{2,}/).some((cell) => starts.test(norm(cell.trim())))) return true
+    used += flat.length + 1
+  }
+  return false
 }
 
 /** Riga con una CASELLA e un IMPORTO: l'importo è un'opzione tra più scelte. */

@@ -17,8 +17,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
-import { runOperativita, runContractCheck, runPrecheck } from '../src/services/polizzaPrecheckService.js'
+import { runOperativita, runContractCheck, runPrecheck, buildPageCandidates } from '../src/services/polizzaPrecheckService.js'
 
 const TL = { id: 'tl', name: 'Tutela Legale 3', recognition: 'Polizza o sezione di TUTELA LEGALE effettivamente ACQUISTATA dal contraente: un prodotto autonomo (es. DAS, ARAG) oppure una sezione "Tutela legale" operante. NON lo è: una RC professionale.', fields: [] }
 const RC = { id: 'rc', name: 'Rc Professionale V3', recognition: 'Polizza di RESPONSABILITÀ CIVILE PROFESSIONALE effettivamente ACQUISTATA: copre i danni a terzi. NON lo è: una tutela legale.', fields: [] }
@@ -220,4 +221,142 @@ test('runPrecheck a pre-controllo SPENTO: la polizza si chiede lo stesso, niente
   const nd = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ({ contratto: 'non determinabile', documento: '', pagina: 0, motivo: 'x' }) })
   const pre2 = await runPrecheck({ docs: [doc('polizza.pdf', [FRONTESPIZIO])], fieldDefs: [], profile: TL, profileName: TL.name, mode: 'off', settings: SETTINGS, allProfiles: PROFILES, deps: { callModel: nd.callModel, embed } })
   assert.equal(pre2.verdict, 'review'); assert.match(pre2.reason, /polizza non vista dal modello/)
+})
+
+// ─── 26/09/2026: polizze vere bloccate dalla pertinenza ───────────────────────
+// Profili VERI della bozza (nomi della copertura come in produzione:
+// «professionale» per Rc Professionale V3, «medica» / «sanitaria» per la RC medica).
+const REAL = JSON.parse(readFileSync(new URL('../polizze_test/profili-polizza-riconoscimento.json', import.meta.url), 'utf8'))
+const RC_V3 = REAL.find((p) => p.name === 'Rc Professionale V3')
+const RC_MED = REAL.find((p) => p.name === 'RC PROF MED V2')
+const TL_REAL = REAL.find((p) => p.name === 'Tutela Legale 3')
+
+// BOLCHINI RC 2025 (cartella Cessate/RC PROF. 04.2025): questionario AIG di 4
+// pagine (titolo su ogni pagina; risposte «⃝ X No» sulle righe con
+// «professionale» → righe strutturali del batch 1), la polizza scansionata senza
+// testo, l'appendice di rinnovo e la proposta di rinnovo. Griglie pdf.js vere, accorciate.
+const QTITLE = 'Questionario di Assicurazione Rc Professionale\n                                    Ingegneri & Architetti'
+const BOLCHINI = [
+  doc('questionario.pdf', [
+    `${QTITLE}\n          2  Professione svolta A RCHITETTO TITOLARE DI STUDIO PROFESSIONALE\n          4  Si richiede la copertura per l'attività personale svolta con propria partita Iva da parte dei\n             Soci?                            ⃝ Sì         ⃝ X No\n         5.a Fatturato consuntivo ultimo esercizio finanziario 81.936,00 €`,
+    `${QTITLE}\n          7  Il contraente possiede polizze RC Professionali? X Sì        ⃝  No\n          10 Il Proponente e/o gli Assicurati risultano essere a conoscenza di Circostanze in relazione all'incarico\n             professionale indicato nella presente proposta? ⃝ Sì ⃝ X No`,
+    `${QTITLE}\n       12  La società si avvale di sub - appaltatori / consulenti esterni? ⃝ Sì ⃝ X No\n            b) Richiedete che tali sub - appaltatori dispongano di una loro polizza per la responsabilità\n            professionale?                                                   ⃝ Sì ⃝ X No\n          OPZIONI DI COPERTURA\n          Indicare il massimale per il quale si richiede copertura:\n           € 250.000   € 500.000    € 1.000.000  €1.500.000   € 2.000.000  € 2.500.000\n               ⃝            ⃝            ⃝            ⃝            ⃝           ⃝`,
+    `${QTITLE}\n         Sezione 6: SCHEDA SINISTRO\n         14 a) Data del sinistro`,
+  ]),
+  doc('polizza quietanzata.pdf', ['']),
+  doc('appendice.pdf', [[
+    'APPENDICE          N. 1    - RINNOVO',
+    '                                             POLIZZA       IPD0017417',
+    '          Contraente: BOLCHINI ARCH. MARGHERITA                                 Attività: ARCHITETTO',
+    '          Decorrenza ore 24:00 del 19/04/2025    Scadenza ore 24:00 del 19/04/2026',
+    "          Descrizione del rischio            RESPONSABILITA' CIVILE PROFESSIONALE  INGEGNERI E ARCHITETTI",
+    '          Totale Premio annuo lordo risultante dal Calcolo del Premio (in euro)                     756,42',
+  ].join('\n')]),
+  doc('proposta di rinnovo.pdf', [[
+    'PROPOSTA DI RINNOVO                   N.1',
+    '                                                POLIZZA N.        IPD0017417',
+    "          Descrizione del rischio            RESPONSABILITA'  CIVILE PROFESSIONALE  I NGEGNERI E ARCHITETTI",
+    '          Totale Premio annuo lordo risultante dal Calcolo del Premio (in euro)                      756,42',
+  ].join('\n')]),
+]
+// Risposte di produzione (qwen3:32b, notte del 26/09): sul solo questionario
+// «non operante» citando la DOMANDA del modulo; con la polizza «operante».
+const Q_NO = { esito: 'non operante', documento: 'Documento 1', pagina: 3, evidenza: 'Indicare il massimale per il quale si richiede copertura: € 250.000', motivo: 'La copertura RC Professionale è citata come opzione richiesta, ma non è confermata come effettivamente acquistata' }
+const POL_OK = { esito: 'operante', documento: 'Documento 3', pagina: 1, evidenza: "Descrizione del rischio RESPONSABILITA' CIVILE PROFESSIONALE INGEGNERI E ARCHITETTI", motivo: 'premio lordo 756,42' }
+
+test('BOLCHINI RC 2025: questionario «non operante» + polizza «operante» → ABBINATO (prima: esiti contraddittori, Da verificare)', async () => {
+  // le pagine del questionario sono marcate dal loro TITOLO; appendice e proposta di rinnovo no
+  const { candidates } = buildPageCandidates(BOLCHINI, null, { capped: true })
+  assert.deepEqual(candidates.filter((c) => c.questionnaire).map((c) => `D${c.ord}p${c.page}`), ['D1p1', 'D1p2', 'D1p3', 'D1p4'])
+  const m = fakeModel({ op: (user) => (user.includes('[Documento 3 · pag. 1]') ? POL_OK : Q_NO), contract: () => PRESENTE(3) })
+  const diag = []
+  const r = await runOperativita({ docs: BOLCHINI, profile: RC_V3, profiles: REAL, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.verdict, 'ok', diag.join('\n'))
+  assert.equal(m.calls.op, 2)
+  const b1 = diag.find((l) => /Rc Professionale V3» batch 1: \d+ pagine/.test(l))
+  assert.match(b1, /D1p2‡€?§.*D1p3‡€?§/, 'batch 1 = sole pagine del questionario (righe «professionale … X No»)')
+  assert.ok(diag.some((l) => /batch 1: mismatch — .*questionario\/proposta/.test(l)), diag.join('\n'))
+  assert.equal(r.documento, 3)
+  assert.match(r.reason, /solo da un questionario\/proposta/)
+  // lo stesso fascicolo con il contratto che dice «non operante» (provato): scarto, come prima
+  const POL_NO = { ...POL_OK, esito: 'non operante', motivo: 'm' }
+  const m2 = fakeModel({ op: (user) => (user.includes('[Documento 3 · pag. 1]') ? POL_NO : Q_NO), contract: () => PRESENTE(3) })
+  const r2 = await runOperativita({ docs: BOLCHINI, profile: RC_V3, profiles: REAL, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+  assert.equal(r2.verdict, 'mismatch')
+  assert.equal(r2.documento, 3, 'riportata la prova del contratto, non quella del questionario')
+  // il solo questionario dice «no» e la polizza è muta: bloccato (Da verificare), come prima
+  const m3 = fakeModel({ op: (user) => (user.includes('[Documento 3 · pag. 1]') ? { esito: 'non determinabile', documento: '', pagina: 0, evidenza: '', motivo: 'x' } : Q_NO), contract: () => PRESENTE(3) })
+  const r3 = await runOperativita({ docs: BOLCHINI, profile: RC_V3, profiles: REAL, settings: SETTINGS, deps: { callModel: m3.callModel, embed } })
+  assert.equal(r3.verdict, 'review')
+})
+
+test('questionario RILEGATO nella polizza (Santangelo Allianz): marcate SOLO le pagine col titolo di questionario', () => {
+  const IDD = 'Abitazione\n                                                            POLIZZA N. 789401723-07\n                        QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE DEL CONTRAENTE\n      CONTRAENTE: SANTANGELO ROSA\n  •   per ricevere supporto legale per la tutela dei suoi diritti?\n      SI      X  NO'
+  const SCHEDA = 'Abitazione\n                                                            POLIZZA N. 789401723-07\n      Contraente: SANTANGELO ROSA          Decorrenza: 01/01/2026\n      Incendio fabbricato          120,00\n      Responsabilità civile        35,00'
+  // pagina di condizioni che cita la proposta nella sua testa: NON è un questionario
+  const COND = 'per l’esecuzione dell’ attività in favore di Terzi e definiti nella proposta di Assicurazione compilata dall’ Assicurato'
+  const pages = [IDD, SCHEDA, SCHEDA, IDD, SCHEDA, COND]
+  const { candidates } = buildPageCandidates([doc('POLIZZA.pdf', pages.map((p) => p.replace(/\s{2,}/g, ' ')))], [{ pages }], { capped: true })
+  assert.deepEqual(candidates.filter((c) => c.questionnaire).map((c) => c.page), [1, 4])
+  // il flag si calcola sulla pagina GREZZA: le coppie etichetta→valore di withPairs stanno davanti al testo inviato
+  assert.ok(candidates.every((c) => typeof c.questionnaire === 'boolean'))
+  assert.deepEqual(candidates.filter((c) => c.first).map((c) => c.page), [1])
+})
+
+test('tutela legale: il «non operante» del questionario resta uno scarto; con la polizza «operante» vale la polizza', async () => {
+  const QUEST = 'QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE DEL CONTRAENTE\n  Tutela legale della circolazione   ☐\n  Assistenza stradale                ☒'
+  const POL = 'POLIZZA AUTO N. ET103PP\nRIEPILOGO GARANZIE\nResponsabilità Civile Auto       OPERANTE\nTutela Legale                                        NON OPERANTE'
+  const docs = [doc('questionario.pdf', [QUEST]), doc('polizza.pdf', [POL])]
+  // prova sul contratto → non pertinente
+  const onPolicy = { esito: 'non operante', documento: 'Documento 2', pagina: 1, evidenza: 'Tutela Legale NON OPERANTE', motivo: 'indicata come NON OPERANTE' }
+  const m = fakeModel({ op: onPolicy, contract: () => PRESENTE(2) })
+  const r = await runOperativita({ docs, profile: TL_REAL, profiles: REAL, settings: SETTINGS, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.verdict, 'mismatch'); assert.ok(!r.formEvidence)
+  // prova = l'opzione NON barrata del modulo, o il suo titolo: scarto (marcato)
+  for (const evidenza of ['Tutela legale della circolazione ☐', 'QUESTIONARIO PER LA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE DEL CONTRAENTE']) {
+    const m2 = fakeModel({ op: { esito: 'non operante', documento: 'Documento 1', pagina: 1, evidenza, motivo: 'non selezionata' }, contract: () => PRESENTE(2) })
+    const r2 = await runOperativita({ docs, profile: TL_REAL, profiles: REAL, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+    assert.equal(r2.verdict, 'mismatch', evidenza); assert.equal(r2.formEvidence, true)
+  }
+})
+
+test('LUCCA: RC sanitaria nominata solo nel frontespizio («SANITARIO», «del Medico») → il modello viene chiamato e il titolo è una prova', async () => {
+  const LUCCA_P1 = '                          CERTIFICATO DI ADESIONE\n                                Polizza di Assicurazione\n                   AMTRUST PROFESSIONISTA SANITARIO PROTETTO\n                            Certificato N° RCSPEM00000098\n    ASSICURATO: LUCCA VIVIANA\n    ATTIVITÀ: INFERMIERE PROFESSIONALE/INFERMIERE PEDIATRICO\n    MASSIMALE PER SINISTRO / ANNO\n          € 1.000.000/3.000.000\n    PREMIO LORDO ALLA FIRMA   € 145,36'
+  const OK = { esito: 'operante', documento: 'Documento 1', pagina: 1, evidenza: 'AMTRUST PROFESSIONISTA SANITARIO PROTETTO', motivo: 'certificato RC per professionista sanitario' }
+  const m = fakeModel({ op: OK, contract: () => PRESENTE(1) })
+  const diag = []
+  const r = await runOperativita({ docs: [doc('LUCCA_VIVIANA.pdf', [LUCCA_P1])], profile: RC_MED, profiles: REAL, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.verdict, 'ok', diag.join('\n'))
+  assert.ok(diag.some((l) => /batch 1: 1 pagine .*D1p1†/.test(l)), 'il frontespizio nomina la copertura (†)')
+  // polizza «…del Medico»: prima «mai nominata» → non operante SENZA chiamare il modello
+  const BADRAN = 'Assicurazione della Responsabilità Civile Professionale del Medico\nPolizza n. 12345   Massimale 2.000.000,00   Premio 1.250,00'
+  const m2 = fakeModel({ op: { ...OK, evidenza: 'Assicurazione della Responsabilità Civile Professionale del Medico' }, contract: () => PRESENTE(1) })
+  const r2 = await runOperativita({ docs: [doc('Badran.pdf', [BADRAN])], profile: RC_MED, profiles: REAL, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+  assert.equal(m2.calls.op, 1, 'la copertura è nominata: decide il modello')
+  assert.equal(r2.verdict, 'ok')
+  assert.ok(!r2.neverNamed)
+})
+
+test('la forma flessa NON riapre gli scarti «mai nominata» fuori dal frontespizio (PRINA tl, infortuni, TL condominio sotto RC)', async () => {
+  const OK = (evidenza) => ({ esito: 'operante', documento: 'Documento 1', pagina: 3, evidenza, motivo: 'm' })
+  // MyLegalProtection «Giovane Medico»: tutela legale per medici, il medico compare a pag. 3
+  const PRINA = ['MyLegalProtection®  CERTIFICATO DI ASSICURAZIONE', 'GARANZIE PRESTATE: TUTELA LEGALE PROFESSIONALE', 'PROFESSIONE ASSICURATA: Giovane Medico\nPremio annuo 180,00']
+  const m = fakeModel({ op: OK('PROFESSIONE ASSICURATA: Giovane Medico'), contract: () => PRESENTE(1) })
+  const r = await runOperativita({ docs: [doc('PRINA tl.pdf', PRINA)], profile: RC_MED, profiles: REAL, settings: SETTINGS, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.verdict, 'mismatch'); assert.equal(r.neverNamed, true); assert.equal(m.calls.op, 0)
+  // infortuni: «certificato medico» nelle condizioni
+  const INF = ['POLIZZA INFORTUNI N. 46211795\nContraente: BESA ING. SANTANGELO', 'In caso di sinistro la denuncia va corredata da certificato medico', 'Spese sanitarie rimborsate fino a 5.000,00']
+  const m2 = fakeModel({ op: OK('certificato medico'), contract: () => PRESENTE(1) })
+  const r2 = await runOperativita({ docs: [doc('infortuni.pdf', INF)], profile: RC_MED, profiles: REAL, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+  assert.equal(r2.verdict, 'mismatch'); assert.equal(r2.neverNamed, true); assert.equal(m2.calls.op, 0)
+  // tutela legale condominio sotto RC Professionale: «Professione/Attività» del contraente non è «professionale»
+  const TLC = ['POLIZZA TUTELA LEGALE CONDOMINIO\nContraente   Professione/Attività   AMMINISTRATORE', 'Condizioni']
+  const m3 = fakeModel({ op: OK('Contraente Professione/Attività AMMINISTRATORE'), contract: () => PRESENTE(1) })
+  const r3 = await runOperativita({ docs: [doc('tl.pdf', TLC)], profile: RC_V3, profiles: REAL, settings: SETTINGS, deps: { callModel: m3.callModel, embed } })
+  assert.equal(r3.verdict, 'mismatch'); assert.equal(r3.neverNamed, true); assert.equal(m3.calls.op, 0)
+  // RCT/RCO sotto RC Professionale: «Malattie professionali X» a pag. 4 non nomina la copertura → prova generica
+  const RCT = ['POLIZZA RC PRODOTTI RCT E RCO  BS000576', 'Condizioni RCT', 'Condizioni RCO', 'Lett. F) Malattie professionali X\nRCO massimale 3.000.000,00', 'la responsabilità professionale degli addetti']
+  const m4 = fakeModel({ op: { ...OK('Lett. F) Malattie professionali X'), pagina: 4 }, contract: () => PRESENTE(1) })
+  const r4 = await runOperativita({ docs: [doc('rct.pdf', RCT)], profile: RC_V3, profiles: REAL, settings: SETTINGS, deps: { callModel: m4.callModel, embed } })
+  assert.equal(r4.verdict, 'review'); assert.match(r4.reason, /generica/)
 })

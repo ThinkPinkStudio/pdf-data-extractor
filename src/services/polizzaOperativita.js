@@ -173,6 +173,58 @@ export function namesCoverage(text, names) {
   return names.some((nm) => Array.isArray(nm) && nm.length && n.includes(nm.join('')))
 }
 
+// Parola senza le VOCALI FINALI: la sola flessione italiana («medica» =
+// «medico» = «medici», «sanitaria» = «sanitario» = «sanitarie», «professionale»
+// = «professionali»), nessun troncamento. objectRadix (6 caratteri, pensata per
+// headerLex) faceva combaciare parole DIVERSE: «profes» = professione,
+// professionista, professore; «medic» = medicina (review del 26/09/2026).
+const inflectionWords = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[\u2019'`\u00b4]/g, ' ').split(/[^a-z0-9]+/).filter(Boolean).map((w) => w.replace(/[aeiou]+$/, '') || w)
+
+/**
+ * Il testo NOMINA la copertura in QUALSIASI FORMA FLESSA della parola: prima la
+ * sottostringa esatta di namesCoverage (regge il kerning, «M edical», «T
+ * utela»), poi le parole intere senza le vocali finali, consecutive come nel
+ * nome. Il nome di «RC PROF MED V2» è «medica» / «sanitaria» (femminile, dalla
+ * testa della definizione) e i frontespizi scrivono «PROFESSIONISTA SANITARIO»,
+ * «… Professionale del Medico», «Professioni Sanitarie».
+ * Da usare SOLO sul FRONTESPIZIO (prima pagina con testo di un documento:
+ * pageNamesCoverage): nel corpo dei documenti «medico», «sanitarie» stanno
+ * ovunque (certificato medico, spese sanitarie, «ambito medico-sanitario» dei
+ * set informativi di tutela legale) e su tutte le pagine 62 dossier locali su
+ * 205 smettevano di essere «mai nominati» per la RC medica (misura del
+ * 26/09/2026; sul solo frontespizio: 14, di cui 5 polizze RC mediche vere
+ * prima scartate senza modello).
+ * @returns {boolean|null} null = nome non determinabile (non giudicabile)
+ */
+export function namesCoverageAnyForm(text, names) {
+  const exact = namesCoverage(text, names)
+  if (exact !== false) return exact
+  const seq = inflectionWords(text)
+  return names.some((nm) => {
+    if (!Array.isArray(nm) || !nm.length) return false
+    const r = nm.map((w) => w.replace(/[aeiou]+$/, '') || w)
+    for (let i = 0; i + r.length <= seq.length; i++) if (r.every((x, k) => seq[i + k] === x)) return true
+    return false
+  })
+}
+
+/**
+ * La PAGINA nomina la copertura: per forma esatta (namesCoverage) ovunque, in
+ * qualsiasi forma flessa (namesCoverageAnyForm) solo se è il FRONTESPIZIO del
+ * suo documento (`first`: prima pagina con testo, come in buildPageCandidates).
+ * UNA regola per tutti i controlli di nome: ordine dei batch (pagine †),
+ * pagine nominate non lette, «mai nominata» e prova «generica».
+ * @param {{text?:string, flat?:string, first?:boolean}} page
+ * @returns {boolean|null} null = nome non determinabile
+ */
+export function pageNamesCoverage(page, names) {
+  const text = page?.flat || page?.text || ''
+  const exact = namesCoverage(text, names)
+  if (exact !== false) return exact
+  return page?.first ? namesCoverageAnyForm(text, names) === true : false
+}
+
 /** Casella barrata / spunta su una riga della griglia. */
 export function lineHasCheck(line) {
   return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|✓|✔|X)(?:\s|$)/.test(String(line || ''))
@@ -234,7 +286,8 @@ export function cutUseful(text, max) {
 /**
  * Sceglie le pagine da mandare al modello entro il budget (in caratteri
  * UTILI), in quest'ordine: (1) le pagine che NOMINANO la copertura (parole
- * distintive di «Come riconoscerla», `lexTokens`) E portano importi (scheda
+ * distintive di «Come riconoscerla», `lexTokens`; sul frontespizio anche in
+ * forma flessa, pageNamesCoverage) E portano importi (scheda
  * con la sezione e il suo premio, quietanza, riepilogo garanzie), per
  * affinità; (2) le altre pagine che la nominano (condizioni, DIP), per
  * affinità; (3) le PRIME pagine dei documenti (frontespizio: è lì che si vede
@@ -249,7 +302,9 @@ export function cutUseful(text, max) {
 export function selectOperativitaPages(candidates, { budgetChars, maxPageChars = OPERATIVITA_MAX_PAGE_CHARS, lexTokens = [] } = {}) {
   const list = (candidates || []).filter((c) => c && String(c.flat || c.text || '').trim())
   const byScore = (a, b) => ((b.score ?? -1) - (a.score ?? -1)) || (a.ord - b.ord) || (a.page - b.page)
-  const hasLex = (c) => namesCoverage(c.flat || c.text, lexTokens) === true
+  // Nomina la copertura: forma esatta ovunque, forma flessa sul frontespizio
+  // (pageNamesCoverage: stessa regola delle pagine nominate non lette).
+  const hasLex = (c) => pageNamesCoverage(c, lexTokens) === true
   const isStructural = (c) => (structuralCoverLines(c.text, lexTokens) || []).length > 0
   const named = list.filter(hasLex)
   // (0) righe strutturali (nome + importo/spunta sulla stessa riga: la scheda);
@@ -562,14 +617,21 @@ export function parseOperativitaAnswer(raw) {
  * di pagina, non la frase). Confronto sul testo NORMALIZZATO (niente spazi,
  * accenti, punteggiatura: il rumore della griglia/OCR) e, per le citazioni
  * riscritte, per TOKEN (tutti i token ≥4 caratteri nella stessa pagina).
- * @returns {{found:boolean, ord:number|null, page:number|null, where:'citata'|'altra pagina'|null, reason:string}}
+ * `names`: la prova NOMINA la copertura — forma esatta, oppure forma flessa se
+ * la pagina della prova è il FRONTESPIZIO del suo documento (pageNamesCoverage:
+ * «AMTRUST PROFESSIONISTA SANITARIO PROTETTO» nomina la RC «sanitaria», «AMTRUST
+ * TUTELA MEDICI» a pag. 2 no). `formPage`: TUTTE le pagine inviate che
+ * contengono la prova sono pagine di questionario/proposta (`questionnaire`, dal
+ * titolo della pagina): se la stessa frase sta anche nel contratto, la prova è
+ * del contratto, qualunque sia l'ordine dei documenti.
+ * @returns {{found:boolean, names:boolean|null, structural:boolean|null, proofIsCoverageRow?:boolean, formPage?:boolean, ord:number|null, page:number|null, where:'citata'|'altra pagina'|null, reason:string}}
  */
 export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {}) {
   const ev = String(answer?.evidenza || '').trim()
   const ne = normForMatch(ev)
   // La prova NOMINA la copertura? (null = nessuna parola distintiva: non giudicabile)
-  const names = namesCoverage(ev, lexTokens)
-  if (ne.length < OPERATIVITA_MIN_EVIDENCE) return { found: false, names, ord: null, page: null, where: null, reason: ev ? 'prova troppo corta' : 'nessuna prova citata' }
+  const exactNames = namesCoverage(ev, lexTokens)
+  if (ne.length < OPERATIVITA_MIN_EVIDENCE) return { found: false, names: exactNames, ord: null, page: null, where: null, reason: ev ? 'prova troppo corta' : 'nessuna prova citata' }
   const tokens = valueTokens(ev).filter((t) => t.length >= 4)
   // Cifre della citazione (importi, numeri di polizza): devono esserci tutte.
   const digitRuns = [...new Set((ne.match(/\d{3,}/g) || []))]
@@ -594,13 +656,17 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
     const rows = structuralCoverLines(b.text, lexTokens) || []
     return rows.some((l) => lineHasNonZeroAmount(l) && (normForMatch(l).includes(ne) || ne.includes(normForMatch(l)) || valueTokens(ev).filter((t) => t.length >= 4).every((t) => normForMatch(l).includes(normForMatch(t)))))
   }
-  const cited = (blocks || []).find((b) => b.ord === answer?.documento && b.page === answer?.pagina)
-  if (cited && matches(cited)) return { found: true, names, structural: struct(cited), proofIsCoverageRow: proofRow(cited), ord: cited.ord, page: cited.page, where: 'citata', reason: 'prova trovata nella pagina citata' }
-  for (const b of blocks || []) {
-    if (b === cited) continue
-    if (matches(b)) return { found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), ord: b.ord, page: b.page, where: 'altra pagina', reason: `prova trovata in Documento ${b.ord} pag. ${b.page}` }
+  const found = (blocks || []).filter(matches)
+  if (!found.length) return { found: false, names: exactNames, structural: null, ord: null, page: null, where: null, reason: 'prova citata non trovata nel testo inviato' }
+  const cited = found.find((b) => b.ord === answer?.documento && b.page === answer?.pagina)
+  const b = cited || found[0]
+  // Forma flessa del nome solo se la prova sta sul FRONTESPIZIO (stessa regola delle pagine).
+  const names = exactNames === false && b.first ? namesCoverageAnyForm(ev, lexTokens) === true : exactNames
+  const formPage = found.every((x) => !!x.questionnaire)
+  return {
+    found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), formPage, ord: b.ord, page: b.page,
+    where: cited ? 'citata' : 'altra pagina', reason: cited ? 'prova trovata nella pagina citata' : `prova trovata in Documento ${b.ord} pag. ${b.page}`,
   }
-  return { found: false, names, structural: null, ord: null, page: null, where: null, reason: 'prova citata non trovata nel testo inviato' }
 }
 
 /**
@@ -615,9 +681,19 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
  * | operante          | pagina SENZA riga «copertura + importo/spunta» | review |
  * | operante          | assente | —                 | review   |
  * | non operante      | trovata | —                 | mismatch |
+ * | non operante      | la riga della copertura con un suo importo | review |
+ * | non operante      | SOLO in pagine di questionario/proposta | mismatch (formEvidence) |
  * | non operante      | assente | —                 | review   |
  * | non determinabile | —       | —                 | review   |
  * | guasto            | —       | —                 | review   |
+ * `requireStructural` = la definizione ammette una SEZIONE
+ * (recognitionAllowsSection): vale per la riga strutturale.
+ * `formEvidence`: il «non operante» è provato da una RICHIESTA (questionario,
+ * proposta), non dal contratto. Da solo resta uno scarto (l'opzione della
+ * copertura non barrata nel questionario delle esigenze è la prova più comune
+ * di non acquisto: Vittoria «Tutela Legale» senza X, Unipol «o la fornitura di
+ * servizi di tutela legale…»); ma NON contraddice un «operante» provato nel
+ * contratto (combineOperativitaBatches).
  */
 export function decideOperativita({ answer, evidence, excludeMatched = [], error = null, requireStructural = true } = {}) {
   const base = {
@@ -652,6 +728,13 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
   // acquistata (DAS: «Tutela Legale  ESCLUSA  31.000,00», ESCLUSA = colonna
   // indicizzazione). In dubbio non si scarta: da verificare.
   if (evidence.proofIsCoverageRow) return { ...base, verdict: 'review', reason: `copertura dichiarata non operante ma la prova è la riga della copertura con un suo importo: dato contraddittorio${why}` }
+  // Prova SOLO in pagine di QUESTIONARIO/PROPOSTA (titolo della pagina,
+  // isQuestionnairePageTitle): scarto come ogni «non operante» provato, ma
+  // marcato — il modulo registra ciò che si CHIEDE. BOLCHINI RC 2025
+  // (26/09/2026): «Indicare il massimale per il quale si richiede copertura: €
+  // 250.000» come prova di «non operante», poi la polizza «operante» → «esiti
+  // contraddittori» e una polizza vera bloccata.
+  if (evidence.formPage) return { ...base, verdict: 'mismatch', formEvidence: true, reason: `copertura non operante secondo un questionario/proposta (una richiesta, non il contratto)${why}` }
   return { ...base, verdict: 'mismatch', reason: `copertura non operante${why}` }
 }
 
@@ -662,15 +745,27 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
  * prova, e tutto finiva «Da verificare» (BESA 25/09: polizza vita MetLife,
  * appendice Cat Nat, infortuni conducente: 6 dubbi su 9). Qui è un fatto del
  * testo, non un giudizio: non operante, senza chiamare il modello.
+ * Il nome si cerca per forma esatta su tutte le pagine e in forma FLESSA sui
+ * frontespizi (`titlePages`, prima pagina con testo di ogni documento: stessa
+ * regola di pageNamesCoverage). Per forma esatta «MEDICA / SANITARIA» non
+ * trovava «… Professionale del Medico», «Professioni Sanitarie», «PROFESSIONISTA
+ * SANITARIO» e scartava senza modello 5 polizze RC mediche vere su 16 della
+ * cartella rcpm; con la forma flessa su TUTTE le pagine 55 dossier di altri
+ * rami su 205 perdevano lo scarto (certificato medico, spese sanitarie), sui
+ * soli frontespizi 8 (informative privacy, set informativi DAS «ambito
+ * medico-sanitario») più la TL per medici PRINA: decide il modello. Misura
+ * del 26/09/2026.
  * @param {string[]} pageTexts  testi (piatti o griglia) di TUTTE le pagine lette
  * @param {string[][]} names    nomi della copertura (recognitionCoverName)
+ * @param {{titlePages?:string[]}} [opts]  testi dei frontespizi (anche già in pageTexts)
  * @returns {boolean} true = mai nominata (false anche se non giudicabile)
  */
-export function coverNeverNamed(pageTexts, names) {
+export function coverNeverNamed(pageTexts, names, { titlePages = [] } = {}) {
   if (!Array.isArray(names) || !names.length) return false
   const texts = (pageTexts || []).filter((t) => String(t || '').trim())
   if (!texts.length) return false
-  return !texts.some((t) => namesCoverage(t, names))
+  if (texts.some((t) => namesCoverage(t, names))) return false
+  return !(titlePages || []).some((t) => String(t || '').trim() && namesCoverageAnyForm(t, names) === true)
 }
 
 /**
@@ -686,9 +781,17 @@ export function coverNeverNamed(pageTexts, names) {
  *    operante», poi «operante» sull'elenco delle opzioni del DIP; un riesame
  *    avversario col modello da 7B è stato provato e TOLTO: smentiva anche le
  *    prove vere — «Tutela Legale · Imponibile annuo € 249,06» di BOIARDO);
- *  - tutti i batch «non operante» con prova → mismatch; lo stesso se alcuni
- *    dicono «non operante» con una prova non ritrovata, purché almeno uno
- *    l'abbia provata;
+ *  - un «non operante» provato SOLO in pagine di questionario/proposta
+ *    (formEvidence) non fa scattare la contraddizione: il modulo registra una
+ *    RICHIESTA, il contratto dice che cosa è stato acquistato (BOLCHINI RC
+ *    2025: questionario «no», polizza «operante» → ok). Anche una risposta
+ *    barrata sulla riga della copertura: nei questionari RC le righe con
+ *    «professionale» e una X sono domande su altro («Richiedete che tali
+ *    sub-appaltatori dispongano di una loro polizza per la responsabilità
+ *    professionale? ⃝ Sì ⃝ X No», BOLCHINI) e per forma non si distinguono;
+ *  - tutti i batch «non operante» con prova (anche da questionario) → mismatch;
+ *    lo stesso se alcuni dicono «non operante» con una prova non ritrovata,
+ *    purché almeno uno l'abbia provata;
  *  - altrimenti (prove assenti, dubbi, guasti) → review.
  * Il risultato riportato è quello del batch decisivo (l'operante; altrimenti il
  * primo), con `batches` = batch letti.
@@ -704,13 +807,16 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   const okIdx = list.findIndex((r) => r.verdict === 'ok')
   if (okIdx >= 0) {
     const ok = list[okIdx]
-    const earlierNo = list.slice(0, okIdx).find((r) => r.verdict === 'mismatch')
+    const earlier = list.slice(0, okIdx)
+    const earlierNo = earlier.find((r) => r.verdict === 'mismatch' && !r.formEvidence)
     if (earlierNo) {
       return {
         ...ok, verdict: 'review', batches: list.length,
         reason: `esiti contraddittori tra i batch di pagine: prima «non operante» (${earlierNo.evidenza ? `«${String(earlierNo.evidenza).slice(0, 120)}»` : earlierNo.reason}), poi «operante» (${ok.evidenza ? `«${String(ok.evidenza).slice(0, 120)}»` : ok.reason})`,
       }
     }
+    const formNo = earlier.find((r) => r.verdict === 'mismatch' && r.formEvidence)
+    if (formNo) return { ...ok, batches: list.length, reason: `${ok.reason} (prima un «non operante» provato solo da un questionario/proposta — una richiesta, non il contratto: ${formNo.evidenza ? `«${String(formNo.evidenza).slice(0, 120)}»` : formNo.reason})` }
     return { ...ok, batches: list.length }
   }
   // Tutti i batch hanno risposto «non operante» e almeno uno con la prova
@@ -724,7 +830,7 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante' && !r.evidenceFound))
   if (allSayNo && list.some((r) => r.verdict === 'mismatch') && list.some((r) => r.verdict === 'review')) {
     const proven = list.filter((r) => r.verdict === 'mismatch')
-    const first = proven[0]
+    const first = proven.find((r) => !r.formEvidence) || proven[0]
     if (unreadNamed > 0) return { ...first, verdict: 'review', batches: list.length, reason: `${first.reason} (${list.length} batch letti, ma ${unreadNamed} pagine che nominano la copertura non sono state lette)` }
     return { ...first, batches: list.length, reason: `${first.reason} (${list.length} batch di pagine, tutti «non operante»: ${proven.length} con prova, ${list.length - proven.length} con prova non ritrovata)` }
   }
@@ -732,8 +838,10 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
     // «Non operante» vale come scarto solo se TUTTE le pagine che nominano la
     // copertura sono state lette: se ne restano fuori (fascicoli enormi oltre
     // i batch massimi) il verdetto è un dubbio, non uno scarto.
-    if (unreadNamed > 0) return { ...list[0], verdict: 'review', batches: list.length, reason: `${list[0].reason} (${list.length} batch letti, ma ${unreadNamed} pagine che nominano la copertura non sono state lette)` }
-    return { ...list[0], batches: list.length, reason: list.length > 1 ? `${list[0].reason} (${list.length} batch di pagine, nessuna prova di operatività)` : list[0].reason }
+    // Riportato: il primo «no» provato nel CONTRATTO, se c'è (non quello del questionario).
+    const first = list.find((r) => !r.formEvidence) || list[0]
+    if (unreadNamed > 0) return { ...first, verdict: 'review', batches: list.length, reason: `${first.reason} (${list.length} batch letti, ma ${unreadNamed} pagine che nominano la copertura non sono state lette)` }
+    return { ...first, batches: list.length, reason: list.length > 1 ? `${first.reason} (${list.length} batch di pagine, nessuna prova di operatività)` : first.reason }
   }
   const rev = list.find((r) => r.verdict === 'review') || list[0]
   return { ...rev, verdict: 'review', batches: list.length, reason: list.length > 1 ? `${rev.reason} (${list.length} batch di pagine)` : rev.reason }

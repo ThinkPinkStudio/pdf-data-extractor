@@ -942,6 +942,24 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   riconciliazione del bulk) e SALTA un caso con file dichiarati mancanti;
   fixture golden `pertinenza-golden-expected.json` (13 casi, profilo per
   caso, allineata a FULL_CASES da `test/pertinenzaGoldenFixture.test.mjs`).
+  **Misurato 26/09 mattina** (192.168.100.72, ctx 32768, modo llm, bozza dei
+  profili): qwen2.5:32b golden 12/13 (BOLCHINI RC 2025 ok; LUCCA review: dice
+  «operante» ma cita la riga «ASSICURATO … ATTIVITÀ: INFERMIERE…», che non
+  nomina la copertura → prova generica), Pizzamiglio 9/9, BESA 8/10 (FL885YC
+  Zurich bloccato ma con un batch «non leggibile»; COI FL519YE DAS bloccato:
+  «Tutela Legale ESCLUSA 25.000,00» della rata letto come esclusione, poi
+  nessuna prova valida — stesse pagine e stessi nomi di HEAD, non dipende da
+  queste correzioni), negativi 8/8; qwen3:32b golden 12/13 (LUCCA **Non
+  valido**: la domanda sulla polizza dice «certificati di adesione … non il
+  contratto vero e proprio» → assente, non forzabile). Con i profili di
+  PRODUZIONE (backup 25/09): LUCCA mismatch con qwen2.5 («infermiere» ≠
+  «medici»), Non valido con qwen3; COI GV474DJ e PISAPIA review («Tutela
+  Giudiziaria SI 18,19» non nomina «tutela legale»): servono i testi della
+  bozza. Aperti (decisione dell'utente, da misurare): (i) certificato di
+  adesione = polizza nella domanda sul contratto; (ii) per le coperture-
+  prodotto, prova «operante» citata dal FRONTESPIZIO che nomina la copertura
+  anche se la riga non la nomina (sulle 17 prove generiche delle 4 misure
+  qwen2.5 cambierebbe solo LUCCA).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

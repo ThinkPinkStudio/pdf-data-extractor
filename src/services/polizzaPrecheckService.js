@@ -16,7 +16,8 @@ import {
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   rankProfilesSemantic, policyEvidenceReport, effectivePrecheckMode, degradeWithoutRecognition,
 } from './polizzaPrecheck.js'
-import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, namesCoverage } from './polizzaOperativita.js'
+import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage } from './polizzaOperativita.js'
+import { isQuestionnairePageTitle } from './polizzaFactsRegistry.js'
 import { stripFieldExamples } from './polizzaValidation.js'
 import { usefulLength } from './ocrLayout.js'
 import {
@@ -123,7 +124,8 @@ export function contentExcludeMatched(profile, docs) {
  * _PER_DOC e al più 4 parti per pagina, come la misura del 22/09. Senza tetti
  * (domanda sulla polizza): TUTTE le pagine e tutte le parti, perché «assente»
  * (Non valido, non forzabile) si può dire solo dopo averle mostrate tutte.
- * `first` marca la prima pagina CON TESTO di ogni documento. `partChars` =
+ * `first` marca la prima pagina CON TESTO di ogni documento; `questionnaire`
+ * la pagina di questionario/proposta (dal titolo della pagina). `partChars` =
  * misura massima di una parte (la domanda sulla polizza la tiene entro il
  * budget del batch, così nessuna parte viene tagliata e resta non letta).
  * @returns {{candidates:object[], docsWithoutText:number}}
@@ -149,6 +151,16 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
       const isFirst = !hasText
       hasText = true
       if (capped && (candidates.length >= OPERATIVITA_MAX_PAGES || perDoc >= OPERATIVITA_MAX_PAGES_PER_DOC)) break
+      // Pagina di QUESTIONARIO/PROPOSTA: lo dice il TITOLO della PAGINA (una
+      // cella della sua testa che COMINCIA con le parole di isQuestionnaireTitle:
+      // isQuestionnairePageTitle), sul testo GREZZO — withPairs mette le coppie
+      // etichetta→valore davanti. Per pagina e non per documento: una polizza
+      // può rilegare il questionario IDD dentro il PDF (Santangelo «Abitazione
+      // POLIZZA N. … QUESTIONARIO PER LA VALUTAZIONE…» alle pagine 1, 9, 17 di
+      // 24) e le sue pagine di contratto restano contratto. Serve a pesare una
+      // prova di «non operante»: sta in una richiesta, non nel contratto
+      // (decideOperativita → formEvidence, combineOperativitaBatches).
+      const questionnaire = isQuestionnairePageTitle(grid.trim() ? grid : String(flatPages[p] || ''))
       // STESSO testo dei prompt di estrazione: griglia spaziale + coppie
       // etichetta→valore lette dal layout (withPairs: suggerimento di
       // lettura, mai una verità imposta — REGOLE 1c).
@@ -166,7 +178,7 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
       parts.push(rest)
       parts.forEach((text, k) => {
         if (!text.trim()) return
-        candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null, first: isFirst })
+        candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null, first: isFirst, questionnaire })
       })
       perDoc++
     }
@@ -308,7 +320,10 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     // Copertura mai nominata in NESSUNA pagina del fascicolo (tutte, non solo le
     // candidate): non operante per fatto del testo, senza chiamate al modello.
     const allPageTexts = (docs || []).flatMap((d, i) => [...(d?.pages || []), ...(spatialDocs?.[i]?.pages || [])])
-    if (coverNeverNamed(allPageTexts, lexTokens)) {
+    // Frontespizi (prima pagina con testo di ogni documento, piatta e griglia):
+    // lì il nome vale anche in forma flessa (pageNamesCoverage).
+    const titlePages = [...new Set(candidates.filter((c) => c.first).flatMap((c) => [c.flat, c.text]))]
+    if (coverNeverNamed(allPageTexts, lexTokens, { titlePages })) {
       const name = lexTokens.map((n) => n.join(' ')).join(' / ')
       log(`Operatività «${profile?.name || ''}»: la copertura «${name}» non è mai nominata in ${allPageTexts.filter((t) => String(t || '').trim()).length} pagine → non operante (nessuna chiamata al modello)`)
       const nn = { ...decideOperativita({ answer: { esito: 'non operante', evidenza: '', motivo: `la copertura «${name}» non è mai nominata nei documenti` }, evidence: { found: true, names: false, structural: null } }), reason: `copertura non operante: «${name}» non è mai nominata nei documenti letti`, neverNamed: true }
@@ -334,7 +349,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       const taken = new Set(blocks.map(pageKey))
       remaining = remaining.filter((c) => !taken.has(pageKey(c)))
       const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
-      log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi)' : ''}`)
+      log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''}${x.questionnaire ? '§' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex || x.questionnaire) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi, § = pagina di questionario/proposta)' : ''}`)
       const raw = await callModel({ ...settings, __phase: 'abbinamento' }, system, user, {
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
@@ -350,7 +365,10 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       // Operante + parola da evitare = contraddizione già certa: inutile leggere oltre.
       if (decision.verdict === 'review' && answer?.esito === 'operante' && excludeMatched.length) break
     }
-    const unreadNamed = remaining.filter((c) => namesCoverage(c.flat || c.text, lexTokens) === true).length
+    // Pagine rimaste che NOMINANO la copertura (pageNamesCoverage: la STESSA
+    // regola dell'ordine dei batch e di «mai nominata»): con una di queste non
+    // lette un «non operante» resta un dubbio.
+    const unreadNamed = remaining.filter((c) => pageNamesCoverage(c, lexTokens) === true).length
     const combined = combineOperativitaBatches(results, { unreadNamed })
     if (results.length > 1) log(`Operatività «${profile?.name || ''}»: esito complessivo su ${results.length} batch → ${combined.verdict}${combined.verdict === 'review' && /contraddittori/.test(combined.reason) ? ' (esiti contraddittori)' : ''}`)
     const final = applyContractVerdict(combined, contract)
