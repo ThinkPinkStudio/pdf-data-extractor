@@ -164,9 +164,11 @@ for (const c of FULL_CASES) {
   }
   const t0 = Date.now()
   try {
-    const prev = FROM && existsSync(join(root, FROM, `${c.id}.json`)) ? JSON.parse(readFileSync(join(root, FROM, `${c.id}.json`), 'utf8')) : null
+    // Un caso atteso «Non valido» riparte SEMPRE da un caricamento nuovo: il suo
+    // job di base delle misure vecchie era stato forzato (ed è stato cancellato).
+    const prev = FROM && c.expect !== 'non-valido' && existsSync(join(root, FROM, `${c.id}.json`)) ? JSON.parse(readFileSync(join(root, FROM, `${c.id}.json`), 'utf8')) : null
     const baseId = prev ? (prev.baseJobId || prev.jobId) : null
-    if (FROM && !baseId) throw new Error(`nessun job di base in ${FROM}/${c.id}.json`)
+    if (FROM && !baseId && c.expect !== 'non-valido') throw new Error(`nessun job di base in ${FROM}/${c.id}.json`)
     let batchId = prev?.batchId || null, jobId = baseId, job = null, pertinenza = prev?.pertinenza || null, runJobId = baseId
     if (!baseId) {
     ;({ batchId } = await api('/api/polizza/batch', {
