@@ -200,7 +200,7 @@ export default function SettingsTechnicalPage() {
               <input
                 type="number"
                 min={2048}
-                max={131072}
+                max={262144}
                 step={1024}
                 value={s.polizzaBatchContext ?? ''}
                 placeholder="8192"

@@ -267,7 +267,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaVerificaModel: map.polizzaVerificaModel ?? '',
     polizzaConsensusPasses: map.polizzaConsensusPasses ? parseInt(map.polizzaConsensusPasses, 10) || 3 : 3,
     polizzaStagedCascade: bool('polizzaStagedCascade', false),
-    polizzaBatchContext: map.polizzaBatchContext ? Math.max(2048, Math.min(parseInt(map.polizzaBatchContext, 10) || 8192, 131072)) : 8192,
+    polizzaBatchContext: map.polizzaBatchContext ? Math.max(2048, Math.min(parseInt(map.polizzaBatchContext, 10) || 8192, 262144)) : 8192,
     polizzaAutoVerify: bool('polizzaAutoVerify', false),
     polizzaArchivio: bool('polizzaArchivio', false),
     polizzaGrounding: bool('polizzaGrounding', false),
