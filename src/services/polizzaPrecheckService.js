@@ -16,7 +16,7 @@ import {
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   rankProfilesSemantic, policyEvidenceReport, effectivePrecheckMode, degradeWithoutRecognition,
 } from './polizzaPrecheck.js'
-import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage } from './polizzaOperativita.js'
+import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage, pageHead } from './polizzaOperativita.js'
 import { isQuestionnairePageTitle } from './polizzaFactsRegistry.js'
 import { stripFieldExamples } from './polizzaValidation.js'
 import { usefulLength } from './ocrLayout.js'
@@ -161,6 +161,8 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
       // prova di «non operante»: sta in una richiesta, non nel contratto
       // (decideOperativita → formEvidence, combineOperativitaBatches).
       const questionnaire = isQuestionnairePageTitle(grid.trim() ? grid : String(flatPages[p] || ''))
+      // Testa della pagina (titolo) sul testo grezzo: la stessa per tutte le parti.
+      const head = pageHead(grid.trim() ? grid : String(flatPages[p] || ''))
       // STESSO testo dei prompt di estrazione: griglia spaziale + coppie
       // etichetta→valore lette dal layout (withPairs: suggerimento di
       // lettura, mai una verità imposta — REGOLE 1c).
@@ -178,7 +180,7 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
       parts.push(rest)
       parts.forEach((text, k) => {
         if (!text.trim()) return
-        candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null, first: isFirst, questionnaire })
+        candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null, first: isFirst, questionnaire, head })
       })
       perDoc++
     }
@@ -343,6 +345,10 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     let remaining = candidates
     const results = []
     const pagesSent = []
+    // Documenti che NOMINANO la copertura nelle prime 3 pagine (tutte le parti
+    // candidate, non solo quelle di un batch): la prova di un PRODOTTO di tutela
+    // legale vale se il suo documento la nomina (verifyOperativitaEvidence).
+    const namedDocs = new Set(candidates.filter((c) => c.page <= 3 && pageNamesCoverage(c, lexTokens) === true).map((c) => c.ord))
     for (let b = 0; b < maxBatches && remaining.length; b++) {
       const blocks = selectOperativitaPages(remaining, { budgetChars, lexTokens })
       if (!blocks.length) break
@@ -354,7 +360,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       const answer = parseOperativitaAnswer(raw)
-      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
+      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens, namedDocs }) : null
       const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
       results.push(decision)

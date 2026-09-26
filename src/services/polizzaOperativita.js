@@ -225,6 +225,25 @@ export function pageNamesCoverage(page, names) {
   return page?.first ? namesCoverageAnyForm(text, names) === true : false
 }
 
+/**
+ * TESTA della pagina: le prime righe fino a ~120 caratteri (stessa finestra di
+ * isQuestionnairePageTitle), sul testo GREZZO (griglia o piatto, mai con le
+ * coppie etichetta→valore di withPairs davanti). È dove sta il TITOLO del
+ * documento («COPIA DA TRATTENERE / … POLIZZA RAMO TUTELA GIUDIZIARIA»).
+ */
+export function pageHead(text, maxChars = 120) {
+  const out = []
+  let used = 0
+  for (const line of String(text || '').split('\n')) {
+    const flat = line.replace(/\s+/g, ' ').trim()
+    if (!flat) continue
+    if (used >= maxChars) break
+    out.push(line)
+    used += flat.length + 1
+  }
+  return out.join('\n')
+}
+
 /** Casella barrata / spunta su una riga della griglia. */
 export function lineHasCheck(line) {
   return /(?:^|\s)(?:\[x\]|\[X\]|☒|☑|✓|✔|X)(?:\s|$)/.test(String(line || ''))
@@ -632,7 +651,7 @@ function hasEuroAmount(text) {
   return (String(text || '').match(/(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?![\d,])/g) || []).some((a) => /[1-9]/.test(a))
 }
 
-export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {}) {
+export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], namedDocs = null } = {}) {
   const ev = String(answer?.evidenza || '').trim()
   const ne = normForMatch(ev)
   // La prova NOMINA la copertura? (null = nessuna parola distintiva: non giudicabile)
@@ -680,10 +699,27 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
   // la prova sta sul frontespizio che nomina la copertura e ha una riga con una
   // casella barrata e un premio («[x] Difesa Penale e Civile 99,84»: la scheda
   // delle garanzie scelte; mai la riga «ATTIVITÀ:» del certificato LUCCA).
+  // «Il documento nomina la copertura» è un fatto del DOCUMENTO, non del batch
+  // (`namedDocs`: ordinali dei documenti con il nome nelle prime 3 pagine,
+  // calcolato da runOperativita su TUTTE le pagine candidate). Guardando solo
+  // le pagine di questo batch le 11 DAS condominio restavano «Da verificare»:
+  // il DIP a pag. 2 (l'unica pagina che dice «tutela legale»: nella scheda
+  // l'intestazione è spezzata in «TUTELA / LEGALE») andava da solo nel batch 1,
+  // e nel batch 2 la riga «Difesa Condominio - ed.2019 298,55 …» del
+  // frontespizio non trovava il nome (produzione 26/09/2026). Senza `namedDocs`
+  // (test, chiamate dirette) valgono le pagine inviate.
   const sameDoc = (blocks || []).filter((x) => x.ord === b.ord && x.page <= 3)
-  const docNamed = sameDoc.some((x) => pageNamesCoverage(x, lexTokens) === true)
+  const docNamed = namedDocs ? namedDocs.has(b.ord) : sameDoc.some((x) => pageNamesCoverage(x, lexTokens) === true)
+  // Ramo FRONTESPIZIO: il nome deve stare nel TITOLO della pagina (`head`,
+  // pageHead), non in una riga qualunque: il frontespizio Helvetia di BESA-093
+  // (non pertinente) ha «5. Tutela legale € = = =» (voce NON scelta) e
+  // «Indicizzazione [X] … € 176,46», e un «operante» generico sarebbe passato.
+  // Senza `head` (test, chiamate dirette) vale la pagina intera.
+  const titleNamed = typeof b.head === 'string'
+    ? namesCoverageAnyForm(b.head, lexTokens) === true
+    : pageNamesCoverage(b, lexTokens) === true
   const productProof = !formPage && docNamed
-    && (hasEuroAmount(ev) || (!!b.first && pageNamesCoverage(b, lexTokens) === true
+    && (hasEuroAmount(ev) || (!!b.first && titleNamed
       && String(b.text || '').split('\n').some((l) => lineHasCheck(l) && hasEuroAmount(l))))
   return {
     found: true, names, structural: struct(b), proofIsCoverageRow: proofRow(b), formPage, productProof, ord: b.ord, page: b.page,
@@ -765,7 +801,11 @@ export function decideOperativita({ answer, evidence, excludeMatched = [], error
   // 250.000» come prova di «non operante», poi la polizza «operante» → «esiti
   // contraddittori» e una polizza vera bloccata.
   if (evidence.formPage) return { ...base, verdict: 'mismatch', formEvidence: true, reason: `copertura non operante secondo un questionario/proposta (una richiesta, non il contratto)${why}` }
-  return { ...base, verdict: 'mismatch', reason: `copertura non operante${why}` }
+  // structuralPage: la pagina della prova ha una riga con la copertura e un
+  // premio o una casella — i segni dell'«operante» nella definizione. Un «no»
+  // da lì resta uno scarto, ma non basta alla regola (a) per zittire un «non
+  // determinabile» (combineOperativitaBatches).
+  return { ...base, verdict: 'mismatch', structuralPage: evidence.structural === true, reason: `copertura non operante${why}` }
 }
 
 /**
@@ -862,8 +902,13 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   // quasi sempre il batch delle pagine meno affini, dove la copertura non c'è
   // (PIZZAMIGLIO BERTOLAZZI/CAMPESTRE/ALZAIA 104, CALDARA 7: 4 su 4 non
   // pertinenti per il catalogo). Serve almeno un «no» provato fuori dai
-  // questionari; nessun «operante», nemmeno dubbio.
-  const contractNo = list.some((r) => r.verdict === 'mismatch' && !r.formEvidence)
+  // questionari; nessun «operante», nemmeno dubbio. Il «no» non deve stare su
+  // una pagina con la riga «copertura + premio/casella» (structuralPage): lì
+  // premio e casella sono i segni dell'acquisto e un «no» è più probabilmente
+  // una lettura sbagliata (BESA-110: DAS OneClick, «non operante» citando
+  // l'intestazione della scheda col premio € 18,67) — con un batch «non
+  // determinabile» dopo, la regola (a) l'avrebbe scartata.
+  const contractNo = list.some((r) => r.verdict === 'mismatch' && !r.formEvidence && !r.structuralPage)
   const nd = (r) => r.verdict === 'review' && r.esito === 'non determinabile'
   const allSayNo = list.every((r) => r.verdict === 'mismatch' || (r.verdict === 'review' && r.esito === 'non operante' && !r.evidenceFound) || (contractNo && nd(r)))
   if (allSayNo && list.some((r) => r.verdict === 'mismatch') && list.some((r) => r.verdict === 'review')) {
@@ -871,7 +916,7 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
     const first = proven.find((r) => !r.formEvidence) || proven[0]
     if (unreadNamed > 0) return { ...first, verdict: 'review', batches: list.length, reason: `${first.reason} (${list.length} batch letti, ma ${unreadNamed} pagine che nominano la copertura non sono state lette)` }
     const nds = list.filter(nd).length
-    return { ...first, batches: list.length, reason: `${first.reason} (${list.length} batch di pagine: ${proven.length} «non operante» con prova${list.length - proven.length - nds ? `, ${list.length - proven.length - nds} con prova non ritrovata` : ''}${nds ? `, ${nds} «non determinabile» su pagine senza la copertura` : ''}; nessun «operante»)` }
+    return { ...first, batches: list.length, reason: `${first.reason} (${list.length} batch di pagine: ${proven.length} «non operante» con prova${list.length - proven.length - nds ? `, ${list.length - proven.length - nds} con prova non ritrovata` : ''}${nds ? `, ${nds} «non determinabile»` : ''}; nessun «operante»)` }
   }
   if (list.every((r) => r.verdict === 'mismatch')) {
     // «Non operante» vale come scarto solo se TUTTE le pagine che nominano la

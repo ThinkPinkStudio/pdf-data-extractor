@@ -16,7 +16,7 @@ import {
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
   selectContrattoPages, decideContract, applyContractVerdict, operativitaVerdictLabel, checkContractAnswer,
-  namesCoverageAnyForm, pageNamesCoverage,
+  namesCoverageAnyForm, pageNamesCoverage, pageHead,
 } from '../src/services/polizzaOperativita.js'
 import { isQuestionnairePageTitle, isQuestionnaireTitle } from '../src/services/polizzaFactsRegistry.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
@@ -774,3 +774,56 @@ test('prova «operante» di un PRODOTTO di tutela legale: la riga del premio o l
   const q1 = { ...s1, questionnaire: true }
   assert.equal(decideOperativita({ answer: a2, evidence: verifyOperativitaEvidence(a2, [q1], { lexTokens: TG }) }).verdict, 'review')
 })
+
+test('prodotto di tutela legale: «il documento nomina la copertura» vale per il DOCUMENTO, anche se la pagina col nome era in un altro batch (DAS condominio)', () => {
+  const TL = [['tutela', 'legale']]
+  // BATTISTI 15: scheda a pag. 1 con «TUTELA / LEGALE» spezzato, il nome solo nel DIP a pag. 2 (letto nel batch 1)
+  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: '   TUTELA   PERDITE   ASSISTENZA   IMPOSTE   PREMIO\n   LEGALE   PECUNIARIE   LORDO\n   Difesa Condominio - ed.2019   298,55   63,44   361,99' }
+  const ans = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Difesa Condominio - ed.2019 298,55', motivo: 'm' }
+  // batch 2 senza la pag. 2: con le sole pagine inviate il documento non la nomina
+  assert.equal(decideOperativita({ answer: ans, evidence: verifyOperativitaEvidence(ans, [p1], { lexTokens: TL }) }).verdict, 'review')
+  // con namedDocs (calcolato su tutte le pagine candidate) sì
+  const ev = verifyOperativitaEvidence(ans, [p1], { lexTokens: TL, namedDocs: new Set([1]) })
+  assert.equal(ev.productProof, true)
+  assert.equal(decideOperativita({ answer: ans, evidence: ev }).verdict, 'ok')
+  // un ALTRO documento che nomina la copertura non basta
+  assert.equal(decideOperativita({ answer: ans, evidence: verifyOperativitaEvidence(ans, [p1], { lexTokens: TL, namedDocs: new Set([2]) }) }).verdict, 'review')
+})
+
+test('regola (a) più stretta: un «no» da una pagina con la riga «copertura + premio/casella» non zittisce un «non determinabile» (BESA-110)', () => {
+  const TL = [['tutela', 'legale']]
+  // DAS OneClick: la scheda ha la riga col premio; il modello dice «non operante» citando l'intestazione
+  const sheet = { ord: 1, page: 1, first: true, questionnaire: false, text: 'TUTELA LEGALE   PERDITE PECUNIARIE\nPROD-000423   Tutela legale circolazione stradale base   € 18,67   € 2,33   € 21,00' }
+  const no = { esito: 'non operante', documento: 1, pagina: 1, evidenza: 'TUTELA LEGALE PERDITE PECUNIARIE', motivo: 'm' }
+  const mmSheet = decideOperativita({ answer: no, evidence: verifyOperativitaEvidence(no, [sheet], { lexTokens: TL }) })
+  assert.equal(mmSheet.verdict, 'mismatch'); assert.equal(mmSheet.structuralPage, true)
+  const undet = { verdict: 'review', reason: 'copertura non determinabile', esito: 'non determinabile' }
+  assert.equal(combineOperativitaBatches([mmSheet, undet]).verdict, 'review', 'il «no» sulla scheda col premio non basta alla regola (a)')
+  assert.equal(combineOperativitaBatches([mmSheet]).verdict, 'mismatch', 'da solo resta uno scarto, come prima')
+  // «no» da una pagina di condizioni senza righe strutturali: la regola (a) vale
+  const cond = { ord: 2, page: 4, first: false, questionnaire: false, text: 'La Società assume a proprio carico il rischio dell\'assistenza stragiudiziale e giudiziale.\nSEZIONE TUTELA LEGALE non acquistata dal Contraente.' }
+  const no2 = { esito: 'non operante', documento: 2, pagina: 4, evidenza: 'SEZIONE TUTELA LEGALE non acquistata dal Contraente.', motivo: 'm' }
+  const mmCond = decideOperativita({ answer: no2, evidence: verifyOperativitaEvidence(no2, [cond], { lexTokens: TL }) })
+  assert.equal(mmCond.structuralPage, false)
+  const r = combineOperativitaBatches([mmCond, undet])
+  assert.equal(r.verdict, 'mismatch')
+  assert.doesNotMatch(r.reason, /pagine senza la copertura/)
+})
+
+test('prodotto, ramo frontespizio: il nome della copertura deve stare nel TITOLO della pagina (pageHead), non in una voce qualsiasi (BESA-093 Helvetia)', () => {
+  const TL = [['tutela', 'legale'], ['tutela', 'giudiziaria']]
+  assert.equal(pageHead('COPIA   DA   TRATTENERE\ndi\ndi   Difesa legale   POLIZZA   RAMO   TUTELA   GIUDIZIARIA\n' + 'x'.repeat(200) + '\nULTIMA RIGA').includes('ULTIMA'), false)
+  const gar = 'garanzie prescelte (si intendono operative quelle crocesegnate)'
+  const a = { esito: 'operante', documento: 1, pagina: 1, evidenza: gar, motivo: 'm' }
+  // ABETONE (OCR della scheda DAS): titolo nella terza riga della testa → ok
+  const dasText = 'COPIA   DA   TRATTENERE\ndi\ndi   Difesa legale   POLIZZA   RAMO   TUTELA   GIUDIZIARIA\nDATI ANAGRAFICI E CONTRATTUALI\n' + gar + '\n[x] Appendice (codice CONDOM)   99,84   21,22   121,06'
+  const das = { ord: 1, page: 1, first: true, questionnaire: false, text: dasText, head: pageHead(dasText) }
+  assert.equal(decideOperativita({ answer: a, evidence: verifyOperativitaEvidence(a, [das], { lexTokens: TL, namedDocs: new Set([1]) }) }).verdict, 'ok')
+  // Helvetia: la tutela legale è una voce NON scelta; la casella barrata è di un'altra riga
+  const hText = 'HELVETIA   Compagnia Svizzera d\'Assicurazioni\nPOLIZZA MULTIRISCHI DELL\'IMPRESA   N. 1234567\n' + 'Contraente BESA SPA   Via Roma 1   Milano\n' + gar + '\n5. Tutela legale   € = = =\nIndicizzazione [X]   € 176,46'
+  const hel = { ord: 1, page: 1, first: true, questionnaire: false, text: hText, head: pageHead(hText) }
+  const ev = verifyOperativitaEvidence(a, [hel], { lexTokens: TL, namedDocs: new Set([1]) })
+  assert.equal(ev.productProof, false)
+  assert.equal(decideOperativita({ answer: a, evidence: ev }).verdict, 'review')
+})
+
