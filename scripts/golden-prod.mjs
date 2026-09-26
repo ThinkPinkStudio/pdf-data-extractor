@@ -216,7 +216,7 @@ for (const c of FULL_CASES) {
       if (mayForce(c, job)) { console.log('   FORZATO (--forza-pertinenza)'); await api(`/api/polizza/job/${runJobId}/proceed`, { method: 'POST' }); job = await waitJob(runJobId) }
     }
     const secs = Math.round((Date.now() - t0) / 1000)
-    writeFileSync(join(OUT, `${c.id}.json`), JSON.stringify({ jobId: runJobId, baseJobId: jobId, batchId, status: job.status, pertinenza, fieldDefs: job.fieldDefs, values: job.values, sources: job.sources, logs: job.logs }, null, 2))
+    writeFileSync(join(OUT, `${c.id}.json`), JSON.stringify({ jobId: runJobId, baseJobId: jobId, batchId, status: job.status, error: job.error || null, pertinenza, fieldDefs: job.fieldDefs, values: job.values, sources: job.sources, logs: job.logs }, null, 2))
     if (c.expect === 'non-valido') {
       // Controllo di VALIDITÀ: giusto solo se l'app lo dichiara Non valido e non estrae.
       const ok = isNotValid(job)

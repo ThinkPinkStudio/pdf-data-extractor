@@ -20,7 +20,9 @@ const tot = dirs.map(() => ({ r: 0, n: 0 }))
 console.log(['fascicolo'.padEnd(18), ...dirs.map((d) => d.split('/').pop().slice(-22).padStart(22))].join(' '))
 // Casi di VALIDITÀ (expect 'non-valido', es. ALZAIA: sola quietanza): fuori dal
 // conteggio dei campi; giusto se l'app ha detto «Non valido» e non ha estratto.
-const isNotValid = (j) => j?.status === 'mismatch' && /^(?:Non valido|Accantonato)\b/.test(String(j?.error || j?.pertinenza?.reason || ''))
+// Le misure salvate prima del 26/09 mattina non hanno `error`: vale anche la
+// ragione della pertinenza («nessuna polizza tra i documenti letti…»).
+const isNotValid = (j) => j?.status === 'mismatch' && (/^(?:Non valido|Accantonato)\b/.test(String(j?.error || '')) || /^nessuna polizza\b/i.test(String(j?.pertinenza?.reason || '')))
 for (const c of FULL_CASES) {
   const golden = JSON.parse(readFileSync(join(root, c.golden), 'utf8'))
   const cells = dirs.map((d, i) => {
