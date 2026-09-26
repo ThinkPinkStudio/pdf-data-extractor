@@ -9,7 +9,9 @@ export const runtime = 'nodejs'
 // ▶ AVVIA ESTRAZIONE su TUTTI i job ABBINATI di un batch (solo abbinamento
 // concluso): ciascuno torna in coda con l'abbinamento confermato e
 // l'orchestratore li estrae uno alla volta. Lavoro condiviso: nessun controllo
-// di proprietà.
+// di proprietà. Solo 'matched': un «Non valido» (nessuna polizza) non lo è mai;
+// gli abbinati di prima della regola del 26/09/2026 (senza precheck.polizza)
+// passano dalla guardia del worker, che verifica la polizza prima di estrarre.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()

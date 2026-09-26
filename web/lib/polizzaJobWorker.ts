@@ -13,6 +13,7 @@ import { withGlobalLock } from './llmSemaphore'
 import {
   getJob, getJobFiles, getJobStatus, updateJob, getOcrCache, putOcrCache, hasStaleOcrCache, hashPdfBase64, ocrCacheKey, type JobRow,
 } from './polizzaJobStore'
+import { notValidError, polizzaLine, policyGate, type PolizzaCheck } from './jobValidity'
 
 interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
@@ -209,7 +210,9 @@ export async function runJobAndWait(jobId: string): Promise<void> {
 async function runJob(jobId: string): Promise<void> {
   const job = await getJob(jobId)
   if (!job) return
-  if (job.status === 'done' || job.status === 'canceled' || job.status === 'error' || job.status === 'matched' || job.status === 'review') return
+  // Anche 'mismatch' (Non pertinente / Non valido): riparte solo se rimesso in
+  // coda (Procedi comunque, Riabbina), mai da un avvio qualunque.
+  if (job.status === 'done' || job.status === 'canceled' || job.status === 'error' || job.status === 'matched' || job.status === 'review' || job.status === 'mismatch') return
 
   const settings = await getSettings()
   // Profilo per-dossier: lo snapshot di campi/prompt congelato all'upload vince sul
@@ -543,6 +546,72 @@ let autoOperativita: any = null
 // Profili già provati dall'operatività del percorso Automatico: il pre-check
 // non li rifà (fino a ~24 chiamate per fascicolo, prima).
 let autoTried: { id: string; name: string; verdict: string; reason: string }[] = []
+// Presenza della POLIZZA decisa UNA volta dal percorso Automatico, prima dei
+// candidati: è del fascicolo, non del profilo; il pre-check non la richiede.
+let autoContract: any = null
+// Nomi dei documenti letti (per i messaggi all'utente; MAI nei prompt).
+const docNames = docsFlat.map((d) => d.name.replace(/^.*[\\/]/, '')).slice(0, 8).join(', ') + (docsFlat.length > 8 ? ` (+${docsFlat.length - 8})` : '')
+// Precheck corrente del job (quello appena scritto dal pre-controllo, o
+// quello salvato da una run precedente): la guardia della polizza lo legge.
+let precheckNow: Record<string, any> = { ...precheckBase }
+// PRESENZA DELLA POLIZZA prima di estrarre (o di fermarsi in «Abbinato»).
+// true = si prosegue; false = il job è stato fermato (Non valido o Da
+// verificare) e runJob deve uscire. Una risposta già data dal modello (senza
+// guasto) non si richiede. La decisione è policyGate (jobValidity.ts): da soli
+// si estrae SOLO con la polizza vista («presente»); «assente» ferma sempre;
+// «non determinabile» / «non verificata» si estraggono solo con «Procedi
+// comunque» premuto conoscendo quell'esito (era già nel job prima di questa
+// run); un guasto (o il servizio che non si carica) ferma in «Da verificare».
+// Il ▶ su un abbinato NON forza la polizza: conferma l'abbinamento, e un
+// abbinato di oggi ha già la polizza «presente».
+const ensurePolicy = async (): Promise<boolean> => {
+  const known = precheckNow.polizza as PolizzaCheck | undefined
+  const before = precheckBase.polizza as PolizzaCheck | undefined
+  const informed = !!(before && before.esito && !before.error)
+  let pol: PolizzaCheck | null = known && known.esito && !known.error ? known : null
+  if (!pol) {
+    const diag: string[] = []
+    try {
+      const pcSvc = await importSharedService<{ runContractCheck: (p: any) => Promise<PolizzaCheck> }>('polizzaPrecheckService.js')
+      pol = await pcSvc.runContractCheck({ docs: docsFlat, spatialDocs, settings, diag })
+    } catch (err: any) {
+      pol = { esito: 'non verificata', reason: `controllo della polizza non eseguibile (${err?.message || err})`, error: true }
+    }
+    for (const line of diag) await appendLog(job, line, logs)
+    if (await isCanceled(job.id)) return false
+    precheckNow = { ...precheckNow, polizza: pol }
+    await updateJob(job.id, { precheck: precheckNow })
+  }
+  const gate = policyGate(pol, { override: !!precheckBase.override, informed })
+  if (gate === 'extract') {
+    if (pol.esito !== 'presente') await appendLog(job, `Polizza ${pol.esito}: estrazione FORZATA dall'operatore (Procedi comunque) — ${pol.reason || ''}`, logs)
+    return true
+  }
+  if (gate === 'notValid') {
+    const reason = pol.reason || 'nessuna polizza tra i documenti letti'
+    const summary = `Pertinenza: non valido — ${reason}${polizzaLine(pol)}`
+    precheckNow = { ...precheckNow, verdict: 'mismatch', notValid: true, reason, summary, at: Math.floor(Date.now() / 1000) }
+    await updateJob(job.id, { status: 'mismatch', progress: {}, error: notValidError(reason, docNames), precheck: precheckNow })
+    await appendLog(job, summary, logs)
+    return false
+  }
+  // DA VERIFICARE: polizza non vista dal modello (o controllo in guasto).
+  const reason = `polizza non vista dal modello (${pol.esito}): ${pol.reason || ''}`
+  const how = pol.error
+    ? 'premi "Riabbina" quando il server del modello risponde'
+    : 'se la polizza c\'è tra i documenti premi "Procedi comunque" (estrai sapendo che il modello non l\'ha vista), altrimenti "Riabbina"'
+  precheckNow = { ...precheckNow, verdict: 'review', reason, summary: `Pertinenza: da verificare — ${reason}`, at: Math.floor(Date.now() / 1000) }
+  // L'override è stato usato per ARRIVARE qui: il prossimo Procedi comunque,
+  // premuto conoscendo l'esito, lo rimette.
+  delete precheckNow.override
+  await updateJob(job.id, {
+    status: 'review', progress: {},
+    error: `Da verificare — ${reason}. Documenti letti: ${docNames}. Senza una polizza vista non si estrae: ${how}.`,
+    precheck: precheckNow,
+  })
+  await appendLog(job, `Polizza: ${reason} — estrazione non avviata`, logs)
+  return false
+}
 // ANNULLA anche durante il pre-check: il flag chiude lo stream Ollama e, prima
 // di scrivere uno stato, si ricontrolla il DB (prima 'canceled' veniva
 // sovrascritto da matched/review/mismatch).
@@ -557,6 +626,7 @@ if (job.profile_id === 'auto') {
     const pcSvc = await importSharedService<{
       rankProfilesForDocs: (p: any) => Promise<{ id: string; name: string; score: number | null; signal?: string }[]>
       runOperativita: (p: any) => Promise<any>
+      runContractCheck: (p: any) => Promise<PolizzaCheck>
       recognitionOf: (p: any) => string
       contentExcludeMatched: (profile: any, docs: any) => string[]
     }>('polizzaPrecheckService.js')
@@ -568,15 +638,23 @@ if (job.profile_id === 'auto') {
     const tried: string[] = []
     if (precheckMode !== 'off') {
       const opDiag: string[] = []
-      for (const cand of ranked.filter((p) => pcSvc.recognitionOf(p)).slice(0, 3)) {
+      // PRESENZA DELLA POLIZZA una volta sola, prima dei candidati: è del
+      // fascicolo, non del profilo. «assente» → nessuna operatività (il job
+      // sarà Non valido col profilo più affine, qualunque esso sia).
+      autoContract = await pcSvc.runContractCheck({ docs: docsFlat, spatialDocs, settings, diag: opDiag })
+      if (autoContract?.esito === 'assente') tried.push('nessuna polizza tra i documenti: operatività non valutata')
+      for (const cand of autoContract?.esito === 'assente' ? [] : ranked.filter((p) => pcSvc.recognitionOf(p)).slice(0, 3)) {
         if (preCancel.canceled) break
         // Stesse regole del profilo scelto a mano: le parole «da evitare» del
         // candidato entrano nella decisione (operante + parola = contraddizione).
-        const r = await pcSvc.runOperativita({ docs: docsFlat, spatialDocs, profile: cand, profiles: activeProfiles, settings, diag: opDiag, excludeMatched: pcSvc.contentExcludeMatched(cand, docsFlat) })
-        tried.push(`«${cand.name}»: ${r?.verdict === 'ok' ? 'operante' : r?.verdict === 'mismatch' ? 'non operante' : 'da verificare'}`)
-        autoTried.push({ id: cand.id, name: cand.name, verdict: r?.verdict || 'review', reason: r?.reason || '' })
+        const r = await pcSvc.runOperativita({ docs: docsFlat, spatialDocs, profile: cand, profiles: activeProfiles, settings, diag: opDiag, excludeMatched: pcSvc.contentExcludeMatched(cand, docsFlat), contract: autoContract })
+        // La scelta del profilo guarda la sola COPERTURA (operativitaVerdict):
+        // una polizza non vista vale per tutti i candidati e ferma il job dopo.
+        const v = r?.operativitaVerdict ?? r?.verdict ?? 'review'
+        tried.push(`«${cand.name}»: ${v === 'ok' ? 'operante' : v === 'mismatch' ? 'non operante' : 'da verificare'}`)
+        autoTried.push({ id: cand.id, name: cand.name, verdict: v, reason: r?.reason || '' })
         if (!autoOperativita) autoOperativita = r
-        if (r && r.verdict === 'ok') { chosen = cand; autoOperativita = r; break }
+        if (r && v === 'ok') { chosen = cand; autoOperativita = r; break }
       }
       for (const line of opDiag) await appendLog(job, line, logs)
     }
@@ -610,18 +688,17 @@ const profile = (settings.polizzaProfiles || []).find((p: any) => p.id === (job.
 //    (keywords/semantic/llm), OPPURE
 //  - il profilo definisce parole del CONTENUTO (da cercare o da evitare):
 //    in questo caso il blocco "da evitare" deve agire SEMPRE, anche a switch 'off';
-//  - oppure è stata ATTIVATA (opt-in) la regola di validità "polizza vera":
-//    anche a pre-check off va invocato il pre-check (per il solo blocco validità).
-const hasContentWords = !!profile?.contentKeywords || !!profile?.contentExcludeKeywords
-// Default ATTIVO (12/09/2026): senza polizza principale la cartella si accantona con la ragione.
-const requireValidPolicy = settings.polizzaRequireValidPolicy !== false
-const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.confirmed && (precheckMode !== 'off' || hasContentWords || requireValidPolicy)
-  // Nomi dei documenti letti (per i messaggi all'utente; MAI nei prompt).
-  const docNames = docsFlat.map((d) => d.name.replace(/^.*[\\/]/, '')).slice(0, 8).join(', ') + (docsFlat.length > 8 ? ` (+${docsFlat.length - 8})` : '')
+//  - SEMPRE per la presenza della POLIZZA (regola dell'utente del 26/09/2026:
+//    «SE NON HAI UNA POLIZZA NON ESTRAI: SENZA UNA POLIZZA È SEMPRE NON
+//    VALIDO»): anche a pre-controllo spento il pre-check gira per la sola
+//    domanda sul contratto. `polizzaRequireValidPolicy` non la spegne più.
+// Senza profilo, o con Procedi comunque / ▶: la guardia prima dell'estrazione
+// (sotto) verifica comunque la polizza.
+const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.confirmed
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null; signal?: string | null } | null; ranking?: { id: string; name: string; score: number | null }[]; operativita?: any; operativitaTried?: { name: string; verdict: string }[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; notValid?: boolean; polizza?: PolizzaCheck | null; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null; signal?: string | null } | null; ranking?: { id: string; name: string; score: number | null }[]; operativita?: any; operativitaTried?: { name: string; verdict: string }[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
       const opDiag: string[] = []
       const pre = await pcSvc.runPrecheck({
@@ -641,6 +718,8 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
         // e i profili già provati non si riprovano per il suggerimento.
         operativita: autoOperativita && autoOperativita.profileId === profile?.id ? autoOperativita : null,
         operativitaTried: autoTried.filter((t) => t.id !== profile?.id),
+        // Presenza della polizza già decisa dal percorso Automatico.
+        contract: autoContract,
         diag: opDiag,
       })
       for (const line of opDiag) await appendLog(job, line, logs)
@@ -659,11 +738,14 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
       const proof = op?.evidenza ? ` · Documento ${op.documento ?? '?'}${op.pagina ? ` pag. ${op.pagina}` : ''}: «${String(op.evidenza).slice(0, 200)}»` : ''
       const sugg = pre.suggestion ? ` · profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal === 'operatività' ? ' (copertura operante con prova)' : ''}` : ''
       const triedStr = pre.operativitaTried?.length ? ` · altri profili provati: ${pre.operativitaTried.map((x) => `${x.name} ${x.verdict === 'ok' ? 'operante' : x.verdict === 'mismatch' ? 'non operante' : 'dubbio'}`).join(', ')}` : ''
-      const verdictIt = pre.verdict === 'ok' ? 'abbinato' : pre.verdict === 'mismatch' ? 'non pertinente' : pre.verdict === 'review' ? 'da verificare' : 'accettato senza controllo'
+      const verdictIt = pre.notValid ? 'non valido' : pre.verdict === 'ok' ? 'abbinato' : pre.verdict === 'mismatch' ? 'non pertinente' : pre.verdict === 'review' ? 'da verificare' : 'accettato senza controllo'
+      // La riga «polizza: …» è anche nella colonna Pertinenza dell'export.
+      const polizzaStr = polizzaLine(pre.polizza)
       const summary = pre.mode === 'operativita'
-        ? `Pertinenza [operatività]: ${verdictIt} — ${pre.reason}${proof}${sugg}${triedStr}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
-        : `Pertinenza [${pre.mode}]: ${verdictIt} — ${pre.reason}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}${sugg}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
-      await updateJob(job.id, { precheck: { ...precheckBase, ...pre, summary, at: Math.floor(Date.now() / 1000) } })
+        ? `Pertinenza [operatività]: ${verdictIt} — ${pre.reason}${pre.notValid ? '' : proof}${polizzaStr}${sugg}${triedStr}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
+        : `Pertinenza [${pre.mode}]: ${verdictIt} — ${pre.reason}${polizzaStr}${kwsStr}${detStr ? ` · rilevato: ${detStr}` : ''}${sugg}${rankNames ? ` · classifica profili: ${rankNames}` : ''}`
+      precheckNow = { ...precheckBase, ...pre, summary, at: Math.floor(Date.now() / 1000) }
+      await updateJob(job.id, { precheck: precheckNow })
       await appendLog(job, summary + (rankNums ? ` · affinità: ${rankNums}` : ''), logs)
       if (pre.verdict === 'review') {
         // DA VERIFICARE: nessun campo estratto. L'utente sblocca con "Procedi
@@ -680,10 +762,14 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
         // mancano, e — se esiste — il profilo attivo più affine da usare.
         const suggTxt = pre.suggestion ? ` Profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal === 'operatività' ? ' (copertura operante con prova)' : ''}.` : ''
         const missingKw = pre.missing?.length ? ` Parole del profilo non trovate: ${pre.missing.slice(0, 6).join(', ')}.` : ''
-        const scarto = pre.excludeMatched?.length && pre.mode !== 'operativita'
-          ? `Scartato — ${pre.reason}. Documenti letti: ${docNames}.`
-          : pre.setAside
-            ? `Accantonato — ${pre.reason}. Documenti letti: ${docNames}.${suggTxt} Se la polizza c'è ma non è stata riconosciuta, premi "Procedi comunque".`
+        // NON VALIDO per primo (nessuna polizza): vince su Scartato e Non
+        // pertinente e NON si forza — «Procedi comunque» è rifiutato (route e
+        // store); resta «Riabbina» se i documenti cambiano. Sostituisce
+        // «Accantonato», che era forzabile (decisione del 22/09, superata).
+        const scarto = pre.notValid
+          ? notValidError(pre.reason, docNames)
+          : pre.excludeMatched?.length && pre.mode !== 'operativita'
+            ? `Scartato — ${pre.reason}. Documenti letti: ${docNames}.`
             : `Non pertinente al profilo "${job.profile_name || job.profile_id}" — ${pre.reason}.${proof ? ` Prova: ${proof.slice(3)}.` : ''}${missingKw}${detStr && pre.mode !== 'operativita' ? ` Rilevato nel testo: ${detStr}.` : ''}${suggTxt} Documenti letti: ${docNames}. Cambia profilo o premi "Procedi comunque".`
         await updateJob(job.id, {
           status: 'mismatch', progress: {},
@@ -706,13 +792,19 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
         await appendLog(job, summary, logs)
         return
       }
-      await appendLog(job, `Pre-check pertinenza non eseguibile (${err.message}) — si procede con l'estrazione`, logs)
+      // Nessuna estrazione «senza controllo» della POLIZZA: la guardia qui
+      // sotto la verifica prima di estrarre.
+      await appendLog(job, `Pre-check pertinenza non eseguibile (${err.message}) — si verifica almeno la presenza della polizza`, logs)
     }
   } else if (matchOnly && !precheckBase.override && !precheckBase.confirmed) {
-    // Solo abbinamento senza controllo possibile (nessun profilo o pre-check
-    // spento): nulla da verificare, ma non si estrae senza il ▶.
-    const summary = `Pertinenza: abbinamento senza controllo (${!profile ? 'nessun profilo sul job' : 'pre-controllo spento'})`
-    await updateJob(job.id, { status: 'matched', progress: {}, error: null, precheck: { ...precheckBase, verdict: 'skipped', mode: precheckMode, summary, at: Math.floor(Date.now() / 1000) } })
+    // Solo abbinamento senza controllo di pertinenza possibile (nessun
+    // profilo sul job: con un profilo il pre-check gira sempre, anche a modo
+    // off, per la polizza): la POLIZZA si verifica comunque, così un Non
+    // valido si vede già all'abbinamento; poi non si estrae senza il ▶.
+    if (!(await ensurePolicy())) return
+    const summary = `Pertinenza: abbinamento senza controllo (nessun profilo sul job)${polizzaLine(precheckNow.polizza)}`
+    precheckNow = { ...precheckNow, verdict: 'skipped', mode: precheckMode, summary, at: Math.floor(Date.now() / 1000) }
+    await updateJob(job.id, { status: 'matched', progress: {}, error: null, precheck: precheckNow })
     await appendLog(job, summary, logs)
     return
   }
@@ -721,6 +813,12 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
     if (settings.__cancelFlag === preCancel) delete settings.__cancelFlag
   }
   if (await isCanceled(job.id)) return
+  // GUARDIA UNICA prima dell'estrazione: «SE NON HAI UNA POLIZZA NON ESTRAI»
+  // su ogni strada — Procedi comunque (override), ▶ su abbinati di prima della
+  // regola (confirmed), job senza profilo, pre-controllo in errore. Se il
+  // controllo appena fatto (o salvato da una run precedente) ha già una
+  // risposta sulla polizza, non si richiede.
+  if (!(await ensurePolicy())) return
 
   // polizza_numero estratto: finisce nei metadati dell'indice vettoriale (chiave di
   // business per ritrovare la stessa polizza attraverso caricamenti diversi).

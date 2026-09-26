@@ -25,6 +25,7 @@ const BUILD_FEATURES = [
   'flag-motore',       // flag del motore per le run di test: campi, cascata4, a78, recupero, elenchi (26/09/2026)
   'contesto-128k',     // (storico) tetto contesto 131072; OCR visivo con 16k token d'uscita (26/09/2026)
   'contesto-256k',     // tetto contesto 262144, ridotto al nativo del modello (qwen3:30b-a3b a 256k ≈ 43 GB) (26/09/2026)
+  'non-valido',        // senza polizza = Non valido, mai estratto né forzabile; domanda sulla polizza sempre (26/09/2026)
 ]
 
 export async function GET() {

@@ -58,11 +58,20 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
     await reload()
   }, [reload])
 
+  // Rifiuto del server con il suo PERCHÉ (409 code 'not-valid': fascicolo senza
+  // polizza, non forzabile): prima la risposta si perdeva e il click sembrava
+  // non fare nulla. Avviso nel pannellino, senza bloccare la ricarica.
+  const showRefusal = async (res: Response) => {
+    if (res.ok) return
+    const d = await res.json().catch(() => ({}))
+    if (d?.code === 'not-valid') void ask(d.error || t('jobsDash.notValidTitle'), { title: t('jobsDash.stNotValid'), okLabel: 'OK', hideCancel: true })
+  }
+
   const cancel = (j: JobSnapshot) => run(async () => { await jobPost(j, 'cancel') })
   const retry = (j: JobSnapshot) => run(async () => { await jobPost(j, 'retry') })
-  const extract = (j: JobSnapshot) => run(async () => { await jobPost(j, 'extract') })
-  const proceed = (j: JobSnapshot) => run(async () => { await jobPost(j, 'proceed') })
-  const reuse = (j: JobSnapshot) => run(async () => { await jobPost(j, 'reuse') })
+  const extract = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'extract')) })
+  const proceed = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'proceed')) })
+  const reuse = (j: JobSnapshot) => run(async () => { await showRefusal(await jobPost(j, 'reuse')) })
   const rematchWith = (j: JobSnapshot, profileId: string) => run(async () => { await jobPost(j, 'rematch', { profileId }) })
 
   async function loadDialogData() {
@@ -138,14 +147,21 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
     if (action === 'test') { openTest(jobs); return }
     setBulkResult(null)
     await run(async () => {
+      // I NON VALIDI saltati si contano a parte, col perché: non si forzano.
+      const withNotValid = (msg: string, n: number) => (n > 0 ? `${msg} · ${t('jobsDash.bulkResultNotValid', { n })}` : msg)
       if (!isSingles) {
         const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action, jobIds: jobs.map((j) => j.jobId) })
         const d = await res.json().catch(() => ({}))
-        setBulkResult(res.ok ? t('jobsDash.bulkResult', { ok: d.done || 0, skipped: d.skipped || 0 }) : (d.error || 'Errore'))
+        setBulkResult(res.ok ? withNotValid(t('jobsDash.bulkResult', { ok: d.done || 0, skipped: d.skipped || 0 }), d.notValid || 0) : (d.error || 'Errore'))
       } else {
-        let n = 0, ko = 0
-        for (const j of jobs) { const r = await jobPost(j, action); if (r.ok) n++; else ko++ }
-        setBulkResult(t('jobsDash.bulkResult', { ok: n, skipped: ko }))
+        let n = 0, ko = 0, nv = 0
+        for (const j of jobs) {
+          const r = await jobPost(j, action)
+          if (r.ok) { n++; continue }
+          const d = await r.json().catch(() => ({}))
+          if (d?.code === 'not-valid') nv++; else ko++
+        }
+        setBulkResult(withNotValid(t('jobsDash.bulkResult', { ok: n, skipped: ko }), nv))
       }
     })
   }

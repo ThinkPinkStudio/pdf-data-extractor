@@ -5,6 +5,7 @@ import type { DetailTab, JobRun, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
 import { errorText, fileUrl, isTestRun, minutesSince, opEsitoKey, shortName, splitName, uiState, valuesCount } from './model'
 import { StatusPill } from './StatusPill'
+import { isLegacySetAside } from '@/lib/jobValidity'
 import { ActionMenu } from './ActionMenu'
 import { actionSet, buttonClass } from './actionSet'
 import { IcAlert, IcChevLeft, IcChevRight, IcCopy, IcExternal, IcFile, IcX } from './Icons'
@@ -27,7 +28,8 @@ export function JobDetail({ job, batchLabel, position, onPrev, onNext, onClose, 
 }) {
   const t = useT()
   const pc = job.precheck || null
-  const sugg = pc?.suggestion && pc.suggestion.id && pc.suggestion.id !== job.profileId ? pc.suggestion : null
+  // Un NON VALIDO (nessuna polizza) non ha un profilo migliore da proporre.
+  const sugg = uiState(job) !== 'notValid' && pc?.suggestion && pc.suggestion.id && pc.suggestion.id !== job.profileId ? pc.suggestion : null
   const stale = job.status === 'running' ? minutesSince(job.updatedAt) : null
   const nDocs = (job.scannedFiles || []).length
   const nValues = valuesCount(job)
@@ -130,8 +132,17 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
     )
   }
   const op = pc.operativita && pc.operativita.esito ? pc.operativita : null
-  const rejected = !!op && pc.verdict !== 'ok' && op.esito === 'operante'
-  const verdict = pc.setAside ? { cls: 'muted', label: t('jobsDash.stSetAside') }
+  // NON VALIDO (uiState: flag, esito «assente» della polizza o prefisso del testo errore).
+  const notValid = st === 'notValid'
+  // Vecchio «Accantonato» (forzabile): la prova di operatività non è stata respinta.
+  const legacy = isLegacySetAside(job)
+  const rejected = !!op && pc.verdict !== 'ok' && op.esito === 'operante' && !legacy
+  const pol = pc.polizza && pc.polizza.esito ? pc.polizza : null
+  const polWhere = pol?.documento
+    ? (pol.pagina ? t('jobsDash.docPage', { doc: String(pol.documento), page: String(pol.pagina) }) : t('jobsDash.docOnly', { doc: String(pol.documento) }))
+    : ''
+  const verdict = notValid ? { cls: 'muted', label: t('jobsDash.stNotValid') }
+    : legacy ? { cls: 'orange', label: t('jobsDash.legacySetAsideHead') }
     : pc.verdict === 'ok' ? { cls: 'ok', label: pc.mode === 'operativita' ? t('jobsDash.opOperante') : t('jobsDash.verdictOk') }
       : pc.verdict === 'review' ? { cls: 'warn', label: t('jobsDash.stReview') }
         : pc.verdict === 'mismatch' ? { cls: 'orange', label: st === 'discarded' ? t('jobsDash.stDiscarded') : t('jobsDash.stMismatch') }
@@ -152,7 +163,15 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
           {pc.confirmed && <span className="jb-pill neutral">{t('jobsDash.confirmedApplied')}</span>}
         </div>
         {pc.reason && <p className="jb-text" style={{ marginTop: 8 }}>{pc.reason}</p>}
+        {notValid && <p className="jb-text jb-muted" style={{ marginTop: 6, fontSize: 11 }}>{t('jobsDash.notValidTitle')}</p>}
       </div>
+      {pol && (
+        <div>
+          <p className="jb-sec">{t('jobsDash.policySection')}</p>
+          <p className="jb-text"><b>{t(pol.esito === 'presente' ? 'jobsDash.policyPresent' : pol.esito === 'assente' ? 'jobsDash.policyAbsent' : pol.esito === 'non determinabile' ? 'jobsDash.policyUndetermined' : 'jobsDash.policyUnverified')}</b>{polWhere ? ` — ${polWhere}` : ''}</p>
+          {(pol.motivo || (pol.esito !== 'presente' && pol.reason)) && <p className="jb-text jb-muted" style={{ marginTop: 4 }}>{pol.motivo || pol.reason}</p>}
+        </div>
+      )}
       {op && (
         <>
           <div>
@@ -179,7 +198,7 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
       {!!pc.excludeMatched?.length && (
         <div><p className="jb-sec">{t('jobsDash.excludeWords')}</p><div className="jb-chips">{pc.excludeMatched.map((w) => <span key={w} className="jb-pill orange" style={{ fontWeight: 500 }}>{w}</span>)}</div></div>
       )}
-      {pc.verdict !== 'ok' && (
+      {pc.verdict !== 'ok' && !notValid && (
         <div>
           <p className="jb-sec">{t('jobsDash.suggestedProfile')}</p>
           {sugg ? (

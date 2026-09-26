@@ -4,7 +4,7 @@ import type { FilterKey } from './types'
 import { FILTERS, FILTER_COLOR, FILTER_LABEL_KEY } from './model'
 
 const NUM_CLASS: Record<FilterKey, string> = {
-  all: '', active: 'jb-c-info', matched: 'jb-c-ok', review: 'jb-c-warn', mismatch: 'jb-c-orange', setAside: 'jb-muted', done: 'jb-c-ok', error: 'jb-c-err', canceled: 'jb-muted',
+  all: '', active: 'jb-c-info', matched: 'jb-c-ok', review: 'jb-c-warn', mismatch: 'jb-c-orange', notValid: 'jb-muted', done: 'jb-c-ok', error: 'jb-c-err', canceled: 'jb-muted',
 }
 
 // Striscia dei contatori per stato: l'UNICO filtro della pagina del batch

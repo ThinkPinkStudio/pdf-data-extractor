@@ -37,7 +37,7 @@ function buildTree(jobs: JobSnapshot[], batchLabel?: string | null): Node {
   return root
 }
 
-const COUNT_KEYS: FilterKey[] = ['review', 'mismatch', 'setAside', 'matched', 'active', 'done', 'error']
+const COUNT_KEYS: FilterKey[] = ['review', 'mismatch', 'notValid', 'matched', 'active', 'done', 'error']
 
 export function FolderSchema({ jobs, batchLabel, onClose }: { jobs: JobSnapshot[]; batchLabel?: string | null; onClose: () => void }) {
   const t = useT()

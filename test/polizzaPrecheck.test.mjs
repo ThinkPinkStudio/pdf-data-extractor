@@ -183,21 +183,37 @@ test('hasPolicyEvidence: frontee "polizza vera" vs solo informativo/quietanza', 
   assert.equal(hasPolicyEvidence(''), null)
 })
 
-test('decidePrecheck: validità "polizza vera" — mismatch solo per info/quietanza, mai per guasti', () => {
+test('decidePrecheck: la validità «polizza vera» la decide la domanda al modello, non la regex (26/09/2026)', () => {
   const base = { mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0.6 }, requireValidPolicy: true }
-  // con polizza vera → ok (le keyword passano)
+  // la vecchia regex (hasPolicyEvidence) non decide più: nessun blocco a parole
   assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: true }).verdict, 'ok')
-  // solo informativo/quietanza → mismatch con reason chiaro
-  const d = decidePrecheck({ ...base, hasPolicyEvidence: false })
-  assert.equal(d.verdict, 'mismatch')
-  assert.match(d.reason, /senza polizza principale/)
-  // testo non giudicabile/guasto (hasPolicyEvidence non boolean) → comportamento
-  // storico (keyword ok → ok), MAI blocco per validità
-  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: null }).verdict, 'ok')
-  // opt-out → il blocco non scatta (resta ok)
-  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: false, requireValidPolicy: false }).verdict, 'ok')
-  // nessun profilo → il blocco validità non si applica (skipped come sempre)
-  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false, requireValidPolicy: true, hasPolicyEvidence: false }).verdict, 'skipped')
+  assert.equal(decidePrecheck({ ...base, hasPolicyEvidence: false }).verdict, 'ok')
+  // contratto «assente» (risposta del modello) → Non valido, con la ragione
+  const d = decidePrecheck({ ...base, contract: { esito: 'assente', reason: 'nessuna polizza tra i documenti letti: solo informativa' } })
+  assert.equal(d.verdict, 'mismatch'); assert.equal(d.notValid, true)
+  assert.match(d.reason, /nessuna polizza/)
+  // guasto della domanda → mai Non valido: da verificare
+  const g = decidePrecheck({ ...base, contract: { esito: 'non verificata', reason: 'controllo della polizza non eseguibile', error: true } })
+  assert.equal(g.verdict, 'review'); assert.ok(!g.notValid)
+  // «non determinabile» = polizza NON VISTA dal modello: da soli non si
+  // estrae (un «ok» diventa «da verificare», con la nota nel perché); un
+  // blocco resta un blocco, con la nota (chi forza sa cosa forza)
+  const nd = decidePrecheck({ ...base, contract: { esito: 'non determinabile', reason: 'il modello non ha potuto dire se c\'è una polizza' } })
+  assert.equal(nd.verdict, 'review'); assert.ok(!nd.notValid)
+  assert.match(nd.reason, /polizza non vista dal modello \(non determinabile\)/)
+  const ndBlock = decidePrecheck({ ...base, keyword: { ratio: 0 }, contract: { esito: 'non determinabile', reason: 'x' } })
+  assert.equal(ndBlock.verdict, 'mismatch'); assert.ok(!ndBlock.notValid); assert.match(ndBlock.reason, /polizza non vista dal modello/)
+  // la nota non si ripete se l'operatività l'ha già messa (applyContractVerdict)
+  const once = decidePrecheck({ mode: 'llm', hasProfile: true, hasRecognition: true, operativita: { verdict: 'review', reason: 'copertura operante; polizza non vista dal modello (non determinabile): x' }, contract: { esito: 'non determinabile', reason: 'x' } })
+  assert.equal(once.reason.match(/polizza non vista dal modello/g).length, 1)
+  // pre-controllo spento: la polizza vista serve lo stesso
+  assert.equal(decidePrecheck({ mode: 'off', hasProfile: true, contract: { esito: 'non determinabile', reason: 'x' } }).verdict, 'review')
+  assert.equal(decidePrecheck({ mode: 'off', hasProfile: true, contract: { esito: 'presente', reason: 'polizza presente' } }).verdict, 'skipped')
+  // il flag non spegne più la regola (SEMPRE)
+  assert.equal(decidePrecheck({ ...base, requireValidPolicy: false, contract: { esito: 'assente', reason: 'nessuna polizza' } }).notValid, true)
+  // nessun profilo: la polizza si verifica lo stesso
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false }).verdict, 'skipped')
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: false, contract: { esito: 'assente', reason: 'nessuna polizza' } }).notValid, true)
 })
 
 test('rankProfilesSemantic + semanticRankingVerdict: confronto tra profili, nessuna soglia', async () => {
@@ -221,16 +237,16 @@ test('rankProfilesSemantic + semanticRankingVerdict: confronto tra profili, ness
   assert.equal(decidePrecheck({ mode: 'semantic', hasProfile: true, hasContentKeywords: false, semantic: 0.3 }).verdict, 'skipped')
 })
 
-test('policyEvidenceReport + decidePrecheck: la cartella senza polizza principale è accantonata CON la ragione', async () => {
+test('policyEvidenceReport: diagnostica a parole (non decide più), dice cosa manca', async () => {
   const { policyEvidenceReport, decidePrecheck, normalizeForPrecheck, REQUIRE_VALID_POLICY_DEFAULT } = await import('../src/services/polizzaPrecheck.js')
   assert.equal(REQUIRE_VALID_POLICY_DEFAULT, true)
   const dip = normalizeForPrecheck('Set informativo. Documento informativo precontrattuale. Il presente documento contiene informazioni sul prodotto assicurativo e sulla società; le condizioni complete sono nel contratto. ' + 'x'.repeat(40))
   const rep = policyEvidenceReport(dip)
   assert.equal(rep.ok, false)
   assert.ok(rep.missing.some((m) => /numero di polizza/.test(m)))
+  // a pre-controllo spento e senza risposta sul contratto la regex non ferma nulla
   const d = decidePrecheck({ mode: 'off', hasProfile: true, hasPolicyEvidence: rep.ok, policyMissing: rep.missing, requireValidPolicy: true })
-  assert.equal(d.verdict, 'mismatch'); assert.equal(d.setAside, true)
-  assert.ok(/senza polizza principale: nessuna voce di polizza/.test(d.reason), d.reason)
+  assert.equal(d.verdict, 'skipped'); assert.ok(!d.setAside && !d.notValid)
   const ok = policyEvidenceReport(normalizeForPrecheck('Polizza n. 01469DAS00074 Contraente BOLCHINI MARGHERITA Massimale per sinistro 25.000,00 Premio lordo 244,00 ' + 'y'.repeat(30)))
   assert.equal(ok.ok, true); assert.deepEqual(ok.missing, [])
 })

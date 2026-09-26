@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { JobSnapshot, T, UiState } from './types'
 import { uiState } from './model'
-import { IcAlert, IcCheck, IcClock, IcHelp, IcPause, IcX, IcXCircle } from './Icons'
+import { IcAlert, IcCheck, IcClock, IcHelp, IcX, IcXCircle } from './Icons'
 
 // UNA pillola per stato, uguale in tabella, lista, dettaglio: colore
 // semantico + icona + etichetta (mai testo colorato sciolto).
@@ -14,7 +14,8 @@ const META: Record<UiState, { cls: string; key: string; icon: () => ReactElement
   review: { cls: 'warn', key: 'jobsDash.stReview', icon: IcHelp },
   mismatch: { cls: 'orange', key: 'jobsDash.stMismatch', icon: IcXCircle },
   discarded: { cls: 'orange', key: 'jobsDash.stDiscarded', icon: IcXCircle },
-  setAside: { cls: 'muted', key: 'jobsDash.stSetAside', icon: IcPause },
+  // Non valido (nessuna polizza): grigio come uno stato finale, croce perché non si sblocca.
+  notValid: { cls: 'muted', key: 'jobsDash.stNotValid', icon: IcXCircle },
   done: { cls: 'ok', key: 'jobsDash.stDone', icon: IcCheck },
   error: { cls: 'err', key: 'jobsDash.stError', icon: IcAlert },
   canceled: { cls: 'muted', key: 'jobsDash.stCanceled', icon: IcX },

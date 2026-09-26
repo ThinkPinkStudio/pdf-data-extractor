@@ -1,13 +1,13 @@
 {
-  "_doc": "Verità di PERTINENZA Pizzamiglio (verifica manuale del 21/09/2026, stessa di pertinenza-expected.json) nel formato di scripts/bulk-prod.mjs: `match` = ultima cartella del dossier. 'accantonata' = sole quietanze con copertura operante (decisione dell'utente 22/09).",
+  "_doc": "Verità di PERTINENZA Pizzamiglio (verifica manuale del 21/09/2026, stessa di pertinenza-expected.json) nel formato di scripts/bulk-prod.mjs: `match` = ultima cartella del dossier. 'non valido' = nessuna polizza tra i documenti, sole quietanze (regola dell'utente 26/09: «SENZA UNA POLIZZA È SEMPRE NON VALIDO», non forzabile; sostituisce 'accantonata' del 22/09).",
   "profile": "Tutela Legale 3",
   "root": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO",
   "cases": [
     {
       "id": "pizzamiglio-das-alzaia",
       "match": "ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS",
-      "expected": "accantonata",
-      "note": "DAS: vera tutela legale (quietanza con premio; 'ESCLUSA' = indicizzazione) ma la cartella ha SOLO la quietanza di rinnovo: accantonata, l'operatore forza con Procedi comunque"
+      "expected": "non valido",
+      "note": "DAS: sola quietanza di rinnovo, nessuna polizza (la tutela legale c'è, 'ESCLUSA' = indicizzazione, ma senza il contratto non si estrae): NON VALIDO, non forzabile (regola dell'utente 26/09)"
     },
     {
       "id": "pizzamiglio-boiardo",
@@ -54,8 +54,8 @@
     {
       "id": "pizzamiglio-campestre-rate",
       "match": "RATE ANNUALI",
-      "expected": "non operante",
-      "note": "Rata annuale (già correttamente esclusa)"
+      "expected": "non valido",
+      "note": "Sola QUIETANZA DI PAGAMENTO Allianz Next (fabbricato, rata semestrale), nessuna polizza e la tutela legale mai nominata: NON VALIDO, non forzabile (regola dell'utente 26/09; prima 'non operante')"
     }
   ]
 }

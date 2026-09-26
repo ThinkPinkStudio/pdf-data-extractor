@@ -118,10 +118,11 @@ export interface WebSettings {
   polizzaEngineFlags?: string
   // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
   navHiddenExtractor?: string[]
-  // Regola di validità "polizza vera" (OPT-IN, default DISATTIVA): se attiva,
-  // un fascicolo senza frontespizio di polizza reale (solo informativo/
-  // quietanza) va in 'mismatch'. Usa marcatori hardcoded, quindi resta spenta
-  // salvo scelta esplicita: polizzaRequireValidPolicy=true la attiva.
+  // Regola di validità "polizza vera" (storica: marcatori a parole, default
+  // attiva dal 12/09). Dal 26/09/2026 NON ha più effetto: la presenza della
+  // polizza si verifica SEMPRE col modello (regola dell'utente: «SENZA UNA
+  // POLIZZA È SEMPRE NON VALIDO», src/services/polizzaOperativita.js
+  // decideContract). La chiave resta per le impostazioni già salvate.
   polizzaRequireValidPolicy?: boolean
   // Auto-verifica zero-shot (FEATURE B): seconda chiamata LLM compatta sui campi
   // testuali senza checksum e con poca affidabilità. DEFAULT OFF (undefined/false):

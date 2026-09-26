@@ -16,6 +16,8 @@ export interface BatchSummary {
   mismatch: number
   matched: number
   review: number
+  // Quanti dei 'mismatch' sono «Non valido» (nessuna polizza; listBatches).
+  notValid?: number
 }
 
 // Esito del controllo di pertinenza/operatività scritto dal worker (precheck).
@@ -24,7 +26,13 @@ export interface JobPrecheck {
   mode?: string
   reason?: string
   summary?: string
+  // NON VALIDO: nessuna polizza tra i documenti letti secondo il modello
+  // (26/09/2026). `setAside` è il flag dei vecchi «Accantonato»: forzabili
+  // (anche dalla regex), la polizza la verifica il modello prima di estrarre.
+  notValid?: boolean
   setAside?: boolean
+  // Esito della domanda sulla presenza della polizza (decideContract).
+  polizza?: { esito?: string; documento?: string | number | null; pagina?: string | number | null; motivo?: string; reason?: string; error?: boolean } | null
   matched?: string[]
   missing?: string[]
   excludeMatched?: string[]
@@ -63,11 +71,13 @@ export interface JobSnapshot {
 }
 
 // Stato "di interfaccia" di una polizza: lo status del DB più le sfumature
-// di 'mismatch' (accantonata / scartata) che il worker scrive nel testo errore.
-export type UiState = 'running' | 'queued' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'discarded' | 'done' | 'error' | 'canceled'
+// di 'mismatch' (non valida / scartata) che il worker scrive nel testo errore.
+// 'notValid' = nessuna polizza secondo il modello: bloccato e NON forzabile
+// (i vecchi «Accantonato» sono 'mismatch', forzabili).
+export type UiState = 'running' | 'queued' | 'matched' | 'review' | 'mismatch' | 'notValid' | 'discarded' | 'done' | 'error' | 'canceled'
 
 // Filtro (striscia KPI / chip): un gruppo di stati.
-export type FilterKey = 'all' | 'active' | 'matched' | 'review' | 'mismatch' | 'setAside' | 'done' | 'error' | 'canceled'
+export type FilterKey = 'all' | 'active' | 'matched' | 'review' | 'mismatch' | 'notValid' | 'done' | 'error' | 'canceled'
 
 export type ViewMode = 'tabella' | 'coda'
 export type DetailTab = 'precheck' | 'values' | 'history' | 'files' | 'log'

@@ -74,7 +74,7 @@ console.log(`Profilo: ${profile.name} — «Come riconoscerla»: ${profile.recog
 const settings = {
   ollamaUrl: OLLAMA, ollamaModel: MODEL, embeddingModel: 'bge-m3',
   ...(CTX ? { polizzaBatchContext: CTX } : {}),
-  polizzaPrecheckMode: MODE, polizzaConstrainedJson: true, polizzaRequireValidPolicy: true,
+  polizzaPrecheckMode: MODE, polizzaConstrainedJson: true,
 }
 
 // ── Rendering per l'OCR delle pagine senza text layer (stesso pdfjs+canvas del
@@ -168,14 +168,23 @@ for (const c of spec.cases || []) {
   // altrimenti un Ollama spento darebbe punti pieni sui negativi.
   const infra = /non eseguibile|non leggibile|nessuna pagina|nessun batch/i.test(pre.reason || '')
   const blocked = pre.verdict === 'mismatch' || (pre.verdict === 'review' && !infra)
-  const correct = c.expected === 'operante' ? pre.verdict === 'ok'
-    : c.expected === 'accantonata' ? (pre.verdict === 'mismatch' && !!pre.setAside)
-      : blocked
+  // «non valido» (nessuna polizza, regola dell'utente del 26/09/2026): giusto
+  // solo se il pre-controllo lo dice (notValid). Le fixture vecchie con
+  // 'accantonata' valgono come 'non valido'. Una polizza vera detta «non
+  // valida» è SBAGLIATA anche quando l'atteso è «non operante»: non si forza.
+  const expected = c.expected === 'accantonata' ? 'non valido' : c.expected
+  const notValid = pre.verdict === 'mismatch' && !!pre.notValid
+  const correct = expected === 'operante' ? pre.verdict === 'ok'
+    : expected === 'non valido' ? notValid
+      : blocked && !notValid
   const op = pre.operativita
-  console.log(`   → ${correct ? 'GIUSTO' : 'SBAGLIATO'}: verdetto ${pre.verdict}${pre.setAside ? ' (accantonata)' : ''} [${pre.mode}] in ${secs}s — ${pre.reason}`)
+  const pol = pre.polizza
+  const polCalls = (diag || []).filter((l) => /^Polizza batch \d/.test(l)).length
+  console.log(`   → ${correct ? 'GIUSTO' : 'SBAGLIATO'}: verdetto ${pre.verdict}${notValid ? ' (NON VALIDO)' : ''} [${pre.mode}] in ${secs}s — ${pre.reason}`)
+  if (pol?.esito) console.log(`     polizza: ${pol.esito}${pol.documento ? ` — Documento ${pol.documento}${pol.pagina ? ` pag. ${pol.pagina}` : ''}` : ''}${pol.motivo ? `: ${String(pol.motivo).slice(0, 160)}` : ''} (${polCalls} domande sul contratto)`)
   if (op?.evidenza) console.log(`     prova: Documento ${op.documento ?? '?'} pag. ${op.pagina ?? '?'} «${String(op.evidenza).slice(0, 160)}»${op.docName ? ` (${op.docName})` : ''}`)
   if (pre.suggestion) console.log(`     profilo suggerito: «${pre.suggestion.name}»${pre.suggestion.signal ? ` (${pre.suggestion.signal})` : ''}`)
-  results.push({ id: c.id, expected: c.expected, verdict: pre.setAside ? 'accantonata' : pre.verdict, mode: pre.mode, correct, secs: Number(secs), reason: pre.reason, evidenza: op?.evidenza || null, documento: op?.docName || null, pagina: op?.pagina || null, suggestion: pre.suggestion?.name || null })
+  results.push({ id: c.id, expected, verdict: notValid ? 'non valido' : pre.verdict, mode: pre.mode, correct, secs: Number(secs), reason: pre.reason, polizza: pol || null, contractCalls: polCalls, evidenza: op?.evidenza || null, documento: op?.docName || null, pagina: op?.pagina || null, suggestion: pre.suggestion?.name || null })
 }
 
 const done = results.filter((r) => !r.skipped)

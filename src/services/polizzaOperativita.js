@@ -33,6 +33,15 @@ export const OPERATIVITA_MAX_PAGES = 150
 export const OPERATIVITA_MAX_PAGES_PER_DOC = 30
 /** Chiamate massime per fascicolo: i batch scorrono le pagine per affinità finché una prova di operatività non arriva. */
 export const OPERATIVITA_MAX_BATCHES = 6
+/**
+ * Chiamate massime della domanda sul CONTRATTO (presenza della polizza). Ci si
+ * ferma al primo «presente» (di solito la prima chiamata: i frontespizi sono
+ * in testa ai documenti); il tetto conta solo per i fascicoli dove la polizza
+ * non si vede, e «assente» (Non valido) vuole OGNI pagina mostrata: pagine
+ * rimaste oltre il tetto = «non verificata» (Da verificare), mai Non valido.
+ * Il doppio dell'operatività: a contesto 8192 un batch porta ~3 pagine.
+ */
+export const CONTRATTO_MAX_BATCHES = 12
 
 /**
  * Parole DISTINTIVE della TESTA di «Come riconoscerla» di un profilo (il testo
@@ -318,9 +327,18 @@ export function buildOperativitaPrompt({ recognition, contentKeywords = [], cont
 /**
  * DOMANDA SEPARATA: tra le pagine lette c'è il CONTRATTO (frontespizio, scheda
  * di polizza, appendice con garanzie e premi) o solo quietanze / informativa /
- * condizioni? Si chiede SOLO dopo un «operante» (cartella di sole quietanze →
- * Accantonata, forzabile: decisione dell'utente del 22/09/2026). Chiamata a
- * parte per non toccare il prompt di operatività, misurato.
+ * condizioni? Chiamata a parte per non toccare il prompt di operatività,
+ * misurato (messa lì, il 7B ribaltava DAS «ESCLUSA» → esclusione).
+ * Dal 26/09/2026 si chiede SEMPRE, una volta per fascicolo e PRIMA
+ * dell'operatività, su tutte le pagine finché una polizza non si vede
+ * (runContractCheck; regola dell'utente: «SE NON HAI UNA POLIZZA NON ESTRAI:
+ * SENZA UNA POLIZZA È SEMPRE NON VALIDO»). Prima si chiedeva solo dopo un
+ * «operante»: ALZAIA 101 (una sola quietanza DAS di rinnovo) usciva «non
+ * operante» contraddittorio → «Da verificare», la domanda non partiva mai e
+ * «Procedi comunque» estraeva la quietanza. Una sola domanda del fascicolo e
+ * non una per batch di operatività: la risposta non dipende più dal profilo
+ * (quali pagine l'operatività mette prima) e costa di solito una chiamata.
+ * Testo e schema invariati rispetto alla misura del 22/09.
  */
 export function buildContrattoPrompt({ blocks = [] }) {
   const system = 'Sei un verificatore di polizze assicurative italiane. Rispondi SOLO con un oggetto JSON, senza testo prima o dopo, senza markdown.'
@@ -349,6 +367,154 @@ export function contrattoSchema() {
     required: ['contratto', 'documento', 'pagina', 'motivo'],
     additionalProperties: false,
   }
+}
+
+/**
+ * Pagine per la domanda sul CONTRATTO, fatta UNA volta per fascicolo e prima
+ * dell'operatività (la polizza c'è o non c'è, qualunque sia il profilo):
+ * prima la PRIMA pagina con testo di ogni documento (il frontespizio sta lì:
+ * stesso criterio type-blind dei «firsts» di selectOperativitaPages), poi le
+ * altre per (documento, pagina, parte). Nessun embedding: conta la posizione,
+ * non l'affinità a un profilo. Stessa regola del budget: la pagina che non
+ * entra apre il batch dopo; la prima entra sempre, tagliata.
+ * @param {{ord:number,page:number,part?:number|null,text:string,flat?:string,first?:boolean}[]} candidates
+ * @returns {{ord:number,page:number,text:string,cut:boolean}[]}
+ */
+export function selectContrattoPages(candidates, { budgetChars, maxPageChars = OPERATIVITA_MAX_PAGE_CHARS } = {}) {
+  const list = (candidates || []).filter((c) => c && String(c.flat || c.text || '').trim())
+  const byPos = (a, b) => (a.ord - b.ord) || (a.page - b.page) || ((a.part || 0) - (b.part || 0))
+  // «Prima pagina» = la prima CON TESTO del documento (`first`, marcata da chi
+  // costruisce i candidati: una copertina scansionata vuota non la sposta);
+  // senza marcatura, la pagina 1.
+  const isFirst = (c) => (typeof c.first === 'boolean' ? c.first : c.page === 1)
+  const firsts = list.filter(isFirst).sort(byPos)
+  const rest = list.filter((c) => !isFirst(c)).sort(byPos)
+  const budget = Math.max(0, Number(budgetChars) || 0)
+  const chosen = []
+  let used = 0
+  for (const c of [...firsts, ...rest]) {
+    let text = cutUseful(c.text, maxPageChars)
+    let len = usefulLength(text)
+    if (used + len > budget) {
+      if (chosen.length) break
+      text = cutUseful(text, budget)
+      len = usefulLength(text)
+      if (!text.trim()) break
+    }
+    chosen.push({ ...c, text, cut: text.length < String(c.text || '').length })
+    used += len
+  }
+  return chosen.sort(byPos)
+}
+
+/**
+ * Un «presente» vale solo se cita un documento (e una pagina, se la dà) tra
+ * quelli MOSTRATI in quel batch: il modello deve indicare dove l'ha visto, e
+ * un posto che non ha visto non è una prova (26/09/2026). Altrimenti la
+ * risposta diventa «non determinabile»: niente estrazione, e nemmeno un
+ * «assente» per tutto il fascicolo. Per «assente» e «non determinabile»
+ * documento e pagina si azzerano: il prompt li chiede solo «se presente» e
+ * «Assente — Documento 1 pag. 1» faceva pensare che la polizza fosse lì.
+ * @param {{contratto:string,documento:number|null,pagina:number|null,motivo:string}|null} answer  da parseContrattoAnswer
+ * @param {{ord:number,page:number}[]} blocks  pagine inviate nel batch
+ */
+export function checkContractAnswer(answer, blocks) {
+  if (!answer) return null
+  if (answer.contratto !== 'presente') return { ...answer, documento: null, pagina: null }
+  const sent = (blocks || []).filter((b) => b && b.ord === answer.documento)
+  const pageOk = answer.pagina == null || sent.some((b) => b.page === answer.pagina)
+  if (sent.length && pageOk) return answer
+  const where = `Documento ${answer.documento ?? '?'}${answer.pagina ? ` pag. ${answer.pagina}` : ''}`
+  return { contratto: 'non determinabile', documento: null, pagina: null, motivo: `«presente» citando ${where}, che non è tra le pagine mostrate al modello${answer.motivo ? ` (${answer.motivo})` : ''}`, citedOutside: true }
+}
+
+/**
+ * PRESENZA DELLA POLIZZA sulle risposte alla domanda sul contratto, batch per
+ * batch (regola dell'utente del 26/09/2026: «SENZA UNA POLIZZA È SEMPRE NON
+ * VALIDO»). Decide la risposta del MODELLO: nessuna parola, nessun tipo di
+ * documento, nessun nome file.
+ *
+ * | risposte dei batch                                   | esito
+ * | almeno un «presente» (citato tra le pagine mostrate) | presente
+ * | TUTTI «assente», ogni pagina con testo mostrata e
+ * |   ogni documento con testo                           | assente → NON VALIDO
+ * | tutti «assente», ma pagine mai mostrate (tetto dei
+ * |   batch) o un documento senza testo                  | non verificata
+ * | almeno un «non determinabile» o illeggibile          | non determinabile
+ * | nessuna risposta                                     | non verificata
+ *
+ * «assente» è l'unico esito NON forzabile, quindi deve essere certo: ogni
+ * batch lo dice e nessuna pagina è rimasta fuori. Prima bastava un «assente»
+ * con le sole pagine 1 lette: un PDF unico con lettera di trasmissione a pag.
+ * 1 e polizza a pag. 2 diventava Non valido senza rimedio; e un «assente»
+ * accanto a un «non determinabile» (la scheda letta male, un JSON troncato)
+ * vinceva. «non determinabile» e «non verificata» NON sono Non valido: sono
+ * «polizza non vista dal modello» (Da verificare, si estrae solo se
+ * l'operatore forza). Un guasto (Ollama giù) non passa di qui: lo gestisce il
+ * chiamante (non verificata con `error`, mai Non valido).
+ * @param {({contratto:string,documento?:number|null,pagina?:number|null,motivo?:string}|null)[]} answers  in ordine di batch
+ * @param {{unreadPages?:number, docsWithoutText?:number}} opts
+ *   unreadPages: pagine con testo mai mostrate alla domanda (anche solo in parte)
+ * @returns {{esito:'presente'|'assente'|'non determinabile'|'non verificata', documento:number|null, pagina:number|null, motivo:string, reason:string, asked:number}}
+ */
+export function decideContract(answers, { unreadPages = 0, docsWithoutText = 0 } = {}) {
+  const list = (answers || []).map((a) => a || { contratto: 'non determinabile', documento: null, pagina: null, motivo: '' })
+  const asked = list.length
+  const base = { documento: null, pagina: null, motivo: '', asked }
+  const yes = list.find((a) => a.contratto === 'presente')
+  if (yes) {
+    const where = yes.documento ? ` (Documento ${yes.documento}${yes.pagina ? ` pag. ${yes.pagina}` : ''})` : ''
+    return { ...base, esito: 'presente', documento: yes.documento ?? null, pagina: yes.pagina ?? null, motivo: yes.motivo || '', reason: `polizza presente${where}${yes.motivo ? `: ${yes.motivo}` : ''}` }
+  }
+  if (!asked) return { ...base, esito: 'non verificata', reason: 'domanda sulla polizza non eseguita' }
+  if (!list.every((a) => a.contratto === 'assente')) {
+    const nd = list.filter((a) => a.contratto !== 'assente')
+    const m = nd.find((a) => a.motivo)?.motivo || ''
+    const mixed = nd.length < asked ? ` (${asked - nd.length} su ${asked} ${asked === 1 ? 'risposta' : 'risposte'} «assente», le altre incerte)` : ''
+    return { ...base, esito: 'non determinabile', motivo: m, reason: `il modello non ha potuto dire se tra i documenti c'è una polizza${mixed}${m ? `: ${m}` : ''}` }
+  }
+  // Cosa c'è al posto della polizza, con le parole del modello («solo una
+  // quietanza di pagamento del premio»): è il perché scritto all'utente. Senza
+  // un motivo del modello il testo resta neutro (nessuna ipotesi del codice).
+  const motivi = [...new Set(list.map((a) => String(a.motivo || '').trim()).filter(Boolean))].slice(0, 2)
+  const what = motivi.length ? motivi.join('; ') : 'il modello non ha visto un contratto nelle pagine lette'
+  const common = { ...base, motivo: motivi.join('; ') }
+  const gaps = []
+  if (unreadPages > 0) gaps.push(`${unreadPages} ${unreadPages === 1 ? 'pagina non è stata mostrata' : 'pagine non sono state mostrate'} al modello`)
+  if (docsWithoutText > 0) gaps.push(`${docsWithoutText} ${docsWithoutText === 1 ? 'documento è senza testo leggibile' : 'documenti sono senza testo leggibile'}`)
+  if (gaps.length) return { ...common, esito: 'non verificata', reason: `nessuna polizza nelle pagine lette (${what}), ma ${gaps.join(' e ')}: la polizza potrebbe stare lì` }
+  return { ...common, esito: 'assente', reason: `nessuna polizza tra i documenti letti: ${what}` }
+}
+
+/**
+ * Applica la presenza della polizza (decideContract) al verdetto di
+ * operatività. «assente» vince su TUTTO — operante, non operante, dubbio:
+ * verdetto 'setaside' (NON VALIDO, mai forzabile; decidePrecheck lo mappa su
+ * mismatch + notValid). «non determinabile» e «non verificata» sono «polizza
+ * non vista dal modello»: un «ok» diventa un dubbio (senza una polizza vista
+ * non si estrae da soli: ALZAIA 101, una quietanza con «Tutela Legale 240,00»
+ * può dare un «operante» provato), gli altri verdetti restano bloccati con la
+ * nota nel perché, così chi preme «Procedi comunque» sa cosa forza.
+ * «presente» lascia il verdetto com'è. Il risultato porta sempre `polizza`
+ * (motivazione e UI) e `operativitaVerdict` (l'esito della sola copertura:
+ * serve alla scelta del profilo Automatico e ai suggerimenti).
+ */
+export function applyContractVerdict(op, contract) {
+  if (!op || !contract) return op
+  const polizza = { esito: contract.esito, documento: contract.documento ?? null, pagina: contract.pagina ?? null, motivo: contract.motivo || '', reason: contract.reason || '', asked: contract.asked ?? null, ...(contract.error ? { error: true } : {}) }
+  const opVerdict = op.operativitaVerdict !== undefined ? op.operativitaVerdict : (op.verdict ?? null)
+  if (contract.esito === 'assente') {
+    return { ...op, verdict: 'setaside', notValid: true, operativitaVerdict: opVerdict, contratto: 'assente', polizza, reason: contract.reason }
+  }
+  if (contract.esito === 'presente') return { ...op, operativitaVerdict: opVerdict, contratto: contract.esito, polizza }
+  const note = polizzaDoubtNote(contract)
+  const reason = op.reason ? `${op.reason}; ${note}` : note
+  return { ...op, verdict: op.verdict === 'ok' ? 'review' : op.verdict, operativitaVerdict: opVerdict, contratto: contract.esito, polizza, reason }
+}
+
+/** Nota «polizza non vista dal modello» nel perché di un verdetto (stessa in polizzaPrecheck.js). */
+export function polizzaDoubtNote(contract) {
+  return `polizza non vista dal modello (${contract?.esito || 'non verificata'}): ${contract?.reason || ''}`
 }
 
 /** Legge la risposta alla domanda sul contratto. null se illeggibile. */
@@ -531,26 +697,21 @@ export function coverNeverNamed(pageTexts, names) {
 export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
   const list = (results || []).filter(Boolean)
   if (!list.length) return decideOperativita({ error: 'nessun batch eseguito' })
-  const contractSeen = list.some((r) => r.contratto === 'presente')
-  const contractAnswers = list.map((r) => r.contratto).filter(Boolean)
+  // La presenza della POLIZZA non si decide qui (26/09/2026): la domanda sul
+  // contratto ha la sua tabella (decideContract) e si applica DOPO, su
+  // qualunque esito (applyContractVerdict). Prima valeva solo su un «operante»
+  // (sole quietanze → Accantonata, forzabile: decisione del 22/09, superata).
   const okIdx = list.findIndex((r) => r.verdict === 'ok')
   if (okIdx >= 0) {
     const ok = list[okIdx]
     const earlierNo = list.slice(0, okIdx).find((r) => r.verdict === 'mismatch')
     if (earlierNo) {
       return {
-        ...ok, verdict: 'review', batches: list.length, contratto: contractSeen ? 'presente' : ok.contratto,
+        ...ok, verdict: 'review', batches: list.length,
         reason: `esiti contraddittori tra i batch di pagine: prima «non operante» (${earlierNo.evidenza ? `«${String(earlierNo.evidenza).slice(0, 120)}»` : earlierNo.reason}), poi «operante» (${ok.evidenza ? `«${String(ok.evidenza).slice(0, 120)}»` : ok.reason})`,
       }
     }
-    // SOLE QUIETANZE (decisione dell'utente, 22/09/2026): copertura operante ma
-    // nessuna pagina letta è il contratto (frontespizio/scheda/appendice) →
-    // ACCANTONATA, bloccata ma forzabile con «Procedi comunque». Il verdetto
-    // 'setaside' è mappato da decidePrecheck su mismatch+setAside.
-    if (!contractSeen && contractAnswers.length && contractAnswers.every((c) => c === 'assente')) {
-      return { ...ok, verdict: 'setaside', batches: list.length, contratto: 'assente', reason: `copertura operante ma senza polizza principale: nelle pagine lette solo quietanze, informativa o condizioni, nessun frontespizio o scheda di polizza${ok.motivo ? ` (${ok.motivo})` : ''}` }
-    }
-    return { ...ok, batches: list.length, contratto: contractSeen ? 'presente' : ok.contratto }
+    return { ...ok, batches: list.length }
   }
   // Tutti i batch hanno risposto «non operante» e almeno uno con la prova
   // trovata: un batch la cui citazione non si ritrova (troppo corta, «Sezione
@@ -580,5 +741,5 @@ export function combineOperativitaBatches(results, { unreadNamed = 0 } = {}) {
 
 /** Esito in italiano per motivazioni e UI. */
 export function operativitaVerdictLabel(verdict) {
-  return verdict === 'ok' ? 'abbinato' : verdict === 'mismatch' ? 'non pertinente' : verdict === 'review' ? 'da verificare' : verdict === 'setaside' ? 'accantonato' : 'accettato senza controllo'
+  return verdict === 'ok' ? 'abbinato' : verdict === 'mismatch' ? 'non pertinente' : verdict === 'review' ? 'da verificare' : verdict === 'setaside' ? 'non valido' : 'accettato senza controllo'
 }

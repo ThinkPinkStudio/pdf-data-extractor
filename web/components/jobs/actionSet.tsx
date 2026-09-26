@@ -11,7 +11,10 @@ export interface ActionSet { primary: ActionDef | null; secondary: ActionDef[]; 
 // pannello di dettaglio (primaria + secondarie + ⋯) e coda. L'azione primaria
 // è il passo successivo naturale: Estrai per un'abbinata, Procedi comunque
 // per una da decidere (o «Usa il profilo suggerito» quando c'è), Riprova per
-// un errore, Excel per un'estratta, Annulla per una in corso.
+// un errore, Excel per un'estratta, Annulla per una in corso. Una NON VALIDA
+// (nessuna polizza, regola dell'utente del 26/09/2026) non si forza: niente
+// Procedi comunque, niente profilo suggerito, niente Estrai né riuso; resta
+// solo Riabbina, che rifà il controllo (le route rifiutano comunque con 409).
 export function actionSet(j: JobSnapshot, A: JobActions, t: T, openTab: (tab: DetailTab) => void): ActionSet {
   const st = uiState(j)
   const sugg = j.precheck?.suggestion && j.precheck.suggestion.id && j.precheck.suggestion.id !== j.profileId ? j.precheck.suggestion : null
@@ -39,9 +42,10 @@ export function actionSet(j: JobSnapshot, A: JobActions, t: T, openTab: (tab: De
       return { primary: cancel, secondary: [], menu: [log, files] }
     case 'matched':
       return { primary: extract, secondary: [rematch, reprofile], menu: [reprocess, log, files] }
+    case 'notValid':
+      return { primary: { ...rematch, tone: 'primary' }, secondary: [], menu: [log, files] }
     case 'review':
     case 'mismatch':
-    case 'setAside':
     case 'discarded':
       return useSugg
         ? { primary: useSugg, secondary: [proceed, rematch, reprofile], menu: [reprocess, log, files] }

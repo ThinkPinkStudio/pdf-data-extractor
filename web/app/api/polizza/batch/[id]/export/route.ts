@@ -4,6 +4,7 @@ import { logAction } from '@/lib/logger'
 import { getBatch } from '@/lib/polizzaJobStore'
 import { flattenRollingState } from '@/lib/polizzaRolling'
 import ExcelJS from 'exceljs'
+import { isLegacySetAside, isNotValidJob } from '@/lib/jobValidity'
 
 export const runtime = 'nodejs'
 
@@ -40,8 +41,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
   const statusOf = (j: (typeof jobs)[number]) => {
     const e = j.error || ''
+    // Nessuna polizza secondo il modello (26/09/2026): «non valido». I vecchi
+    // «Accantonato» (anche dalla regex) restano tali: forzabili.
+    if (isNotValidJob(j)) return 'non valido'
     if (j.status === 'mismatch' && e.startsWith('Scartato')) return 'scartato'
-    if (j.status === 'mismatch' && e.startsWith('Accantonato')) return 'accantonato'
+    if (isLegacySetAside(j)) return 'accantonato'
     return STATUS_IT[j.status] || j.status
   }
   const baseRow = (j: (typeof jobs)[number]): Record<string, unknown> => ({

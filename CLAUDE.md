@@ -156,7 +156,8 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   diceva «non operante» senza poter citare l'assenza e tutto finiva «Da
   verificare» (6 dubbi su 9: vita MetLife, Cat Nat, infortuni). Per «non
   operante» il prompt chiede di copiare la riga dove la copertura compare
-  (opzione non barrata, voce senza premio).
+  (opzione non barrata, voce senza premio). Dal 26/09 la domanda sulla
+  POLIZZA si fa anche qui (una chiamata): senza polizza è Non valido.
 - **Ragionamento per fase** (`polizzaThink`: off | abbinamento | estrazione |
   tutto; solo modelli che ragionano, qwen3 & co.): il pensiero resta fuori dal
   JSON. Default off; A/B nelle run di test.
@@ -317,7 +318,9 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   niente chiamate doppie, niente voti moltiplicati (GUFFANTI RC 2025: 9 file
   per 4 documenti distinti, 562 chiamate, 62 minuti).
 - **Cartella senza polizza principale → ACCANTONATA con la ragione** (12/09/2026,
-  richiesta dell'utente): `polizzaRequireValidPolicy` ora è ATTIVO di default
+  richiesta dell'utente; dal 26/09/2026 **NON VALIDO, non forzabile**, deciso
+  dalla domanda al modello e non più dalla regex: vedi «Sole quietanze» sotto
+  la PERTINENZA): `polizzaRequireValidPolicy` ora è ATTIVO di default
   (`false` per spegnerlo); `policyEvidenceReport` dice cosa manca (nessuna voce
   di polizza / nessun importo strutturale) e il worker scrive "Accantonato — …
   Documenti letti: …" (etichetta «Accantonato» nella pagina Elaborazioni,
@@ -702,6 +705,58 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   dell'operatività: messa lì, il 7B ribaltava DAS («ESCLUSA» → esclusione).
   Misurato 22/09: 10/10 con DAS Alzaia «accantonata» (fixture `expected:
   'accantonata'`). Il verificatore la voleva estratta: l'operatore la forza.
+  **SUPERATA il 26/09/2026 → SENZA UNA POLIZZA È SEMPRE NON VALIDO, NON
+  forzabile** (regola dell'utente, testuale: «SE NON HAI UNA POLIZZA NON
+  ESTRAI! SENZA UNA POLIZZA È SEMPRE NON VALIDO»). Caso: ALZAIA NAVIGLIO
+  PAVESE 101 Tutela legale DAS (un file, la quietanza di rinnovo): il 32B
+  diceva «non operante» citando «Tutela Legale ESCLUSA 31.000,00» →
+  contraddizione → «Da verificare»; la domanda sul contratto partiva SOLO
+  dopo un «operante», quindi non è mai partita, e «Procedi comunque» ha
+  estratto la quietanza. Ora (versione rivista dopo due revisioni avversarie
+  dello stesso giorno): (1) la domanda sul contratto (`buildContrattoPrompt`,
+  testo e schema invariati) è UNA del FASCICOLO, fatta PRIMA
+  dell'operatività da `runContractCheck` per ogni profilo e modo (anche off),
+  una volta sola nel percorso Automatico e condivisa coi profili suggeriti:
+  prime pagine con testo di ogni documento, poi TUTTE le altre in ordine
+  (`selectContrattoPages`, parti entro il budget), fino al primo «presente»
+  o a `CONTRATTO_MAX_BATCHES` (12). Niente più domanda dentro i batch di
+  operatività: la risposta dipendeva dal profilo (quali pagine l'operatività
+  metteva prima) e una polizza a pag. 2 di un PDF unico diventava Non valido.
+  Con «assente» nessuna chiamata di operatività. La regex «polizza vera» NON
+  decide più (riga di diagnostica nel log) e `polizzaRequireValidPolicy` non
+  spegne nulla. (2) `decideContract`: un «presente» valido → presente (vale
+  solo se cita documento/pagina MOSTRATI in quel batch, `checkContractAnswer`);
+  **assente = NON VALIDO solo se TUTTI i batch dicono «assente» e nessuna
+  pagina con testo è rimasta fuori** (né documenti senza testo); pagine oltre
+  il tetto → «non verificata»; un «non determinabile» o una risposta
+  illeggibile tra gli «assente» → «non determinabile». Per «assente»
+  documento e pagina sono null. (3) «non determinabile»/«non verificata» =
+  **polizza non vista dal modello**: un «ok» (o «skipped», modo off) diventa
+  «Da verificare», gli altri blocchi tengono la nota nel perché
+  (`applyContractVerdict`, `decidePrecheck`): da soli si estrae SOLO con
+  «presente» (una quietanza con «Tutela Legale 240,00» può dare un
+  «operante» provato). Guasto → «non verificata» con `error`, mai Non valido.
+  (4) Stato: `mismatch` con errore «Non valido — …» (`web/lib/jobValidity.ts`:
+  UNA regola `isNotValidJob` = `precheck.notValid`, polizza «assente» o
+  prefisso «Non valido»). NON forzabile: `proceed`, `extract`, `reuse` e il
+  bulk rispondono 409 `code: 'not-valid'`, lo store rifiuta anche lui; in UI
+  pillola/chip «Non valida»/«Non valide», unica azione Riabbina (rifà il
+  controllo sugli stessi documenti), fuori da «aspettano una tua decisione».
+  I vecchi «Accantonato — …» (anche dalla regex, falsi negativi veri: LUCCA
+  AmTrust) restano FORZABILI («Senza polizza (controllo vecchio)»): Procedi
+  comunque passa dalla guardia, che chiede al modello. (5) GUARDIA prima
+  dell'estrazione nel worker (`ensurePolicy` → `policyGate`): «presente» →
+  estrae; «assente» → Non valido; «non determinabile»/«non verificata» →
+  estrae SOLO se l'operatore ha premuto Procedi comunque CONOSCENDO
+  quell'esito (era già nel job), altrimenti «Da verificare» col perché (il
+  ▶ su un abbinato non forza la polizza); guasto → Da verificare. (6) Riuso:
+  mai verso un Non valido, mai da un'origine estratta forzando una polizza
+  non vista (`forcedWithoutPolicy`: l'ALZAIA estratta prima del 26/09).
+  Test: `test/polizzaContractCheck.test.mjs` (orchestratore con modello
+  finto, `deps`), `test/uiJobState.test.mjs` (il figlio gira SENZA
+  `NODE_TEST_CONTEXT`: ereditato, faceva uscire 0 anche con casi falliti).
+  Fixture: ALZAIA e CAMPESTRE «RATE ANNUALI» (sola quietanza Allianz)
+  `expected: 'non valido'`.
   **Gli script che fanno OCR NON terminano da soli**: il worker Tesseract
   (`_ocrWorker` in polizzaService) tiene vivo l'event loop; la misura del
   22/09 aveva finito in 5 minuti e il processo è rimasto appeso 2 ore a 0%

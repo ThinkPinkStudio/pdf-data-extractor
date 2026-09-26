@@ -105,7 +105,10 @@ for (;;) {
   await new Promise((r) => setTimeout(r, 60000))
 }
 console.log(`Finito in ${Math.round((Date.now() - t0) / 60000)} min`)
-const rows = jobs.map((j) => ({ jobId: j.jobId, dossier: j.dossierName, status: j.status, verdict: j.precheck?.verdict || null, setAside: !!j.precheck?.setAside, reason: j.precheck?.reason || j.error || '', proof: j.precheck?.operativita?.evidenza || '', values: Object.keys(j.values || {}).length }))
+// NON VALIDO (nessuna polizza secondo il modello, 26/09/2026): stessa regola di
+// isNotValidJob (web/lib/jobValidity.ts). I vecchi «Accantonato» non lo sono.
+const isNotValid = (j) => j.status === 'mismatch' && (!!j.precheck?.notValid || j.precheck?.polizza?.esito === 'assente' || /^Non valido\b/.test(String(j.error || '')))
+const rows = jobs.map((j) => ({ jobId: j.jobId, dossier: j.dossierName, status: j.status, verdict: j.precheck?.verdict || null, notValid: isNotValid(j), polizza: j.precheck?.polizza?.esito || null, reason: j.precheck?.reason || j.error || '', proof: j.precheck?.operativita?.evidenza || '', values: Object.keys(j.values || {}).length }))
 writeFileSync(join(OUT, `bulk-${BATCH}.json`), JSON.stringify({ batchId: BATCH, model: settings.ollamaModel, ctx: settings.polizzaBatchContext, rows }, null, 2))
 if (EXPECTED) {
   const exp = JSON.parse(readFileSync(join(root, EXPECTED), 'utf8'))
@@ -122,8 +125,11 @@ if (EXPECTED) {
     }
     judged++
     const got = !r ? 'ASSENTE' : (r.status === 'matched' || (r.status === 'done' && r.verdict === 'ok')) ? 'operante'
-      : (r.setAside || /accanton/i.test(r.reason)) ? 'accantonata' : 'non operante'
-    const ok = !!r && (c.expected === got || (c.expected === 'non operante' && got === 'accantonata'))
+      : r.notValid ? 'non valido' : 'non operante'
+    // Fixture vecchie: 'accantonata' = 'non valido'. Un «non valido» NON vale
+    // come «non operante»: una polizza vera detta senza polizza non si forza più.
+    const want = c.expected === 'accantonata' ? 'non valido' : c.expected
+    const ok = !!r && want === got
     if (ok) right++
     console.log(`  ${ok ? 'GIUSTO   ' : 'SBAGLIATO'} ${c.id.padEnd(24)} atteso ${c.expected.padEnd(13)} → ${got.padEnd(12)} ${r ? `[${r.status}] ${String(r.reason).slice(0, 110)}` : ''}`)
   }

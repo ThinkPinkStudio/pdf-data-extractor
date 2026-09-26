@@ -2,18 +2,26 @@
 // conteggi, segmenti della barra, nomi, riga di motivo. Nessun fetch, nessun
 // JSX: si testano e si riusano da entrambe le viste (Tabella e Coda).
 import type { BatchSummary, FilterKey, JobSnapshot, T, UiState } from './types'
+import { isLegacySetAside, isNotValidJob } from '@/lib/jobValidity'
 
-export const FILTERS: FilterKey[] = ['all', 'active', 'matched', 'review', 'mismatch', 'setAside', 'done', 'error', 'canceled']
+export const FILTERS: FilterKey[] = ['all', 'active', 'matched', 'review', 'mismatch', 'notValid', 'done', 'error', 'canceled']
 
 export const FILTER_LABEL_KEY: Record<FilterKey, string> = {
   all: 'jobsDash.chipAll', active: 'jobsDash.chipActive', matched: 'jobsDash.chipMatched', review: 'jobsDash.chipReview',
-  mismatch: 'jobsDash.chipMismatch', setAside: 'jobsDash.chipSetAside', done: 'jobsDash.chipDone', error: 'jobsDash.chipError',
+  mismatch: 'jobsDash.chipMismatch', notValid: 'jobsDash.chipNotValid', done: 'jobsDash.chipDone', error: 'jobsDash.chipError',
   canceled: 'jobsDash.chipCanceled',
 }
 
 export const FILTER_COLOR: Record<FilterKey, string> = {
   all: 'var(--c-accent)', active: '#3b82f6', matched: '#22c55e', review: '#f59e0b', mismatch: '#fb923c',
-  setAside: '#6a6a8a', done: '#22c55e', error: '#ef4444', canceled: '#4b4b63',
+  notValid: '#6a6a8a', done: '#22c55e', error: '#ef4444', canceled: '#4b4b63',
+}
+
+// Filtro dall'URL (?stato=): i link salvati prima del 26/09/2026 dicono
+// 'setAside' (Accantonate), oggi 'notValid' (Non validi).
+export function parseFilter(v: string | null | undefined): FilterKey | null {
+  if (v === 'setAside') return 'notValid'
+  return v && (FILTERS as string[]).includes(v) ? (v as FilterKey) : null
 }
 
 export function uiState(j: JobSnapshot): UiState {
@@ -22,7 +30,10 @@ export function uiState(j: JobSnapshot): UiState {
     case 'queued': return 'queued'
     case 'matched': return 'matched'
     case 'review': return 'review'
-    case 'mismatch': return (j.error || '').startsWith('Accantonato') ? 'setAside' : (j.error || '').startsWith('Scartato') ? 'discarded' : 'mismatch'
+    // NON VALIDO (nessuna polizza secondo il modello) per primo
+    // (jobValidity.ts). I vecchi «Accantonato» sono bloccati ma forzabili:
+    // 'mismatch', con la loro riga di motivo (reasonLine).
+    case 'mismatch': return isNotValidJob(j) ? 'notValid' : (j.error || '').startsWith('Scartato') ? 'discarded' : 'mismatch'
     case 'done': return 'done'
     case 'canceled': return 'canceled'
     default: return 'error'
@@ -46,7 +57,9 @@ export function countByFilter(jobs: JobSnapshot[]): Record<FilterKey, number> {
 }
 
 export const isActive = (j: JobSnapshot) => j.status === 'running' || j.status === 'queued'
-export const needsDecision = (j: JobSnapshot) => ['review', 'mismatch', 'setAside', 'discarded'].includes(uiState(j))
+// Un NON VALIDO non aspetta una decisione: non si forza (niente Procedi
+// comunque, niente tasto P), si può solo riabbinare.
+export const needsDecision = (j: JobSnapshot) => ['review', 'mismatch', 'discarded'].includes(uiState(j))
 export const valuesCount = (j: JobSnapshot) => Object.keys(j.values || {}).length
 export const hasValues = (j: JobSnapshot) => valuesCount(j) > 0
 // Fascicolo identico a uno già completato: si possono copiare i risultati.
@@ -73,7 +86,7 @@ export function downloadBlob(blob: Blob, name: string) {
 
 // Il testo errore del worker ripete l'etichetta di stato («Da verificare — …»,
 // «Non pertinente al profilo "X" — …»): via il prefisso, lo stato ha la sua pillola.
-const ERROR_PREFIX = /^(?:Accantonato|Scartato|Da verificare|Non pertinente al profilo "[^"]*")\s+—\s+/
+const ERROR_PREFIX = /^(?:Non valido|Accantonato|Scartato|Da verificare|Non pertinente al profilo "[^"]*")\s+—\s+/
 export function errorText(j: JobSnapshot): string {
   return (j.error || '').replace(ERROR_PREFIX, '')
 }
@@ -121,23 +134,25 @@ export function orderWithTests(jobs: JobSnapshot[]): JobSnapshot[] {
 export interface Segment { key: FilterKey; n: number; color: string; opacity?: number }
 
 // Segmenti della barra di avanzamento: estratte, abbinate, da verificare, non
-// pertinenti, accantonate, errori, in corso. Solo quelli con conteggio > 0.
+// pertinenti, non valide, errori, in corso. Solo quelli con conteggio > 0.
 export function segmentsFromCounts(c: Partial<Record<FilterKey, number>>): Segment[] {
-  const order: [FilterKey, number][] = [['done', 1], ['matched', 0.55], ['review', 1], ['mismatch', 1], ['setAside', 1], ['error', 1], ['canceled', 0.6], ['active', 0.55]]
+  const order: [FilterKey, number][] = [['done', 1], ['matched', 0.55], ['review', 1], ['mismatch', 1], ['notValid', 1], ['error', 1], ['canceled', 0.6], ['active', 0.55]]
   return order.filter(([k]) => (c[k] || 0) > 0).map(([k, o]) => ({ key: k, n: c[k] || 0, color: FILTER_COLOR[k], opacity: o }))
 }
 
-// Conteggi dal riepilogo del batch (listBatches): 'mismatch' comprende anche
-// accantonate e scartate, che il riepilogo non distingue.
+// Conteggi dal riepilogo del batch (listBatches): i Non validi hanno il loro
+// conteggio (notValid), 'mismatch' comprende ancora le scartate.
 export function countsFromBatch(b: BatchSummary): Record<FilterKey, number> {
+  const notValid = Math.min(b.notValid || 0, b.mismatch || 0)
   return {
     all: b.total, active: (b.queued || 0) + (b.running || 0), matched: b.matched || 0, review: b.review || 0,
-    mismatch: b.mismatch || 0, setAside: 0, done: b.done || 0, error: b.error || 0, canceled: b.canceled || 0,
+    mismatch: (b.mismatch || 0) - notValid, notValid, done: b.done || 0, error: b.error || 0, canceled: b.canceled || 0,
   }
 }
 
 export const batchProcessed = (b: BatchSummary) => (b.done || 0) + (b.error || 0) + (b.canceled || 0) + (b.mismatch || 0) + (b.matched || 0) + (b.review || 0)
-export const decisionCount = (b: BatchSummary) => (b.review || 0) + (b.mismatch || 0) + (b.matched || 0)
+// Polizze che «aspettano una tua decisione»: i Non validi no (non si forzano).
+export const decisionCount = (b: BatchSummary) => (b.review || 0) + Math.max(0, (b.mismatch || 0) - (b.notValid || 0)) + (b.matched || 0)
 
 export type BatchState = 'running' | 'error' | 'done' | 'queued' | 'mismatch' | 'review' | 'matched'
 export function batchStatus(b: BatchSummary): BatchState {
@@ -146,7 +161,8 @@ export function batchStatus(b: BatchSummary): BatchState {
   if (b.error > 0) return 'error'
   // Dossier fermi: «da verificare» prima di «da confermare», poi gli abbinati in attesa del ▶.
   if ((b.review || 0) > 0) return 'review'
-  if ((b.mismatch || 0) > 0) return 'mismatch'
+  // Solo i bloccati FORZABILI tengono il batch «da confermare»: i Non validi sono finali.
+  if ((b.mismatch || 0) - (b.notValid || 0) > 0) return 'mismatch'
   if ((b.matched || 0) > 0) return 'matched'
   return 'done'
 }
@@ -180,6 +196,20 @@ export function reasonLine(j: JobSnapshot, t: T): { head: string; body: string }
   if (st === 'queued') return { head: '', body: progressText(j, t) || t('jobsDash.stQueued') }
   if (st === 'error') return { head: '', body: j.error || '' }
   if (st === 'canceled') return { head: '', body: t('jobsDash.stCanceled') }
+  // NON VALIDO: la riga dice che manca la polizza e perché (parole del
+  // modello), MAI l'esito di operatività («Non operante: Tutela Legale
+  // ESCLUSA…» su una quietanza sola confondeva: ALZAIA 101, 26/09).
+  if (st === 'notValid') {
+    const pol = pc?.polizza || null
+    const where = pol?.documento ? (pol.pagina ? t('jobsDash.docPage', { doc: String(pol.documento), page: String(pol.pagina) }) : t('jobsDash.docOnly', { doc: String(pol.documento) })) : ''
+    const why = String(pol?.motivo || '').slice(0, 160)
+    const body = why ? [where, why].filter(Boolean).join(': ') : errorText(j) || pc?.reason || ''
+    return { head: t('jobsDash.noPolicyHead'), body }
+  }
+  // Vecchio «Accantonato» (prima del 26/09): nessuna polizza secondo il
+  // controllo di allora, NON l'esito di operatività («Operante — prova
+  // respinta» su una prova che nessuno ha respinto confondeva).
+  if (isLegacySetAside(j)) return { head: t('jobsDash.legacySetAsideHead'), body: errorText(j) || pc?.reason || '' }
   if (op && op.esito) {
     const rejected = pc?.verdict !== 'ok' && op.esito === 'operante'
     const head = rejected ? t('jobsDash.proofRejected') : t(opEsitoKey(op.esito))
@@ -196,13 +226,13 @@ export function reasonLine(j: JobSnapshot, t: T): { head: string; body: string }
 // Riepilogo in forma di BatchSummary calcolato dagli snapshot (pagina del
 // batch e batch virtuale delle estrazioni singole, che non hanno listBatches).
 export function summarizeJobs(jobs: JobSnapshot[], id = '', label = '', email = ''): BatchSummary {
-  const s: BatchSummary = { id, label, email, created_at: 0, total: jobs.length, queued: 0, running: 0, done: 0, error: 0, canceled: 0, mismatch: 0, matched: 0, review: 0 }
+  const s: BatchSummary = { id, label, email, created_at: 0, total: jobs.length, queued: 0, running: 0, done: 0, error: 0, canceled: 0, mismatch: 0, matched: 0, review: 0, notValid: 0 }
   for (const j of jobs) {
     if (j.status === 'queued') s.queued++
     else if (j.status === 'running') s.running++
     else if (j.status === 'done') s.done++
     else if (j.status === 'canceled') s.canceled++
-    else if (j.status === 'mismatch') s.mismatch++
+    else if (j.status === 'mismatch') { s.mismatch++; if (isNotValidJob(j)) s.notValid = (s.notValid || 0) + 1 }
     else if (j.status === 'matched') s.matched++
     else if (j.status === 'review') s.review++
     else s.error++

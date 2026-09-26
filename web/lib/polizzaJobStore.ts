@@ -1,6 +1,7 @@
 import { pool } from './db'
 import { createHash, randomUUID } from 'crypto'
 import { flattenRollingState, initRollingState } from './polizzaRolling'
+import { forcedWithoutPolicy, isNotValidJob } from './jobValidity'
 
 // Identità del contenuto: SHA-256 dei byte del PDF. Stesso file = stesso hash,
 // in qualunque cartella e con qualunque nome (cache OCR, dedup, riconoscimento
@@ -11,6 +12,11 @@ export function hashPdfBase64(pdfBase64: string): string {
 
 // 'mismatch': BLOCCATO dal pre-check di pertinenza (contenuto ≠ profilo scelto),
 // in attesa del "Procedi comunque" dell'utente o di una rielaborazione.
+// Comprende i «Non valido» (nessuna polizza tra i documenti letti secondo il
+// modello: testo errore «Non valido — …», precheck.notValid), bloccati e NON
+// forzabili: niente Procedi comunque, niente ▶, niente riuso; solo Riabbina,
+// che rifà il controllo (jobValidity.ts, regola del 26/09/2026). I vecchi
+// «Accantonato — …» restano forzabili: la guardia del worker chiede al modello.
 // 'review': DA VERIFICARE — il controllo di operatività non ha una prova
 // sufficiente (dubbio, prova non trovata, elementi contraddittori, guasto):
 // nessun campo estratto finché l'utente non preme "Procedi comunque" o
@@ -215,10 +221,17 @@ export async function putOcrCache(fileHash: string, fileName: string, pages: str
 export async function reuseResultsFromJob(id: string, byEmail?: string): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || job.status === 'running' || job.status === 'done') return null
+  // Un fascicolo NON VALIDO (nessuna polizza) non riceve valori copiati da un
+  // altro job: sarebbe un'estrazione forzata senza alcun controllo.
+  if (isNotValidJob(job)) return null
   const sourceId = job.duplicate_of
   if (!sourceId) return null
   const src = await getJob(sourceId)
   if (!src || src.status !== 'done') return null
+  // Né valori estratti FORZANDO un fascicolo senza polizza vista dal modello
+  // (Procedi comunque senza «presente», come l'ALZAIA 101 estratta prima del
+  // 26/09): la forzatura vale per quel job, non si copia su un altro.
+  if (forcedWithoutPolicy(src)) return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Risultati RIUSATI dal job identico "${src.dossier_name || src.id}"${byEmail ? ` (richiesto da ${byEmail})` : ''}: nessun OCR né estrazione rifatti —`)
   await updateJob(id, {
@@ -354,6 +367,9 @@ export interface BatchSummary extends BatchRow {
   mismatch: number
   matched: number
   review: number
+  // Quanti dei 'mismatch' sono NON VALIDI (nessuna polizza secondo il modello):
+  // non aspettano una decisione, non si forzano. Stessa regola di isNotValidJob.
+  notValid: number
 }
 
 // Lavoro CONDIVISO nel team: elenca i batch di TUTTI gli utenti (la colonna email
@@ -370,7 +386,8 @@ export async function listBatches(): Promise<BatchSummary[]> {
        COUNT(j.id) FILTER (WHERE j.status = 'canceled')::int AS canceled,
        COUNT(j.id) FILTER (WHERE j.status = 'mismatch')::int AS mismatch,
        COUNT(j.id) FILTER (WHERE j.status = 'matched')::int AS matched,
-       COUNT(j.id) FILTER (WHERE j.status = 'review')::int AS review
+       COUNT(j.id) FILTER (WHERE j.status = 'review')::int AS review,
+       COUNT(j.id) FILTER (WHERE j.status = 'mismatch' AND (j.error LIKE 'Non valido%' OR (j.precheck->>'notValid') = 'true' OR (j.precheck->'polizza'->>'esito') = 'assente'))::int AS "notValid"
      FROM batch_jobs b
      LEFT JOIN polizza_jobs j ON j.batch_id = b.id
      GROUP BY b.id
@@ -756,11 +773,15 @@ export async function resetJobForRetry(
 // "PROCEDI COMUNQUE": l'utente conferma che il fascicolo va estratto col
 // profilo scelto nonostante il pre-check di pertinenza lo abbia bloccato
 // (falso allarme) o lasciato in dubbio. L'override viene PERSISTITO nel
-// precheck: al run successivo il worker salta il controllo ed ESTRAE (anche
-// se il job era nato in «Solo abbinamento»). Da 'mismatch' o 'review'.
+// precheck: al run successivo il worker salta il controllo di pertinenza ed
+// ESTRAE (anche se il job era nato in «Solo abbinamento»), dopo la sola
+// verifica della polizza se non è già stata fatta. Da 'mismatch' o 'review',
+// MAI da un Non valido (nessuna polizza: regola dell'utente del 26/09/2026):
+// qui il rifiuto è la difesa di ultima istanza, le route lo spiegano prima.
 export async function overridePrecheckAndRequeue(id: string, byEmail?: string): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || (job.status !== 'mismatch' && job.status !== 'review')) return null
+  if (isNotValidJob(job)) return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Procedi comunque (pre-check di pertinenza ignorato)${byEmail ? ` da ${byEmail}` : ''} —`)
   await updateJob(id, {
@@ -778,6 +799,9 @@ export async function overridePrecheckAndRequeue(id: string, byEmail?: string): 
 export async function confirmMatchAndRequeue(id: string, byEmail?: string): Promise<JobRow | null> {
   const job = await getJob(id)
   if (!job || job.status !== 'matched') return null
+  // Un Non valido non è mai 'matched'; il controllo resta per chi arriva qui
+  // con uno stato scritto a mano o da una versione vecchia.
+  if (isNotValidJob(job)) return null
   const logs = Array.isArray(job.logs) ? [...job.logs] : []
   logs.push(`[${new Date().toTimeString().slice(0, 8)}] — Estrazione avviata sull'abbinamento confermato${byEmail ? ` da ${byEmail}` : ''} —`)
   await updateJob(id, {

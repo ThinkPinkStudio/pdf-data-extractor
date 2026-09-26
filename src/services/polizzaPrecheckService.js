@@ -4,14 +4,16 @@
  * Calcola gli input dei tre metodi (testo, embeddings, LLM) e delega il
  * VERDETTO alla parte pura (polizzaPrecheck.js). Regola ferrea: questo
  * controllo non deve MAI far fallire un job — ogni guasto infrastrutturale
- * (Ollama giù, embeddings assenti) produce 'skipped', mai 'mismatch'.
+ * (Ollama giù, embeddings assenti) produce 'skipped' o 'review', mai
+ * 'mismatch'. In particolare un guasto della domanda sulla POLIZZA dà
+ * «non verificata» (Da verificare), mai «Non valido».
  */
 
 import { embedTexts } from './vectorIndexService.js'
 import { streamChatWithProvider } from './llmService.js'
 import {
   normalizeForPrecheck, parseContentKeywords, keywordVerdict, contentExcludeVerdict, cosineSim,
-  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms, hasPolicyEvidence,
+  semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   rankProfilesSemantic, policyEvidenceReport, effectivePrecheckMode, degradeWithoutRecognition,
 } from './polizzaPrecheck.js'
 import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, namesCoverage } from './polizzaOperativita.js'
@@ -21,7 +23,8 @@ import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection, coverNeverNamed,
-  OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES,
+  selectContrattoPages, decideContract, applyContractVerdict, checkContractAnswer,
+  OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES, CONTRATTO_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
 
@@ -113,78 +116,205 @@ export function contentExcludeMatched(profile, docs) {
 }
 
 /**
+ * Candidati pagina dei controlli (operatività e presenza della polizza): ogni
+ * pagina con testo, ordinale del documento = posizione nel fascicolo. Al
+ * modello va la GRIGLIA (+ coppie etichetta→valore), le pagine lunghe sono
+ * spezzate in parti. `capped` (operatività): tetti OPERATIVITA_MAX_PAGES /
+ * _PER_DOC e al più 4 parti per pagina, come la misura del 22/09. Senza tetti
+ * (domanda sulla polizza): TUTTE le pagine e tutte le parti, perché «assente»
+ * (Non valido, non forzabile) si può dire solo dopo averle mostrate tutte.
+ * `first` marca la prima pagina CON TESTO di ogni documento. `partChars` =
+ * misura massima di una parte (la domanda sulla polizza la tiene entro il
+ * budget del batch, così nessuna parte viene tagliata e resta non letta).
+ * @returns {{candidates:object[], docsWithoutText:number}}
+ */
+export function buildPageCandidates(docs, spatialDocs, { capped = true, partChars = OPERATIVITA_MAX_PAGE_CHARS } = {}) {
+  const maxPart = Math.max(200, Math.min(OPERATIVITA_MAX_PAGE_CHARS, Number(partChars) || OPERATIVITA_MAX_PAGE_CHARS))
+  const candidates = []
+  let docsWithoutText = 0
+  ;(docs || []).forEach((d, i) => {
+    const flatPages = d?.pages || []
+    const gridPages = spatialDocs?.[i]?.pages || []
+    // Markdown in un BLOB unico (pdf-inspector / Docling a pagina singola) con
+    // la griglia su N pagine: si va per pagine di GRIGLIA (piatto = griglia
+    // collassata), altrimenti si vedeva solo la pagina 1.
+    const byGrid = gridPages.length > flatPages.length
+    const nPages = byGrid ? gridPages.length : flatPages.length
+    let perDoc = 0
+    let hasText = false
+    for (let p = 0; p < nPages; p++) {
+      const grid = String(gridPages[p] || '')
+      const flat = byGrid ? collapse(grid) : collapse(flatPages[p])
+      if (!flat.trim()) continue
+      const isFirst = !hasText
+      hasText = true
+      if (capped && (candidates.length >= OPERATIVITA_MAX_PAGES || perDoc >= OPERATIVITA_MAX_PAGES_PER_DOC)) break
+      // STESSO testo dei prompt di estrazione: griglia spaziale + coppie
+      // etichetta→valore lette dal layout (withPairs: suggerimento di
+      // lettura, mai una verità imposta — REGOLE 1c).
+      const full = grid.trim() ? withPairs(grid) : flat
+      // Pagine LUNGHE (oltre il taglio per pagina): spezzate in parti, tutte
+      // candidate — il taglio teneva solo l'inizio e una riga di premio in
+      // fondo a una scheda fitta non arrivava mai al modello.
+      const parts = []
+      let rest = full
+      while (usefulLength(rest) > maxPart && (!capped || parts.length < 3)) {
+        const head = cutUseful(rest, maxPart)
+        if (!head.trim() || head.length >= rest.length) break
+        parts.push(head); rest = rest.slice(head.length)
+      }
+      parts.push(rest)
+      parts.forEach((text, k) => {
+        if (!text.trim()) return
+        candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null, first: isFirst })
+      })
+      perDoc++
+    }
+    // Documento senza testo in NESSUNA pagina (scansione con OCR fallito): la
+    // polizza potrebbe essere proprio lì, la sua assenza non si può affermare.
+    if (!hasText) docsWithoutText++
+  })
+  return { candidates, docsWithoutText }
+}
+
+const pageKey = (c) => `${c.ord}:${c.page}`
+const partKey = (c) => `${c.ord}:${c.page}:${c.part || 0}`
+const blockList = (blocks) => blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}`).join(', ')
+
+/**
+ * Una domanda sul CONTRATTO su un batch di pagine, con la risposta controllata
+ * sulle pagine mostrate (checkContractAnswer). null = risposta illeggibile
+ * (lancia solo su guasto). 300 token d'uscita: con 200 un «motivo» lungo
+ * troncava il JSON e la risposta andava persa.
+ */
+async function askContract({ settings, blocks, callModel, diag }) {
+  const cq = buildContrattoPrompt({ blocks })
+  const raw = await callModel({ ...settings, __phase: 'abbinamento' }, cq.system, cq.user, {
+    numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 300, format: contrattoSchema(), fields: [], shape: 'staged', diag,
+  })
+  return checkContractAnswer(parseContrattoAnswer(raw), blocks)
+}
+
+/** Budget (caratteri utili) delle pagine nella domanda sul contratto. */
+function contractBudget(settings) {
+  const probe = buildContrattoPrompt({ blocks: [] })
+  return computeSafeContextBudget(ctxCap(settings), { systemChars: probe.system.length, userChars: probe.user.length })
+}
+
+/**
+ * PRESENZA DELLA POLIZZA (regola dell'utente del 26/09/2026: «SE NON HAI UNA
+ * POLIZZA NON ESTRAI: SENZA UNA POLIZZA È SEMPRE NON VALIDO»). UNA domanda del
+ * FASCICOLO, non del profilo: la fanno il pre-controllo (prima
+ * dell'operatività, per ogni profilo e modo), il percorso Automatico (una
+ * volta per tutti i candidati) e la guardia prima dell'estrazione (Procedi
+ * comunque, ▶ su abbinati vecchi, job senza profilo, pre-controllo in errore).
+ * La domanda è quella di buildContrattoPrompt, a batch: prime pagine dei
+ * documenti, poi tutte le altre in ordine (selectContrattoPages), fino al
+ * primo «presente» o a `maxBatches`. «assente» solo se TUTTI i batch lo dicono
+ * e nessuna pagina con testo è rimasta fuori (decideContract).
+ * Non lancia MAI: un guasto dà esito 'non verificata' con `error: true`
+ * (Da verificare, mai Non valido).
+ * @param {{docs:{name:string,pages:string[]}[], spatialDocs?:{pages:string[]}[], settings:object, diag?:string[], maxBatches?:number, deps?:{callModel?:Function}}} p
+ *   deps: iniezione per i test (modello finto), mai in produzione.
+ * @returns {Promise<{esito:string, documento:number|null, pagina:number|null, motivo:string, reason:string, asked:number, error?:boolean, docName?:string|null}>}
+ */
+export async function runContractCheck({ docs, spatialDocs, settings, diag = null, maxBatches = CONTRATTO_MAX_BATCHES, deps = {} }) {
+  const log = (m) => { if (Array.isArray(diag)) diag.push(m) }
+  const callModel = deps.callModel || callOllamaRolling
+  const answers = []
+  try {
+    const budgetChars = contractBudget(settings)
+    const { candidates, docsWithoutText } = buildPageCandidates(docs, spatialDocs, { capped: false, partChars: budgetChars })
+    if (!candidates.length) {
+      const c = { ...decideContract([], { docsWithoutText }), reason: 'nessuna pagina con testo: presenza della polizza non verificabile' }
+      log(`Polizza: ${c.esito} — ${c.reason}`)
+      return c
+    }
+    let remaining = candidates
+    const sent = []
+    for (let b = 0; b < maxBatches && remaining.length; b++) {
+      const blocks = selectContrattoPages(remaining, { budgetChars })
+      if (!blocks.length) break
+      const taken = new Set(blocks.map(partKey))
+      remaining = remaining.filter((c) => !taken.has(partKey(c)))
+      const ca = await askContract({ settings, blocks, callModel, diag })
+      answers.push(ca)
+      sent.push(...blocks)
+      log(`Polizza batch ${b + 1}: ${ca?.contratto || 'risposta illeggibile'}${ca?.documento ? ` (Documento ${ca.documento}${ca.pagina ? ` pag. ${ca.pagina}` : ''})` : ''}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''} (${blocks.length} pagine: ${blockList(blocks)}; restano ${remaining.length})`)
+      if (ca?.contratto === 'presente') break
+    }
+    // Pagine mai mostrate (anche solo una parte, o una parte tagliata): con una
+    // di queste la polizza potrebbe stare lì e «assente» non si può dire.
+    const sentParts = new Set(sent.filter((b) => !b.cut).map(partKey))
+    const unreadPages = new Set(candidates.filter((c) => !sentParts.has(partKey(c))).map(pageKey)).size
+    const c = decideContract(answers, { unreadPages, docsWithoutText })
+    log(`Polizza: ${c.esito} — ${c.reason} (${answers.length} ${answers.length === 1 ? 'chiamata' : 'chiamate'})`)
+    return { ...c, docName: c.documento ? (docs?.[c.documento - 1]?.name || null) : null }
+  } catch (err) {
+    // Un «presente» già arrivato resta tale anche se un batch dopo fallisce
+    // (ci si ferma al primo «presente», quindi qui non succede); ogni altro
+    // guasto: non verificata, mai Non valido.
+    log(`Polizza: controllo non eseguibile (${err?.message || err})`)
+    return { esito: 'non verificata', documento: null, pagina: null, motivo: '', reason: `controllo della polizza non eseguibile: ${err?.message || err}`, asked: answers.length, error: true }
+  }
+}
+
+/**
  * CONTROLLO DI OPERATIVITÀ (vedi polizzaOperativita.js): la copertura definita
  * in «Come riconoscerla» è davvero acquistata nel fascicolo?
+ *  0. PRESENZA DELLA POLIZZA prima di tutto (`contract` già decisa dal
+ *     chiamante, altrimenti runContractCheck): «assente» → Non valido senza
+ *     chiamate di operatività (non cambierebbero nulla: ALZAIA 101, una
+ *     quietanza DAS, era «non operante» contraddittorio e poi forzata);
  *  1. embedding (bge-m3) del testo di riconoscimento e delle pagine PIATTE;
  *  2. pagine scelte per affinità (prime pagine dei documenti in testa) fino al
  *     budget del contesto (ctxCap, stesso calcolo dei batch a stadi);
  *  3. al modello va la GRIGLIA SPAZIALE (caselle e colonne premio restano
  *     incolonnate), marcatori [Documento N · pag. P], mai il nome file;
- *  4. risposta vincolata da JSON Schema, prova verificata nel testo, decisione.
+ *  4. risposta vincolata da JSON Schema, prova verificata nel testo, decisione;
+ *  5. la presenza della polizza si applica all'esito (applyContractVerdict:
+ *     «non determinabile»/«non verificata» su un «ok» → dubbio).
  * Ritorna null se il profilo non ha «Come riconoscerla». Un guasto (Ollama,
  * embeddings) NON lancia: torna come verdetto 'review' con la ragione.
- * @param {{docs:{name:string,pages:string[]}[], spatialDocs?:{pages:string[]}[], profile:object, profiles?:object[], settings:object, excludeMatched?:string[], diag?:string[]}} p
+ * @param {{docs:{name:string,pages:string[]}[], spatialDocs?:{pages:string[]}[], profile:object, profiles?:object[], settings:object, excludeMatched?:string[], diag?:string[], contract?:object|null, deps?:{callModel?:Function, embed?:Function}}} p
  *   profiles: gli altri profili in gara — servono SOLO per le parole distintive
  *   di «Come riconoscerla» (frequenza inversa sulle teste).
+ *   contract: presenza della polizza già decisa per questo fascicolo (profilo
+ *   Automatico, profili suggeriti, pre-controllo): non si richiede.
+ *   deps: iniezione per i test (modello ed embeddings finti), mai in produzione.
  */
-export async function runOperativita({ docs, spatialDocs, profile, profiles = [], settings, excludeMatched = [], diag = null, maxBatches = OPERATIVITA_MAX_BATCHES }) {
+export async function runOperativita({ docs, spatialDocs, profile, profiles = [], settings, excludeMatched = [], diag = null, maxBatches = OPERATIVITA_MAX_BATCHES, contract: contractKnown = null, deps = {} }) {
   const recognition = recognitionOf(profile)
   if (!recognition) return null
+  const callModel = deps.callModel || callOllamaRolling
+  const embed = deps.embed || embedAll
   const contentKeywords = parseContentKeywords(profile?.contentKeywords)
   const contentExcludeKeywords = parseContentKeywords(profile?.contentExcludeKeywords)
   const log = (m) => { if (Array.isArray(diag)) diag.push(m) }
   const pool = [...(profiles || []).filter((p) => p && p.id && p.id !== profile?.id), profile]
   const lexTokens = recognitionCoverName(pool, profile?.id)
+  const who = { profileId: profile?.id || null, profileName: profile?.name || null }
+  // La polizza è del FASCICOLO: si chiede una volta (non lancia mai).
+  const contract = contractKnown || await runContractCheck({ docs, spatialDocs, settings, diag, deps })
+  if (contract.esito === 'assente') {
+    log(`Operatività «${profile?.name || ''}»: non valutata — NON VALIDO: ${contract.reason}`)
+    return { ...applyContractVerdict({ verdict: null, reason: '' }, contract), ...who }
+  }
   log(`Operatività «${profile?.name || ''}»: nome della copertura da «Come riconoscerla»: ${lexTokens.length ? `«${lexTokens.join(' ')}»` : 'non determinabile (controlli lessicali non applicabili)'}`)
   try {
     // Candidati: ogni pagina con testo, ordinale del documento = posizione nel fascicolo.
-    const candidates = []
-    ;(docs || []).forEach((d, i) => {
-      const flatPages = d?.pages || []
-      const gridPages = spatialDocs?.[i]?.pages || []
-      // Markdown in un BLOB unico (pdf-inspector / Docling a pagina singola) con
-      // la griglia su N pagine: si va per pagine di GRIGLIA (piatto = griglia
-      // collassata), altrimenti si vedeva solo la pagina 1.
-      const byGrid = gridPages.length > flatPages.length
-      const nPages = byGrid ? gridPages.length : flatPages.length
-      let perDoc = 0
-      for (let p = 0; p < nPages; p++) {
-        if (candidates.length >= OPERATIVITA_MAX_PAGES || perDoc >= OPERATIVITA_MAX_PAGES_PER_DOC) break
-        const grid = String(gridPages[p] || '')
-        const flat = byGrid ? collapse(grid) : collapse(flatPages[p])
-        if (!flat.trim()) continue
-        // STESSO testo dei prompt di estrazione: griglia spaziale + coppie
-        // etichetta→valore lette dal layout (withPairs: suggerimento di
-        // lettura, mai una verità imposta — REGOLE 1c).
-        const full = grid.trim() ? withPairs(grid) : flat
-        // Pagine LUNGHE (oltre il taglio per pagina): spezzate in parti, tutte
-        // candidate — il taglio teneva solo l'inizio e una riga di premio in
-        // fondo a una scheda fitta non arrivava mai al modello.
-        const parts = []
-        let rest = full
-        while (usefulLength(rest) > OPERATIVITA_MAX_PAGE_CHARS && parts.length < 3) {
-          const head = cutUseful(rest, OPERATIVITA_MAX_PAGE_CHARS)
-          if (!head.trim() || head.length >= rest.length) break
-          parts.push(head); rest = rest.slice(head.length)
-        }
-        parts.push(rest)
-        parts.forEach((text, k) => {
-          if (!text.trim()) return
-          candidates.push({ ord: i + 1, page: p + 1, part: parts.length > 1 ? k + 1 : null, flat: collapse(text), text, score: null })
-        })
-        perDoc++
-      }
-    })
-    if (!candidates.length) return decideOperativita({ error: 'nessuna pagina con testo' })
+    const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: true })
+    if (!candidates.length) return { ...applyContractVerdict(decideOperativita({ error: 'nessuna pagina con testo' }), contract), ...who }
     // Copertura mai nominata in NESSUNA pagina del fascicolo (tutte, non solo le
     // candidate): non operante per fatto del testo, senza chiamate al modello.
     const allPageTexts = (docs || []).flatMap((d, i) => [...(d?.pages || []), ...(spatialDocs?.[i]?.pages || [])])
     if (coverNeverNamed(allPageTexts, lexTokens)) {
       const name = lexTokens.map((n) => n.join(' ')).join(' / ')
       log(`Operatività «${profile?.name || ''}»: la copertura «${name}» non è mai nominata in ${allPageTexts.filter((t) => String(t || '').trim()).length} pagine → non operante (nessuna chiamata al modello)`)
-      return { ...decideOperativita({ answer: { esito: 'non operante', evidenza: '', motivo: `la copertura «${name}» non è mai nominata nei documenti` }, evidence: { found: true, names: false, structural: null } }), reason: `copertura non operante: «${name}» non è mai nominata nei documenti letti`, neverNamed: true, profileId: profile?.id || null, profileName: profile?.name || null }
+      const nn = { ...decideOperativita({ answer: { esito: 'non operante', evidenza: '', motivo: `la copertura «${name}» non è mai nominata nei documenti` }, evidence: { found: true, names: false, structural: null } }), reason: `copertura non operante: «${name}» non è mai nominata nei documenti letti`, neverNamed: true }
+      return { ...applyContractVerdict(nn, contract), ...who }
     }
-    const vecs = await embedAll(settings, [recognition, ...candidates.map((c) => c.flat.slice(0, PAGE_EMBED_CHARS))])
+    const vecs = await embed(settings, [recognition, ...candidates.map((c) => c.flat.slice(0, PAGE_EMBED_CHARS))])
     const rVec = vecs[0]
     candidates.forEach((c, i) => { c.score = cosineSim(rVec, vecs[i + 1]) })
     // Budget di testo: contesto massimo meno prompt (senza pagine) e margine.
@@ -198,54 +328,43 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     let remaining = candidates
     const results = []
     const pagesSent = []
-    let needContract = false
     for (let b = 0; b < maxBatches && remaining.length; b++) {
       const blocks = selectOperativitaPages(remaining, { budgetChars, lexTokens })
       if (!blocks.length) break
-      const taken = new Set(blocks.map((x) => `${x.ord}:${x.page}`))
-      remaining = remaining.filter((c) => !taken.has(`${c.ord}:${c.page}`))
+      const taken = new Set(blocks.map(pageKey))
+      remaining = remaining.filter((c) => !taken.has(pageKey(c)))
       const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi)' : ''}`)
-      const raw = await callOllamaRolling({ ...settings, __phase: 'abbinamento' }, system, user, {
+      const raw = await callModel({ ...settings, __phase: 'abbinamento' }, system, user, {
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       const answer = parseOperativitaAnswer(raw)
       const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
       const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
-      // Dopo un «operante»: c'è il CONTRATTO tra le pagine lette (domanda a
-      // parte, breve)? Con sole quietanze si continua a cercare il frontespizio
-      // nei batch successivi; se nessun batch lo mostra → Accantonata.
-      if (decision.verdict === 'ok') needContract = true
-      if (needContract) {
-        const cq = buildContrattoPrompt({ blocks })
-        const rawC = await callOllamaRolling({ ...settings, __phase: 'abbinamento' }, cq.system, cq.user, { numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 200, format: contrattoSchema(), fields: [], shape: 'staged', diag })
-        const ca = parseContrattoAnswer(rawC)
-        decision.contratto = ca?.contratto || 'non determinabile'
-        log(`Operatività «${profile?.name || ''}» batch ${b + 1}: contratto ${decision.contratto}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''}`)
-      }
       results.push(decision)
       pagesSent.push(...blocks.map((x) => ({ ord: x.ord, page: x.page, score: x.score, batch: b + 1 })))
-      // Operante già ottenuto: ci si ferma appena il CONTRATTO è stato visto
-      // (anche in un batch successivo, il cui esito non conta più: BOIARDO
-      // leggeva 6 batch dopo l'«operante» del primo).
-      if (needContract && results.some((r) => r.contratto === 'presente')) break
+      // «Operante» provato: combineOperativitaBatches guarda il primo «ok» e i
+      // batch PRIMA, quelli dopo non contano. La polizza è già decisa.
+      if (decision.verdict === 'ok') break
       // Operante + parola da evitare = contraddizione già certa: inutile leggere oltre.
       if (decision.verdict === 'review' && answer?.esito === 'operante' && excludeMatched.length) break
     }
     const unreadNamed = remaining.filter((c) => namesCoverage(c.flat || c.text, lexTokens) === true).length
-    const final = combineOperativitaBatches(results, { unreadNamed })
-    if (results.length > 1) log(`Operatività «${profile?.name || ''}»: esito complessivo su ${results.length} batch → ${final.verdict}${final.verdict === 'review' && /contraddittori/.test(final.reason) ? ' (esiti contraddittori)' : ''}`)
+    const combined = combineOperativitaBatches(results, { unreadNamed })
+    if (results.length > 1) log(`Operatività «${profile?.name || ''}»: esito complessivo su ${results.length} batch → ${combined.verdict}${combined.verdict === 'review' && /contraddittori/.test(combined.reason) ? ' (esiti contraddittori)' : ''}`)
+    const final = applyContractVerdict(combined, contract)
+    if (final.verdict !== combined.verdict) log(`Operatività «${profile?.name || ''}»: ${combined.verdict} → ${final.verdict} per la polizza (${contract.esito})`)
     const src = final.documento ? docs?.[final.documento - 1] : null
     return {
       ...final,
       docName: src?.name || null,
       pagesSent,
-      profileId: profile?.id || null, profileName: profile?.name || null,
+      ...who,
     }
   } catch (err) {
     log(`Operatività «${profile?.name || ''}»: non eseguibile (${err?.message || err})`)
-    return { ...decideOperativita({ error: err?.message || String(err) }), profileId: profile?.id || null, profileName: profile?.name || null }
+    return { ...applyContractVerdict(decideOperativita({ error: err?.message || String(err) }), contract), ...who }
   }
 }
 
@@ -256,7 +375,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
  * `max` tentativi: il primo operante con prova è il suggerimento. Il profilo
  * del job NON cambia da solo.
  */
-export async function suggestOperativeProfile({ docs, spatialDocs, profiles, ranking, excludeId, settings, diag = null, max = 2 }) {
+export async function suggestOperativeProfile({ docs, spatialDocs, profiles, ranking, excludeId, settings, diag = null, max = 2, contract = null, deps = {} }) {
   const withRecog = (profiles || []).filter((p) => p && p.id && p.id !== excludeId && p.enabled !== false && recognitionOf(p))
   if (!withRecog.length) return null
   const order = new Map((ranking || []).map((r, i) => [r.id, i]))
@@ -264,14 +383,19 @@ export async function suggestOperativeProfile({ docs, spatialDocs, profiles, ran
   const tried = []
   for (const p of sorted.slice(0, max)) {
     // Meno batch per i profili alternativi: il suggerimento è un aiuto, non un secondo controllo pieno.
-    const r = await runOperativita({ docs, spatialDocs, profile: p, profiles, settings, diag, maxBatches: Math.max(1, Math.ceil(OPERATIVITA_MAX_BATCHES / 2)) })
-    tried.push({ id: p.id, name: p.name, verdict: r?.verdict || 'review', reason: r?.reason || '' })
-    if (r && r.verdict === 'ok') return { id: p.id, name: p.name, score: null, signal: 'operatività', operativita: r, tried }
+    // La presenza della polizza è del FASCICOLO, non del profilo: già decisa
+    // (`contract`), non si richiede per ogni profilo alternativo.
+    const r = await runOperativita({ docs, spatialDocs, profile: p, profiles, settings, diag, maxBatches: Math.max(1, Math.ceil(OPERATIVITA_MAX_BATCHES / 2)), contract, deps })
+    // L'esito della sola COPERTURA (operativitaVerdict): la polizza non vista è
+    // del fascicolo e vale per ogni profilo, non squalifica il suggerimento.
+    const v = r?.operativitaVerdict ?? r?.verdict ?? 'review'
+    tried.push({ id: p.id, name: p.name, verdict: v, reason: r?.reason || '' })
+    if (r && v === 'ok') return { id: p.id, name: p.name, score: null, signal: 'operatività', operativita: r, tried }
   }
   return { id: null, name: null, tried }
 }
 
-export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profileName, mode, settings, allProfiles, operativita: operativitaPre = null, operativitaTried: triedPre = null, diag = null }) {
+export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profileName, mode, settings, allProfiles, operativita: operativitaPre = null, operativitaTried: triedPre = null, contract: contractPre = null, diag = null, deps = {} }) {
   // Fallback su matchKeywords: profili creati prima dell'introduzione di
   // contentKeywords portano solo le keyword di riconoscimento del NOME cartella
   // (es. RC PROF MED V2 → "MEDICO, medico, med"): senza questo fallback il
@@ -305,25 +429,36 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
   }
   if (kws.length && normText) keyword = keywordVerdict(kws, normText)
 
-  // Validità «polizza vera» (regola economica, decide PRIMA dell'operatività
-  // in decidePrecheck): se la cartella verrà accantonata, l'operatività non si
-  // calcola nemmeno (fino a 6 chiamate buttate).
-  const policyEv = normText ? hasPolicyEvidence(normText) : null
-  const willSetAside = !operative && policyEv === false && settings?.polizzaRequireValidPolicy !== false
+  // Vecchia regola a parole «polizza vera» (numero di polizza + importo
+  // strutturale): dal 26/09/2026 solo DIAGNOSTICA nel log. Non decide più:
+  // marcatori hardcoded (Regola 1b) e un fascicolo senza polizza è ora Non
+  // valido e NON forzabile, quindi lo decide il modello (domanda sul contratto).
+  if (normText && Array.isArray(diag)) {
+    const rep = policyEvidenceReport(normText)
+    diag.push(`Polizza, regola a parole (solo diagnostica): ${rep.ok === true ? 'voce di polizza e importo strutturale presenti' : rep.missing.join(' e ')}`)
+  }
 
+  // PRESENZA DELLA POLIZZA prima di tutto (regola dell'utente del 26/09/2026,
+  // «SENZA UNA POLIZZA È SEMPRE NON VALIDO»): una domanda del FASCICOLO, per
+  // ogni profilo e ogni modo (anche off), fatta una volta sola; il percorso
+  // Automatico la passa già decisa (`contract`). Non lancia mai.
+  const contract = contractPre || await runContractCheck({ docs, spatialDocs, settings, diag, deps })
   // OPERATIVITÀ: il controllo vero quando il profilo dice come riconoscere la
   // copertura. Un risultato precalcolato (profilo Automatico del worker) evita
-  // una seconda chiamata identica.
+  // una seconda chiamata identica. Senza polizza non serve: è Non valido.
   let operativita = null
-  if (operative && !willSetAside) {
+  if (operative && contract.esito !== 'assente') {
     operativita = operativitaPre || await runOperativita({
       docs, spatialDocs, profile, profiles: allProfiles, settings, diag,
-      excludeMatched: contentExclude?.matched || [],
+      excludeMatched: contentExclude?.matched || [], contract, deps,
     })
   }
 
   if (operative) {
     // I metodi storici non servono: la classifica (per il suggerimento) si calcola sotto.
+  } else if (contract.esito === 'assente') {
+    // Nessuna polizza: il verdetto è già «Non valido», i metodi storici (fino a
+    // una chiamata al modello nel modo llm) non cambierebbero nulla.
   } else if (effective === 'keywords') {
     // keyword già valutate sopra
   } else if (effective === 'semantic') {
@@ -381,13 +516,9 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
     keyword, semantic, llm,
     semanticRanking, jobProfileId,
     contentExclude,
-    // Validità "polizza vera": solo quando il testo è giudicabile (>=80 char,
-    // altrimenti hasPolicyEvidence ritorna null). Flag OPT-IN dal settings
-    // (default disattivo). Un guasto/ambiguità → null → skipped, mai mismatch.
-    hasPolicyEvidence: policyEv,
-    policyMissing: normText ? policyEvidenceReport(normText).missing : [],
-    // Default ATTIVO (12/09/2026): senza polizza principale la cartella si accantona.
-    requireValidPolicy: settings?.polizzaRequireValidPolicy !== false,
+    // Presenza della polizza: «assente» → Non valido prima di ogni altra
+    // regola; «non verificata» (guasto, pagine non lette) → mai accettato.
+    contract,
   })
   // SUGGERIMENTO: su ogni scarto (non solo nel modo semantico) si classificano i
   // profili attivi e, se uno è più affine di quello del job, lo si propone. Costa
@@ -396,7 +527,14 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
   let rankingOut = Array.isArray(semanticRanking) ? semanticRanking : null
   // Anche su ACCETTATO: la motivazione serve a vedere i falsi positivi. La
   // classifica si calcola sempre (embeddings, secondi) se ci sono profili attivi.
-  if ((allProfiles || []).filter((p) => p && p.id && p.enabled !== false).length >= 1) {
+  // Un fascicolo NON VALIDO (nessuna polizza) non ha un profilo migliore da
+  // proporre: niente classifica né suggerimenti (su ALZAIA erano 2 profili di
+  // operatività in più per nulla).
+  // Pre-controllo SPENTO (modo effettivo off, niente operatività): niente
+  // classifica né suggerimenti, come prima della regola della polizza (il
+  // pre-check ora gira anche a off, ma solo per la domanda sul contratto).
+  const wantRanking = !decision.notValid && (operative || effective !== 'off')
+  if (wantRanking && (allProfiles || []).filter((p) => p && p.id && p.enabled !== false).length >= 1) {
     try {
       const jobId = profile?.id || '__job__'
       if (!rankingOut) {
@@ -412,7 +550,11 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
   // OPERANTE con prova (stesso controllo sui primi 2 della classifica): la
   // sola affinità delle descrizioni non basta più a proporre un profilo.
   let operativitaTried = Array.isArray(triedPre) && triedPre.length ? triedPre : null
-  if (operative && decision.verdict !== 'ok' && !willSetAside) {
+  // Si cerca un altro profilo solo se la COPERTURA non è operante: un «ok»
+  // fermato in dubbio per la sola polizza non vista (operativitaVerdict 'ok')
+  // ha già il profilo giusto.
+  const coverOk = (operativita?.operativitaVerdict ?? decision.verdict) === 'ok'
+  if (operative && !coverOk && !decision.notValid) {
     try {
       // Profili già provati dal chiamante (percorso Automatico): non si
       // rifanno; un loro «operante» è già il suggerimento.
@@ -423,12 +565,13 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
         : await suggestOperativeProfile({
           docs, spatialDocs, settings, diag, ranking: rankingOut,
           profiles: (allProfiles || []).filter((p) => p && !already.has(p.id)), excludeId: profile?.id || '__job__',
+          contract, deps,
         })
       operativitaTried = [...(triedPre || []), ...(sugg?.tried || [])]
       suggestion = sugg && sugg.id ? { id: sugg.id, name: sugg.name, score: null, signal: 'operatività', operativita: sugg.operativita } : null
     } catch { suggestion = null }
-  } else if (operative) {
-    suggestion = null // copertura operante con prova: nessun profilo alternativo da proporre
+  } else if (operative || decision.notValid) {
+    suggestion = null // copertura operante con prova, o fascicolo senza polizza: nessun profilo alternativo da proporre
   }
   // Profilo senza «Come riconoscerla»: 'ok' con un profilo più affine, o
   // 'skipped', diventano «da verificare» (mai accettato in silenzio).

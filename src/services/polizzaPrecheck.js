@@ -187,13 +187,50 @@ export function degradeWithoutRecognition(decision, { hasRecognition, mode, sugg
  * - input del metodo non disponibile (embeddings giù, LLM muto) → 'skipped':
  *   MAI bloccare un job per un guasto infrastrutturale.
  *
+ * - NESSUNA POLIZZA tra i documenti letti (`contract.esito === 'assente'`, o
+ *   operatività 'setaside') → 'mismatch' con `notValid` («Non valido»), PRIMA
+ *   di ogni altra regola e mai forzabile (regola dell'utente del 26/09/2026:
+ *   «SE NON HAI UNA POLIZZA NON ESTRAI: SENZA UNA POLIZZA È SEMPRE NON
+ *   VALIDO»). Con qualunque altro verdetto bloccante il fascicolo sarebbe
+ *   stato sbloccabile con «Procedi comunque» e si sarebbe estratta una
+ *   quietanza (ALZAIA 101 DAS, 26/09);
+ * - polizza NON VISTA dal modello («non determinabile»: risposte incerte;
+ *   «non verificata»: guasto, pagine mai mostrate, documenti senza testo) su
+ *   un verdetto 'ok' o 'skipped' → 'review': da soli si estrae SOLO con una
+ *   polizza vista («presente»); sugli altri verdetti la nota entra nel perché,
+ *   così chi preme «Procedi comunque» sa che forza anche la polizza.
+ *
  * @param {object} p { mode, hasProfile, hasContentKeywords, hasContentExclude,
  *                     keyword: {ratio}|null, semantic: number|null, llm: number|null,
  *                     contentExclude: {matched:string[]}|null,
- *                     hasPolicyEvidence: boolean|null, requireValidPolicy: boolean }
- * @returns {{ verdict: 'ok'|'mismatch'|'skipped', mode: string, score: number|null, threshold: number|null, reason: string }}
+ *                     contract: {esito,reason,documento,pagina,motivo}|null }
+ * @returns {{ verdict: 'ok'|'mismatch'|'skipped'|'review', mode: string, score: number|null, threshold: number|null, reason: string, notValid?: boolean, polizza?: object }}
  */
 export function decidePrecheck(p) {
+  const contract = p?.contract || p?.operativita?.polizza || null
+  const operative = !!p?.hasRecognition && (p?.mode || 'off') !== 'off'
+  // NON VALIDO: prima di tutto.
+  if (contract?.esito === 'assente' || (operative && p?.operativita?.verdict === 'setaside')) {
+    return {
+      verdict: 'mismatch', notValid: true,
+      mode: operative ? 'operativita' : (p?.mode || 'off'), score: null, threshold: null,
+      reason: contract?.reason || p?.operativita?.reason || 'nessuna polizza tra i documenti letti',
+      ...(contract ? { polizza: contract } : {}),
+      ...(operative && p?.operativita ? { operativita: p.operativita } : {}),
+    }
+  }
+  const d = decidePrecheckCore(p)
+  if (!contract) return d
+  if (contract.esito === 'presente') return { ...d, polizza: contract }
+  // Stessa nota di applyContractVerdict (polizzaOperativita.js), che l'ha già
+  // messa nel perché dell'operatività: non si ripete.
+  const note = `polizza non vista dal modello (${contract.esito || 'non verificata'}): ${contract.reason || ''}`
+  const reason = String(d.reason || '').includes('polizza non vista dal modello') ? d.reason : (d.reason ? `${d.reason}; ${note}` : note)
+  const verdict = d.verdict === 'ok' || d.verdict === 'skipped' ? 'review' : d.verdict
+  return { ...d, verdict, reason, polizza: contract }
+}
+
+function decidePrecheckCore(p) {
   const mode = p?.mode || 'off'
 
   // BLOCCANTE "da evitare" (parole del CONTENUTO): se il profilo definisce
@@ -213,38 +250,20 @@ export function decidePrecheck(p) {
     }
   }
 
-  // BLOCCANTE "polizza non valida" (solo informativo/quietanza): se il profilo
-  // va elaborato SOLO quando c'è una polizza vera (flag `requireValidPolicy`,
-  // default attivo) e il testo è giudicabile ma NON ha evidenza di frontespizio
-  // (numero polizza + importo strutturale) → il fascicolo è materiale non-valido
-  // (profilo informativo/DIP/quietanza da sola). Come le parole da evitare,
-  // scatta ANCHE con pre-check off: è una regola di validità del contenuto,
-  // non un metodo di pertinenza.
-  // Il blocco si attiva SOLO se `hasPolicyEvidence` è esplicitamente boolean:
-  // con undefined/null (chiamanti storici, o testo non giudicabile) il
-  // comportamento resta identico a prima (mai blocco, mai skipped extra).
-  // Con l'OPERATIVITÀ attiva questo filtro a parole NON decide: «Polizza di
-  // Assicurazione · Certificato N° RCSPEM00000098 · ASSICURATO» (AmTrust, LUCCA)
-  // non ha «polizza n.» né «contraente» e una polizza vera finiva accantonata
-  // prima di chiedere al modello; le sole quietanze le ferma già la domanda
-  // «c'è il contratto?» (setaside). Resta per i profili senza «Come riconoscerla».
-  if (!operative && typeof p?.hasPolicyEvidence === 'boolean' && p?.requireValidPolicy !== false && p?.hasProfile) {
-    if (p.hasPolicyEvidence === false) {
-      const why = Array.isArray(p.policyMissing) && p.policyMissing.length ? p.policyMissing.join(' e ') : 'nessun frontespizio di polizza vera nel contenuto'
-      return {
-        verdict: 'mismatch', mode, score: 0, threshold: 0, setAside: true,
-        reason: `cartella senza polizza principale: ${why} (solo materiale informativo, proposta o quietanza)`,
-      }
-    }
-  }
+  // La vecchia regola a parole «polizza vera» (numero di polizza + importo
+  // strutturale, policyEvidenceReport) NON decide più (26/09/2026): marcatori
+  // hardcoded (Regola 1b) con falsi negativi veri (LUCCA AmTrust «Certificato
+  // N°» senza «polizza n.»), e dal 26/09 un fascicolo senza polizza è Non
+  // valido e NON forzabile: non può dipenderne una regex. Decide la domanda sul
+  // contratto al modello (decideContract → `contract`, gestita sopra), per
+  // tutti i profili, con o senza «Come riconoscerla». policyEvidenceReport
+  // resta come diagnostica nel log.
 
   // OPERATIVITÀ: il verdetto è quello di decideOperativita (polizzaOperativita.js);
   // senza risultato (chiamante senza modello) → «da verificare», mai accettato.
   if (operative) {
     if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
     const op = p.operativita
-    // 'setaside' (copertura operante ma sole quietanze): Accantonato, forzabile.
-    if (op && op.verdict === 'setaside') return { verdict: 'mismatch', setAside: true, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
     if (op && op.verdict) return { verdict: op.verdict, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
     return { verdict: 'review', mode: 'operativita', score: null, threshold: null, reason: 'controllo di operatività non eseguito' }
   }
@@ -329,6 +348,11 @@ export function topContentTerms(normText, n = 5) {
 // [12/09/2026] ATTIVA di default su richiesta dell'utente: una cartella senza
 // la polizza principale non ha dati da estrarre e va ACCANTONATA dicendo
 // perché (policyEvidenceReport). `polizzaRequireValidPolicy=false` la spegne.
+// [26/09/2026] La regola è diventata SEMPRE (utente: «SENZA UNA POLIZZA È
+// SEMPRE NON VALIDO»): la decide la domanda sul contratto al modello
+// (decideContract), non questi marcatori, e il flag non la spegne più. La
+// costante resta per chi legge le impostazioni salvate; policyEvidenceReport
+// e hasPolicyEvidence restano come DIAGNOSTICA nel log del pre-controllo.
 export const REQUIRE_VALID_POLICY_DEFAULT = true
 
 // Marker di "frontespizio di polizza vera" nel testo NORMALIZZATO (minuscole,

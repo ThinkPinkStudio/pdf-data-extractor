@@ -15,6 +15,7 @@ import {
   recognitionAllowsSection, lineHasNonZeroAmount, coverNeverNamed,
   pageHasAmount, recognitionCoverName, structuralCoverLines, lineHasCheck,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer,
+  selectContrattoPages, decideContract, applyContractVerdict, operativitaVerdictLabel, checkContractAnswer,
 } from '../src/services/polizzaOperativita.js'
 import { decidePrecheck, effectivePrecheckMode, degradeWithoutRecognition } from '../src/services/polizzaPrecheck.js'
 
@@ -110,13 +111,13 @@ test('decidePrecheck con operatività: il verdetto è quello del controllo; le p
   assert.equal(decidePrecheck({ ...base, hasRecognition: false }).verdict, 'mismatch')
   // a switch 'off' l'operatività non gira (regole storiche)
   assert.equal(decidePrecheck({ ...base, mode: 'off', operativita: { verdict: 'ok', reason: 'x' } }).verdict, 'mismatch')
-  // con l'operatività il filtro a parole «polizza vera» NON decide (LUCCA: «Certificato N°»
-  // senza «polizza n.»/«contraente»): decide il controllo, che ha la domanda sul contratto
+  // il filtro a parole «polizza vera» NON decide più (LUCCA: «Certificato N°» senza
+  // «polizza n.»/«contraente»): decide la domanda sul contratto al modello (26/09/2026)
   const withOp = decidePrecheck({ ...base, hasPolicyEvidence: false, requireValidPolicy: true, operativita: { verdict: 'ok', reason: 'x' } })
   assert.equal(withOp.verdict, 'ok')
-  // senza «Come riconoscerla» resta: cartella senza polizza principale → accantonata
-  const set = decidePrecheck({ ...base, hasRecognition: false, contentExclude: null, hasPolicyEvidence: false, requireValidPolicy: true })
-  assert.equal(set.verdict, 'mismatch'); assert.equal(set.setAside, true)
+  const noRecog = decidePrecheck({ ...base, hasRecognition: false, contentExclude: null, hasPolicyEvidence: false, requireValidPolicy: true, keyword: { ratio: 1 } })
+  assert.equal(noRecog.verdict, 'ok', 'la regex non ferma più nulla: senza contratto «assente» si prosegue')
+  assert.ok(!noRecog.setAside && !noRecog.notValid)
 })
 
 test('effectivePrecheckMode: una sola regola per decisione e servizio (bug semantico + parole)', () => {
@@ -324,23 +325,36 @@ test('decideOperativita: "operante" con prova su pagina SENZA riga copertura+imp
   assert.deepEqual(next.map((b) => `${b.ord}.${b.page}`), ['1.7'])
 })
 
-test('sole quietanze: operante senza contratto visto → accantonata (forzabile); con contratto → ok', () => {
-  const okQ = { verdict: 'ok', reason: 'copertura operante', esito: 'operante', contratto: 'assente', evidenza: 'Tutela Legale ESCLUSA 31.000,00', motivo: 'premio 746' }
-  const okC = { verdict: 'ok', reason: 'copertura operante', esito: 'operante', contratto: 'presente', evidenza: 'TUTELA LEGALE Imponibile annuo € 249,06' }
-  const mmQ = { verdict: 'mismatch', reason: 'copertura non operante', esito: 'non operante', contratto: 'assente' }
-  const sa = combineOperativitaBatches([okQ])
-  assert.equal(sa.verdict, 'setaside'); assert.match(sa.reason, /sole quietanze|senza polizza principale/)
-  assert.equal(combineOperativitaBatches([okC]).verdict, 'ok')
-  assert.equal(combineOperativitaBatches([okQ, { ...mmQ, contratto: 'presente' }]).verdict, 'ok', 'il contratto visto in un batch successivo sblocca')
-  assert.equal(combineOperativitaBatches([okQ, { verdict: 'review', reason: 'x', contratto: 'non determinabile' }]).verdict, 'ok', 'non determinabile non accantona')
-  assert.equal(combineOperativitaBatches([mmQ]).verdict, 'mismatch', 'non operante resta non operante')
-  // decidePrecheck: setaside → mismatch + setAside (stato «Accantonato», Procedi comunque)
-  const d = decidePrecheck({ mode: 'semantic', hasProfile: true, hasRecognition: true, operativita: sa })
-  assert.equal(d.verdict, 'mismatch'); assert.equal(d.setAside, true); assert.equal(d.mode, 'operativita')
-  // batch con «operante» ma domanda sul contratto non fatta ai batch precedenti: contano solo le risposte date
-  assert.equal(combineOperativitaBatches([okQ, { ...mmQ, contratto: undefined }]).verdict, 'setaside')
-  assert.equal(combineOperativitaBatches([{ verdict: 'review', reason: 'x' }, { ...okC, contratto: 'non determinabile' }]).verdict, 'ok')
-  // domanda separata sul contratto: prompt, schema, parser
+test('nessuna polizza → NON VALIDO su qualunque esito di operatività, mai forzabile (ALZAIA 101, 26/09/2026)', () => {
+  const okOp = { verdict: 'ok', reason: 'copertura operante', esito: 'operante', evidenza: 'Tutela Legale ESCLUSA 31.000,00', motivo: 'premio 746' }
+  const reviewOp = { verdict: 'review', reason: 'copertura dichiarata non operante ma la prova è la riga della copertura con un suo importo: dato contraddittorio', esito: 'non operante', evidenceFound: true }
+  const mmNoProof = { verdict: 'review', reason: 'copertura dichiarata non operante ma la prova citata non è nel testo', esito: 'non operante', evidenceFound: false }
+  const mmOp = { verdict: 'mismatch', reason: 'copertura non operante', esito: 'non operante', evidenceFound: true }
+  const quietanza = { contratto: 'assente', documento: 1, pagina: 1, motivo: 'solo una quietanza di pagamento del premio' }
+  const absent = decideContract([quietanza])
+  assert.equal(absent.esito, 'assente')
+  assert.match(absent.reason, /nessuna polizza/)
+  assert.match(absent.reason, /quietanza di pagamento/, 'il motivo dice cosa c\'è al posto della polizza')
+  // il caso vero: operatività contraddittoria (review) + contratto assente → Non valido
+  for (const op of [reviewOp, mmNoProof, mmOp, okOp]) {
+    const r = applyContractVerdict(combineOperativitaBatches([op]), absent)
+    assert.equal(r.verdict, 'setaside', `${op.verdict}/${op.esito}`)
+    assert.equal(r.notValid, true)
+    assert.equal(r.operativitaVerdict, combineOperativitaBatches([op]).verdict)
+    assert.equal(r.polizza.esito, 'assente')
+    const d = decidePrecheck({ mode: 'llm', hasProfile: true, hasRecognition: true, operativita: r })
+    assert.equal(d.verdict, 'mismatch'); assert.equal(d.notValid, true); assert.equal(d.mode, 'operativita')
+    assert.match(d.reason, /nessuna polizza/)
+  }
+  // contratto visto (anche in un batch dopo) → l'esito di operatività resta
+  const seen = decideContract([quietanza, { contratto: 'presente', documento: 2, pagina: 1, motivo: 'frontespizio di polizza' }])
+  assert.equal(seen.esito, 'presente'); assert.equal(seen.documento, 2)
+  assert.equal(applyContractVerdict(okOp, seen).verdict, 'ok')
+  assert.equal(applyContractVerdict(reviewOp, seen).verdict, 'review')
+  assert.equal(applyContractVerdict(mmOp, seen).verdict, 'mismatch')
+  // la presenza della polizza non si decide più in combineOperativitaBatches
+  assert.equal(combineOperativitaBatches([{ ...okOp, contratto: 'assente' }]).verdict, 'ok')
+  // domanda separata sul contratto: prompt, schema, parser (invariati, misurati il 22/09)
   const cq = buildContrattoPrompt({ blocks: [{ ord: 1, page: 1, text: 'QUIETANZA DI PAGAMENTO DEL PREMIO Polizza n. 0146905119' }] })
   assert.match(cq.user, /CONTRATTO vero e proprio/); assert.ok(cq.user.includes('[Documento 1 · pag. 1]'))
   assert.deepEqual(contrattoSchema().required, ['contratto', 'documento', 'pagina', 'motivo'])
@@ -349,6 +363,106 @@ test('sole quietanze: operante senza contratto visto → accantonata (forzabile)
   assert.equal(parseContrattoAnswer('niente'), null)
   // il prompt di operatività NON contiene la domanda sul contratto (misurato: la ribaltava)
   assert.ok(!/CONTRATTO/.test(buildOperativitaPrompt({ recognition: 'x', blocks: [] }).user))
+})
+
+test('decideContract: «assente» solo se TUTTI i batch lo dicono e nessuna pagina è rimasta fuori; il resto è «polizza non vista»', () => {
+  const nd = { contratto: 'non determinabile', documento: null, pagina: null, motivo: 'pagine poco leggibili' }
+  const ab = { contratto: 'assente', documento: null, pagina: null, motivo: 'solo quietanze' }
+  const onlyNd = decideContract([nd, nd, null])
+  assert.equal(onlyNd.esito, 'non determinabile', 'solo non determinabile (o illeggibile): nessun Non valido')
+  assert.equal(onlyNd.asked, 3)
+  // risposte MISTE: un «assente» accanto a un «non determinabile» (la scheda
+  // letta male) o a una risposta illeggibile (JSON troncato) NON è assente
+  const mixed = decideContract([ab, nd])
+  assert.equal(mixed.esito, 'non determinabile'); assert.match(mixed.reason, /1 su 2 risposte «assente»/)
+  assert.equal(decideContract([nd, ab]).esito, 'non determinabile')
+  assert.equal(decideContract([ab, null]).esito, 'non determinabile', 'risposta illeggibile = incerta')
+  assert.equal(decideContract([ab, ab]).esito, 'assente')
+  // assente: documento e pagina azzerati («Assente — Documento 1 pag. 1» sembrava dire dove sta la polizza)
+  const a = decideContract([{ ...ab, documento: 1, pagina: 1 }])
+  assert.equal(a.esito, 'assente'); assert.equal(a.documento, null); assert.equal(a.pagina, null)
+  // senza motivo del modello, testo neutro (nessuna ipotesi del codice sul tipo di documento)
+  assert.match(decideContract([{ contratto: 'assente', motivo: '' }]).reason, /il modello non ha visto un contratto/)
+  // «polizza non vista» su un ok → dubbio; su un blocco resta il blocco, con la nota
+  const reviewOp = { verdict: 'review', reason: 'dubbio', esito: 'non operante' }
+  assert.equal(applyContractVerdict(reviewOp, onlyNd).verdict, 'review', 'resta l\'esito dell\'operatività')
+  const okNd = applyContractVerdict({ verdict: 'ok', reason: 'copertura operante' }, onlyNd)
+  assert.equal(okNd.verdict, 'review'); assert.equal(okNd.operativitaVerdict, 'ok')
+  assert.match(okNd.reason, /polizza non vista dal modello \(non determinabile\)/)
+  // pagine mai mostrate (tetto dei batch) o documento senza testo: niente Non valido
+  const unread = decideContract([ab], { unreadPages: 2 })
+  assert.equal(unread.esito, 'non verificata'); assert.match(unread.reason, /2 pagine non sono state mostrate/)
+  const noText = decideContract([ab], { docsWithoutText: 1 })
+  assert.equal(noText.esito, 'non verificata'); assert.match(noText.reason, /senza testo/)
+  assert.equal(applyContractVerdict({ verdict: 'ok', reason: 'copertura operante' }, unread).verdict, 'review')
+  const mmUnread = applyContractVerdict({ verdict: 'mismatch', reason: 'non operante' }, unread)
+  assert.equal(mmUnread.verdict, 'mismatch'); assert.match(mmUnread.reason, /polizza non vista dal modello/)
+  // nessuna risposta (nessun batch) → non verificata, mai assente
+  assert.equal(decideContract([]).esito, 'non verificata')
+  // decidePrecheck: guasto della domanda → review su ok/skipped, mai Non valido
+  const guasto = { esito: 'non verificata', reason: 'controllo della polizza non eseguibile: Ollama giù', error: true }
+  const d = decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 1 }, contract: guasto })
+  assert.equal(d.verdict, 'review'); assert.ok(!d.notValid); assert.match(d.reason, /non verificata/)
+  assert.equal(decidePrecheck({ mode: 'off', hasProfile: true, contract: guasto }).verdict, 'review')
+  assert.equal(decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0 }, contract: guasto }).verdict, 'mismatch', 'un blocco resta un blocco (forzabile)')
+})
+
+test('checkContractAnswer: un «presente» vale solo se cita un documento/pagina MOSTRATI in quel batch', () => {
+  const blocks = [{ ord: 1, page: 1 }, { ord: 1, page: 2 }, { ord: 3, page: 1 }]
+  const yes = (documento, pagina) => ({ contratto: 'presente', documento, pagina, motivo: 'frontespizio' })
+  assert.equal(checkContractAnswer(yes(1, 2), blocks).contratto, 'presente')
+  assert.equal(checkContractAnswer(yes(3, null), blocks).contratto, 'presente', 'senza pagina basta il documento')
+  const outDoc = checkContractAnswer(yes(2, 1), blocks)
+  assert.equal(outDoc.contratto, 'non determinabile'); assert.equal(outDoc.citedOutside, true)
+  assert.match(outDoc.motivo, /Documento 2 pag\. 1, che non è tra le pagine mostrate/)
+  assert.equal(checkContractAnswer(yes(1, 5), blocks).contratto, 'non determinabile', 'pagina non mostrata')
+  assert.equal(checkContractAnswer(yes(null, null), blocks).contratto, 'non determinabile', 'nessun documento citato')
+  // assente / non determinabile: documento e pagina azzerati
+  const no = checkContractAnswer({ contratto: 'assente', documento: 1, pagina: 1, motivo: 'solo quietanza' }, blocks)
+  assert.deepEqual(no, { contratto: 'assente', documento: null, pagina: null, motivo: 'solo quietanza' })
+  assert.equal(checkContractAnswer(null, blocks), null)
+  // un «presente» citato fuori non fa Non valido insieme agli «assente» degli altri batch
+  assert.equal(decideContract([{ contratto: 'assente', motivo: 'x' }, checkContractAnswer(yes(9, 9), blocks)]).esito, 'non determinabile')
+})
+
+test('decidePrecheck: contratto «assente» vince su TUTTO (ok, non pertinente, da verificare, parole da evitare, pre-controllo spento)', () => {
+  const absent = { esito: 'assente', reason: 'nessuna polizza tra i documenti letti: solo quietanze', documento: 1, pagina: 1, motivo: 'solo quietanze' }
+  const cases = [
+    { mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 1 } },
+    { mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 0 } },
+    { mode: 'keywords', hasProfile: true, hasContentExclude: true, contentExclude: { matched: ['vita'] } },
+    { mode: 'off', hasProfile: true },
+    { mode: 'semantic', hasProfile: false },
+    { mode: 'llm', hasProfile: true, hasRecognition: true, operativita: { verdict: 'ok', reason: 'copertura operante' } },
+    { mode: 'llm', hasProfile: true, hasRecognition: true, operativita: { verdict: 'review', reason: 'dubbio' } },
+  ]
+  for (const c of cases) {
+    const d = decidePrecheck({ ...c, contract: absent })
+    assert.equal(d.verdict, 'mismatch', JSON.stringify(c))
+    assert.equal(d.notValid, true)
+    assert.equal(d.polizza.esito, 'assente')
+    assert.match(d.reason, /nessuna polizza/)
+  }
+  // contratto presente: la decisione è quella di sempre, con la polizza allegata
+  const ok = decidePrecheck({ mode: 'keywords', hasProfile: true, hasContentKeywords: true, keyword: { ratio: 1 }, contract: { esito: 'presente', reason: 'polizza presente' } })
+  assert.equal(ok.verdict, 'ok'); assert.equal(ok.polizza.esito, 'presente'); assert.ok(!ok.notValid)
+})
+
+test('selectContrattoPages: prima le PRIME pagine di ogni documento, poi le altre; batch pieno → ci si ferma', () => {
+  const pg = (ord, page, n = 100, first) => ({ ord, page, text: 'x'.repeat(n), ...(first !== undefined ? { first } : {}) })
+  const cands = [pg(1, 2), pg(2, 3), pg(1, 1), pg(3, 1), pg(2, 1)]
+  const all = selectContrattoPages(cands, { budgetChars: 100000 })
+  assert.deepEqual(all.map((b) => `${b.ord}.${b.page}`), ['1.1', '1.2', '2.1', '2.3', '3.1'], 'ordinate per documento e pagina')
+  // budget per tre pagine: entrano le tre prime pagine, non la pagina 2 del documento 1
+  const three = selectContrattoPages(cands, { budgetChars: 320 })
+  assert.deepEqual(three.map((b) => `${b.ord}.${b.page}`), ['1.1', '2.1', '3.1'])
+  // «prima pagina» = la prima CON TESTO quando i candidati lo marcano (copertina scansionata vuota)
+  const marked = [pg(1, 2, 100, true), pg(1, 3, 100, false), pg(2, 1, 100, true)]
+  assert.deepEqual(selectContrattoPages(marked, { budgetChars: 210 }).map((b) => `${b.ord}.${b.page}`), ['1.2', '2.1'])
+  // la prima pagina entra sempre, tagliata al budget
+  const cut = selectContrattoPages([pg(1, 1, 5000)], { budgetChars: 200 })
+  assert.equal(cut.length, 1); assert.ok(cut[0].cut)
+  assert.equal(operativitaVerdictLabel('setaside'), 'non valido')
 })
 
 test('recognitionAllowsSection: la riga strutturale serve solo se la definizione ammette una SEZIONE', () => {

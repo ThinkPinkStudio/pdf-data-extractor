@@ -5,6 +5,7 @@ import { getSettings } from '@/lib/settingsStore'
 import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob } from '@/lib/polizzaJobStore'
 import { startBatch } from '@/lib/polizzaBatchWorker'
 import { startJob } from '@/lib/polizzaJobWorker'
+import { isNotValidJob, NOT_VALID_REFUSAL } from '@/lib/jobValidity'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,10 @@ export const runtime = 'nodejs'
 //   profileId '' = profilo attuale del job, 'auto' = riconoscimento automatico,
 //   altrimenti il profilo scelto. 'extract': ▶ sui job abbinati. Le azioni non applicabili a un dato stato vengono
 // saltate: la risposta riporta quanti job sono stati eseguiti e quanti saltati.
+// I «Non valido» (nessuna polizza, regola dell'utente del 26/09/2026) non si
+// forzano mai: 'proceed', 'extract' e 'reuse' li contano a parte (`notValid`,
+// `notValidIds`, con il perché in `notValidReason`); rematch/retry/reprofile/
+// test restano permessi perché rifanno il controllo, polizza compresa.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()
@@ -84,10 +89,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let done = 0
   let skipped = 0
   const skippedIds: string[] = []
+  let notValid = 0
+  const notValidIds: string[] = []
 
   for (const id of targets) {
     const job = await getJob(id)
     if (!job) { skipped++; skippedIds.push(id); continue }
+    if ((action === 'proceed' || action === 'extract' || action === 'reuse') && isNotValidJob(job)) {
+      notValid++; notValidIds.push(id); continue
+    }
 
     if (action === 'retry' || action === 'reprocess') {
       // Rielabora: stesso campo del job, azzera pre-check. Vale per errori, annullati
@@ -145,7 +155,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   await logAction({
     email: session.email, action: `polizza.batch.bulk.${action}`,
-    resource: `${batch.label} (${done}/${targets.length}${skipped ? `, ${skipped} saltati` : ''})`, ip,
+    resource: `${batch.label} (${done}/${targets.length}${skipped ? `, ${skipped} saltati` : ''}${notValid ? `, ${notValid} non validi` : ''})`, ip,
   })
-  return NextResponse.json({ ok: true, action, done, skipped, requested: targets.length, skippedIds })
+  return NextResponse.json({
+    ok: true, action, done, skipped, requested: targets.length, skippedIds,
+    notValid, notValidIds, ...(notValid ? { notValidReason: NOT_VALID_REFUSAL } : {}),
+  })
 }

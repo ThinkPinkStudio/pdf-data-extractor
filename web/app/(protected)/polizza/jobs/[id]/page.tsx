@@ -7,8 +7,8 @@ import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, FilterKey, JobSnapshot, ViewMode } from '@/components/jobs/types'
 import { SINGLES_ID } from '@/components/jobs/types'
 import {
-  BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, FILTERS, batchStatus, countByFilter, filterOf, fmtDate,
-  orderWithTests, shortName, summarizeJobs,
+  BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, batchStatus, countByFilter, filterOf, fmtDate,
+  orderWithTests, parseFilter, shortName, summarizeJobs,
 } from '@/components/jobs/model'
 import { useJobActions } from '@/components/jobs/useJobActions'
 import { KpiStrip } from '@/components/jobs/KpiStrip'
@@ -22,7 +22,6 @@ import { IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, IcTable, 
 const VIEW_KEY = 'jobsView'
 const REASON_KEY = 'jobsReasonFull'
 const isView = (v: string | null): v is ViewMode => v === 'tabella' || v === 'coda'
-const isFilter = (v: string | null): v is FilterKey => !!v && (FILTERS as string[]).includes(v)
 
 // PAGINA DEL BATCH (URL proprio): testata con le azioni di batch, striscia
 // KPI = unico filtro, switch «Tabella | Coda» sotto. Lo stato (vista, filtro,
@@ -47,7 +46,7 @@ function BatchView() {
   const [jobs, setJobs] = useState<JobSnapshot[] | null>(null)
   const [missing, setMissing] = useState(false)
   const [view, setViewState] = useState<ViewMode>('tabella')
-  const [filter, setFilterState] = useState<FilterKey>(() => (isFilter(sp.get('stato')) ? (sp.get('stato') as FilterKey) : 'all'))
+  const [filter, setFilterState] = useState<FilterKey>(() => parseFilter(sp.get('stato')) || 'all')
   const [selectedId, setSelectedId] = useState<string | null>(() => sp.get('polizza'))
   const [tab, setTab] = useState<DetailTab>('precheck')
   const [checked, setChecked] = useState<Set<string>>(new Set())

@@ -1,20 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
-import { overridePrecheckAndRequeue } from '@/lib/polizzaJobStore'
+import { getJob, overridePrecheckAndRequeue } from '@/lib/polizzaJobStore'
+import { notValidRefusal } from '@/lib/jobValidity'
 import { startBatch } from '@/lib/polizzaBatchWorker'
 import { startJob } from '@/lib/polizzaJobWorker'
 
 export const runtime = 'nodejs'
 
 // "PROCEDI COMUNQUE": sblocca un job fermato dal pre-check di pertinenza
-// (status 'mismatch'). L'override viene persistito nel precheck del job: al
-// run successivo il worker salta il controllo e l'estrazione parte davvero.
+// (status 'mismatch' o 'review'). L'override viene persistito nel precheck del
+// job: al run successivo il worker salta il controllo di pertinenza e
+// l'estrazione parte davvero (dopo la verifica della polizza, se manca).
+// MAI su un «Non valido» (nessuna polizza, regola dell'utente del 26/09/2026):
+// 409 con code 'not-valid' e il perché; resta Riabbina.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const refused = notValidRefusal(await getJob(params.id))
+  if (refused) return NextResponse.json(refused, { status: 409 })
   const job = await overridePrecheckAndRequeue(params.id, session.email)
   if (!job) return NextResponse.json({ error: 'Job non trovato o non in stato "da confermare"' }, { status: 409 })
 
