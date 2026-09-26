@@ -31,6 +31,7 @@ const BUILD_FEATURES = [
   'riepilogo-generale', // Riepiloghi: polizze estratte dello stesso profilo sommate per anno, confronto, export (26/09/2026)
   'riconcilia-esistenti', // Riabbina di batch con «Riunisci prima i dossier con lo stesso numero di polizza» (26/09/2026)
   'riconcilia-frammenti', // riconciliazione: niente frammenti di numero, numero a destra dell'etichetta; «Separa per cartella d'origine» (26/09/2026)
+  'pertinenza-prodotto', // «non determinabile» non contraddice un «non operante» provato; prova di un prodotto TL dal documento che la nomina (26/09/2026)
 ]
 
 export async function GET() {

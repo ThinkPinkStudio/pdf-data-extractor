@@ -994,6 +994,25 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   prodotto, prova «operante» citata dal FRONTESPIZIO che nomina la copertura
   anche se la riga non la nomina (sulle 17 prove generiche delle 4 misure
   qwen2.5 cambierebbe solo LUCCA).
+  **Due correzioni per i «Da verificare» dei batch del cliente (decisioni
+  dell'utente, 26/09/2026 sera; in produzione 12 dubbi sui primi 30 dossier
+  riabbinati, simulati a tavolino dai log):** (a) `combineOperativitaBatches`:
+  un batch «non determinabile» NON contraddice un «non operante» provato dal
+  CONTRATTO (non da un questionario) se nessun batch dice «operante»: è il
+  batch delle pagine meno affini, dove la copertura non c'è → non pertinente
+  (PIZZAMIGLIO BERTOLAZZI/CAMPESTRE/ALZAIA 104, CALDARA 7: 4 su 4 giusti per
+  il catalogo; il solo «no» del questionario resta dubbio). (b) = decisione
+  (ii): prova «operante» di un PRODOTTO di tutela legale (`productProof` in
+  `verifyOperativitaEvidence`): se il DOCUMENTO della prova nomina la
+  copertura in una delle sue prime 3 pagine inviate e la prova non sta in un
+  questionario, vale la riga citata con un importo in euro coi decimali
+  («Difesa Condominio 431,81 91,76 523,57» di AGRIPPA 12, dove «TUTELA /
+  LEGALE» è l'intestazione della colonna spezzata su due righe) oppure una
+  prova dal frontespizio che nomina la copertura e ha una riga con casella
+  barrata e premio («garanzie prescelte…» sopra «[x] Difesa Penale e Civile
+  99,84» della scheda «POLIZZA RAMO TUTELA GIUDIZIARIA»); in quel caso non
+  servono né la parola nella riga né la riga «copertura + importo». Mai un
+  numero di certificato come importo (LUCCA «TLM190942268»).
 
 - **Riepilogo generale (26/09/2026, grafica approvata dall'utente sui
   mockup)**: il cliente spunta in Elaborazioni (pagina del batch e «Estrazioni

@@ -161,8 +161,12 @@ test('combineOperativitaBatches: un batch operante basta; tutti non operanti →
   assert.equal(combineOperativitaBatches([mm, mm]).verdict, 'mismatch')
   assert.match(combineOperativitaBatches([mm, mm]).reason, /2 batch/)
   assert.equal(combineOperativitaBatches([mm]).reason, mm.reason)
-  assert.equal(combineOperativitaBatches([mm, rv]).verdict, 'review')
-  assert.equal(combineOperativitaBatches([rv, mm]).verdict, 'review')
+  // Regola (a) (utente, 26/09/2026): un «non determinabile» non contraddice un
+  // «non operante» provato dal contratto (le pagine meno affini, senza la copertura)
+  assert.equal(combineOperativitaBatches([mm, rv]).verdict, 'mismatch')
+  assert.equal(combineOperativitaBatches([rv, mm]).verdict, 'mismatch')
+  assert.equal(combineOperativitaBatches([{ ...mm, formEvidence: true }, rv]).verdict, 'review', 'il solo «no» del questionario non basta')
+  assert.equal(combineOperativitaBatches([rv, rv]).verdict, 'review')
   assert.equal(combineOperativitaBatches([]).verdict, 'review')
   assert.equal(combineOperativitaBatches([ok, mm]).batches, 2)
   assert.ok(OPERATIVITA_MAX_BATCHES >= 2)
@@ -174,9 +178,10 @@ test('combineOperativitaBatches: «non operante» senza prova ritrovata non cont
   const undet = { verdict: 'review', reason: 'copertura non determinabile', esito: 'non determinabile' }
   const r = combineOperativitaBatches([mm, noProof, mm, mm, mm, mm])
   assert.equal(r.verdict, 'mismatch')
-  assert.match(r.reason, /5 con prova, 1 con prova non ritrovata/)
+  assert.match(r.reason, /5 «non operante» con prova, 1 con prova non ritrovata/)
   assert.equal(combineOperativitaBatches([noProof, noProof]).verdict, 'review', 'nessuna prova trovata: resta un dubbio')
-  assert.equal(combineOperativitaBatches([mm, undet]).verdict, 'review', '«non determinabile» resta un dubbio')
+  assert.equal(combineOperativitaBatches([mm, undet]).verdict, 'mismatch', 'regola (a): «non determinabile» accanto a un «no» provato dal contratto')
+  assert.match(combineOperativitaBatches([mm, undet]).reason, /1 «non determinabile»/)
   assert.equal(combineOperativitaBatches([mm, noProof], { unreadNamed: 2 }).verdict, 'review', 'pagine che nominano la copertura non lette')
 })
 
@@ -746,4 +751,26 @@ test('isQuestionnairePageTitle: una CELLA della testa della pagina comincia col 
   // limiti noti (documentati): una pagina di questionario SENZA titolo ripetuto non è marcata
   assert.equal(isQuestionnairePageTitle('Sono mai state annullate o rifiutate coperture assicurative di questo tipo?   SI  X  NO'), false)
   assert.equal(isQuestionnairePageTitle(''), false)
+})
+
+test('prova «operante» di un PRODOTTO di tutela legale: la riga del premio o la scheda che nomina la copertura (DAS, decisione dell\'utente 26/09)', () => {
+  const TL = [['tutela', 'legale']]
+  // AGRIPPA 12 (DAS Difesa Condominio): intestazione «TUTELA / LEGALE» spezzata, riga del premio senza la parola
+  const p1 = { ord: 1, page: 1, first: true, questionnaire: false, text: '   TUTELA   PERDITE   ASSISTENZA   IMPOSTE   PREMIO\n   LEGALE   PECUNIARIE   LORDO\n   Difesa Condominio   431,81   91,76   523,57' }
+  const p2 = { ord: 1, page: 2, first: false, questionnaire: false, text: 'DISPOSIZIONI PARTICOLARI CHE REGOLANO LE COPERTURE (TUTELA LEGALE)' }
+  const ans = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'Difesa Condominio 431,81 91,76 523,57', motivo: 'm' }
+  const ev = verifyOperativitaEvidence(ans, [p1, p2], { lexTokens: TL })
+  assert.equal(ev.names, false); assert.equal(ev.productProof, true)
+  assert.equal(decideOperativita({ answer: ans, evidence: ev }).verdict, 'ok')
+  // Stessa riga ma il documento non nomina mai la copertura: resta un dubbio
+  const ev2 = verifyOperativitaEvidence(ans, [{ ...p1, text: 'Difesa Condominio   431,81   91,76   523,57' }], { lexTokens: TL })
+  assert.equal(decideOperativita({ answer: ans, evidence: ev2 }).verdict, 'review')
+  // Scheda DAS «POLIZZA RAMO TUTELA GIUDIZIARIA»: la frase delle garanzie prescelte sul frontespizio con importi
+  const TG = [['tutela', 'giudiziaria']]
+  const s1 = { ord: 1, page: 1, first: true, questionnaire: false, text: 'POLIZZA RAMO TUTELA GIUDIZIARIA\ngaranzie prescelte (si intendono operative quelle crocesegnate)\n[x] Difesa Penale e Civile   99,84   21,22   121,06' }
+  const a2 = { esito: 'operante', documento: 1, pagina: 1, evidenza: 'garanzie prescelte (si intendono operative quelle crocesegnate)', motivo: 'm' }
+  assert.equal(decideOperativita({ answer: a2, evidence: verifyOperativitaEvidence(a2, [s1], { lexTokens: TG }) }).verdict, 'ok')
+  // …ma non dalla pagina di un questionario
+  const q1 = { ...s1, questionnaire: true }
+  assert.equal(decideOperativita({ answer: a2, evidence: verifyOperativitaEvidence(a2, [q1], { lexTokens: TG }) }).verdict, 'review')
 })
