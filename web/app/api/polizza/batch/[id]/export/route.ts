@@ -5,6 +5,7 @@ import { getBatch } from '@/lib/polizzaJobStore'
 import { flattenRollingState } from '@/lib/polizzaRolling'
 import ExcelJS from 'exceljs'
 import { isLegacySetAside, isNotValidJob } from '@/lib/jobValidity'
+import { excelSheetName } from '@/lib/excelSheetName'
 
 export const runtime = 'nodejs'
 
@@ -89,10 +90,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const usedNames = new Set<string>(['risultati', 'history'])
   for (const [, grp] of byProfile) {
     if (byProfile.size < 2) break // un solo profilo: il foglio «Risultati» basta
-    let title = grp.name.replace(/[\\/?*[\]:]/g, ' ').replace(/\s+/g, ' ').replace(/^'+|'+$/g, '').trim().slice(0, 28) || 'Profilo'
-    let n = 2
-    while (usedNames.has(title.toLowerCase())) title = `${title.slice(0, 25).replace(/'+$/g, '')} ${n++}`
-    usedNames.add(title.toLowerCase())
+    const title = excelSheetName(grp.name, usedNames, 'Profilo')
     const cols: string[] = []
     const labels = new Map<string, string>()
     for (const j of grp.jobs) for (const f of j.field_defs || []) if (!labels.has(f.id)) { labels.set(f.id, f.label || f.id); cols.push(f.id) }

@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
@@ -14,7 +14,7 @@ const stop = (e: MouseEvent) => e.stopPropagation()
 // Vista TABELLA: una riga per polizza (44px), stato a pillola, motivo in una
 // riga, UN'azione primaria + menu ⋯. Click sulla riga = dettaglio a lato.
 // La barra delle azioni collettive compare solo con una selezione.
-export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, checked, onChecked, A, onOpenTab, reasonFull }: {
+export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, checked, onChecked, A, onOpenTab, reasonFull, extraBulk }: {
   jobs: JobSnapshot[]
   allJobs: JobSnapshot[]
   batchLabel?: string | null
@@ -25,6 +25,8 @@ export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, che
   A: JobActions
   onOpenTab: (job: JobSnapshot, tab: DetailTab) => void
   reasonFull: boolean
+  /** Azioni in più nella barra della selezione (riepiloghi: «Aggiungi a un riepilogo», «Crea riepilogo»). */
+  extraBulk?: ReactNode
 }) {
   const t = useT()
   // Motivo per esteso: globale (interruttore in toolbar) o per riga (click sulla cella).
@@ -95,7 +97,7 @@ export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, che
               const acts = actionSet(j, A, t, (tab) => onOpenTab(j, tab))
               const menuItems = [...acts.secondary, ...acts.menu].map((a) => ({ id: a.id, label: a.label, icon: a.icon, onClick: a.run, title: a.title, disabled: A.busy }))
               return (
-                <tr key={j.jobId} className={`${selectedId === j.jobId ? 'sel' : ''}${rOpen ? ' exp' : ''}`} onClick={() => onSelect(j.jobId)} aria-selected={selectedId === j.jobId}>
+                <tr key={j.jobId} className={`${selectedId === j.jobId ? 'sel' : ''}${checked.has(j.jobId) ? ' chk' : ''}${rOpen ? ' exp' : ''}`} onClick={() => onSelect(j.jobId)} aria-selected={selectedId === j.jobId}>
                   <td onClick={stop}><input type="checkbox" checked={checked.has(j.jobId)} onChange={() => toggleOne(j.jobId)} aria-label={shortName(j, batchLabel)} /></td>
                   <td>
                     <div className="jb-name">
@@ -159,6 +161,7 @@ export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, che
             ...(anyReusable ? [{ id: 'reuse', label: t('jobsDash.reuse'), icon: <IcCopy />, onClick: () => void A.bulk('reuse', selectedJobs), title: t('jobsDash.reuseTitle'), disabled: A.busy }] : []),
             ...(anyActive ? [{ id: 'cancel', label: t('jobsDash.cancel'), icon: <IcX />, onClick: () => void A.bulk('cancel', selectedJobs), danger: true, disabled: A.busy }] : []),
           ]} />
+          {extraBulk}
           {A.bulkResult && <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{A.bulkResult}</span>}
           <button type="button" className="jb-btn ghost icon" aria-label={t('jobsDash.deselect')} title={t('jobsDash.deselect')} onClick={() => onChecked(new Set())}><IcX /></button>
         </div>

@@ -34,3 +34,7 @@ export const IcExternal = () => <Ic><path d="M14 4h6v6" /><path d="M20 4 10 14" 
 export const IcSort = () => <Ic><path d="m8 9 4-4 4 4" /><path d="m8 15 4 4 4-4" /></Ic>
 export const IcFolder = () => <Ic><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Ic>
 export const IcTree = () => <Ic><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="17" cy="12" r="2" /><path d="M6 7v10" /><path d="M6 12h9" /></Ic>
+// Riepiloghi (26/09/2026): barre (voce di menu e card), cursori (Personalizza), più (Crea riepilogo).
+export const IcChart = () => <Ic><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></Ic>
+export const IcSliders = () => <Ic><path d="M4 6h9" /><path d="M17 6h3" /><circle cx="15" cy="6" r="2" /><path d="M4 12h3" /><path d="M11 12h9" /><circle cx="9" cy="12" r="2" /><path d="M4 18h11" /><path d="M19 18h1" /><circle cx="17" cy="18" r="2" /></Ic>
+export const IcPlus = () => <Ic><path d="M12 5v14" /><path d="M5 12h14" /></Ic>

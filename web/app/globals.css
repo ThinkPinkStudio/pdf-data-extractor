@@ -301,6 +301,8 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Badge «nuovo» di una voce di menu (Riepiloghi, 26/09/2026). */
+.nav-item span.nav-new { margin-left: auto; flex: none; font-size: 10px; font-weight: 500; line-height: 1.5; padding: 0 6px; border-radius: var(--r-full); background: var(--c-accent-dim); color: var(--c-text-primary); }
 
 .sidebar-footer {
   padding: 14px 16px;
@@ -499,6 +501,9 @@ tr:last-child td { border-bottom: none; }
 .jb-table td { height: 44px; padding: 0 12px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
 .jb-table tbody tr { cursor: pointer; }
 .jb-table tbody tr:hover td { background: var(--c-bg-hover); }
+/* Righe spuntate (mockup Main.dc.html): tinta accento al 6%; la riga aperta (sel) resta più marcata. */
+.jb-table tbody tr.chk td { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
+.jb-table tbody tr.chk:hover td { background: color-mix(in srgb, var(--c-accent) 10%, transparent); }
 .jb-table tbody tr.sel td { background: var(--c-bg-active); }
 .jb-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--c-accent); }
 .jb-table td.right, .jb-table th.right { text-align: right; }
@@ -596,3 +601,40 @@ tr:last-child td { border-bottom: none; }
 .jb-schema .row.leaf .nm { font-weight: 500; }
 .jb-schema .cnt, .jb-schema-root .cnt { font-size: 11px; color: var(--c-text-secondary); white-space: nowrap; }
 .jb-schema .fold, .jb-schema-root .fold { color: var(--c-warning); display: inline-flex; }
+
+/* ─── Riepiloghi generali (26/09/2026): pezzi usati ANCHE in Elaborazioni ───
+   Barra della selezione, pannello «Nuovo riepilogo» e «Personalizza»,
+   pulsanti alti 32px dei mockup. Il resto sta in polizza/riepiloghi/riepilogo.css. */
+.jb-btn.rp-btn { height: 32px; padding: 0 12px; gap: 6px; border-radius: 8px; font-size: 12px; }
+.rp-selbar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; flex: none; padding: 12px 16px; border-radius: 12px; background: var(--c-bg-card-alt); border: 1px solid var(--c-accent); }
+.rp-selbar .txt { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
+.rp-selbar .acts { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.rp-selbar .c { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.rp-selbar .s { font-size: 12px; color: var(--c-text-secondary); }
+/* .s colora in secondario: gli esiti sulla stessa riga tengono il loro colore semantico. */
+.rp-selbar .s.jb-c-ok { color: #4ade80; }
+.rp-selbar .s.jb-c-warn { color: #fbbf24; }
+[data-theme="light"] .rp-selbar .s.jb-c-ok { color: #15803d; }
+[data-theme="light"] .rp-selbar .s.jb-c-warn { color: #b45309; }
+.rp-selbar .jb-btn.btn-secondary, .rp-selbar .jb-btn.rp-menubtn { background: var(--c-bg-card); border: 1px solid var(--c-border); color: var(--c-text-primary); }
+.rp-selbar .jb-btn.rp-menubtn:hover:not(:disabled), .rp-selbar .jb-btn.btn-secondary:hover:not(:disabled) { background: var(--c-bg-hover); color: var(--c-text-primary); }
+.rp-selbar .jb-menu { z-index: 80; max-height: min(360px, calc(100vh - 16px)); overflow-y: auto; }
+
+.rp-panel { position: fixed; right: 40px; top: 120px; width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 140px); overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 16px; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--r-md); box-shadow: var(--shadow-lg); z-index: 70; font-size: 13px; }
+.rp-panel .rp-ptitle { font-size: 16px; font-weight: 700; }
+.rp-panel .rp-lbl { display: block; font-size: 12px; color: var(--c-text-secondary); margin-bottom: 6px; }
+.rp-panel .rp-sub { font-size: 12px; color: var(--c-text-secondary); }
+.rp-panel .rp-prow { display: flex; gap: 12px; }
+.rp-panel .rp-pbtns { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.rp-panel input[type="text"], .rp-panel select { height: 36px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
+.rp-panel .rp-ro { height: 36px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; border: 1px solid var(--c-border); background: var(--c-bg-input); color: var(--c-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.rp-opt.on { border-color: var(--c-accent); background: var(--c-accent-faint); }
+.rp-opt input[type="radio"] { margin-top: 3px; }
+.rp-err { font-size: 12px; color: var(--c-error); }
+.rp-ok { font-size: 12px; color: #4ade80; }
+[data-theme="light"] .rp-ok { color: #15803d; }
+@media (max-width: 520px) {
+  .rp-panel { left: 16px; right: 16px; width: auto; top: 72px; max-height: calc(100vh - 88px); }
+  .rp-panel .rp-prow { flex-direction: column; }
+}

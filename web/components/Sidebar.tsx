@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { NAV_EXTRACTOR_ITEMS, visibleExtractorNav } from '@/lib/navExtractor'
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || ''
+const SUMMARIES_SEEN_KEY = 'rpNavSeen'
 
 /* ─── Icone (allineate all'app desktop) ─────────────────────────────── */
 const IconPDF = () => (
@@ -104,6 +105,12 @@ const IconTable = () => (
     <line x1="15" y1="9" x2="15" y2="21" /><line x1="9" y1="9" x2="9" y2="21" />
   </svg>
 )
+// Riepiloghi: tre barre verticali (come nel mockup approvato il 26/09/2026).
+const IconChart = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+  </svg>
+)
 const IconHome = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
@@ -122,6 +129,7 @@ const EXTRACTOR_ICONS: Record<string, React.ReactNode> = {
   '/polizza': <IconShield />,
   '/polizza/bulk': <IconBatch />,
   '/polizza/jobs': <IconHistory />,
+  '/polizza/riepiloghi': <IconChart />,
   '/batch': <IconBatch />,
   '/archive': <IconSearch />,
   '/chat': <IconSearch />,
@@ -198,6 +206,21 @@ export default function Sidebar({ email, navHidden }: { email: string; navHidden
     .filter((h) => pathname === h || pathname.startsWith(h + '/'))
     .sort((a, b) => b.length - a.length)[0]
 
+  // Badge «nuovo» accanto a Riepiloghi (mockup approvato il 26/09/2026): resta
+  // finché la sezione non viene aperta una volta (per browser; senza storage
+  // il badge semplicemente non compare).
+  const [summariesSeen, setSummariesSeen] = useState(true)
+  useEffect(() => {
+    try {
+      if (pathname === '/polizza/riepiloghi' || pathname.startsWith('/polizza/riepiloghi/')) {
+        localStorage.setItem(SUMMARIES_SEEN_KEY, '1')
+        setSummariesSeen(true)
+      } else {
+        setSummariesSeen(localStorage.getItem(SUMMARIES_SEEN_KEY) === '1')
+      }
+    } catch { setSummariesSeen(true) }
+  }, [pathname])
+
   useEffect(() => {
     const saved = (localStorage.getItem('theme') as 'dark' | 'light' | null) || 'dark'
     setTheme(saved)
@@ -247,6 +270,7 @@ export default function Sidebar({ email, navHidden }: { email: string; navHidden
           >
             {item.icon}
             <span>{t(item.key)}</span>
+            {item.href === '/polizza/riepiloghi' && !summariesSeen && <span className="nav-new">{t('nav.new')}</span>}
           </Link>
         ))}
       </nav>

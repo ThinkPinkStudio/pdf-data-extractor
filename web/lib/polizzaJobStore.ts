@@ -643,6 +643,115 @@ export async function getJobRuns(jobId: string, limit = 50): Promise<JobRunRow[]
   return rows.map((r: any) => ({ ...r, finished_at: Number(r.finished_at) }))
 }
 
+// ── LETTURE PER I RIEPILOGHI (26/09/2026) ────────────────────────────────────
+// Solo quel che serve a un riepilogo (niente logs, cursor, sources, prompt):
+// un riepilogo può avere 2000 polizze e il dettaglio si rilegge a ogni cambio
+// di filtro. Per questo i valori arrivano già PIATTI dal database (senza
+// «fonte» e affidabilità dello stato rolling), del precheck solo i segnali di
+// «Non valido» / «Procedi comunque», e i field_defs (con le descrizioni lunghe)
+// una volta sola per ogni insieme di campi distinto.
+
+/** Job con le sole colonne dei riepiloghi, più l'etichetta del batch. */
+export interface JobLightRow {
+  id: string
+  batch_id: string | null
+  dossier_name: string | null
+  scanned_files: string[]
+  status: JobStatus
+  field_defs: JobRow['field_defs']
+  /** Valori piatti {id campo: valore} (stessa regola di flattenRollingState). */
+  values?: Record<string, string>
+  /** Stato rolling completo: solo nei test (il modulo puro accetta l'uno o l'altro). */
+  rolling_state?: Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  profile_id: string | null
+  profile_name: string | null
+  /** Solo notValid, override e polizza.esito (jobValidity). */
+  precheck: Record<string, unknown> | null
+  error: string | null
+  source_job_id: string | null
+  duplicate_of: string | null
+  updated_at: number
+  batch_label: string | null
+}
+
+export async function getJobsLight(ids: string[]): Promise<JobLightRow[]> {
+  if (!ids.length) return []
+  // flat_values: {id: valore} dallo stato rolling, come flattenRollingState
+  // (voce {valore} non vuota, o stringa/numero non vuoti). field_defs solo
+  // sulla PRIMA riga di ogni insieme distinto (md5): le altre lo riprendono in JS.
+  const { rows } = await pool.query(
+    `SELECT j.id, j.batch_id, j.dossier_name, j.scanned_files, j.status,
+            j.profile_id, j.profile_name, left(j.error, 200) AS error, j.source_job_id, j.duplicate_of, j.updated_at,
+            b.label AS batch_label,
+            CASE WHEN j.precheck IS NULL OR jsonb_typeof(j.precheck) <> 'object' THEN NULL
+                 ELSE jsonb_build_object('notValid', j.precheck->'notValid', 'override', j.precheck->'override',
+                                         'polizza', jsonb_build_object('esito', j.precheck->'polizza'->'esito')) END AS precheck,
+            COALESCE((
+              SELECT jsonb_object_agg(e.key, CASE WHEN jsonb_typeof(e.value) = 'object' THEN e.value->>'valore' ELSE e.value #>> '{}' END)
+              FROM jsonb_each(CASE WHEN jsonb_typeof(j.rolling_state) = 'object' THEN j.rolling_state ELSE '{}'::jsonb END) e
+              WHERE CASE
+                WHEN jsonb_typeof(e.value) = 'object' THEN e.value ? 'valore' AND jsonb_typeof(e.value->'valore') <> 'null' AND COALESCE(e.value->>'valore', '') <> ''
+                WHEN jsonb_typeof(e.value) IN ('string', 'number') THEN COALESCE(e.value #>> '{}', '') <> ''
+                ELSE false END
+            ), '{}'::jsonb) AS flat_values,
+            md5(j.field_defs::text) AS fd_hash,
+            CASE WHEN row_number() OVER (PARTITION BY md5(j.field_defs::text) ORDER BY j.id) = 1 THEN j.field_defs END AS field_defs
+     FROM polizza_jobs j LEFT JOIN batch_jobs b ON b.id = j.batch_id
+     WHERE j.id = ANY($1::text[])`,
+    [ids],
+  )
+  const defsByHash = new Map<string, JobRow['field_defs']>()
+  for (const r of rows as any[]) if (r.field_defs) defsByHash.set(r.fd_hash, r.field_defs)
+  return rows.map((r: any) => {
+    const { flat_values, fd_hash, field_defs, ...rest } = r // eslint-disable-line @typescript-eslint/no-unused-vars
+    return { ...rest, values: flat_values || {}, field_defs: defsByHash.get(fd_hash) || [], updated_at: Number(r.updated_at) }
+  })
+}
+
+/** Nome e file dei job (per i nomi dei membri di un riepilogo, senza i valori). */
+export async function getJobLabels(ids: string[]): Promise<Map<string, { dossier_name: string | null; scanned_files: string[]; batch_label: string | null }>> {
+  const out = new Map<string, { dossier_name: string | null; scanned_files: string[]; batch_label: string | null }>()
+  if (!ids.length) return out
+  const { rows } = await pool.query(
+    `SELECT j.id, j.dossier_name, j.scanned_files, b.label AS batch_label
+     FROM polizza_jobs j LEFT JOIN batch_jobs b ON b.id = j.batch_id
+     WHERE j.id = ANY($1::text[])`,
+    [ids],
+  )
+  for (const r of rows as any[]) out.set(r.id, { dossier_name: r.dossier_name, scanned_files: r.scanned_files || [], batch_label: r.batch_label })
+  return out
+}
+
+/** Ultima run 'done' di ciascun job: i valori da usare mentre il job è in ri-estrazione. */
+export async function getLastDoneRuns(ids: string[]): Promise<Map<string, JobRunRow>> {
+  const out = new Map<string, JobRunRow>()
+  if (!ids.length) return out
+  const { rows } = await pool.query(
+    `SELECT DISTINCT ON (job_id) * FROM polizza_job_runs
+     WHERE job_id = ANY($1::text[]) AND status = 'done'
+     ORDER BY job_id, finished_at DESC, id DESC`,
+    [ids],
+  )
+  for (const r of rows as any[]) out.set(r.job_id, { ...r, finished_at: Number(r.finished_at) })
+  return out
+}
+
+/**
+ * Hash dei file per job (identità del contenuto): due job con lo stesso insieme
+ * di hash sono lo stesso fascicolo. NULL sulle righe precedenti alla migrazione
+ * (il confronto allora non si fa). I job di test non hanno righe proprie.
+ */
+export async function getFileHashesByJob(ids: string[]): Promise<Record<string, (string | null)[]>> {
+  const out: Record<string, (string | null)[]> = {}
+  if (!ids.length) return out
+  const { rows } = await pool.query<{ job_id: string; file_hash: string | null }>(
+    `SELECT job_id, file_hash FROM polizza_job_files WHERE job_id = ANY($1::text[])`,
+    [ids],
+  )
+  for (const r of rows) (out[r.job_id] = out[r.job_id] || []).push(r.file_hash)
+  return out
+}
+
 // Snapshot pubblico per il client (valori piatti + metadati job).
 export function jobSnapshot(job: JobRow) {
   return {

@@ -961,6 +961,62 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   anche se la riga non la nomina (sulle 17 prove generiche delle 4 misure
   qwen2.5 cambierebbe solo LUCCA).
 
+- **Riepilogo generale (26/09/2026, grafica approvata dall'utente sui
+  mockup)**: il cliente spunta in Elaborazioni (pagina del batch e «Estrazioni
+  singole») X polizze ESTRATTE dello stesso profilo e crea un RIEPILOGO
+  SALVATO: dati sommati dove ha senso, andamenti per anno, confronto tra due
+  anni. In vista Tabella «Aggiungi a un riepilogo ▾» e «Crea riepilogo» stanno
+  DENTRO la barra delle azioni collettive (`extraBulk` di JobsTable), in Coda
+  una barra propria; compaiono solo se la selezione ha almeno una polizza che
+  può entrare. Pannello «Nuovo riepilogo»: nome, profilo fisso, «Anno da»
+  (campi data, col numero di polizze che l'hanno), «valori nuovi» (live) o
+  «fotografia a oggi». Voce di menu «Riepiloghi» (`/polizza/riepiloghi`,
+  nascondibile come le altre, badge «nuovo» finché non la si apre); viste
+  Cruscotto | Tabella per anno | Per campo | Confronto; «Esporta Excel» (Per
+  anno, Polizze, Confronto A-B, Info). Codice: modulo PURO
+  `src/services/summaryAggregate.js` (tipi, statistiche, ammissione, membri,
+  fotografia, `summarize`; test `test/summaryAggregate.test.mjs`), regole del
+  server senza DB in `web/lib/summaryCompose.ts` (test
+  `test/summaryServer.cases.mjs`, lanciato da `summaryServer.test.mjs`), SQL e
+  PATCH in `web/lib/summaryStore.ts`, export in `summaryWorkbook.ts`, tipi in
+  `summaryTypes.ts`, route `/api/polizza/summaries` (+ `[id]`, `[id]/export`,
+  `preview`), UI in `web/components/summaries/` e
+  `app/(protected)/polizza/riepiloghi/`, tabella `polizza_summaries` (db.ts).
+  Regole: (1) il TIPO di un campo (identificativo, verifica, data, importo,
+  tasso, testo; importo «limite/condizione» → media) si legge SOLO dalla
+  DESCRIZIONE (`classifyField`: fieldAsksIdentifier, descriptionAsksVerification,
+  fieldValueKind, structuralNature), mai da id o label (un test sostituisce
+  tutte le label); (2) entrano solo job `done`, con valori, non run di test,
+  non Non validi, dello STESSO profilo (chiave = profile_id; estrazioni
+  singole: firma degli id dei campi, salvata in `field_sigs` all'ingresso così
+  una copia non attiva del profilo o un campo tolto nelle Impostazioni non le
+  fanno uscire); doppioni per hash dei file rifiutati; l'aggiunta fa entrare le
+  ammissibili e rimanda le altre col motivo; (3) LIVE = i numeri seguono le
+  ri-estrazioni: job in ri-estrazione → valori dell'ultima run completata (i
+  campi delle run hanno solo id e label: le descrizioni si completano dal
+  profilo del riepilogo), job tornati «Da verificare»/«Non pertinente»/«Non
+  valido» → esclusi, mai i valori vecchi; FOTOGRAFIA = valori copiati e
+  classificazione dei campi CONGELATA (`frozen` in `snapshot.fieldDefs`: un
+  ritocco del motore non cambia un report consegnato); «Congela» dice PRIMA
+  quante polizze escluse usciranno; «Aggiorna la fotografia» tiene la voce
+  vecchia di chi non è disponibile (tranne i Non validi); (4) Regola 4: la
+  completezza ha per denominatore i campi del profilo di riferimento × le
+  polizze; (5) una somma con polizze SENZA valore non è un calo: celle con «*»
+  e «n di N polizze con il valore», lo scarto di una somma incompleta
+  (`delta.partial`) non si colora, nell'Excel una riga «polizze con il valore»;
+  colori degli scarti come nei mockup: aumento verde, calo o parità neutri;
+  (6) PATCH OTTIMISTICO (letture fuori transazione, poi `FOR UPDATE` + `rev`,
+  3 tentativi, 409 `conflict`): una transazione che chiede altre connessioni
+  al pool lo esaurisce; (7) gli errori dell'API hanno un `code` tradotto
+  dall'interfaccia (`rp.err.<code>`), i 500 non mostrano il messaggio del DB.
+  Aperti: nessuna prova su Postgres (migrazione, SQL di `getJobsLight` e del
+  PATCH da verificare al primo avvio); la fotografia copia dati personali
+  (contraente, P.IVA) che restano dopo l'eliminazione del job; la stessa
+  polizza due volte nello stesso anno è solo un avviso (`samePolicy`) e conta
+  due volte; una polizza conta in un solo anno (quello del suo «Anno da»);
+  anche in fotografia i valori si rileggono con i parser del motore
+  (parseAmountMaybe, normalizeDateValue, isAbsencePlaceholder).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

@@ -228,6 +228,57 @@ export async function initDb() {
       created_at    BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
   `)
+
+  // Riepiloghi generali in una query A PARTE: un errore in questa DDL non deve
+  // fermare l'avvio dell'app (la query principale sopra resta intatta).
+  try {
+    await pool.query(`
+    -- RIEPILOGHI GENERALI (26/09/2026): X polizze ESTRATTE dello stesso profilo,
+    -- aggregate per anno. Nessuna FK verso polizza_jobs: un job eliminato non
+    -- deve far sparire il riepilogo (in "fotografia" i valori sono copiati qui).
+    -- profile_id = chiave del profilo (id del profilo, o 'campi:<sha1>' per le
+    -- estrazioni singole senza profilo); job_ids nell'ordine di aggiunta, senza
+    -- doppioni (max 2000); snapshot NULL in modo 'live'; prefs = solo le scelte
+    -- dell'utente (i default si calcolano a ogni lettura). snapshot_at = data
+    -- della fotografia in colonna (l'elenco non decomprime la fotografia);
+    -- field_sigs = firme dei campi delle estrazioni singole ammesse (chiave
+    -- stabile se le Impostazioni cambiano); rev = versione per il PATCH ottimistico.
+    CREATE TABLE IF NOT EXISTS polizza_summaries (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      profile_id    TEXT NOT NULL,
+      profile_name  TEXT,
+      year_field_id TEXT,
+      due_field_id  TEXT,
+      mode          TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','snapshot')),
+      job_ids       JSONB NOT NULL DEFAULT '[]',
+      snapshot      JSONB,
+      snapshot_at   BIGINT,
+      prefs         JSONB NOT NULL DEFAULT '{}',
+      field_sigs    JSONB NOT NULL DEFAULT '[]',
+      rev           BIGINT NOT NULL DEFAULT 0,
+      created_by    TEXT NOT NULL,
+      created_at    BIGINT NOT NULL,
+      updated_at    BIGINT NOT NULL
+    );
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS profile_name  TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS year_field_id TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS due_field_id  TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS mode          TEXT NOT NULL DEFAULT 'live';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS job_ids       JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS snapshot      JSONB;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS prefs         JSONB NOT NULL DEFAULT '{}';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS snapshot_at   BIGINT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS field_sigs    JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS rev           BIGINT NOT NULL DEFAULT 0;
+    UPDATE polizza_summaries SET snapshot_at = (snapshot->>'takenAt')::numeric::bigint
+      WHERE snapshot IS NOT NULL AND snapshot_at IS NULL AND jsonb_typeof(snapshot->'takenAt') = 'number';
+    CREATE INDEX IF NOT EXISTS idx_polizza_summaries_profile ON polizza_summaries(profile_id);
+    CREATE INDEX IF NOT EXISTS idx_polizza_summaries_updated ON polizza_summaries(updated_at DESC);
+    `)
+  } catch (e) {
+    console.error('[initDb] riepiloghi generali: tabella polizza_summaries non pronta:', e)
+  }
 }
 
 /**

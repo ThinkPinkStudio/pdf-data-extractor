@@ -10,6 +10,8 @@ export const NAV_EXTRACTOR_ITEMS: NavEntry[] = [
   { href: '/polizza', key: 'nav.polizza' },
   { href: '/polizza/bulk', key: 'nav.bulk' },
   { href: '/polizza/jobs', key: 'nav.jobsDash' },
+  // Riepiloghi generali (26/09/2026): polizze estratte dello stesso profilo, sommate e per anno.
+  { href: '/polizza/riepiloghi', key: 'nav.summaries' },
   { href: '/batch', key: 'nav.batch' },
   { href: '/archive', key: 'nav.archive' },
   { href: '/chat', key: 'nav.chat' },

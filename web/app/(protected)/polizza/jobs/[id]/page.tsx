@@ -18,6 +18,7 @@ import { FolderSchema } from '@/components/jobs/FolderSchema'
 import { JobDetail } from '@/components/jobs/JobDetail'
 import { ActionMenu } from '@/components/jobs/ActionMenu'
 import { IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, IcTable, IcTree, IcZip } from '@/components/jobs/Icons'
+import { useSummarySelection } from '@/components/summaries/useSummarySelection'
 
 const VIEW_KEY = 'jobsView'
 const REASON_KEY = 'jobsReasonFull'
@@ -112,8 +113,12 @@ function BatchView() {
 
   const label = meta?.label || ''
   const A = useJobActions({ batchId: id, batchLabel: label, isSingles, reload })
+  // Riepiloghi generali: pulsanti nella barra della selezione (Tabella) o
+  // barra propria (Coda), e il pannello «Nuovo riepilogo».
+  const R = useSummarySelection({ batchLabel: label, isSingles })
 
   const all = useMemo(() => jobs || [], [jobs])
+  const checkedJobs = useMemo(() => all.filter((j) => checked.has(j.jobId)), [all, checked])
   const counts = useMemo(() => countByFilter(all), [all])
   const summary = useMemo(() => summarizeJobs(all, id, label, meta?.owner || ''), [all, id, label, meta])
   const q = query.trim().toLowerCase()
@@ -218,7 +223,7 @@ function BatchView() {
         {view === 'tabella' ? (
           <div style={{ display: 'flex', flex: '1 1 0', minHeight: 0 }}>
             <JobsTable jobs={visible} allJobs={all} batchLabel={label} selectedId={selectedId} onSelect={(jid) => setSelectedId(jid === selectedId ? null : jid)}
-              checked={checked} onChecked={setChecked} A={A} onOpenTab={openTab} reasonFull={reasonFull} />
+              checked={checked} onChecked={setChecked} A={A} onOpenTab={openTab} reasonFull={reasonFull} extraBulk={R.actions(checkedJobs)} />
             {selected && (
               <JobDetail variant="drawer" job={selected} batchLabel={label} position={position} onPrev={goPrev} onNext={goNext}
                 onClose={() => setSelectedId(null)} tab={tab} onTab={setTab} A={A} />
@@ -230,9 +235,13 @@ function BatchView() {
         )}
       </div>
 
+      {view === 'coda' && R.bar(checkedJobs, () => setChecked(new Set()))}
+
       {schemaOpen && <FolderSchema jobs={all} batchLabel={label} onClose={() => setSchemaOpen(false)} />}
       {A.dialog}
       {A.confirmPanel}
+      {R.panel}
+      {R.confirmPanel}
     </div>
   )
 }

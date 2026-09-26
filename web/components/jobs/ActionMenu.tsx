@@ -1,12 +1,17 @@
 'use client'
-import { Fragment, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { IcMore } from './Icons'
+
+// useLayoutEffect solo nel browser (nel render del server React avvisa).
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 export interface MenuItem { id: string; label: string; icon?: ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string }
 
 // Menu ⋯: le celle della tabella hanno overflow nascosto, quindi il pannello
 // è posizionato in FIXED sulle coordinate del pulsante; scroll/Escape/click
-// fuori lo chiudono.
+// fuori lo chiudono. Lo scroll DENTRO il menu no (i menu lunghi con
+// max-height scorrono: riepiloghi, anni), e dopo l'apertura la posizione si
+// corregge con l'altezza vera (sopra il pulsante se sotto non c'è posto).
 export function ActionMenu({ items, ariaLabel, trigger, className }: { items: MenuItem[]; ariaLabel: string; trigger?: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
@@ -21,7 +26,10 @@ export function ActionMenu({ items, ariaLabel, trigger, className }: { items: Me
       setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    const onScroll = () => setOpen(false)
+    const onScroll = (e: Event) => {
+      if (e.type === 'scroll' && e.target instanceof Node && menuRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScroll, true)
@@ -32,6 +40,16 @@ export function ActionMenu({ items, ariaLabel, trigger, className }: { items: Me
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onScroll)
     }
+  }, [open])
+
+  // Altezza vera (max-height del CSS compresa): sotto il pulsante se c'è posto, altrimenti sopra.
+  useIsoLayoutEffect(() => {
+    if (!open || !menuRef.current || !btnRef.current) return
+    const h = menuRef.current.getBoundingClientRect().height
+    const r = btnRef.current.getBoundingClientRect()
+    let top = r.bottom + 4
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - 4 - h)
+    setPos((p) => (p && Math.abs(p.top - top) > 0.5 ? { ...p, top } : p))
   }, [open])
 
   if (!items.length) return null
