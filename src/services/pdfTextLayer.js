@@ -124,6 +124,33 @@ export { joinSplitNumbers, joinSplitNumbersInPages } from './splitNumbers.js'
  * @param {{ password?: string, settings?: object }} [opts]  settings: per i flag del motore (campi compilabili)
  * @returns {Promise<string[]>}
  */
+/**
+ * La pagina è una SCANSIONE con l'OCR invisibile dello scanner? Vero se tutto
+ * il testo mostrato è in modo di resa invisibile (3 o 7) e la pagina dipinge
+ * almeno un'immagine. Una pagina con testo visibile (anche se ha immagini o un
+ * po' di testo invisibile) resta digitale.
+ * @param {{fnArray:number[], argsArray:any[]}} opList  page.getOperatorList()
+ * @param {Record<string, number>} OPS  pdfjs.OPS
+ */
+export function isInvisibleTextScan(opList, OPS) {
+  const fns = opList?.fnArray || []
+  const args = opList?.argsArray || []
+  const show = new Set([OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText].filter((x) => x != null))
+  const paint = new Set([OPS.paintImageXObject, OPS.paintJpegXObject, OPS.paintInlineImageXObject, OPS.paintImageXObjectRepeat].filter((x) => x != null))
+  // il modo di resa fa parte dello stato grafico: save/restore lo salvano e ripristinano
+  const stack = []
+  let mode = 0, visible = 0, invisible = 0, images = 0
+  for (let i = 0; i < fns.length; i++) {
+    const fn = fns[i]
+    if (fn === OPS.setTextRenderingMode) mode = Number(args[i]?.[0]) || 0
+    else if (fn === OPS.save) stack.push(mode)
+    else if (fn === OPS.restore) mode = stack.length ? stack.pop() : 0
+    else if (show.has(fn)) { if (mode === 3 || mode === 7) invisible++; else visible++ }
+    else if (paint.has(fn)) images++
+  }
+  return invisible > 0 && visible === 0 && images > 0
+}
+
 export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
   const withFormFields = engineFlag(opts.settings || {}, 'campi')
   const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
@@ -150,6 +177,18 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
             const extra = formFieldItems(await page.getAnnotations({ intent: 'display' }))
             if (extra.length) items = [...items, ...extra]
           } catch { /* annotazioni illeggibili: solo il testo della pagina */ }
+        }
+        // Pagina «sandwich»: un'IMMAGINE con sopra solo testo INVISIBILE (modo
+        // di resa 3/7), cioè l'OCR messo dallo scanner. Non è testo digitale: è
+        // una scansione e si rilegge con il motore OCR del programma (pagina
+        // vuota qui → OCR nel worker). L'OCR degli scanner storpia numeri e
+        // importi: «2r2.044.0000902205», «Euro2ll3,1l» nelle quietanze di
+        // rinnovo Vittoria (27/09/2026), dove Tesseract legge «212.044.0000902205»
+        // e «Euro 2113,11».
+        if (items.some((it) => it && typeof it.str === 'string' && it.str.trim())) {
+          try {
+            if (isInvisibleTextScan(await page.getOperatorList(), pdfjs.OPS)) items = []
+          } catch { /* lista operatori illeggibile: si tiene il testo */ }
         }
         const blocks = textContentToBlocks({ items }, { viewport: page.getViewport({ scale: 1 }) })
         spatial = blocks.length ? buildSpatialPage(blocks).trim().split('\n').map(joinSplitNumbers).join('\n') : ''

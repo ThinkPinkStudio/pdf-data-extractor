@@ -2195,6 +2195,19 @@ export function validateCrossFields(best, fields, opts = {}) {
     else if (n === 'premio_imponibile' && !tImponibile) tImponibile = f
     else if (n === 'imposta' && !tImposta) tImposta = f
   }
+  // IMPONIBILE = IMPOSTE (non nulli): le imposte sono una frazione
+  // dell'imponibile, lo stesso importo in entrambi è lo stesso numero copiato
+  // due volte (P05 del 27/09/2026: il premio lordo di una garanzia in tutti e
+  // due): quale dei due sia giusto non si sa, meglio vuoti.
+  if (tImponibile && tImposta && (tImponibile.id in best) && (tImposta.id in best)) {
+    const imp0 = parsePureAmount(entryValore(best, tImponibile.id)) ?? looseAmount(entryValore(best, tImponibile.id))
+    const tax0 = parsePureAmount(entryValore(best, tImposta.id)) ?? looseAmount(entryValore(best, tImposta.id))
+    if (imp0 != null && tax0 != null && imp0 > 0 && Math.abs(imp0 - tax0) < 0.005) {
+      const v = entryValore(best, tImponibile.id)
+      dropField(best, tImponibile.id, notes, `Coerenza premio: imponibile = imposte = ${v} → stesso numero copiato in due campi: svuotati entrambi (meglio vuoti che sbagliati)`)
+      dropField(best, tImposta.id, notes, `Coerenza premio: imposte = imponibile = ${v}: svuotate`)
+    }
+  }
   if (tTotale && tImponibile && tImposta) {
     if ((tTotale.id in best) && (tImponibile.id in best) && (tImposta.id in best)) {
       const tot = parsePureAmount(entryValore(best, tTotale.id)) ?? looseAmount(entryValore(best, tTotale.id))

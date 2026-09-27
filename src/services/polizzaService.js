@@ -1052,8 +1052,13 @@ export function sanitizeFieldValue(field, rawValue) {
   // non potevano MAI ricevere un valore (visto sul GUFFANTI: sempre vuoti).
   if (/parametro/.test(low) && isTextualField(field) && /^[\d\s.,]+[%‰]?$/.test(v)) return null
 
-  // Il tasso è un numero per mille: togli l'eventuale simbolo
-  if (/\btass/.test(low)) return v.replace(/\s*[‰%]\s*$/, '')
+  // Il tasso è un numero per mille: togli l'eventuale simbolo. Se la
+  // DESCRIZIONE dice che il tasso è «per mille» (‰), un valore scritto in
+  // PERCENTUALE è un altro dato (P04 del 27/09/2026: «3%» diventava un tasso di 3‰).
+  if (/\btass/.test(low)) {
+    if (/%\s*$/.test(v) && /per\s*mille|‰/i.test(String(field.description || ''))) return null
+    return v.replace(/\s*[‰%]\s*$/, '')
+  }
 
   // Massimali, premi, imposte e importi sono SOMME, non aliquote percentuali —
   // se il TIPO dichiarato dalla testa della descrizione è un importo
@@ -3289,6 +3294,25 @@ export function findA7Row(rows, rowLabelNorm, valueNorm) {
 }
 
 /**
+ * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
+ * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
+ * (divisa su virgola/punto e virgola) coincide, normalizzata, con
+ * un'intestazione di colonna delle righe inviate. Un'intestazione che è anche il
+ * valore di una cella (schede con una colonna per garanzia) non conta: la riga
+ * lo porta.
+ */
+export function isColumnHeaderValue(value, rowHit, rows) {
+  const vn = normForMatch(value)
+  if (!vn) return false
+  const cells = (rowHit?.row?.cols || []).map((c) => normForMatch(c.value)).filter(Boolean)
+  if (cells.some((n) => n === vn || n.includes(vn))) return false
+  const headers = new Set((rows || []).flatMap((r) => (r?.row?.cols || []).map((c) => normForMatch(c.header))).filter(Boolean))
+  if (!headers.size) return false
+  const items = String(value).split(/[;,]/).map((x) => normForMatch(x)).filter(Boolean)
+  return items.length > 0 && items.every((it) => headers.has(it))
+}
+
+/**
  * Campo di una chiave della risposta dello Stadio A.7: SOLO per indice
  * ("3", "c3", "k3", "k3_…"). Niente ripiego sulle parole della LABEL
  * (Regola 1: la label non guida mai la scelta del valore): una chiave che non
@@ -5481,6 +5505,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               }
             }
             if (!colOk) continue
+            // Il valore è il NOME di una colonna, non un dato: nessuna cella della
+            // riga citata lo porta e ogni sua voce coincide con un'intestazione di
+            // colonna delle tabelle del documento («TUTELA LEGALE» per le Garanzie
+            // scelte, riga «Difesa Condominio - ed.2019», colonna col2 intestata
+            // TUTELA LEGALE: 10 schede DAS condominio del 27/09/2026). Il campo resta
+            // agli altri stadi.
+            if (isColumnHeaderValue(cleaned, rowHit, rows)) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è l'intestazione di una colonna, non un valore della riga`)
+              continue
+            }
             // PAGINA reale: quella della riga che porta il valore, altrimenti la
             // prima tabella inviata che lo contiene (sempre di questo documento).
             const vnorm = normForMatch(cleaned)

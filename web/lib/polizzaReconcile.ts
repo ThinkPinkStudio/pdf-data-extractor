@@ -71,7 +71,14 @@ export async function reconcileBatch(batchId: string): Promise<void> {
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
           if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
         }
-        files.push({ idx: f.idx, numbers: pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : [] })
+        // Prime NUMBER_PAGES pagine; se lì non c'è nessun numero (scansione
+        // firmata che apre con l'informativa privacy, numero a pag. 7) tutte le
+        // pagine lette. Chi ha già un numero in testa non legge oltre: le
+        // condizioni citano altre polizze e codici d'agenzia comuni a più
+        // contratti (misura sui 184 dossier del cliente, 27/09/2026).
+        let numbers: string[] = pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : []
+        if (pages && !numbers.length && pages.length > NUMBER_PAGES) numbers = svc.extractPolicyNumbersFromPages(pages)
+        files.push({ idx: f.idx, numbers })
       }
       await updateJob(d.id, { progress: {} })
       input.push({ id: d.id, path: d.dossier_name || d.id, files })

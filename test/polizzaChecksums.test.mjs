@@ -881,3 +881,19 @@ test('descrizione riscritta: tacito rinnovo / frazionamento restano TESTO (MAI n
   assert.equal(isTextualNumericOnly(fraz, '75,00'), true)
   assert.equal(isTextualNumericOnly(fraz, 'annuale'), false)
 })
+
+test('validateCrossFields: imponibile = imposte non nulli → svuotati entrambi (stesso numero copiato)', () => {
+  const best = { [XF_IDS.premio_imponibile]: { valore: '30,01' }, [XF_IDS.imposta]: { valore: '30,01' }, [XF_IDS.premio_totale]: { valore: '2.804,00' } }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(XF_IDS.premio_imponibile in best, false)
+  assert.equal(XF_IDS.imposta in best, false)
+  assert.equal(best[XF_IDS.premio_totale].valore, '2.804,00')
+  assert.ok(notes.some((n) => /stesso numero copiato/.test(n)))
+  // valori diversi o zeri: invariati
+  const ok = { [XF_IDS.premio_imponibile]: { valore: '207,83' }, [XF_IDS.imposta]: { valore: '44,17' } }
+  validateCrossFields(ok, XF_FIELDS)
+  assert.equal(ok[XF_IDS.premio_imponibile].valore, '207,83')
+  const zero = { [XF_IDS.premio_imponibile]: { valore: '0,00' }, [XF_IDS.imposta]: { valore: '0,00' } }
+  validateCrossFields(zero, XF_FIELDS)
+  assert.equal(zero[XF_IDS.imposta].valore, '0,00')
+})
