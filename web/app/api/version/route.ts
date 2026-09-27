@@ -34,6 +34,7 @@ const BUILD_FEATURES = [
   'pertinenza-prodotto', // «non determinabile» non contraddice un «non operante» provato; prova di un prodotto TL dal documento che la nomina (26/09/2026)
   'pertinenza-documento', // il documento che nomina la copertura su tutte le sue pagine; regola (a) senza i «no» della scheda; frontespizio dal titolo (26/09/2026)
   'pertinenza-spunte',   // ✓ punto elenco ≠ spunta, «art. 6,13» ≠ importo, riga ‡ con importo coi decimali; fine dello stream Ollama nel log (27/09/2026)
+  'estrazione-sandwich', // pagine immagine + OCR invisibile dello scanner → OCR; intestazione di colonna ≠ valore (A.7); imponibile = imposte svuotati; numeri oltre pag. 5 (27/09/2026)
 ]
 
 export async function GET() {
