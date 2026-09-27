@@ -24,6 +24,12 @@ test('valori veri restano: una cella lo porta, oppure non è un\'intestazione', 
   const g = [row('Garanzie', [{ header: 'Tutela Legale', value: 'Tutela Legale' }])]
   assert.equal(isColumnHeaderValue('Tutela Legale', g[0], g), false)
   assert.equal(isColumnHeaderValue('TUTELA LEGALE', null, []), false)
+  // Docling chiave/valore: la prima riga di dati finita nell'intestazione (date, importi, civici)
+  const kv = [row('Decorrenza', [{ header: '31/12/2024', value: '' }])]
+  assert.equal(isColumnHeaderValue('31/12/2024', kv[0], kv), false)
+  // intestazione di un'ALTRA riga/tabella: la regola guarda solo la riga citata
+  const other = [...das, row('Frazionamento', [{ header: 'Annuale', value: '' }])]
+  assert.equal(isColumnHeaderValue('Annuale', das[0], other), false)
 })
 
 test('tasso per mille: un valore in percentuale è un altro dato', async () => {

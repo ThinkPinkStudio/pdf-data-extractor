@@ -163,6 +163,7 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
   }).promise
   try {
     const pages = []
+    let sandwich = 0
     for (let p = 1; p <= doc.numPages; p++) {
       let spatial = ''
       try {
@@ -187,7 +188,7 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
         // e «Euro 2113,11».
         if (items.some((it) => it && typeof it.str === 'string' && it.str.trim())) {
           try {
-            if (isInvisibleTextScan(await page.getOperatorList(), pdfjs.OPS)) items = []
+            if (isInvisibleTextScan(await page.getOperatorList(), pdfjs.OPS)) { items = []; sandwich++ }
           } catch { /* lista operatori illeggibile: si tiene il testo */ }
         }
         const blocks = textContentToBlocks({ items }, { viewport: page.getViewport({ scale: 1 }) })
@@ -197,6 +198,10 @@ export async function spatialPagesFromPdf(pdfBuf, opts = {}) {
       }
       pages.push(spatial)
     }
+    // Pagine «sandwich» svuotate (non enumerabile: l'array resta un array di
+    // stringhe): serve alla chiave della cache OCR, che per questi documenti
+    // cambia, così il testo dello scanner già in cache non viene riusato.
+    Object.defineProperty(pages, 'sandwichPages', { value: sandwich, enumerable: false })
     return pages
   } finally {
     try { await doc.destroy() } catch { /* già distrutto */ }

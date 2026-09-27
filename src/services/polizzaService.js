@@ -3301,12 +3301,16 @@ export function findA7Row(rows, rowLabelNorm, valueNorm) {
  * valore di una cella (schede con una colonna per garanzia) non conta: la riga
  * lo porta.
  */
-export function isColumnHeaderValue(value, rowHit, rows) {
+export function isColumnHeaderValue(value, rowHit, _rows) { // eslint-disable-line no-unused-vars
+  // Solo testi senza cifre (date, importi e nomi con civico nelle tabelle
+  // chiave/valore di Docling finiscono a volte nell'intestazione: sono dati) e
+  // solo contro le intestazioni della RIGA CITATA (senza riga, niente regola).
+  if (!rowHit || /\d/.test(String(value || ''))) return false
   const vn = normForMatch(value)
   if (!vn) return false
-  const cells = (rowHit?.row?.cols || []).map((c) => normForMatch(c.value)).filter(Boolean)
-  if (cells.some((n) => n === vn || n.includes(vn))) return false
-  const headers = new Set((rows || []).flatMap((r) => (r?.row?.cols || []).map((c) => normForMatch(c.header))).filter(Boolean))
+  const cols = rowHit.row?.cols || []
+  if (cols.some((c) => { const n = normForMatch(c.value); return !!n && (n === vn || n.includes(vn)) })) return false
+  const headers = new Set(cols.map((c) => normForMatch(c.header)).filter(Boolean))
   if (!headers.size) return false
   const items = String(value).split(/[;,]/).map((x) => normForMatch(x)).filter(Boolean)
   return items.length > 0 && items.every((it) => headers.has(it))

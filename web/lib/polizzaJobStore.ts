@@ -183,9 +183,14 @@ export const OCR_FORMAT = 4
 // Chiave della cache OCR per MOTORE di lettura: Tesseract usa l'hash del file
 // (voci esistenti), un modello visivo `<hash>:vis:<modello>`. Senza, un A/B
 // Tesseract ↔ modello visivo avrebbe riletto il testo dell'altro motore.
-export function ocrCacheKey(fileHash: string, settings: { polizzaOcrEngine?: string } | null | undefined): string {
+// Documento con pagine «sandwich» (immagine + OCR invisibile dello scanner,
+// pdfTextLayer.sandwichPages): chiave a parte `…:sw`. Prima quelle pagine
+// contavano come digitali e la cache ha il testo dello scanner sotto la chiave
+// normale: senza chiave nuova resterebbe quello («2r2.044…», 27/09/2026).
+export function ocrCacheKey(fileHash: string, settings: { polizzaOcrEngine?: string } | null | undefined, sandwich = false): string {
   const e = String(settings?.polizzaOcrEngine || '').trim()
-  return e && e.toLowerCase() !== 'tesseract' ? `${fileHash}:vis:${e}` : fileHash
+  const base = e && e.toLowerCase() !== 'tesseract' ? `${fileHash}:vis:${e}` : fileHash
+  return sandwich ? `${base}:sw` : base
 }
 
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {

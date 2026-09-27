@@ -84,6 +84,21 @@ async function markdownFromDocling(doclingUrl: string, pdfBuf: Buffer): Promise<
 // Ritorna null se il PDF non si apre o nessuna pagina ha text layer (scansione):
 // in quel caso il chiamante NON deve passare spatialPages vuote al motore
 // (pagine vuote = niente prompt), ma usare il markdown o l'OCR.
+/** Text layer + numero di pagine «sandwich» (anche quando il documento non ha testo digitale). */
+async function textLayerInfo(pdfBuf: Buffer, settings?: any): Promise<{ pages: string[] | null; sandwich: number }> {
+  try {
+    const { spatialPagesFromPdf: fromPdf, hasTextLayer } = await importSharedService<{
+      spatialPagesFromPdf: (b: Buffer, opts?: { settings?: any }) => Promise<string[]>
+      hasTextLayer: (p: string[]) => boolean
+    }>('pdfTextLayer.js')
+    const pages = await fromPdf(pdfBuf, { settings })
+    const sandwich = Number((pages as any)?.sandwichPages) || 0
+    return { pages: hasTextLayer(pages) ? pages : null, sandwich }
+  } catch {
+    return { pages: null, sandwich: 0 }
+  }
+}
+
 async function spatialPagesFromPdf(pdfBuf: Buffer, settings?: any): Promise<string[] | null> {
   try {
     const { spatialPagesFromPdf: fromPdf, hasTextLayer } = await importSharedService<{
@@ -132,9 +147,10 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   log?: (line: string) => Promise<void>
   isCanceled?: () => Promise<boolean>
   onPage?: (page: number, total: number) => Promise<void>
-} = {}): Promise<{ pages: string[]; canceled?: boolean; ocrPages?: number } | null> {
+} = {}): Promise<{ pages: string[]; canceled?: boolean; ocrPages?: number; sandwich?: number } | null> {
   const log = hooks.log || (async () => {})
-  const textLayer = await spatialPagesFromPdf(buf, settings)
+  const { pages: textLayer, sandwich } = await textLayerInfo(buf, settings)
+  if (sandwich) await log(`"${docName}": ${sandwich} pagine con solo il testo invisibile dello scanner → rilette con l'OCR`)
   const needOcr = textLayer ? textLayer.map((t, i) => (t && t.trim() ? -1 : i + 1)).filter((p) => p > 0) : null
   let doc: Awaited<ReturnType<typeof loadPdfServer>> | null = null
   if (!textLayer || needOcr!.length) {
@@ -158,7 +174,7 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   let ocrPages = 0
   try {
     for (let p = 1; p <= totalPages; p++) {
-      if (hooks.isCanceled && await hooks.isCanceled()) return { pages, canceled: true, ocrPages }
+      if (hooks.isCanceled && await hooks.isCanceled()) return { pages, canceled: true, ocrPages, sandwich }
       if (hooks.onPage) await hooks.onPage(p, totalPages)
       const layer = textLayer ? textLayer[p - 1] : ''
       if (layer && layer.trim()) { pages.push(layer); continue }
@@ -174,7 +190,7 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   } finally {
     if (doc) await doc.destroy()
   }
-  return { pages, ocrPages }
+  return { pages, ocrPages, sandwich }
 }
 
 /** Il job sta girando in questo processo (anche se nel DB risulta annullato). */
@@ -401,9 +417,10 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // con la chiave per motore una prova «OCR visivo» rileggeva da zero anche i
     // digitali (griglia ricalcolata) e il confronto con la base non era pulito
     // (GUFFANTI RC 33 → 29 senza una sola pagina letta dal modello visivo).
-    const layerProbe = mdDoc ? null : await spatialPagesFromPdf(buf, settings)
+    const probeInfo = mdDoc ? { pages: null, sandwich: 0 } : await textLayerInfo(buf, settings)
+    const layerProbe = probeInfo.pages
     const hasScanPages = !layerProbe || layerProbe.some((t) => !t || !t.trim())
-    const docCacheKey = mdDoc || !hasScanPages ? fileHash : ocrCacheKey(fileHash, settings)
+    const docCacheKey = mdDoc || !hasScanPages ? fileHash : ocrCacheKey(fileHash, settings, probeInfo.sandwich > 0)
     if (!mdDoc) {
       try { cachedPages = await getOcrCache(docCacheKey) } catch { /* cache mai bloccante */ }
       if (!cachedPages) {
@@ -462,8 +479,22 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // Griglia = text layer di ADESSO quando c'è (stesso percorso testo di
       // tutto il resto, campi compilabili compresi); la cache solo se il PDF
       // non ha text layer (numeri spezzati ricomposti, vedi rejoinCachedGrid).
-      spatial = await spatialPagesFromPdf(buf, settings)
-      if (spatial) {
+      const info = await textLayerInfo(buf, settings)
+      spatial = info.pages
+      if (info.sandwich > 0) {
+        // Pagine «sandwich»: il testo invisibile dello scanner è spazzatura
+        // (anche Docling lo usa); la griglia di quelle pagine viene dall'OCR del
+        // programma, in cache sotto la chiave `…:sw`.
+        const swKey = ocrCacheKey(fileHash, settings, true)
+        let sw = await getOcrCache(swKey).catch(() => null)
+        if (!sw) {
+          const read = await readPdfPagesWithOcr(buf, docName, settings, { log: (line) => appendLog(job, line, logs), isCanceled: () => isCanceled(job.id) })
+          if (read?.canceled) return
+          sw = read?.pages || null
+          if (sw && sw.some((t) => t && t.trim())) { try { await putOcrCache(swKey, docName, sw) } catch { /* non fatale */ } }
+        }
+        if (sw && sw.length) spatial = sw.map((t, i) => (spatial && spatial[i] && spatial[i].trim() ? spatial[i] : (t || '')))
+      } else if (spatial) {
         if (!cacheIsGrid) {
           try { await putOcrCache(fileHash, docName, spatial) } catch { /* non fatale */ }
         }
@@ -503,7 +534,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
     // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
     if (docPages.some((t) => t && t.trim())) {
-      try { await putOcrCache((read.ocrPages || 0) > 0 ? ocrCacheKey(fileHash, settings) : fileHash, docName, docPages) } catch { /* non fatale */ }
+      try { await putOcrCache((read.ocrPages || 0) > 0 ? ocrCacheKey(fileHash, settings, (read.sandwich || 0) > 0) : fileHash, docName, docPages) } catch { /* non fatale */ }
     }
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ocr: (read.ocrPages || 0) > 0 })

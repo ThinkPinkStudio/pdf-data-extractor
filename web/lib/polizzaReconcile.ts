@@ -23,12 +23,12 @@ interface ReconcileSvc {
   planReconcile: (d: { id: string; path: string; files: { idx: number; numbers: string[] }[] }[]) => { target: string; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }[]
 }
 
-async function spatialPagesOf(buf: Buffer, settings?: any): Promise<string[] | null> {
+async function spatialPagesOf(buf: Buffer, settings?: any): Promise<{ pages: string[] | null; sandwich: number }> {
   try {
     const { spatialPagesFromPdf, hasTextLayer } = await importSharedService<{ spatialPagesFromPdf: (b: Buffer, opts?: { settings?: any }) => Promise<string[]>; hasTextLayer: (p: string[]) => boolean }>('pdfTextLayer.js')
     const pages = await spatialPagesFromPdf(buf, { settings })
-    return hasTextLayer(pages) ? pages : null
-  } catch { return null }
+    return { pages: hasTextLayer(pages) ? pages : null, sandwich: Number((pages as any)?.sandwichPages) || 0 }
+  } catch { return { pages: null, sandwich: 0 } }
 }
 
 async function freshDigitalPages(cached: string[], layer: string[]): Promise<string[]> {
@@ -60,8 +60,9 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
         // Stessa chiave del worker: per motore OCR solo se ci sono pagine scansionate.
         const buf = b64 ? Buffer.from(b64, 'base64') : null
-        const probe = buf ? await spatialPagesOf(buf, settings) : null
-        const key = hash ? ((!probe || probe.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings) : hash) : null
+        const probeInfo = buf ? await spatialPagesOf(buf, settings) : { pages: null, sandwich: 0 }
+        const probe = probeInfo.pages
+        const key = hash ? ((!probe || probe.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings, probeInfo.sandwich > 0) : hash) : null
         if (key) pages = await getOcrCache(key).catch(() => null)
         // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
         if (pages && probe) pages = await freshDigitalPages(pages, probe)
@@ -71,14 +72,7 @@ export async function reconcileBatch(batchId: string): Promise<void> {
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
           if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
         }
-        // Prime NUMBER_PAGES pagine; se lì non c'è nessun numero (scansione
-        // firmata che apre con l'informativa privacy, numero a pag. 7) tutte le
-        // pagine lette. Chi ha già un numero in testa non legge oltre: le
-        // condizioni citano altre polizze e codici d'agenzia comuni a più
-        // contratti (misura sui 184 dossier del cliente, 27/09/2026).
-        let numbers: string[] = pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : []
-        if (pages && !numbers.length && pages.length > NUMBER_PAGES) numbers = svc.extractPolicyNumbersFromPages(pages)
-        files.push({ idx: f.idx, numbers })
+        files.push({ idx: f.idx, numbers: pages ? svc.extractPolicyNumbersFromPages(pages.slice(0, NUMBER_PAGES)) : [] })
       }
       await updateJob(d.id, { progress: {} })
       input.push({ id: d.id, path: d.dossier_name || d.id, files })
