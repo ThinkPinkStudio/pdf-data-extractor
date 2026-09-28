@@ -15,7 +15,7 @@ function writeExtractAfter(v: boolean) { try { localStorage.setItem(EXTRACT_AFTE
 // Dialog universale di rilancio: run di TEST (copia, profilo opzionale),
 // RIELABORA CON PROFILO (stesso job in coda coi campi del profilo scelto),
 // RIABBINA (solo OCR dalla cache + pertinenza, profilo attuale / scelto / Automatico).
-export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, initialProfileId, canReconcile, onCancel, onSubmit }: {
+export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, initialProfileId, canReconcile, initialExtractAfter, onCancel, onSubmit }: {
   mode: ReprofileMode
   jobs: JobSnapshot[]
   profiles: { id: string; name: string }[]
@@ -25,6 +25,8 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   initialProfileId?: string | null
   // Riabbina di più dossier di UN batch: si può riconciliare prima (non per le singole).
   canReconcile?: boolean
+  // «Riabbina ed estrai»: la casella parte accesa (altrimenti l'ultima scelta).
+  initialExtractAfter?: boolean
   onCancel: () => void
   onSubmit: (v: RelaunchValues) => void
 }) {
@@ -40,7 +42,7 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   // RIABBINA + ESTRAI in un colpo solo: abbinamento e, se riuscito, estrazione
   // (come un'elaborazione normale); spento = si ferma in «Abbinato».
   const [extractAfter, setExtractAfter] = useState(false)
-  useEffect(() => { if (isRematch) setExtractAfter(readExtractAfter()) }, [isRematch])
+  useEffect(() => { if (isRematch) setExtractAfter(initialExtractAfter ?? readExtractAfter()) }, [isRematch, initialExtractAfter])
   // RICONCILIA prima dell'abbinamento: unisce i dossier con lo stesso numero di
   // polizza (batch caricati prima della riconciliazione). Mai ricordata: è rara.
   const [reconcile, setReconcile] = useState(false)

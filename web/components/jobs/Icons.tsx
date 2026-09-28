@@ -38,3 +38,4 @@ export const IcTree = () => <Ic><circle cx="6" cy="5" r="2" /><circle cx="6" cy=
 export const IcChart = () => <Ic><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></Ic>
 export const IcSliders = () => <Ic><path d="M4 6h9" /><path d="M17 6h3" /><circle cx="15" cy="6" r="2" /><path d="M4 12h3" /><path d="M11 12h9" /><circle cx="9" cy="12" r="2" /><path d="M4 18h11" /><path d="M19 18h1" /><circle cx="17" cy="18" r="2" /></Ic>
 export const IcPlus = () => <Ic><path d="M12 5v14" /><path d="M5 12h14" /></Ic>
+export const IcTrash = () => <Ic><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" /></Ic>

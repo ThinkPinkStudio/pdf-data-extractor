@@ -11,8 +11,10 @@ import {
 } from '@/components/jobs/model'
 import { StackedBar } from '@/components/jobs/StackedBar'
 import { StatusPill } from '@/components/jobs/StatusPill'
-import { IcAlert, IcChevRight, IcDownload, IcSearch, IcZip } from '@/components/jobs/Icons'
+import { IcAlert, IcChevRight, IcDownload, IcPlay, IcRefresh, IcSearch, IcSwap, IcTrash, IcX, IcZip } from '@/components/jobs/Icons'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
+import { ActionMenu } from '@/components/jobs/ActionMenu'
+import { useCrossActions } from '@/components/jobs/useCrossActions'
 
 // ELABORAZIONI — lista dei batch: una card per batch (barra segmentata,
 // contatori, «cosa aspetta te») + la card delle estrazioni singole, che è un
@@ -38,9 +40,12 @@ export default function PolizzaJobsPage() {
     return () => { alive = false; clearTimeout(id) }
   }, [query])
 
-  // SELEZIONE per l'eliminazione in blocco: batch (card) e polizze (righe della ricerca).
+  // SELEZIONE per le azioni in blocco: batch (card) e polizze (righe della ricerca).
+  // Le polizze selezionate si ricordano con i loro dati anche se la ricerca cambia.
   const [selB, setSelB] = useState<Set<string>>(new Set())
   const [selJ, setSelJ] = useState<Set<string>>(new Set())
+  const [hitMemo, setHitMemo] = useState<Map<string, SearchHit>>(new Map())
+  useEffect(() => { if (hits?.length) setHitMemo((m) => { const n = new Map(m); for (const h of hits) n.set(h.jobId, h); return n }) }, [hits])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const { ask, panel } = useConfirmPanel()
@@ -64,14 +69,19 @@ export default function PolizzaJobsPage() {
   const singlesActive = !!singlesSummary && ((singlesSummary.queued || 0) + (singlesSummary.running || 0)) > 0
   const batchActive = (b: BatchSummary) => ((b.queued || 0) + (b.running || 0)) > 0
   const jobActive = (h: SearchHit) => h.status === 'queued' || h.status === 'running'
-  const selectableB = shown.filter((b) => !batchActive(b))
-  const selectableJ = (hits || []).filter((h) => !jobActive(h))
+  const selectableB = shown
+  const selectableJ = hits || []
   const nSel = selB.size + selJ.size
+  const selBatches = (batches || []).filter((b) => selB.has(b.id))
+  const selHits = [...selJ].map((id) => hitMemo.get(id)).filter((h): h is SearchHit => !!h)
+  const X = useCrossActions({ batches: selBatches, hits: selHits, reload: load })
+  const nActiveSel = selBatches.filter(batchActive).length + selHits.filter(jobActive).length
+  // «1 batch, 3 polizze»: numeri e plurali giusti in barra, conferme e risultati.
+  const nouns = (b: number, j: number) => [b ? (b === 1 ? t('jobsDash.nBatch1') : t('jobsDash.nBatchN', { n: b })) : '', j ? (j === 1 ? t('jobsDash.nJob1') : t('jobsDash.nJobN', { n: j })) : ''].filter(Boolean).join(', ')
 
   async function deleteSelected() {
     const b = [...selB], j = [...selJ]
-    const what = b.length && j.length ? t('jobsDash.selSummary', { b: b.length, j: j.length })
-      : b.length ? t('jobsDash.selSummaryB', { b: b.length }) : t('jobsDash.selSummaryJ', { j: j.length })
+    const what = nouns(b.length, j.length)
     // Nomi di ciò che si elimina (i primi 12): la ricerca trova anche polizze vere
     // («ATTESTATO» contiene «test»), meglio vederle prima di confermare.
     const names = [
@@ -79,7 +89,8 @@ export default function PolizzaJobsPage() {
       ...(hits || []).filter((h) => j.includes(h.jobId)).map((h) => `• ${(h.dossierName || h.jobId).split('/').filter(Boolean).pop()}${h.batchLabel ? ` (${h.batchLabel})` : ''}`),
     ]
     const list = names.slice(0, 12).join('\n') + (names.length > 12 ? `\n… +${names.length - 12}` : '')
-    if (!(await ask(`${t('jobsDash.selConfirm', { what })}\n\n${list}`, { danger: true }))) return
+    const activeNote = nActiveSel ? `\n\n${t('jobsDash.selSkipActive', { n: nActiveSel })}` : ''
+    if (!(await ask(`${t('jobsDash.selConfirm', { what })}\n\n${list}${activeNote}`, { danger: true, okLabel: t('jobsDash.selectDelete') }))) return
     setBusy(true); setMsg(null)
     const post = async (body: Record<string, unknown>) => {
       const res = await fetch('/api/admin/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -92,8 +103,7 @@ export default function PolizzaJobsPage() {
       const skipped: string[] = []
       if (b.length) { const d = await post({ action: 'delete-batches', batchIds: b }); db = d.deleted || 0; skipped.push(...(d.skipped || [])) }
       if (j.length) { const d = await post({ action: 'delete-jobs', jobIds: j }); dj = d.deleted || 0; skipped.push(...(d.skipped || [])) }
-      const doneTxt = [db ? t('jobsDash.selSummaryB', { b: db }).replace(/selezionati|selected/, '').trim() : '', dj ? t('jobsDash.selSummaryJ', { j: dj }).replace(/selezionate|selected/, '').trim() : ''].filter(Boolean).join(', ')
-      setMsg(`${t('jobsDash.selDeleted', { what: doneTxt || '0' })}${skipped.length ? ` ${t('jobsDash.selSkipped', { n: skipped.length })}` : ''}`)
+      setMsg(`${t('jobsDash.selDeleted', { what: nouns(db, dj) || '0' })}${skipped.length ? ` ${t('jobsDash.selSkipped', { n: skipped.length })}` : ''}`)
       setSelB(new Set(b.filter((id) => skipped.includes(id))))
       setSelJ(new Set(j.filter((id) => skipped.includes(id))))
       {
@@ -110,6 +120,8 @@ export default function PolizzaJobsPage() {
   return (
     <div>
       {panel}
+      {X.confirmPanel}
+      {X.dialog}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
           <h1 className="page-title" style={{ marginBottom: 4 }}>{t('jobsDash.title')}</h1>
@@ -129,28 +141,59 @@ export default function PolizzaJobsPage() {
         <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 13, marginBottom: 16 }}>{t('jobsDash.empty')}</div>
       )}
 
-      {(nSel > 0 || msg) && (
-        <div className="jb-selbar">
-          {nSel > 0 && <b>{selB.size && selJ.size ? t('jobsDash.selSummary', { b: selB.size, j: selJ.size }) : selB.size ? t('jobsDash.selSummaryB', { b: selB.size }) : t('jobsDash.selSummaryJ', { j: selJ.size })}</b>}
-          {msg && <span style={{ color: msg.startsWith('✗') ? 'var(--c-error)' : 'var(--c-success)' }}>{msg}</span>}
-          <div style={{ flex: '1 1 0' }} />
-          {selectableB.length > 0 && (
-            <button type="button" className="jb-btn btn-secondary" disabled={busy} onClick={() => setSelB(new Set(selectableB.map((b) => b.id)))}>
-              {t('jobsDash.selectShown', { n: selectableB.length })}
-            </button>
-          )}
-          {selectableJ.length > 0 && (
-            <button type="button" className="jb-btn btn-secondary" disabled={busy} onClick={() => setSelJ(new Set(selectableJ.map((h) => h.jobId)))}>
-              {t('jobsDash.selectHits', { n: selectableJ.length })}
-            </button>
-          )}
-          {nSel > 0 && <button type="button" className="jb-btn btn-secondary" disabled={busy} onClick={() => { setSelB(new Set()); setSelJ(new Set()) }}>{t('jobsDash.selectClear')}</button>}
+      {(nSel > 0 || msg || X.result) && (
+        <div className="jb-selbar" role="toolbar" aria-label={t('jobsDash.bulkTitle', { n: nSel })}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
+            {nSel > 0 && <b>{t('jobsDash.selLabel', { what: nouns(selB.size, selJ.size) })}</b>}
+            {(msg || X.result) && <span role="status" style={{ color: (msg || '').startsWith('✗') ? 'var(--c-error)' : 'var(--c-text-secondary)' }}>{[msg, X.result].filter(Boolean).join(' · ')}</span>}
+            <div style={{ flex: '1 1 0' }} />
+            {selectableB.length > 0 && (
+              <button type="button" className="jb-btn ghost" disabled={busy || X.busy} onClick={() => setSelB(new Set(selectableB.map((b) => b.id)))}>
+                {t('jobsDash.selectShown', { n: selectableB.length })}
+              </button>
+            )}
+            {selectableJ.length > 0 && (
+              <button type="button" className="jb-btn ghost" disabled={busy || X.busy} onClick={() => setSelJ(new Set(selectableJ.map((h) => h.jobId)))}>
+                {t('jobsDash.selectHits', { n: selectableJ.length })}
+              </button>
+            )}
+            {nSel > 0 && <button type="button" className="jb-btn ghost" disabled={busy || X.busy} onClick={() => { setSelB(new Set()); setSelJ(new Set()) }}>{t('jobsDash.selectClear')}</button>}
+            {nSel === 0 && <button type="button" className="jb-btn ghost icon" aria-label={t('jobsDash.close')} title={t('jobsDash.close')} onClick={() => { setMsg(null); X.clearResult() }}><IcX /></button>}
+          </div>
           {nSel > 0 && (
-            <button type="button" className="jb-btn btn-primary" style={{ background: 'var(--c-error)', borderColor: 'var(--c-error)' }} disabled={busy} onClick={deleteSelected}>
-              {busy ? <span className="spinner" /> : null}{t('jobsDash.selectDelete')}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%', paddingTop: 8, borderTop: '1px solid var(--c-border)' }}>
+              {X.counts.extract > 0 && (
+                <button type="button" className="jb-btn btn-primary" disabled={X.busy} title={t('jobsDash.extractTitle')} onClick={() => void X.run('extract')}>
+                  <IcPlay />{t('jobsDash.extract')} ({X.counts.extract})
+                </button>
+              )}
+              <button type="button" className="jb-btn btn-secondary" disabled={X.busy || !X.counts.rematchExtract} title={t('jobsDash.rematchExtractTitle')} onClick={() => void X.run('rematchExtract')}>
+                <IcRefresh />{t('jobsDash.rematchExtractDots')} ({X.counts.rematchExtract})
+              </button>
+              <button type="button" className="jb-btn btn-secondary" disabled={X.busy || !X.counts.rematch} title={t('jobsDash.rematchTitle')} onClick={() => void X.run('rematch')}>
+                <IcRefresh />{t('jobsDash.rematchDots')} ({X.counts.rematch})
+              </button>
+              {X.counts.proceed > 0 && (
+                <button type="button" className="jb-btn btn-secondary tone-warn" disabled={X.busy} title={t('jobsDash.proceedTitle')} onClick={() => void X.run('proceed')}>
+                  <IcPlay />{t('jobsDash.proceedAnyway')} ({X.counts.proceed})
+                </button>
+              )}
+              {X.counts.retry > 0 && (
+                <button type="button" className="jb-btn btn-secondary" disabled={X.busy} onClick={() => void X.run('retry')}>
+                  <IcRefresh />{t('jobsDash.retry')} ({X.counts.retry})
+                </button>
+              )}
+              <ActionMenu ariaLabel={t('jobsDash.moreActions')} items={[
+                { id: 'reprofile', label: `${t('jobsDash.withProfile')} (${X.counts.reprofile})`, icon: <IcSwap />, onClick: () => void X.run('reprofile'), title: t('jobsDash.reprocessWithProfileTitle'), disabled: X.busy || !X.counts.reprofile },
+                ...(X.counts.cancel > 0 ? [{ id: 'cancel', label: `${t('jobsDash.cancel')} (${X.counts.cancel})`, icon: <IcX />, onClick: () => void X.run('cancel'), danger: true, disabled: X.busy }] : []),
+              ]} />
+              {X.busy && <span className="spinner" aria-label="…" />}
+              <div style={{ flex: '1 1 0' }} />
+              <button type="button" className="jb-btn btn-secondary tone-danger" disabled={busy || X.busy} onClick={deleteSelected} title={t('jobsDash.selectDeleteTitle')}>
+                {busy ? <span className="spinner" /> : <IcTrash />}{t('jobsDash.selectDelete')}
+              </button>
+            </div>
           )}
-          {nSel === 0 && msg && <button type="button" className="jb-btn btn-secondary" onClick={() => setMsg(null)}>✕</button>}
         </div>
       )}
 
@@ -202,7 +245,7 @@ function SearchResults({ hits, selected, onToggle, isActive }: { hits: SearchHit
         const where = h.matchedIn.map((m) => m.kind === 'field' ? `${m.label}: ${m.value}` : m.kind === 'file' ? `${t('jobsDash.searchInFile')}: ${m.value}` : t('jobsDash.searchInFolder'))
         return (
           <div key={h.jobId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 0 0 14px', borderBottom: '1px solid var(--c-border)', background: selected.has(h.jobId) ? 'var(--c-accent-faint)' : undefined }}>
-          <input type="checkbox" className="jb-check" style={{ margin: 0 }} checked={selected.has(h.jobId)} disabled={isActive(h)}
+          <input type="checkbox" className="jb-check" style={{ margin: 0 }} checked={selected.has(h.jobId)}
             title={isActive(h) ? t('jobsDash.selectActive') : t('jobsDash.selectJob')} aria-label={t('jobsDash.selectJob')}
             onChange={() => onToggle(h.jobId)} />
           <Link href={href} style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px 8px 0', color: 'inherit', textDecoration: 'none' }}>
@@ -236,7 +279,7 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
     <div className={`jb-card${decisions > 0 ? ' attention' : ''}${selected ? ' selected' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
         {!virtual && onToggle && (
-          <input type="checkbox" className="jb-check" checked={!!selected} disabled={!!active} onChange={onToggle}
+          <input type="checkbox" className="jb-check" checked={!!selected} onChange={onToggle}
             title={active ? t('jobsDash.selectActive') : t('jobsDash.selectBatch')} aria-label={t('jobsDash.selectBatch')} />
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: '1 1 0' }}>
@@ -257,7 +300,7 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
           {segments.map((s) => (
             <span key={s.key} className="jb-leg"><span className="jb-dot" style={{ background: s.color, opacity: s.opacity ?? 1 }} />{t(FILTER_LABEL_KEY[s.key])} <b>{s.n}</b></span>
           ))}
-          {segments.length === 0 && <span className="jb-leg">{virtual ? t('jobsDash.singlesEmpty') : t('jobsDash.bQueued')}</span>}
+          {segments.length === 0 && <span className="jb-leg jb-leg-wrap">{virtual ? t('jobsDash.singlesEmpty') : t('jobsDash.bQueued')}</span>}
         </div>
       </div>
       {decisions > 0 ? (
