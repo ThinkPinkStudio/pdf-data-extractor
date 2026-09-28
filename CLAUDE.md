@@ -1123,12 +1123,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   corrette su richiesta dell'utente** (erano contraddittorie: la verifica del
   cliente su BOIARDO usa il premio della SEZIONE tutela legale annuo, la
   descrizione chiedeva il totale del contratto): premi/imposte/lordo = annuo
-  della tutela legale (prodotto, sezione, riga TL della tabella garanzie di
-  una polizza auto), interessi/diritti «0,00» solo se stampati, garanzie e
+  della tutela legale (prodotto o sezione), interessi/diritti «0,00» solo se stampati, garanzie e
   franchigia della TL, tipologia = categoria (azienda, professionista,
   auto/circolazione, condominio, dal promptExtra del cliente), parametro senza
   l'esempio che era la frase dell'art. 17.2 DAS, contraente senza l'esempio
-  che era l'amministratore, frazionamento ≠ etichetta di riga. Le descrizioni
+  che era l'amministratore (v4, 80,6% sulle 41 posizioni estratte; una v5 con
+  precisazioni su parametro, frazionamento e premi auto ha dato 80,0%:
+  tolta). Le descrizioni
   che citano «garanzia»/«prodotto» rendono il campo «strutturale»
   (`isStructuralField`): verificare natura/tipo prima di cambiarle.
 
