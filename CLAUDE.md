@@ -1104,6 +1104,34 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   anche in fotografia i valori si rileggono con i parser del motore
   (parseAmountMaybe, normalizeDateValue, isAbsencePlaceholder).
 
+- **Batch del cliente, 27-28/09/2026 (TL3)**: (1) **Pagine «sandwich»** —
+  immagine con sopra solo testo INVISIBILE (modo di resa 3/7, l'OCR dello
+  scanner: «2r2.044…», «Euro2ll3,1l») = scansione: `isInvisibleTextScan`
+  (pdfTextLayer) le svuota e il worker le rilegge con il motore OCR, anche nel
+  ramo Docling; chiave della cache OCR `…:sw` (`ocrCacheKey(…, sandwich)`),
+  altrimenti restava in cache il testo dello scanner. 6 pagine su 633 file del
+  cliente, 33 su 779 PDF, zero pagine digitali svuotate. (2) A.7:
+  `isColumnHeaderValue` — un testo senza cifre che nessuna cella della riga
+  citata porta e che è un'intestazione di colonna di quella riga è il nome
+  della colonna («TUTELA LEGALE» come Garanzia scelta nelle schede DAS).
+  (3) `validateCrossFields`: imponibile = imposte non nulli → svuotati
+  entrambi. (4) Tasso «per mille» nella descrizione: un valore in «%» non è il
+  tasso. (5) Provata e TOLTA la lettura dei numeri di polizza oltre la pag. 5
+  quando le prime non ne hanno (spezzava i dossier CAT NAT di BESA). (6) Flag
+  del motore campi,a78,elenchi,verifiche: A/B su 16 posizioni del cliente =
+  304 vs 304 campi → restano spenti. (7) **Descrizioni del profilo TL3
+  corrette su richiesta dell'utente** (erano contraddittorie: la verifica del
+  cliente su BOIARDO usa il premio della SEZIONE tutela legale annuo, la
+  descrizione chiedeva il totale del contratto): premi/imposte/lordo = annuo
+  della tutela legale (prodotto, sezione, riga TL della tabella garanzie di
+  una polizza auto), interessi/diritti «0,00» solo se stampati, garanzie e
+  franchigia della TL, tipologia = categoria (azienda, professionista,
+  auto/circolazione, condominio, dal promptExtra del cliente), parametro senza
+  l'esempio che era la frase dell'art. 17.2 DAS, contraente senza l'esempio
+  che era l'amministratore, frazionamento ≠ etichetta di riga. Le descrizioni
+  che citano «garanzia»/«prodotto» rendono il campo «strutturale»
+  (`isStructuralField`): verificare natura/tipo prima di cambiarle.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
