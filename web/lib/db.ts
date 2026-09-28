@@ -70,6 +70,12 @@ export async function initDb() {
     -- con TRUE (initBatch) e prima di elaborare si uniscono i dossier con lo
     -- stesso numero; i batch esistenti restano FALSE (nessuna unione a posteriori).
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS needs_reconcile BOOLEAN NOT NULL DEFAULT FALSE;
+    -- ULTIMO LANCIO del batch (28/09/2026): data e utente dell'ultima azione che
+    -- lo ha rimesso in lavorazione (Riabbina, Estrai, Procedi, Riprova…). Le
+    -- pagine mostrano questa invece del caricamento originale: due batch con lo
+    -- stesso nome, uno fermo da settimane, si confondevano.
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_at BIGINT;
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_by TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 

@@ -38,6 +38,7 @@ const BUILD_FEATURES = [
   'manutenzione-bulk',  // Manutenzione: lista dei batch con caselle, filtro ed «Elimina selezionati» (28/09/2026)
   'elaborazioni-elimina', // Elaborazioni: caselle su card dei batch e risultati della ricerca, «Elimina selezionati» (28/09/2026)
   'elaborazioni-azioni', // Elaborazioni: sulla selezione (batch e polizze trovate) Estrai, Riabbina, Riabbina ed estrai, Procedi, Riprova, Con profilo, Annulla (28/09/2026)
+  'elaborazioni-ultimo-lancio', // Elaborazioni: card e intestazione del batch mostrano l'ultimo lancio (data e chi), non il caricamento (28/09/2026)
 ]
 
 export async function GET() {

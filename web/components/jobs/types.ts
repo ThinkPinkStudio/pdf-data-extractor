@@ -18,6 +18,10 @@ export interface BatchSummary {
   review: number
   // Quanti dei 'mismatch' sono «Non valido» (nessuna polizza; listBatches).
   notValid?: number
+  // Ultimo lancio (azione dell'utente) e fine dell'ultima run registrata.
+  last_launch_at?: number | string | null
+  last_launch_by?: string | null
+  last_run_at?: number | string | null
 }
 
 // Esito del controllo di pertinenza/operatività scritto dal worker (precheck).

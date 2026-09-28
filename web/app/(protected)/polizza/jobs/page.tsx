@@ -7,7 +7,7 @@ import type { BatchSummary, JobSnapshot } from '@/components/jobs/types'
 import { SINGLES_ID } from '@/components/jobs/types'
 import {
   BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, FILTER_LABEL_KEY, batchProcessed, batchStatus, countsFromBatch,
-  decisionCount, fmtDate, segmentsFromCounts, summarizeJobs,
+  batchWhen, decisionCount, fmtDate, segmentsFromCounts, summarizeJobs,
 } from '@/components/jobs/model'
 import { StackedBar } from '@/components/jobs/StackedBar'
 import { StatusPill } from '@/components/jobs/StatusPill'
@@ -275,6 +275,13 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
   const segments = segmentsFromCounts(counts)
   const decisions = decisionCount(b)
   const processed = batchProcessed(b)
+  // Data mostrata: l'ultimo lancio (chi e quando), non il caricamento, che resta nel tooltip.
+  const when = batchWhen(Number(b.created_at) || 0, b.last_launch_at, b.last_launch_by, b.last_run_at)
+  const uploaded = t('jobsDash.uploadedBy', { date: fmtDate(Number(b.created_at) || 0), by: b.email })
+  const whenText = when.kind === 'launch'
+    ? `${b.email} · ${when.by ? t('jobsDash.lastLaunchBy', { date: fmtDate(when.at), by: when.by }) : t('jobsDash.lastLaunch', { date: fmtDate(when.at) })}`
+    : when.kind === 'run' ? `${b.email} · ${t('jobsDash.lastRun', { date: fmtDate(when.at) })}`
+    : `${b.email} · ${fmtDate(when.at)}`
   return (
     <div className={`jb-card${decisions > 0 ? ' attention' : ''}${selected ? ' selected' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
@@ -284,8 +291,8 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: '1 1 0' }}>
           <Link href={href} className="title">{b.label}</Link>
-          <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {subtitle || `${b.email} · ${fmtDate(b.created_at)}`}
+          <span title={subtitle ? undefined : uploaded} style={{ fontSize: 11, color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {subtitle || whenText}
           </span>
         </div>
         {b.total > 0 && <span className={`jb-pill ${BATCH_STATE_PILL[state]}`} style={{ flex: 'none' }}>{t(BATCH_STATE_LABEL_KEY[state])}</span>}

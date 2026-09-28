@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
 import { getBatch, getBatchRow, getJob, resetJobForRetry, reuseResultsFromJob, cancelJob, overridePrecheckAndRequeue, confirmMatchAndRequeue, createTestJob, markBatchNeedsReconcile, markBatchReconciled, splitJobByOrigin } from '@/lib/polizzaJobStore'
-import { isBatchRunning, startBatch } from '@/lib/polizzaBatchWorker'
+import { isBatchRunning, launchBatch } from '@/lib/polizzaBatchWorker'
 import { isJobRunning, startJob } from '@/lib/polizzaJobWorker'
 import { importSharedService } from '@/lib/sharedServices'
 import { isNotValidJob, NOT_VALID_REFUSAL } from '@/lib/jobValidity'
@@ -212,7 +212,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (reconcile && done === 0) await markBatchReconciled(params.id)
   // Ripartenza dell'orchestratore: un solo startBatch per i job rilanciati del
   // batch (una separazione senza Riabbina non rimette in coda nulla).
-  if (done > 0 && (action !== 'split' || body.rematch === true)) startBatch(params.id)
+  if (done > 0 && (action !== 'split' || body.rematch === true)) launchBatch(params.id, session.email)
 
   await logAction({
     email: session.email, action: `polizza.batch.bulk.${action}${reconcile ? '.reconcile' : ''}`,

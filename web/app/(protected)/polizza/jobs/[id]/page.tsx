@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, FilterKey, JobSnapshot, ViewMode } from '@/components/jobs/types'
 import { SINGLES_ID } from '@/components/jobs/types'
 import {
-  BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, batchStatus, countByFilter, filterOf, fmtDate,
+  BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, agoParts, batchStatus, batchWhen, countByFilter, filterOf, fmtDate,
   orderWithTests, parseFilter, shortName, summarizeJobs,
 } from '@/components/jobs/model'
 import { useJobActions } from '@/components/jobs/useJobActions'
@@ -43,7 +43,7 @@ function BatchView() {
   const sp = useSearchParams()
   const isSingles = id === SINGLES_ID
 
-  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number } | null>(null)
+  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number; lastLaunchAt?: number | null; lastLaunchBy?: string | null; lastRunAt?: number | null } | null>(null)
   const [jobs, setJobs] = useState<JobSnapshot[] | null>(null)
   const [missing, setMissing] = useState(false)
   const [view, setViewState] = useState<ViewMode>('tabella')
@@ -98,7 +98,7 @@ function BatchView() {
         const res = await fetch(`/api/polizza/batch/${id}`)
         if (res.status === 404) { setMissing(true); setJobs([]); return }
         const d = await res.json()
-        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0 })
+        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0, lastLaunchAt: d.lastLaunchAt ?? null, lastLaunchBy: d.lastLaunchBy ?? null, lastRunAt: d.lastRunAt ?? null })
         setJobs(d.jobs || [])
       }
       setNow(Date.now())
@@ -140,7 +140,8 @@ function BatchView() {
   const openTab = (j: JobSnapshot, tb: DetailTab) => { setSelectedId(j.jobId); setTab(tb) }
   const state = batchStatus(summary)
   const lastUpdate = all.reduce((m, j) => Math.max(m, j.updatedAt || 0), 0)
-  const minsAgo = lastUpdate ? Math.max(0, Math.floor((now / 1000 - lastUpdate) / 60)) : null
+  const ago = lastUpdate ? agoParts(lastUpdate, now) : null
+  const when = meta?.createdAt ? batchWhen(meta.createdAt, meta.lastLaunchAt, meta.lastLaunchBy, meta.lastRunAt) : null
 
   if (missing) {
     return (
@@ -165,9 +166,16 @@ function BatchView() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--c-text-secondary)', flexWrap: 'wrap' }}>
             {jobs && all.length > 0 && <span className={`jb-pill ${BATCH_STATE_PILL[state]}`}>{t(BATCH_STATE_LABEL_KEY[state])}</span>}
             {meta?.owner && <span>{meta.owner}</span>}
-            {!!meta?.createdAt && <span>· {t('jobsDash.startedAt', { date: fmtDate(meta.createdAt) })}</span>}
+            {!!meta?.createdAt && <span>· {t('jobsDash.uploadedAt', { date: fmtDate(meta.createdAt) })}</span>}
+            {when && when.kind !== 'created' && (
+              <span style={{ color: 'var(--c-text-primary)', fontWeight: 600 }}>
+                · {when.kind === 'launch'
+                  ? (when.by ? t('jobsDash.lastLaunchBy', { date: fmtDate(when.at), by: when.by }) : t('jobsDash.lastLaunch', { date: fmtDate(when.at) }))
+                  : t('jobsDash.lastRun', { date: fmtDate(when.at) })}
+              </span>
+            )}
             {isSingles && <span>{t('jobsDash.singlesCardDesc')}</span>}
-            {minsAgo != null && <span>· {t('jobsDash.lastUpdate', { n: minsAgo })}</span>}
+            {ago && <span>· {t('jobsDash.lastUpdate', { ago: t(ago.key, { n: ago.n }) })}</span>}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 'none', flexWrap: 'wrap', justifyContent: 'flex-end' }}>

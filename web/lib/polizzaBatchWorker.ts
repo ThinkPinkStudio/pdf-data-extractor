@@ -8,7 +8,7 @@
 // (llmSemaphore, dentro runJobAndWait): job di batch diversi e job singoli non girano
 // mai in parallelo tra loro (protegge VRAM e rate limit LLM/OCR condivisi).
 
-import { getNextPendingBatchJob, isUploadComplete, claimBatchNotification, batchNeedsReconcile } from './polizzaJobStore'
+import { getNextPendingBatchJob, isUploadComplete, claimBatchNotification, batchNeedsReconcile, markBatchLaunched } from './polizzaJobStore'
 import { runJobAndWait } from './polizzaJobWorker'
 import { reconcileBatch } from './polizzaReconcile'
 import { withGlobalLock } from './llmSemaphore'
@@ -32,6 +32,17 @@ const running = new Set<string>()
 /** L'orchestratore del batch è vivo in questo processo (un nuovo startBatch non farebbe nulla). */
 export function isBatchRunning(batchId: string): boolean {
   return running.has(batchId)
+}
+
+/**
+ * Un'AZIONE dell'utente rimette il batch in lavorazione (Riabbina, Estrai,
+ * Procedi, Riprova, Con profilo…): se ne registra data e autore, poi parte
+ * l'orchestratore. La ripresa dopo un riavvio (instrumentation) e il
+ * caricamento usano startBatch: non sono un nuovo lancio.
+ */
+export function launchBatch(batchId: string, email?: string | null): void {
+  void markBatchLaunched(batchId, email).catch((err) => console.error(`[batch:${batchId}] ultimo lancio non registrato (non fatale):`, (err as Error)?.message))
+  startBatch(batchId)
 }
 
 export function startBatch(batchId: string): void {

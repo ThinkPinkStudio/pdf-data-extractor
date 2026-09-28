@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
 import { getBatch, getBatchRow, getJob, resetJobForRetry } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
+import { launchBatch } from '@/lib/polizzaBatchWorker'
 
 export const runtime = 'nodejs'
 
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // Ripartenza dell'orchestratore: un solo startBatch per tutti i job rilanciati.
-  if (reprofiled > 0) startBatch(params.id)
+  if (reprofiled > 0) launchBatch(params.id, session.email)
 
   await logAction({
     email: session.email, action: 'polizza.batch.reprofile',

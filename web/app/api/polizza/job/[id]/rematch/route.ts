@@ -4,7 +4,7 @@ import { logAction } from '@/lib/logger'
 import { getSettings } from '@/lib/settingsStore'
 import { getJob, resetJobForRetry, type JobRow } from '@/lib/polizzaJobStore'
 import { startJob } from '@/lib/polizzaJobWorker'
-import { startBatch } from '@/lib/polizzaBatchWorker'
+import { launchBatch } from '@/lib/polizzaBatchWorker'
 
 export const runtime = 'nodejs'
 
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const updated = await resetJobForRetry(params.id, session.email, opts)
   if (!updated) return NextResponse.json({ error: 'Job non riabbinabile (è ancora in esecuzione o in coda)' }, { status: 409 })
 
-  if (updated.batch_id) startBatch(updated.batch_id)
+  if (updated.batch_id) launchBatch(updated.batch_id, session.email)
   else startJob(updated.id)
 
   await logAction({ email: session.email, action: body.extract === true ? 'polizza.job.rematch-extract' : 'polizza.job.rematch', resource: `${job.dossier_name || job.id} → ${label}`, ip })

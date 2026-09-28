@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getBatchRow, listMatchedBatchJobs, confirmMatchAndRequeue } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
+import { launchBatch } from '@/lib/polizzaBatchWorker'
 
 export const runtime = 'nodejs'
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const id of matched) {
     if (await confirmMatchAndRequeue(id, session.email)) started++
   }
-  if (started > 0) startBatch(params.id)
+  if (started > 0) launchBatch(params.id, session.email)
 
   await logAction({ email: session.email, action: 'polizza.batch.extract_all', resource: `${batch.label} (${started}/${matched.length} avviati)`, ip })
   return NextResponse.json({ ok: true, started, matched: matched.length })

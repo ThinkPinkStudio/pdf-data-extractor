@@ -253,3 +253,29 @@ export function splitName(j: JobSnapshot, batchLabel?: string | null): { name: s
   if (!segments.length) return { name: full, path: '', segments: [full] }
   return { name: segments[segments.length - 1], path: segments.slice(0, -1).join(' / '), segments }
 }
+
+// DATA MOSTRATA di un batch: l'ultimo LANCIO (azione dell'utente, con chi l'ha
+// fatto) invece del caricamento; per i batch che non ne hanno uno registrato,
+// la fine dell'ultima elaborazione se è di dopo il caricamento. Così due batch
+// con lo stesso nome, uno rilanciato oggi e uno fermo da settimane, non si
+// confondono.
+export type BatchWhen = { kind: 'launch' | 'run' | 'created'; at: number; by: string | null }
+export function batchWhen(createdAtRaw: number | string, lastLaunchAt?: number | string | null, lastLaunchBy?: string | null, lastRunAt?: number | string | null): BatchWhen {
+  // I BIGINT arrivano da Postgres come stringhe: «"1790428766" + 3600» sarebbe una concatenazione.
+  const createdAt = Number(createdAtRaw) || 0
+  const launch = Number(lastLaunchAt) || 0
+  const run = Number(lastRunAt) || 0
+  if (launch > 0) return { kind: 'launch', at: launch, by: lastLaunchBy || null }
+  if (run > createdAt + 3600) return { kind: 'run', at: run, by: null }
+  return { kind: 'created', at: createdAt, by: null }
+}
+
+/** «adesso», «12 min fa», «5 ore fa», «16 giorni fa» (secondi unix). */
+export function agoParts(atSec: number, nowMs: number): { key: 'jobsDash.agoNow' | 'jobsDash.agoMin' | 'jobsDash.agoHours' | 'jobsDash.agoDays'; n: number } {
+  const mins = Math.max(0, Math.floor((nowMs / 1000 - atSec) / 60))
+  if (mins < 1) return { key: 'jobsDash.agoNow', n: 0 }
+  if (mins < 60) return { key: 'jobsDash.agoMin', n: mins }
+  const hours = Math.floor(mins / 60)
+  if (hours < 48) return { key: 'jobsDash.agoHours', n: hours }
+  return { key: 'jobsDash.agoDays', n: Math.floor(hours / 24) }
+}

@@ -264,6 +264,8 @@ export interface BatchRow {
   upload_complete: boolean
   created_at: number
   updated_at: number
+  last_launch_at?: number | null
+  last_launch_by?: string | null
 }
 
 export async function initBatch(params: { email: string; label: string }): Promise<string> {
@@ -273,6 +275,17 @@ export async function initBatch(params: { email: string; label: string }): Promi
     [batchId, params.email, params.label, now()]
   )
   return batchId
+}
+
+/** Ultimo lancio del batch: un'azione dell'utente lo ha rimesso in lavorazione. */
+export async function markBatchLaunched(batchId: string, email: string | null | undefined): Promise<void> {
+  await pool.query('UPDATE batch_jobs SET last_launch_at = $1, last_launch_by = $2 WHERE id = $3', [now(), email || null, batchId])
+}
+
+/** Fine dell'ultima elaborazione registrata nello storico delle run (per i batch senza ultimo lancio). */
+export async function batchLastRunAt(batchId: string): Promise<number | null> {
+  const { rows } = await pool.query<{ t: string | null }>('SELECT MAX(finished_at) AS t FROM polizza_job_runs WHERE batch_id = $1', [batchId])
+  return rows[0]?.t != null ? Number(rows[0].t) : null
 }
 
 export async function getBatchRow(id: string): Promise<BatchRow | null> {
@@ -393,11 +406,12 @@ export async function listBatches(): Promise<BatchSummary[]> {
        COUNT(j.id) FILTER (WHERE j.status = 'mismatch')::int AS mismatch,
        COUNT(j.id) FILTER (WHERE j.status = 'matched')::int AS matched,
        COUNT(j.id) FILTER (WHERE j.status = 'review')::int AS review,
-       COUNT(j.id) FILTER (WHERE j.status = 'mismatch' AND (j.error LIKE 'Non valido%' OR (j.precheck->>'notValid') = 'true' OR (j.precheck->'polizza'->>'esito') = 'assente'))::int AS "notValid"
+       COUNT(j.id) FILTER (WHERE j.status = 'mismatch' AND (j.error LIKE 'Non valido%' OR (j.precheck->>'notValid') = 'true' OR (j.precheck->'polizza'->>'esito') = 'assente'))::int AS "notValid",
+       (SELECT MAX(r.finished_at) FROM polizza_job_runs r WHERE r.batch_id = b.id)::bigint AS last_run_at
      FROM batch_jobs b
      LEFT JOIN polizza_jobs j ON j.batch_id = b.id
      GROUP BY b.id
-     ORDER BY b.created_at DESC`
+     ORDER BY GREATEST(b.created_at, COALESCE(b.last_launch_at, 0)) DESC`
   )
   return rows
 }
