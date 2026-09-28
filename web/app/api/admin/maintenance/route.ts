@@ -91,6 +91,22 @@ export async function POST(req: NextRequest) {
       await logAction({ email: session.email, action: 'data.delete-batches', resource: `${deleted} batch`, ip, metadata: { jobs, skipped: skipped.length } })
       return NextResponse.json({ ok: true, deleted, jobs, skipped })
     }
+    // Più polizze insieme (Elaborazioni: righe della ricerca selezionate). Quelle
+    // in corso o in coda si saltano e si riportano.
+    if (action === 'delete-jobs') {
+      const ids: string[] = Array.isArray(body.jobIds) ? body.jobIds.map((x: unknown) => String(x)).filter(Boolean) : []
+      if (!ids.length) return NextResponse.json({ error: 'Nessuna polizza selezionata' }, { status: 400 })
+      const done: string[] = []
+      const skipped: string[] = []
+      for (const id of ids) {
+        const job = await deleteJob(id)
+        if (!job) { skipped.push(id); continue }
+        done.push(job.id)
+      }
+      await cleanQdrant(done)
+      await logAction({ email: session.email, action: 'data.delete-jobs', resource: `${done.length} polizze`, ip, metadata: { skipped: skipped.length } })
+      return NextResponse.json({ ok: true, deleted: done.length, skipped })
+    }
     if (action === 'clear-ocr-cache') {
       const n = await clearOcrCache()
       await logAction({ email: session.email, action: 'data.clear-ocr-cache', resource: `${n} voci`, ip })

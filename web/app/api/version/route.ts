@@ -36,6 +36,7 @@ const BUILD_FEATURES = [
   'pertinenza-spunte',   // ✓ punto elenco ≠ spunta, «art. 6,13» ≠ importo, riga ‡ con importo coi decimali; fine dello stream Ollama nel log (27/09/2026)
   'estrazione-sandwich', // pagine immagine + OCR invisibile dello scanner → OCR; intestazione di colonna ≠ valore (A.7); imponibile = imposte svuotati (27/09/2026)
   'manutenzione-bulk',  // Manutenzione: lista dei batch con caselle, filtro ed «Elimina selezionati» (28/09/2026)
+  'elaborazioni-elimina', // Elaborazioni: caselle su card dei batch e risultati della ricerca, «Elimina selezionati» (28/09/2026)
 ]
 
 export async function GET() {

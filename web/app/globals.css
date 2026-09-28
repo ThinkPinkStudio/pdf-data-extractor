@@ -532,6 +532,10 @@ tr:last-child td { border-bottom: none; }
 /* Card del batch nella lista. */
 .jb-card { display: flex; flex-direction: column; gap: 12px; background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 16px 18px; min-width: 0; box-shadow: var(--shadow-sm); }
 .jb-card.attention { border-color: rgba(245,158,11,.5); }
+.jb-card.selected { border-color: var(--c-accent); box-shadow: 0 0 0 1px var(--c-accent-dim); }
+.jb-check { width: 16px; height: 16px; flex: none; margin: 2px 0 0; accent-color: var(--c-accent); cursor: pointer; }
+.jb-check:disabled { cursor: not-allowed; opacity: .4; }
+.jb-selbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; background: var(--c-bg-card); border: 1px solid var(--c-accent); border-radius: var(--r-md); box-shadow: var(--shadow-sm); font-size: 12.5px; }
 .jb-card .title { font-size: 15px; font-weight: 700; color: var(--c-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jb-card .title:hover { color: var(--c-accent); }
 .jb-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 12px; background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.35); }
