@@ -15,7 +15,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 interface Stats {
   pg: { batches: number; jobs: number; jobsRunning: number; files: number; filesMb: number; ocrEntries: number; ocrMb: number }
   qdrant: { enabled: boolean; exists?: boolean; points?: number; collection?: string; error?: string }
-  batches: { id: string; label: string; email: string; total: number; running: number }[]
+  batches: { id: string; label: string; email: string; total: number; running: number; createdAt?: number | string | null }[]
   jobs: { id: string; label: string; files: string[] }[]
 }
 
@@ -25,7 +25,8 @@ export default function DataAdminPage() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [delJobId, setDelJobId] = useState('')
-  const [delBatchId, setDelBatchId] = useState('')
+  const [batchFilter, setBatchFilter] = useState('')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [qJobId, setQJobId] = useState('')
   const [qPolizza, setQPolizza] = useState('')
   const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
@@ -48,6 +49,30 @@ export default function DataAdminPage() {
       await load()
     } catch (e) { setMsg(`✗ ${(e as Error).message}`) } finally { setBusy(false) }
   }
+
+  async function deleteSelected() {
+    const ids = [...picked]
+    if (!ids.length || !(await askConfirm(t('data.confirmBatches', { n: String(ids.length) }), { danger: true }))) return
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-batches', batchIds: ids }),
+      })
+      const d = await res.json()
+      if (res.ok) {
+        const parts = [t('data.batchesDeleted', { n: String(d.deleted ?? 0), jobs: String(d.jobs ?? 0) })]
+        if (d.skipped?.length) parts.push(t('data.batchesSkipped', { n: String(d.skipped.length) }))
+        setMsg(`✓ ${parts.join(' ')}`)
+        setPicked(new Set(d.skipped || []))
+      } else setMsg(`✗ ${d.error || 'Errore'}`)
+      await load()
+    } catch (e) { setMsg(`✗ ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  const fq = batchFilter.trim().toLowerCase()
+  const shownBatches = (stats?.batches || []).filter((b) => !fq || `${b.label} ${b.email}`.toLowerCase().includes(fq))
+  const selectable = shownBatches.filter((b) => b.running === 0)
 
   const card: React.CSSProperties = { padding: 16, marginBottom: 16 }
   const row: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }
@@ -73,18 +98,33 @@ export default function DataAdminPage() {
               {stats.pg.jobsRunning > 0 && <strong> · {t('data.pgRunning', { n: String(stats.pg.jobsRunning) })}</strong>}
             </p>
             <div style={row}>
-              <select value={delBatchId} onChange={(e) => setDelBatchId(e.target.value)} style={{ fontSize: 12, flex: '1 1 300px' }}>
-                <option value="">{t('data.pickBatch')}</option>
-                {stats.batches.map((b) => (
-                  <option key={b.id} value={b.id} disabled={b.running > 0}>
-                    {b.label} · {b.email} · {b.total} polizze{b.running > 0 ? ` (${b.running} attivi)` : ''}
-                  </option>
-                ))}
-              </select>
-              <button className="btn btn-secondary" style={{ fontSize: 12 }} disabled={busy || !delBatchId}
-                onClick={() => run('delete-batch', { batchId: delBatchId }, t('data.confirmBatch'))}>
-                🗑 {t('data.deleteBatch')}
+              <input value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} placeholder={t('data.batchFilter')}
+                style={{ fontSize: 12, flex: '1 1 260px' }} />
+              <button className="btn btn-secondary" style={{ fontSize: 12 }} disabled={busy || !selectable.length}
+                onClick={() => setPicked(new Set(selectable.map((b) => b.id)))}>
+                {t('data.selectFiltered', { n: String(selectable.length) })}
               </button>
+              <button className="btn btn-secondary" style={{ fontSize: 12 }} disabled={busy || !picked.size}
+                onClick={() => setPicked(new Set())}>
+                {t('data.selectNone')}
+              </button>
+              <button className="btn btn-secondary" style={{ fontSize: 12, color: 'var(--c-error)' }} disabled={busy || !picked.size}
+                onClick={deleteSelected}>
+                🗑 {t('data.deleteSelected', { n: String(picked.size) })}
+              </button>
+            </div>
+            <div style={{ marginTop: 8, maxHeight: 320, overflowY: 'auto', border: '1px solid var(--c-border)', borderRadius: 6 }}>
+              {shownBatches.map((b) => {
+                const active = b.running > 0
+                return (
+                  <label key={b.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 10px', fontSize: 12, borderBottom: '1px solid var(--c-border)', opacity: active ? 0.5 : 1, cursor: active ? 'not-allowed' : 'pointer' }}>
+                    <input type="checkbox" disabled={active || busy} checked={picked.has(b.id)}
+                      onChange={(e) => setPicked((prev) => { const n = new Set(prev); if (e.target.checked) n.add(b.id); else n.delete(b.id); return n })} />
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label}</span>
+                    <span style={{ color: 'var(--c-text-muted)', whiteSpace: 'nowrap' }}>{b.email} · {b.total} polizze{b.createdAt ? ` · ${new Date(typeof b.createdAt === 'number' && b.createdAt < 1e12 ? b.createdAt * 1000 : b.createdAt).toLocaleDateString()}` : ''}{active ? ` · ${t('data.batchActive')}` : ''}</span>
+                  </label>
+                )
+              })}
             </div>
             <div style={row}>
               <select value={delJobId} onChange={(e) => setDelJobId(e.target.value)} style={{ fontSize: 12, flex: '1 1 300px' }}>
