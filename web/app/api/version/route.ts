@@ -39,6 +39,7 @@ const BUILD_FEATURES = [
   'elaborazioni-elimina', // Elaborazioni: caselle su card dei batch e risultati della ricerca, «Elimina selezionati» (28/09/2026)
   'elaborazioni-azioni', // Elaborazioni: sulla selezione (batch e polizze trovate) Estrai, Riabbina, Riabbina ed estrai, Procedi, Riprova, Con profilo, Annulla (28/09/2026)
   'elaborazioni-ultimo-lancio', // Elaborazioni: card e intestazione del batch mostrano l'ultimo lancio (data e chi), non il caricamento (28/09/2026)
+  'elaborazioni-parola-da-evitare', // Elaborazioni: i fascicoli fermi per una parola da evitare del profilo lo dicono (testa «Parola da evitare «x»», riquadro nel dettaglio), non «prova respinta» (28/09/2026)
 ]
 
 export async function GET() {

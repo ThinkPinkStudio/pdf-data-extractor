@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 're
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
-import { isActive, isTestRun, minutesSince, needsDecision, reasonLine, shortName, splitName, valuesCount } from './model'
+import { avoidWordOf, isActive, isTestRun, minutesSince, needsDecision, reasonLine, shortName, splitName, valuesCount } from './model'
 import { StatusPill } from './StatusPill'
 import { ActionMenu } from './ActionMenu'
 import { actionSet, buttonClass } from './actionSet'
@@ -126,7 +126,7 @@ export function JobsTable({ jobs, allJobs, batchLabel, selectedId, onSelect, che
                   {!compact && (
                     <td className={`jb-muted reason${rOpen ? ' exp' : ''}`} title={rOpen ? undefined : t('jobsDash.reasonExpandHint')}
                       onClick={(e) => { e.stopPropagation(); toggleReason(j.jobId) }}>
-                      {head && <b style={{ color: 'var(--c-text-primary)' }}>{head}</b>}{head && body ? ' · ' : ''}{body}
+                      {head && <b className={avoidWordOf(j) ? 'jb-avoid-head' : undefined} style={avoidWordOf(j) ? undefined : { color: 'var(--c-text-primary)' }}>{head}</b>}{head && body ? ' · ' : ''}{body}
                     </td>
                   )}
                   {!compact && <td className="right jb-muted">{isActive(j) ? '—' : valuesCount(j)}</td>}

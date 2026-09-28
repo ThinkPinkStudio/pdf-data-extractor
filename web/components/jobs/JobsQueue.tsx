@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
-import { isActive, isTestRun, needsDecision, reasonLine, shortName, splitName, uiState } from './model'
+import { avoidWordOf, isActive, isTestRun, needsDecision, reasonLine, shortName, splitName, uiState } from './model'
 import { JobDetail } from './JobDetail'
 import { IcFlask } from './Icons'
 
@@ -12,6 +12,7 @@ import { IcFlask } from './Icons'
 // Il filtro è la striscia KPI della pagina (nessuna colonna di stati qui).
 // Colore della testa del motivo nella lista: segue lo stato della polizza.
 function headClass(j: JobSnapshot): string {
+  if (avoidWordOf(j)) return 'jb-avoid-head'
   const st = uiState(j)
   if (st === 'done' || st === 'matched') return 'jb-c-ok'
   if (st === 'review') return 'jb-c-warn'

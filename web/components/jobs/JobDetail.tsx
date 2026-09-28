@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { DetailTab, JobRun, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
-import { errorText, fileUrl, isTestRun, minutesSince, opEsitoKey, shortName, splitName, uiState, valuesCount } from './model'
+import { avoidWordOf, errorText, fileUrl, isTestRun, minutesSince, opEsitoKey, shortName, splitName, uiState, valuesCount } from './model'
 import { StatusPill } from './StatusPill'
 import { isLegacySetAside } from '@/lib/jobValidity'
 import { ActionMenu } from './ActionMenu'
@@ -136,7 +136,9 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
   const notValid = st === 'notValid'
   // Vecchio «Accantonato» (forzabile): la prova di operatività non è stata respinta.
   const legacy = isLegacySetAside(job)
-  const rejected = !!op && pc.verdict !== 'ok' && op.esito === 'operante' && !legacy
+  // Fermo per una parola da evitare del profilo: non è una prova respinta.
+  const avoid = avoidWordOf(job)
+  const rejected = !!op && pc.verdict !== 'ok' && op.esito === 'operante' && !legacy && !avoid
   const pol = pc.polizza && pc.polizza.esito ? pc.polizza : null
   const polWhere = pol?.documento
     ? (pol.pagina ? t('jobsDash.docPage', { doc: String(pol.documento), page: String(pol.pagina) }) : t('jobsDash.docOnly', { doc: String(pol.documento) }))
@@ -162,6 +164,11 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
           {pc.override && <span className="jb-pill neutral">{t('jobsDash.overrideApplied')}</span>}
           {pc.confirmed && <span className="jb-pill neutral">{t('jobsDash.confirmedApplied')}</span>}
         </div>
+        {avoid && (
+          <p className="jb-text jb-avoid" style={{ marginTop: 8 }}>
+            <b>{t('jobsDash.avoidWordHead', { word: avoid })}</b> — {t('jobsDash.avoidWordDetail', { word: avoid })}
+          </p>
+        )}
         {pc.reason && <p className="jb-text" style={{ marginTop: 8 }}>{pc.reason}</p>}
         {notValid && <p className="jb-text jb-muted" style={{ marginTop: 6, fontSize: 11 }}>{t('jobsDash.notValidTitle')}</p>}
       </div>
@@ -176,7 +183,7 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
         <>
           <div>
             <p className="jb-sec">{t('jobsDash.modelSaidLabel')}</p>
-            <p className="jb-text"><b>{t(opEsitoKey(op.esito))}</b>{rejected ? ` — ${t('jobsDash.proofRejected').toLowerCase()}` : ''}</p>
+            <p className="jb-text"><b>{t(opEsitoKey(op.esito))}</b>{rejected ? ` — ${t('jobsDash.proofRejected').toLowerCase()}` : avoid && op.esito === 'operante' ? ` — ${t('jobsDash.avoidWordStopped', { word: avoid })}` : ''}</p>
           </div>
           {op.evidenza && (
             <div>

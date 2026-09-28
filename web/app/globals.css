@@ -552,6 +552,10 @@ tr:last-child td { border-bottom: none; }
 .jb-tab.active { color: var(--c-text-primary); border-bottom-color: var(--c-accent); }
 .jb-tab .c { margin-left: 4px; color: var(--c-text-muted); font-weight: 500; }
 .jb-sec { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--c-text-secondary); font-weight: 600; margin: 0 0 6px; }
+/* Fermo per una PAROLA DA EVITARE del profilo: si distingue da una prova respinta. */
+.jb-avoid-head { color: #fbbf24; }
+[data-theme="light"] .jb-avoid-head { color: #b45309; }
+.jb-avoid { padding: 8px 10px; border-left: 3px solid var(--c-warning); background: rgba(245,158,11,.10); border-radius: 0 6px 6px 0; }
 .jb-quote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--c-warning); background: var(--c-bg-card-alt); border-radius: 0 6px 6px 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .jb-text { margin: 0; font-size: 12px; line-height: 1.5; color: var(--c-text-primary); white-space: pre-wrap; }
 .jb-chips { display: flex; flex-wrap: wrap; gap: 6px; }

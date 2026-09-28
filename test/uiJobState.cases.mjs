@@ -154,3 +154,30 @@ test('riepiloghi dei batch: i Non validi non «aspettano una decisione» e non t
   const s = m.summarizeJobs([job({ error: 'Non valido — x' }), job({ error: 'Accantonato — y' }), job({ error: 'Non pertinente al profilo "T" — z' }), job({ status: 'done' })])
   assert.equal(s.mismatch, 3); assert.equal(s.notValid, 1); assert.equal(s.done, 1)
 })
+
+test('reasonLine: un fermo per PAROLA DA EVITARE si dice come tale, non «prova respinta»', () => {
+  // Da verificare per la parola da evitare del profilo (controllo di operatività)
+  const rv = job({
+    status: 'review',
+    error: 'Da verificare — elementi contraddittori: parola da evitare «proposta» nel testo, ma copertura operante: la copertura è indicata con un premio proprio.',
+    precheck: {
+      verdict: 'review', reason: 'elementi contraddittori: parola da evitare «proposta» nel testo, ma copertura operante',
+      operativita: { esito: 'operante', documento: 1, pagina: 3, evidenza: 'Tutela Legale Pacchetto Base 178,92 38,01 216,93' },
+    },
+  })
+  assert.equal(m.avoidWordOf(rv), 'proposta')
+  const r = m.reasonLine(rv, t)
+  assert.equal(r.head, 'jobsDash.avoidWordHead{"word":"proposta"}')
+  assert.ok(r.body.startsWith('jobsDash.avoidWordBody'))
+  // estratta forzando (Procedi comunque): resta scritto perché era ferma
+  const done = job({ status: 'done', values: { a: 'x' }, fieldDefs: [{ id: 'a', label: 'A' }], precheck: { ...rv.precheck, override: true } })
+  assert.equal(m.reasonLine(done, t).head, 'jobsDash.avoidWordHead{"word":"proposta"}')
+  assert.ok(m.reasonLine(done, t).body.startsWith('jobsDash.avoidWordForced'))
+  // controllo a parole (modo keywords): «parola del contenuto da evitare trovata: "x"»
+  const kw = job({ status: 'mismatch', error: 'Contenuto non pertinente', precheck: { verdict: 'mismatch', reason: 'parola del contenuto da evitare trovata: "preventivo"' } })
+  assert.equal(m.avoidWordOf(kw), 'preventivo')
+  // prova davvero respinta (nessuna parola da evitare): resta «prova respinta»
+  const pr = job({ status: 'review', error: 'Da verificare — copertura dichiarata operante ma la prova citata è generica', precheck: { verdict: 'review', reason: 'copertura dichiarata operante ma la prova citata è generica', operativita: { esito: 'operante', documento: 1, pagina: 1, evidenza: 'x' } } })
+  assert.equal(m.avoidWordOf(pr), null)
+  assert.equal(m.reasonLine(pr, t).head, 'jobsDash.proofRejected')
+})

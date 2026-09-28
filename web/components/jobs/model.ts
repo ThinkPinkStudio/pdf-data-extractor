@@ -187,6 +187,22 @@ export function progressText(j: JobSnapshot, t: T): string {
 
 // UNA riga di motivo per la tabella e la lista: testa in grassetto (esito del
 // controllo) e corpo (documento/pagina e prova citata, oppure il motivo).
+// PAROLA DA EVITARE del profilo («proposta, preventivo…», decisione del
+// cliente): il fascicolo è fermo per quella parola, non per una prova
+// respinta. La parola si legge dal motivo scritto dal controllo (anche per i
+// job elaborati prima: nessuna rielaborazione): «parola da evitare «x»» del
+// controllo di operatività, «parola del contenuto da evitare trovata: "x"»
+// del controllo a parole.
+const AVOID_RE = /parola (?:del contenuto )?da evitare(?: trovata)?:?\s*[«"]([^»"]+)[»"]/i
+export function avoidWordOf(j: JobSnapshot): string | null {
+  const pc = j.precheck || null
+  for (const s of [pc?.reason, j.error, pc?.summary]) {
+    const m = AVOID_RE.exec(String(s || ''))
+    if (m) return m[1].trim()
+  }
+  return null
+}
+
 export function reasonLine(j: JobSnapshot, t: T): { head: string; body: string } {
   const st = uiState(j)
   const pc = j.precheck || null
@@ -210,6 +226,16 @@ export function reasonLine(j: JobSnapshot, t: T): { head: string; body: string }
   // controllo di allora, NON l'esito di operatività («Operante — prova
   // respinta» su una prova che nessuno ha respinto confondeva).
   if (isLegacySetAside(j)) return { head: t('jobsDash.legacySetAsideHead'), body: errorText(j) || pc?.reason || '' }
+  // Fermo (o forzato) per una PAROLA DA EVITARE: lo si dice per primo, con la
+  // parola; poi dove il modello vedeva la copertura.
+  const avoid = avoidWordOf(j)
+  if (avoid) {
+    const where = op?.documento ? (op.pagina ? t('jobsDash.docPage', { doc: String(op.documento), page: String(op.pagina) }) : t('jobsDash.docOnly', { doc: String(op.documento) })) : ''
+    const body = st === 'done'
+      ? `${t('jobsDash.avoidWordForced')} · ${t('jobsDash.valuesCount', { n: valuesCount(j) })}`
+      : [t('jobsDash.avoidWordBody'), where].filter(Boolean).join(' · ')
+    return { head: t('jobsDash.avoidWordHead', { word: avoid }), body }
+  }
   if (op && op.esito) {
     const rejected = pc?.verdict !== 'ok' && op.esito === 'operante'
     const head = rejected ? t('jobsDash.proofRejected') : t(opEsitoKey(op.esito))
