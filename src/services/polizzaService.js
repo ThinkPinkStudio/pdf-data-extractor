@@ -3390,6 +3390,25 @@ export function completeA7Row(entries, rows, fields, fieldOfKey) {
 }
 
 /**
+ * Stadio A.7: il valore proposto è l'ETICHETTA DELLA RIGA letta come dato di una
+ * colonna di importi? Vero se il testo (senza cifre) coincide con l'etichetta
+ * della riga citata e la cella della colonna citata è un importo: «PREMIO RATA
+ * INIZIALE» come Frazionamento dalla colonna FRAZIONAMENTO, che vale 0,00
+ * (5 posizioni DAS del 28/09). Un valore preso dalla colonna dell'etichetta
+ * stessa (le garanzie «Difesa Condominio - ed.2019» sotto GARANZIE PRESCELTE)
+ * non è toccato: quella colonna non è tra le celle della riga.
+ */
+export function isRowLabelValue(value, rowHit, colonna) {
+  if (!rowHit || /\d/.test(String(value || ''))) return false
+  const vn = normForMatch(value)
+  if (!vn || vn !== normForMatch(rowHit.row?.label || '')) return false
+  const cols = rowHit.row?.cols || []
+  const m = String(colonna || '').trim().match(/^col\s*(\d+)$/i)
+  const cited = m ? cols[Number(m[1]) - 1] : cols.find((c) => c.header && normForMatch(c.header) === normForMatch(colonna || ''))
+  return !!cited && /\d/.test(String(cited.value || '')) && /^[\d.,\s€%-]+$/.test(String(cited.value).trim())
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -5743,6 +5762,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // agli altri stadi.
             if (isColumnHeaderValue(cleaned, rowHit, rows)) {
               diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è l'intestazione di una colonna, non un valore della riga`)
+              continue
+            }
+            if (isRowLabelValue(cleaned, rowHit, valObj.colonna || (v && typeof v === 'object' ? v.colonna : ''))) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è l'etichetta della riga, la colonna citata contiene un importo`)
               continue
             }
             // PAGINA reale: quella della riga che porta il valore, altrimenti la

@@ -86,3 +86,15 @@ test('motore a stadi: interessi 0,00 dalla stessa riga dei premi letti dal model
     assert.ok(out.diag.some((l) => l.startsWith('Tabella-completamento[Interessi di frazionamento]')))
   })
 })
+
+test('isRowLabelValue: l\'etichetta della riga letta da una colonna di importi non è il dato; la colonna dell\'etichetta sì', async () => {
+  const { isRowLabelValue } = await import('../src/services/polizzaService.js')
+  const rows = tableRowsWithHeaders(table).map((r) => ({ page: 1, key: normForMatch(r.label), row: r }))
+  const hit = rows[0]
+  assert.equal(isRowLabelValue('PREMIO RATA INIZIALE', hit, 'FRAZIONAMENTO'), true)
+  assert.equal(isRowLabelValue('PREMIO RATA INIZIALE', hit, 'col1'), true)
+  assert.equal(isRowLabelValue('ANNUALE', hit, 'FRAZIONAMENTO'), false)
+  const garanzie = tableRowsWithHeaders('| GARANZIE PRESCELTE | TUTELA LEGALE | IMPOSTE | PREMIO LORDO |\n| --- | --- | --- | --- |\n| Difesa Condominio - ed.2019 | 159,99 | 34,00 | 193,99 |')
+    .map((r) => ({ page: 1, key: normForMatch(r.label), row: r }))
+  assert.equal(isRowLabelValue('Difesa Condominio - ed.2019', garanzie[0], 'GARANZIE PRESCELTE'), false)
+})
