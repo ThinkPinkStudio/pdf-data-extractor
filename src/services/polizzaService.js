@@ -5462,7 +5462,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           // Un errore di chiamata ferma lo stadio come prima (catch esterno): i
           // candidati dei documenti già letti restano.
           const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
-          try { writeFileSync('/tmp/a7-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
           let parsed = parseJsonResponse(raw)
           // {"voci": [...]} → array; {"campo":…} singolo → [voce]
           if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
@@ -5717,7 +5716,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         }
       }
       frontBlock = frontBlock.trim()
-      try { writeFileSync('/tmp/a8-block.txt', String(frontBlock).slice(0, 2000)) } catch {}
       if (frontBlock.length < 50) {
         diag.push('Stadio A.8: nessun blocco frontespizio trovato — nessun campo anagrafico da frontespizio (esito valido)')
       } else {
@@ -5737,7 +5735,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE. Se un campo non ha un valore chiaro, non includerlo. Non inventare.'
         const user = `${a78 ? 'FRONTESPIZIO:' : 'FRONTESPIZIO (etichetta sopra, valore sotto):'}\n${frontBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'array JSON, es. [{"campo": 0, "valore": "...", "riga": "..."}]. I campi senza valore non compaiono.`
         const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, numPredict: 4096, diag, fields: anagFields, shape: 'staged', format: false })
-        try { writeFileSync('/tmp/a8-raw.txt', String(raw || '').slice(0, 3000)) } catch {}
         const parsed = parseJsonResponse(raw)
         const a8NormCtx = normForMatch(frontBlock)
         const entries2 = Array.isArray(parsed)
