@@ -317,14 +317,19 @@ export async function runContractCheck({ docs, spatialDocs, settings, diag = nul
       // Risposta ILLEGGIBILE (Ollama: «prediction aborted, token repeat limit
       // reached», JSON troncato): si rifà la domanda sulle due metà del batch
       // invece di arrendersi (prima diventava «non determinabile» → Da verificare).
-      if (!ca && blocks.length > 1) {
-        const half = Math.ceil(blocks.length / 2)
-        log(`Polizza batch ${b + 1}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${blocks.length - half} pagine)`)
-        const parts = [blocks.slice(0, half), blocks.slice(half)]
+      // Una metà ancora illeggibile si divide di nuovo, fino ai quarti.
+      const splitAsk = async (part, tag, depth) => {
+        const half = Math.ceil(part.length / 2)
+        log(`Polizza batch ${tag}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${part.length - half} pagine)`)
         const got = []
-        for (const part of parts) got.push(await askContract({ settings, blocks: part, callModel, diag }))
-        ca = got.find((x) => x?.contratto === 'presente') || (got.every((x) => x?.contratto === 'assente') ? got[0] : got.find((x) => x && x.contratto !== 'assente') || null)
+        for (const [k, sub] of [part.slice(0, half), part.slice(half)].entries()) {
+          let x = await askContract({ settings, blocks: sub, callModel, diag })
+          if (!x && sub.length > 1 && depth < 1) x = await splitAsk(sub, `${tag}${'ab'[k]}`, depth + 1)
+          got.push(x)
+        }
+        return got.find((x) => x?.contratto === 'presente') || (got.every((x) => x?.contratto === 'assente') ? got[0] : got.find((x) => x && x.contratto !== 'assente') || null)
       }
+      if (!ca && blocks.length > 1) ca = await splitAsk(blocks, `${b + 1}`, 0)
       answers.push(ca)
       sent.push(...blocks)
       log(`Polizza batch ${b + 1}: ${ca?.contratto || 'risposta illeggibile'}${ca?.documento ? ` (Documento ${ca.documento}${ca.pagina ? ` pag. ${ca.pagina}` : ''})` : ''}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''} (${blocks.length} pagine: ${blockList(blocks)}; restano ${remaining.length})`)
