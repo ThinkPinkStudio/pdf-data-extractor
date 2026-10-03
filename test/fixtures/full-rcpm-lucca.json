@@ -1,0 +1,135 @@
+{
+  "id": "rcpm-lucca",
+  "label": "LUCCA VIVIANA RCSPEM00000098 (AmTrust) — golden completo 29 campi",
+  "fields": {
+    "N° Polizza": {
+      "value": "RCSPEM00000098",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AmTrust",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "LUCCA VIVIANA",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "03131670345",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "STRADA MULATTIERA SUPERIORE",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "Underwriting Agency",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "30/11/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "30/11/2026",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "26,46",
+      "mode": "amount",
+      "note": "descrizione = imposte alla firma"
+    },
+    "Premio lordo": {
+      "value": "145,36",
+      "mode": "amount"
+    },
+    "Professione dichiarata": {
+      "value": "INFERMIERE",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Retroattività": {
+      "value": "ILLIMITATA",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "text"
+    },
+    "Massimale per sinistro": {
+      "value": "1.000.000",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "3.000.000",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "NESSUNA",
+      "mode": "contains"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Tutela": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Massimale Tutela": {
+      "value": "50.000,00",
+      "mode": "amount"
+    },
+    "Franchigia Tutela": {
+      "value": "SCHEDA TECNICA",
+      "mode": "contains"
+    },
+    "Premio Lordo Tutela": {
+      "value": "50,00",
+      "mode": "amount"
+    },
+    "Frazionamento#10": {
+      "value": "118,90",
+      "mode": "amount",
+      "note": "campo n.10: descrizione = premio netto"
+    },
+    "Frazionamento#28": {
+      "value": "ANNUALE",
+      "mode": "contains"
+    },
+    "Sottolimiti": {
+      "mode": "text",
+      "value": null,
+      "note": "Nessun sottolimite nel fascicolo. LUCCA_VIVIANA.pdf ha 4 pagine, tutte con testo e nessuna immagine: tre certificati di adesione e una ricevuta della quota associativa. Non contiene le condizioni di polizza (p.1: «Condizioni di polizza e fascicolo informativo sono scaricabili dal sito»). Gli unici importi di massimale sono quelli principali di tre certificati distinti: RC 1.000.000/3.000.000 a p.1, Tutela Medici 50.000,00 a p.2 (certificato TLM190942268) e 3VIRUS 100.000,00 a p.3. Non sono sottolimiti di una garanzia. Nel testo non compaiono «sottolimite», «limite di indennizzo» o «nel limite di». Il campo deve restare vuoto. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Estensioni operative": {
+      "mode": "text",
+      "value": null,
+      "note": "La scheda RC (certificato RCSPEM00000098, p.1) non indica estensioni. Nel fascicolo non ci sono appendici né condizioni particolari: non compaiono «estensione» o «garanzie aggiuntive». AMTRUST TUTELA MEDICI (p.2, certificato TLM190942268) e POLIZZA 3VIRUS (p.3, certificato INV21001EP0000006538) sono certificati di adesione separati, con numero, massimale e premio propri. Non sono estensioni della RC. La tutela ha già i suoi campi nel golden (Tutela, Massimale Tutela, ecc.). Se l'estrazione mette qui «3VIRUS» o «Tutela», è un falso positivo. Il campo deve restare vuoto. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Esclusioni particolari": {
+      "mode": "text",
+      "value": null,
+      "note": "Il fascicolo contiene solo certificati e ricevuta, senza condizioni né articolo Esclusioni. Nel certificato RC (p.1) non c'è alcuna esclusione. L'unica occorrenza di «esclusione» è a p.2, nel certificato separato di Tutela Medici: «ATTIVITÀ: PERSONALE SANITARIO NON MEDICO CON ESCLUSIONE DI OSTETRICHE». È il nome della categoria di attività di quella convenzione, non un'esclusione di rischio della polizza RC, e non tocca l'assicurata, che è infermiera. È un caso limite, segnalato perché venga valutato. p.4: «La quota associativa indicata non comprende alcuna copertura assicurativa» riguarda la quota associativa, non è un'esclusione. Il campo deve restare vuoto. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    },
+    "Condizioni particolari, aggiuntiive": {
+      "mode": "text",
+      "value": null,
+      "note": "Nessuna clausola speciale, condizione particolare o aggiuntiva e nessuna appendice. I certificati rimandano solo alle condizioni generali da scaricare (p.1: «Condizioni di polizza e fascicolo informativo sono scaricabili dal sito www.underwriting.it»). L'unico testo con forma di clausola è la regola standard sulla decorrenza legata al pagamento: «La copertura decorrera' dalla data di effetto se il pagamento sara' effettuato precedentemente a tale data…». È identica sui tre certificati (pp.1-3), quindi è una formula standard e non una condizione particolare. È un caso limite, segnalato. Il campo deve restare vuoto. [verità scritta 25/09/2026 da lettura del PDF, verificata da un secondo lettore]"
+    }
+  },
+  "nonVerificati": [
+    "Sottolimiti",
+    "Estensioni operative",
+    "Esclusioni particolari",
+    "Condizioni particolari, aggiuntiive"
+  ],
+  "note": "Il profilo ha due campi 'Frazionamento': #10 (descrizione = premio netto 118,90) e #28 (frazionamento ANNUALE)."
+}

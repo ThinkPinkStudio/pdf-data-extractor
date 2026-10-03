@@ -47,6 +47,10 @@ export interface CompareConfig {
   fuzzyIgnoreWords: string
   fuzzyBroadEnabled: boolean
   fuzzyMinOverlapBroad: number
+  // Soglie decisionali (percentuale di somiglianza, 0–100): sotto la bassa la
+  // coppia è scartata, tra le due «da verificare», sopra l'alta accettata.
+  fuzzyThresholdLow: number
+  fuzzyThresholdHigh: number
   searchConditions: Condition[]
   bothMatchConditions: Condition[]
   bothFilterConditions: Condition[]
@@ -61,18 +65,22 @@ export interface FuzzyOpts {
   ignoreWords?: string // testo libero: "totale, srl" (separatori: virgola, punto e virgola, a-capo)
   broadEnabled?: boolean
   broadMinOverlap?: number
+  thresholdLow?: number // default 50
+  thresholdHigh?: number // default 80
 }
 
 export interface FuzzyPair {
   rowA: Row
   rowB: Row
   kind: 'key' | 'broad'
+  score: number // somiglianza 0–100 (vedi similarity)
 }
 
 export interface CompareResult {
   onlyA: Row[]
   onlyB: Row[]
-  fuzzy: FuzzyPair[]
+  fuzzy: FuzzyPair[] // soglia bassa ≤ score < soglia alta: da verificare
+  accepted: FuzzyPair[] // score ≥ soglia alta: accettate in automatico
   diffA: Row[]
   diffB: Row[]
 }
@@ -80,11 +88,19 @@ export interface CompareResult {
 /* ─── Opzioni UI ─────────────────────────────────────────────────────────── */
 export const TRANSFORM_OPTIONS: { value: Transform; label: string }[] = [
   { value: 'none', label: 'Nessuna' },
-  { value: 'letters_only', label: 'Solo lettere (case-insensitive)' },
+  { value: 'letters_only', label: 'Solo lettere' },
   { value: 'digits_only', label: 'Solo cifre' },
   { value: 'last6', label: 'Ultime 6 cifre' },
   { value: 'last4', label: 'Ultime 4 cifre' },
 ]
+
+// Trasformazione proposta per le chiavi/condizioni NUOVE (e per quelle salvate
+// senza trasformazione). Le chiavi predefinite sul numero di polizza la
+// dichiarano esplicitamente: «Solo lettere» svuoterebbe un numero.
+export const DEFAULT_TRANSFORM: Transform = 'letters_only'
+
+export const DEFAULT_THRESHOLD_LOW = 50
+export const DEFAULT_THRESHOLD_HIGH = 80
 
 export const BOTH_MODE_OPTIONS: { value: CondMode; label: string }[] = [
   { value: 'contains', label: 'Contiene' },
@@ -95,22 +111,44 @@ export const BOTH_MODE_OPTIONS: { value: CondMode; label: string }[] = [
 
 /* ─── Default ────────────────────────────────────────────────────────────── */
 export function defaultMatchKeys(): MatchKey[] {
-  return [
+  return ([
     { label: 'Numero Polizza', columnA: 'Numero Polizza', columnB: 'Numero Polizza', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'none' },
     { label: 'Numero Polizza (solo cifre)', columnA: 'Numero Polizza', columnB: 'Numero Polizza', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'digits_only' },
     { label: 'Ultime 6 cifre polizza', columnA: 'Numero Polizza', columnB: 'Numero Polizza', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'last6' },
     { label: 'Ultime 4 cifre polizza', columnA: 'Numero Polizza', columnB: 'Numero Polizza', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'last4' },
     { label: 'Targa Veicolo', columnA: 'Targa Veicolo', columnB: 'Targa Veicolo', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'none' },
     { label: 'Veicolo', columnA: 'Veicolo', columnB: 'Veicolo', sheetA: '', sheetB: '', sameColumn: true, enabled: true, transform: 'none' },
-  ]
+  ] as MatchKey[]).map(normaliseKey)
+}
+
+// Nome della chiave calcolato dalle colonne/fogli (la UI non lo fa più scrivere).
+export function keyLabel(k: MatchKey): string {
+  const sheet = (s?: string) => (s && s.trim() ? s.trim() : '1° foglio')
+  const colA = k.columnA ?? k.column ?? ''
+  const colB = k.columnB ?? k.column ?? ''
+  return `${colA || '—'} - ${sheet(k.sheetA)} - ${colB || '—'} - ${sheet(k.sheetB)}`
+}
+
+// Chiave in forma esplicita A/B: le chiavi storiche «stessa colonna» (o col solo
+// `column`) ricevono colonna e foglio di B uguali ad A; label ricalcolato.
+export function normaliseKey(k: MatchKey): MatchKey {
+  const columnA = k.columnA ?? k.column ?? ''
+  const same = k.sameColumn !== false
+  const columnB = k.columnB || columnA
+  const sheetA = k.sheetA || ''
+  const sheetB = k.sheetB || (same ? sheetA : '')
+  const out: MatchKey = { ...k, columnA, columnB, sheetA, sheetB, sameColumn: false, transform: k.transform || DEFAULT_TRANSFORM }
+  delete out.column
+  out.label = keyLabel(out)
+  return out
 }
 
 export function defaultSearchConditions(): Condition[] {
-  return [{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'contains', transform: 'none', connector: 'AND' }]
+  return [{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'contains', transform: DEFAULT_TRANSFORM, connector: 'AND' }]
 }
 
 export function defaultBothMatchConditions(): Condition[] {
-  return [{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'equals', transform: 'none', connector: 'AND' }]
+  return [{ columnA: '', columnB: '', sheetA: '', sheetB: '', mode: 'equals', transform: DEFAULT_TRANSFORM, connector: 'AND' }]
 }
 
 export function defaultCompareConfig(): CompareConfig {
@@ -121,6 +159,8 @@ export function defaultCompareConfig(): CompareConfig {
     fuzzyIgnoreWords: '',
     fuzzyBroadEnabled: true,
     fuzzyMinOverlapBroad: 6,
+    fuzzyThresholdLow: DEFAULT_THRESHOLD_LOW,
+    fuzzyThresholdHigh: DEFAULT_THRESHOLD_HIGH,
     searchConditions: defaultSearchConditions(),
     bothMatchConditions: defaultBothMatchConditions(),
     bothFilterConditions: [],
@@ -128,10 +168,11 @@ export function defaultCompareConfig(): CompareConfig {
 }
 
 /* ─── Profili ────────────────────────────────────────────────────────────── */
-// I profili salvati vivono nella pagina che li usa e sono INDIPENDENTI: quelli
-// della Comparazione portano solo chiavi + fuzzy, quelli del Confronto righe
-// solo le condizioni. Caricarne uno non tocca mai i criteri dell'altra pagina.
-export type ComparisonProfile = Pick<CompareConfig, 'matchKeys' | 'fuzzyEnabled' | 'fuzzyMinOverlap' | 'fuzzyIgnoreWords' | 'fuzzyBroadEnabled' | 'fuzzyMinOverlapBroad'>
+// Un solo blocco di profili, in Configurazione: chiavi di abbinamento + fuzzy +
+// soglie. Servono sia a «Differenze» sia a «Uguale a» nella Comparazione. I
+// profili storici del Confronto righe (RowsProfile) si convertono in chiavi
+// (comparisonProfileFromRows) e restano caricabili.
+export type ComparisonProfile = Pick<CompareConfig, 'matchKeys' | 'fuzzyEnabled' | 'fuzzyMinOverlap' | 'fuzzyIgnoreWords' | 'fuzzyBroadEnabled' | 'fuzzyMinOverlapBroad' | 'fuzzyThresholdLow' | 'fuzzyThresholdHigh'>
 export type RowsProfile = Pick<CompareConfig, 'bothMatchConditions' | 'bothFilterConditions'>
 
 export function comparisonProfileFrom(c: CompareConfig): ComparisonProfile {
@@ -142,22 +183,52 @@ export function comparisonProfileFrom(c: CompareConfig): ComparisonProfile {
     fuzzyIgnoreWords: c.fuzzyIgnoreWords ?? '',
     fuzzyBroadEnabled: c.fuzzyBroadEnabled !== false,
     fuzzyMinOverlapBroad: c.fuzzyMinOverlapBroad,
+    fuzzyThresholdLow: c.fuzzyThresholdLow,
+    fuzzyThresholdHigh: c.fuzzyThresholdHigh,
   }
+}
+
+// Soglie coerenti: interi 0–100, bassa ≤ alta; default dove mancano.
+export function clampThresholds(low: unknown, high: unknown): { low: number; high: number } {
+  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : d)
+  const l = num(low, DEFAULT_THRESHOLD_LOW)
+  const h = num(high, DEFAULT_THRESHOLD_HIGH)
+  return l <= h ? { low: l, high: h } : { low: h, high: l }
+}
+
+// Profilo storico del Confronto righe → profilo della Comparazione: ogni
+// condizione con entrambe le colonne diventa una chiave (le modalità non
+// esistono più: un profilo salvato con «Contiene» resta comunque caricabile,
+// con le sue colonne). null solo se non c'è nessuna condizione completa.
+export function comparisonProfileFromRows(p: Partial<RowsProfile> | null | undefined): ComparisonProfile | null {
+  const conds = p && Array.isArray(p.bothMatchConditions) ? p.bothMatchConditions : []
+  const keys = conds
+    .filter((c) => c && c.columnA && c.columnB)
+    .map((c) => normaliseKey({ label: '', columnA: c.columnA, columnB: c.columnB, sheetA: c.sheetA || '', sheetB: c.sheetB || '', sameColumn: false, enabled: true, transform: c.transform || DEFAULT_TRANSFORM }))
+  if (!keys.length) return null
+  return comparisonProfileFrom({ ...defaultCompareConfig(), matchKeys: keys })
 }
 
 // I profili storici erano CompareConfig INTERE (comprese le condizioni del
 // Confronto righe): qui se ne prendono solo i campi della Comparazione, con i
 // default per quelli aggiunti dopo il salvataggio.
-export function applyComparisonProfile(c: CompareConfig, p: Partial<ComparisonProfile>): CompareConfig {
+export function applyComparisonProfile(c: CompareConfig, p: Partial<ComparisonProfile> & Partial<RowsProfile>): CompareConfig {
   const d = defaultCompareConfig()
+  if (!Array.isArray(p.matchKeys) && Array.isArray(p.bothMatchConditions)) {
+    const conv = comparisonProfileFromRows(p)
+    if (conv) p = conv
+  }
+  const t = clampThresholds(p.fuzzyThresholdLow, p.fuzzyThresholdHigh)
   return {
     ...c,
-    matchKeys: Array.isArray(p.matchKeys) && p.matchKeys.length ? p.matchKeys : d.matchKeys,
+    matchKeys: Array.isArray(p.matchKeys) && p.matchKeys.length ? p.matchKeys.map(normaliseKey) : d.matchKeys,
     fuzzyEnabled: p.fuzzyEnabled !== false,
     fuzzyMinOverlap: typeof p.fuzzyMinOverlap === 'number' ? p.fuzzyMinOverlap : d.fuzzyMinOverlap,
     fuzzyIgnoreWords: typeof p.fuzzyIgnoreWords === 'string' ? p.fuzzyIgnoreWords : d.fuzzyIgnoreWords,
     fuzzyBroadEnabled: p.fuzzyBroadEnabled !== false,
     fuzzyMinOverlapBroad: typeof p.fuzzyMinOverlapBroad === 'number' ? p.fuzzyMinOverlapBroad : d.fuzzyMinOverlapBroad,
+    fuzzyThresholdLow: t.low,
+    fuzzyThresholdHigh: t.high,
   }
 }
 
@@ -223,7 +294,7 @@ export function workbookColumns(wb: Workbook | null, sheetName?: string): string
 export function normalise(val: unknown, transform?: Transform): string {
   if (val == null) return ''
   const raw = String(val).trim()
-  const upper = raw.toUpperCase()
+  const upper = stripAccents(raw).toUpperCase()
   // base: maiuscolo, rimuove spazi e punteggiatura comune, azzera zeri iniziali
   const base = upper.replace(/[\s.'`]/g, '').replace(/^0+([^0])/, '$1')
   switch (transform) {
@@ -285,40 +356,56 @@ export function compare(
 
   const unmatB = dataB.filter((r) => !matchedB.has(r))
 
+  const stage = fuzzyStage(unmatA, unmatB, keys, fuzzy)
+  return { onlyA: stage.remainA, onlyB: stage.remainB, fuzzy: stage.fuzzy, accepted: stage.accepted, diffA: [], diffB: [] }
+}
+
+// Fase fuzzy comune a «Differenze» e «Uguale a»: prende le righe rimaste senza
+// corrispondenza esatta e propone coppie per somiglianza.
+//  - score < soglia bassa  → nessuna coppia (le righe restano separate)
+//  - bassa ≤ score < alta  → «da verificare»
+//  - score ≥ soglia alta   → accettata in automatico
+// Prima passata sulle colonne delle chiavi, poi (se attiva) quella ampia su
+// tutte le colonne con ciò che resta.
+export function fuzzyStage(unmatA: Row[], unmatB: Row[], keys: MatchKey[], fuzzy?: FuzzyOpts): { fuzzy: FuzzyPair[]; accepted: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
   // Interruttore PRINCIPALE del fuzzy: se spento non si propone nessuna coppia
   // «da verificare» — le righe senza match esatto restano solo-in-A/solo-in-B.
-  // (Storicamente la passata sulle chiavi girava sempre: l'unico checkbox
-  // spegneva solo quella ampia, da qui i «da verificare» con fuzzy disattivato.)
   if (fuzzy && fuzzy.enabled === false) {
-    return { onlyA: unmatA, onlyB: unmatB, fuzzy: [], diffA: [], diffB: [] }
+    return { fuzzy: [], accepted: [], remainA: unmatA, remainB: unmatB }
   }
-
   const ignore = parseIgnoreWords(fuzzy?.ignoreWords)
-  const { pairs, remainA, remainB } = fuzzyPass(unmatA, unmatB, keys, fuzzy?.minOverlap, ignore)
+  const { low, high } = clampThresholds(fuzzy?.thresholdLow, fuzzy?.thresholdHigh)
+  const first = fuzzyPass(unmatA, unmatB, keys, fuzzy?.minOverlap, ignore, low)
+  let pairs = first.pairs
+  let remainA = first.remainA
+  let remainB = first.remainB
 
-  // Seconda passata fuzzy, più ampia: scansiona OGNI colonna dopo aver rimosso
-  // tutto ciò che non è lettera o cifra. Gira solo su ciò che resta non abbinato.
-  let allPairs = pairs
-  let finalRemainA = remainA
-  let finalRemainB = remainB
-
+  // Seconda passata, più ampia: OGNI colonna. Gira solo su ciò che resta.
   const broadEnabled = !fuzzy || fuzzy.broadEnabled !== false
   if (broadEnabled && remainA.length && remainB.length) {
     const broadN = fuzzy && Number.isInteger(fuzzy.broadMinOverlap) && (fuzzy.broadMinOverlap as number) >= 2 ? (fuzzy.broadMinOverlap as number) : 6
-    const broadResult = broadFuzzyPass(remainA, remainB, broadN, ignore)
-    allPairs = pairs.concat(broadResult.pairs)
-    finalRemainA = broadResult.remainA
-    finalRemainB = broadResult.remainB
+    const broad = broadFuzzyPass(remainA, remainB, broadN, ignore, low)
+    pairs = pairs.concat(broad.pairs)
+    remainA = broad.remainA
+    remainB = broad.remainB
   }
-
-  return { onlyA: finalRemainA, onlyB: finalRemainB, fuzzy: allPairs, diffA: [], diffB: [] }
+  return {
+    fuzzy: pairs.filter((p) => p.score < high),
+    accepted: pairs.filter((p) => p.score >= high),
+    remainA,
+    remainB,
+  }
 }
 
-/* ─── Fuzzy per chiavi ───────────────────────────────────────────────────── */
+/* ─── Somiglianza ────────────────────────────────────────────────────────── */
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
 // Parole/sequenze da ignorare nel fuzzy ("totale, srl" → ['TOTALE','SRL']):
-// vengono rimosse dai valori PRIMA di generare le sottostringhe, così un
-// suffisso comune a tutte le righe (es. il « Totale» dei pivot Excel) non
-// genera coppie «da verificare» a caso. Minimo 2 caratteri per voce.
+// vengono rimosse dai valori PRIMA del confronto, così un suffisso comune a
+// tutte le righe (es. il «Totale» dei pivot Excel, «srl») non rende simili
+// due righe a caso. Minimo 2 caratteri per voce.
 export function parseIgnoreWords(raw?: string): string[] {
   return String(raw || '')
     .split(/[,;\n]/)
@@ -332,110 +419,203 @@ function stripIgnored(alphanum: string, ignore: string[]): string {
   return s
 }
 
-function alphanumSubs(str: unknown, n: number, ignore?: string[]): Set<string> {
-  let s = String(str).toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (ignore && ignore.length) s = stripIgnored(s, ignore)
-  const subs = new Set<string>()
-  for (let i = 0; i <= s.length - n; i++) subs.add(s.slice(i, i + n))
-  return subs
+function alphanumOnly(str: unknown): string {
+  return stripAccents(String(str)).toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
 
-function rowSubs(row: Row, keys: MatchKey[], file: 'a' | 'b', n: number, ignore?: string[]): Set<string> {
-  const all = new Set<string>()
-  keys.forEach((k) => {
-    const col = file === 'a' ? (k.columnA ?? k.column ?? '') : (k.columnB ?? k.column ?? '')
-    const val = row[col]
-    if (val == null) return
-    alphanumSubs(val, n, ignore).forEach((s) => all.add(s))
-  })
-  return all
+function fuzzyText(val: unknown, ignore?: string[]): string {
+  if (val == null) return ''
+  const s = alphanumOnly(val)
+  return ignore && ignore.length ? stripIgnored(s, ignore) : s
 }
 
-export function fuzzyPass(unmatA: Row[], unmatB: Row[], keys: MatchKey[], minOverlap?: number, ignore?: string[]): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
-  const n = Number.isInteger(minOverlap) && (minOverlap as number) >= 2 ? (minOverlap as number) : 4
-  const mapB = new Map<string, Set<number>>()
-  unmatB.forEach((row, bi) => {
-    rowSubs(row, keys, 'b', n, ignore).forEach((s) => {
-      if (!mapB.has(s)) mapB.set(s, new Set())
-      mapB.get(s)!.add(bi)
-    })
-  })
+// Tratto comune più lungo tra a e b: [lunghezza, inizio in a, inizio in b].
+function longestCommon(a: string, b: string): [number, number, number] {
+  let best = 0, ai = 0, bj = 0
+  const dp = new Array<number>(b.length + 1).fill(0)
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j]
+      dp[j] = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? prev + 1 : 0
+      if (dp[j] > best) { best = dp[j]; ai = i - best; bj = j - best }
+      prev = tmp
+    }
+  }
+  return [best, ai, bj]
+}
 
+// Lettere in comune contando SOLO i tratti di almeno n caratteri consecutivi:
+// si prende il tratto comune più lungo, lo si toglie da entrambi i valori
+// (al suo posto un separatore diverso per lato, così i pezzi rimasti non si
+// saldano tra loro) e si ripete. L'ordine dei pezzi non conta: «Rossi Mario» e
+// «Mario Rossi» hanno in comune tutte le lettere.
+function sharedRuns(a: string, b: string, n: number): number {
+  let x = a
+  let y = b
+  let total = 0
+  while (x.length >= n && y.length >= n) {
+    const [len, ai, bj] = longestCommon(x, y)
+    if (len < n) break
+    total += len
+    x = x.slice(0, ai) + '\u0001' + x.slice(ai + len)
+    y = y.slice(0, bj) + '\u0002' + y.slice(bj + len)
+  }
+  return total
+}
+
+// SOMIGLIANZA 0–100 tra due valori: quanta parte del valore PIÙ LUNGO è coperta
+// da tratti di almeno n lettere/cifre consecutive presenti anche nell'altro.
+// Maiuscole, spazi, punteggiatura e accenti non contano; le parole da ignorare
+// si tolgono prima. «Antonio Giuseppe Maria» / «Giuseppe Maria» = 65 (13 lettere
+// su 20), «Rossi Mario» / «Mario Rossi» = 100 con n ≤ 5.
+export function similarity(a: unknown, b: unknown, n = 4, ignore?: string[]): number {
+  const x = fuzzyText(a, ignore)
+  const y = fuzzyText(b, ignore)
+  const longest = Math.max(x.length, y.length)
+  if (!longest) return 0
+  const nn = Number.isInteger(n) && n >= 2 ? n : 4
+  return Math.round((sharedRuns(x, y, nn) / longest) * 100)
+}
+
+// Sottostringhe di n caratteri: servono solo a TROVARE i candidati in fretta
+// (indice), il punteggio vero lo dà similarity().
+function grams(s: string, n: number): string[] {
+  const out = new Set<string>()
+  for (let i = 0; i <= s.length - n; i++) out.add(s.slice(i, i + n))
+  return Array.from(out)
+}
+
+interface ScoredCell { text: string; }
+interface Candidate { ai: number; bi: number; score: number }
+
+// Assegnazione 1:1 per punteggio migliore: prima le coppie più simili, così una
+// riga di B va alla riga di A che le somiglia di più e non alla prima trovata.
+function assignBest(cands: Candidate[], unmatA: Row[], unmatB: Row[], kind: 'key' | 'broad'): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+  cands.sort((p, q) => q.score - p.score || p.ai - q.ai || p.bi - q.bi)
   const usedA = new Set<number>()
   const usedB = new Set<number>()
-  const pairs: FuzzyPair[] = []
+  const chosen: Candidate[] = []
+  for (const c of cands) {
+    if (usedA.has(c.ai) || usedB.has(c.bi)) continue
+    usedA.add(c.ai)
+    usedB.add(c.bi)
+    chosen.push(c)
+  }
+  // Ordine stabile per la UI: come le righe di A.
+  chosen.sort((p, q) => p.ai - q.ai)
+  const pairs = chosen.map((c) => ({ rowA: unmatA[c.ai], rowB: unmatB[c.bi], kind, score: c.score }))
+  return { pairs, remainA: unmatA.filter((_, i) => !usedA.has(i)), remainB: unmatB.filter((_, i) => !usedB.has(i)) }
+}
 
-  unmatA.forEach((rowA, ai) => {
-    if (usedA.has(ai)) return
-    const candidatesB = new Set<number>()
-    rowSubs(rowA, keys, 'a', n, ignore).forEach((s) => {
-      if (mapB.has(s)) mapB.get(s)!.forEach((bi) => candidatesB.add(bi))
-    })
-    for (const bi of candidatesB) {
-      if (!usedB.has(bi)) {
-        usedA.add(ai)
-        usedB.add(bi)
-        pairs.push({ rowA, rowB: unmatB[bi], kind: 'key' })
-        break
-      }
+// Motore comune delle due passate. cellsA[ai][c] e cellsB[bi][c] sono i testi
+// normalizzati delle colonne confrontabili; compatible(ca, cb) dice quali
+// colonne di A si confrontano con quali di B. Ogni coppia di righe prende il
+// punteggio MIGLIORE tra le sue coppie di colonne che condividono almeno un
+// tratto di n caratteri.
+function scoredPass(
+  unmatA: Row[], unmatB: Row[], cellsA: ScoredCell[][], cellsB: ScoredCell[][],
+  compatible: (ca: number, cb: number) => boolean, n: number, low: number, kind: 'key' | 'broad'
+): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+  const index = new Map<string, Array<[number, number]>>() // gram → [bi, colonna B]
+  cellsB.forEach((cells, bi) => cells.forEach((cell, cb) => {
+    if (cell.text.length < n) return
+    for (const g of grams(cell.text, n)) {
+      let list = index.get(g)
+      if (!list) index.set(g, (list = []))
+      list.push([bi, cb])
     }
+  }))
+  const cands: Candidate[] = []
+  cellsA.forEach((cells, ai) => {
+    const best = new Map<number, number>() // bi → score
+    const tried = new Set<string>()
+    cells.forEach((cell, ca) => {
+      if (cell.text.length < n) return
+      for (const g of grams(cell.text, n)) {
+        const hits = index.get(g)
+        if (!hits) continue
+        for (const [bi, cb] of hits) {
+          if (!compatible(ca, cb)) continue
+          const k = bi + ':' + ca + ':' + cb
+          if (tried.has(k)) continue
+          tried.add(k)
+          const other = cellsB[bi][cb].text
+          const longest = Math.max(cell.text.length, other.length)
+          const score = Math.round((sharedRuns(cell.text, other, n) / longest) * 100)
+          if (score > (best.get(bi) ?? -1)) best.set(bi, score)
+        }
+      }
+    })
+    best.forEach((score, bi) => { if (score >= low) cands.push({ ai, bi, score }) })
   })
+  return assignBest(cands, unmatA, unmatB, kind)
+}
 
-  const remainA = unmatA.filter((_, i) => !usedA.has(i))
-  const remainB = unmatB.filter((_, i) => !usedB.has(i))
-  return { pairs, remainA, remainB }
+/* ─── Fuzzy per chiavi ───────────────────────────────────────────────────── */
+// Confronta la colonna A di ogni chiave con la colonna B della STESSA chiave.
+export function fuzzyPass(unmatA: Row[], unmatB: Row[], keys: MatchKey[], minOverlap?: number, ignore?: string[], low = DEFAULT_THRESHOLD_LOW): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+  const n = Number.isInteger(minOverlap) && (minOverlap as number) >= 2 ? (minOverlap as number) : 4
+  const colA = keys.map((k) => k.columnA ?? k.column ?? '')
+  const colB = keys.map((k) => k.columnB ?? k.column ?? '')
+  const cellsA = unmatA.map((r) => colA.map((c) => ({ text: fuzzyText(r[c], ignore) })))
+  const cellsB = unmatB.map((r) => colB.map((c) => ({ text: fuzzyText(r[c], ignore) })))
+  return scoredPass(unmatA, unmatB, cellsA, cellsB, (ca, cb) => ca === cb, n, low, 'key')
 }
 
 /* ─── Fuzzy ampio (tutte le colonne, solo lettere/cifre) ─────────────────── */
-function alphanumOnly(str: unknown): string {
-  return String(str).toUpperCase().replace(/[^A-Z0-9]/g, '')
-}
-
-function broadSubsForRow(row: Row, n: number, ignore?: string[]): Set<string> {
-  const all = new Set<string>()
-  Object.keys(row).forEach((col) => {
-    const val = row[col]
-    if (val == null) return
-    let s = alphanumOnly(val)
-    if (ignore && ignore.length) s = stripIgnored(s, ignore)
-    for (let i = 0; i <= s.length - n; i++) all.add(s.slice(i, i + n))
-  })
-  return all
-}
-
-export function broadFuzzyPass(unmatA: Row[], unmatB: Row[], minOverlap?: number, ignore?: string[]): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
+// Ogni colonna di A con ogni colonna di B, ma solo valori che contengono
+// LETTERE: importi, date e contatori (tutti cifre) si ripetono tra righe
+// diverse e darebbero somiglianze del 100% prive di senso.
+export function broadFuzzyPass(unmatA: Row[], unmatB: Row[], minOverlap?: number, ignore?: string[], low = DEFAULT_THRESHOLD_LOW): { pairs: FuzzyPair[]; remainA: Row[]; remainB: Row[] } {
   const n = Number.isInteger(minOverlap) && (minOverlap as number) >= 2 ? (minOverlap as number) : 6
-  const mapB = new Map<string, Set<number>>()
-  unmatB.forEach((row, bi) => {
-    broadSubsForRow(row, n, ignore).forEach((s) => {
-      if (!mapB.has(s)) mapB.set(s, new Set())
-      mapB.get(s)!.add(bi)
-    })
+  const cells = (r: Row) => Object.keys(r).map((c) => {
+    const t = fuzzyText(r[c], ignore)
+    return { text: /[A-Z]/.test(t) ? t : '' }
   })
+  return scoredPass(unmatA, unmatB, unmatA.map(cells), unmatB.map(cells), () => true, n, low, 'broad')
+}
 
-  const usedA = new Set<number>()
-  const usedB = new Set<number>()
-  const pairs: FuzzyPair[] = []
+/* ─── Uguale a (A in B per chiavi) ───────────────────────────────────────── */
+// «Uguale a» nella Comparazione: per ogni riga di A, le righe di B che hanno
+// lo stesso valore su ALMENO UNA chiave attiva (condizioni «Uguale a» in O,
+// come il Confronto righe). Le righe di A senza corrispondenza passano dalla
+// stessa fase fuzzy della Comparazione, contro le righe di B mai abbinate.
+export interface EqualResult {
+  rows: BothRowResult[]
+  fuzzy: FuzzyPair[]
+  accepted: FuzzyPair[]
+}
 
-  unmatA.forEach((rowA, ai) => {
-    if (usedA.has(ai)) return
-    const candidatesB = new Set<number>()
-    broadSubsForRow(rowA, n, ignore).forEach((s) => {
-      if (mapB.has(s)) mapB.get(s)!.forEach((bi) => candidatesB.add(bi))
+export function runEqualByKeys(dataA: Row[], dataB: Row[], keys: MatchKey[], fuzzy?: FuzzyOpts, maxPerRow = 20): EqualResult {
+  const maps = keys.map((k) => {
+    const m = new Map<string, number[]>()
+    dataB.forEach((row, bi) => {
+      const v = rowKeyB(row, k)
+      if (!v) return
+      let list = m.get(v)
+      if (!list) m.set(v, (list = []))
+      list.push(bi)
     })
-    for (const bi of candidatesB) {
-      if (!usedB.has(bi)) {
-        usedA.add(ai)
-        usedB.add(bi)
-        pairs.push({ rowA, rowB: unmatB[bi], kind: 'broad' })
-        break
-      }
-    }
+    return m
   })
-
-  const remainA = unmatA.filter((_, i) => !usedA.has(i))
-  const remainB = unmatB.filter((_, i) => !usedB.has(i))
-  return { pairs, remainA, remainB }
+  const matchedB = new Set<number>()
+  const unmatA: Row[] = []
+  const rows: BothRowResult[] = dataA.map((rowA) => {
+    const hit = new Set<number>()
+    keys.forEach((k, i) => {
+      const v = rowKeyA(rowA, k)
+      if (!v) return
+      maps[i].get(v)?.forEach((bi) => hit.add(bi))
+    })
+    const idx = Array.from(hit).sort((x, y) => x - y)
+    idx.forEach((bi) => matchedB.add(bi))
+    if (!idx.length) unmatA.push(rowA)
+    return { rowA, matchCount: idx.length, matches: idx.slice(0, maxPerRow).map((bi) => dataB[bi]) }
+  })
+  const unmatB = dataB.filter((_, bi) => !matchedB.has(bi))
+  const stage = fuzzyStage(unmatA, unmatB, keys, fuzzy)
+  return { rows, fuzzy: stage.fuzzy, accepted: stage.accepted }
 }
 
 /* ─── Ricerca per inclusione ─────────────────────────────────────────────── */

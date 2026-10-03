@@ -9,6 +9,11 @@
  *  - 'semantic': affinità embeddings pagine ↔ descrizioni dei campi;
  *  - 'llm': breve chiamata al modello ("che tipo di polizza è?") confrontata
  *    coi termini del profilo.
+ *  - OPERATIVITÀ (dal 21/09/2026, quando il profilo ha «Come riconoscerla»):
+ *    il modello legge la definizione del tipo scritta dall'utente e le pagine
+ *    più affini e dice se la copertura è OPERANTE citando la prova
+ *    (polizzaOperativita.js). Vale su ogni modo tranne 'off'; i tre metodi
+ *    sopra restano il ripiego per i profili senza quel testo.
  *
  * Questo modulo NON importa Electron/Ollama/pdfjs: solo funzioni deterministiche
  * (le chiamate embeddings/LLM stanno in polizzaPrecheckService.js). Le SOGLIE
@@ -19,7 +24,7 @@
 // falso allarme costa un click ("Procedi comunque"), ma un pre-check lasco non
 // serve a niente. Tarate sui punteggi osservabili in diagnostica.
 export const KEYWORD_MIN_RATIO = 0.2   // almeno 1 keyword su 5 trovata nel testo
-export const SEMANTIC_MIN = 0.45       // media top-K cosine descrizioni↔pagine
+export const SEMANTIC_MIN = 0.45       // [12/09/2026] non più usata dal verdetto: il semantico è un CONFRONTO tra profili (vedi semanticRankingVerdict)
 export const LLM_MIN = 0.2             // overlap token rilevati↔termini profilo
 
 /**
@@ -87,6 +92,45 @@ export function semanticScore(perFieldMaxAffinities) {
   return v.reduce((s, x) => s + x, 0) / v.length
 }
 
+/** Id "profilo automatico": il worker sceglie il profilo più affine al contenuto. */
+export const AUTO_PROFILE_ID = 'auto'
+
+/**
+ * Classifica i PROFILI per affinità semantica col fascicolo: per ogni profilo
+ * la media, sui suoi campi, della migliore affinità descrizione↔pagine
+ * (semanticScore). SOLO le descrizioni dei campi (mai label/id): sono la
+ * verità del profilo e l'utente può cambiarle quando vuole — la classifica
+ * si adegua da sola. Nessuna soglia: è un CONFRONTO tra profili.
+ * @param {{id:string,name:string,perFieldMax:number[]}[]} profiles
+ * @returns {{id:string,name:string,score:number|null}[]} ordinati per score decrescente (null in coda)
+ */
+export function rankProfilesSemantic(profiles) {
+  return (profiles || [])
+    .map((p) => ({ id: p.id, name: p.name, score: semanticScore(p.perFieldMax) }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+}
+
+/**
+ * Verdetto semantico per CONFRONTO (senza soglie): il profilo del job è
+ * pertinente se nessun altro profilo è più affine al contenuto. Con un solo
+ * profilo non c'è confronto possibile → 'ok'. Senza punteggio per il profilo
+ * del job (embeddings assenti) → 'skipped', mai 'mismatch'.
+ * @param {string} jobProfileId
+ * @param {{id:string,name:string,score:number|null}[]} ranking  da rankProfilesSemantic
+ */
+export function semanticRankingVerdict(jobProfileId, ranking) {
+  const list = (ranking || []).filter((r) => typeof r.score === 'number')
+  const mine = list.find((r) => r.id === jobProfileId)
+  if (!mine) return { verdict: 'skipped', score: null, best: list[0] || null, reason: 'affinità del profilo non calcolabile (embeddings non disponibili)' }
+  if (list.length < 2) return { verdict: 'ok', score: mine.score, best: mine, reason: 'unico profilo: nessun altro con cui confrontare' }
+  const best = list[0]
+  const EPS = 1e-9
+  if (best.id === mine.id || best.score - mine.score <= EPS) {
+    return { verdict: 'ok', score: mine.score, best: mine, reason: `contenuto più affine a questo profilo (${mine.score.toFixed(2)}) che agli altri (${list.filter((r) => r.id !== mine.id).slice(0, 2).map((r) => `${r.name} ${r.score.toFixed(2)}`).join(', ')})` }
+  }
+  return { verdict: 'mismatch', score: mine.score, best, reason: `contenuto più affine al profilo «${best.name}» (${best.score.toFixed(2)}) che a questo (${mine.score.toFixed(2)})` }
+}
+
 /**
  * Overlap tra ciò che il modello ha rilevato nel fascicolo (tipo + parole
  * chiave) e i termini del profilo (nome + contentKeywords + label dei campi):
@@ -103,6 +147,39 @@ export function llmComparisonScore(detected, profileTerms) {
 }
 
 /**
+ * Modo EFFETTIVO del pre-check dato lo switch globale e le parole del
+ * contenuto del profilo: 'off' + parole → 'keywords' (le parole esplicite del
+ * profilo vincono sullo switch); 'keywords' senza parole → 'semantic'; ogni
+ * altro modo resta com'è. UNA sola funzione per la decisione e per il servizio:
+ * prima il servizio forzava 'keywords' appena c'era una parola, la decisione
+ * restava 'semantic' e non trovava la classifica → «accettato senza controllo».
+ */
+export function effectivePrecheckMode(mode, hasContentKeywords) {
+  const m = mode || 'off'
+  if (m === 'off') return hasContentKeywords ? 'keywords' : 'off'
+  if (m === 'keywords' && !hasContentKeywords) return 'semantic'
+  return m
+}
+
+/**
+ * Profilo SENZA «Come riconoscerla»: i metodi storici restano il ripiego, ma un
+ * verdetto che non è un vero controllo non passa più in silenzio: 'ok' con un
+ * altro profilo più affine, o 'skipped' (embeddings giù, modello muto, testo
+ * assente) diventano «da verificare» con la ragione scritta. 'off' resta off.
+ */
+export function degradeWithoutRecognition(decision, { hasRecognition, mode, suggestion } = {}) {
+  if (!decision || hasRecognition || (mode || 'off') === 'off') return decision
+  const tail = 'profilo senza «Come riconoscerla»: pertinenza non verificata'
+  if (decision.verdict === 'ok' && suggestion?.name) {
+    return { ...decision, verdict: 'review', reason: `${decision.reason}; un altro profilo è più affine al contenuto: «${suggestion.name}» — ${tail}` }
+  }
+  if (decision.verdict === 'skipped' && decision.mode !== 'off') {
+    return { ...decision, verdict: 'review', reason: `${decision.reason} — ${tail}` }
+  }
+  return decision
+}
+
+/**
  * VERDETTO finale, con tutte le degradazioni esplicite:
  * - mode 'off' o nessun profilo → 'skipped' (i job coi campi globali non hanno
  *   un "profilo" con cui confrontare);
@@ -110,32 +187,91 @@ export function llmComparisonScore(detected, profileTerms) {
  * - input del metodo non disponibile (embeddings giù, LLM muto) → 'skipped':
  *   MAI bloccare un job per un guasto infrastrutturale.
  *
+ * - NESSUNA POLIZZA tra i documenti letti (`contract.esito === 'assente'`, o
+ *   operatività 'setaside') → 'mismatch' con `notValid` («Non valido»), PRIMA
+ *   di ogni altra regola e mai forzabile (regola dell'utente del 26/09/2026:
+ *   «SE NON HAI UNA POLIZZA NON ESTRAI: SENZA UNA POLIZZA È SEMPRE NON
+ *   VALIDO»). Con qualunque altro verdetto bloccante il fascicolo sarebbe
+ *   stato sbloccabile con «Procedi comunque» e si sarebbe estratta una
+ *   quietanza (ALZAIA 101 DAS, 26/09);
+ * - polizza NON VISTA dal modello («non determinabile»: risposte incerte;
+ *   «non verificata»: guasto, pagine mai mostrate, documenti senza testo) su
+ *   un verdetto 'ok' o 'skipped' → 'review': da soli si estrae SOLO con una
+ *   polizza vista («presente»); sugli altri verdetti la nota entra nel perché,
+ *   così chi preme «Procedi comunque» sa che forza anche la polizza.
+ *
  * @param {object} p { mode, hasProfile, hasContentKeywords, hasContentExclude,
  *                     keyword: {ratio}|null, semantic: number|null, llm: number|null,
- *                     contentExclude: {matched:string[]}|null }
- * @returns {{ verdict: 'ok'|'mismatch'|'skipped', mode: string, score: number|null, threshold: number|null, reason: string }}
+ *                     contentExclude: {matched:string[]}|null,
+ *                     contract: {esito,reason,documento,pagina,motivo}|null }
+ * @returns {{ verdict: 'ok'|'mismatch'|'skipped'|'review', mode: string, score: number|null, threshold: number|null, reason: string, notValid?: boolean, polizza?: object }}
  */
 export function decidePrecheck(p) {
+  const contract = p?.contract || p?.operativita?.polizza || null
+  const operative = !!p?.hasRecognition && (p?.mode || 'off') !== 'off'
+  // NON VALIDO: prima di tutto.
+  if (contract?.esito === 'assente' || (operative && p?.operativita?.verdict === 'setaside')) {
+    return {
+      verdict: 'mismatch', notValid: true,
+      mode: operative ? 'operativita' : (p?.mode || 'off'), score: null, threshold: null,
+      reason: contract?.reason || p?.operativita?.reason || 'nessuna polizza tra i documenti letti',
+      ...(contract ? { polizza: contract } : {}),
+      ...(operative && p?.operativita ? { operativita: p.operativita } : {}),
+    }
+  }
+  const d = decidePrecheckCore(p)
+  if (!contract) return d
+  if (contract.esito === 'presente') return { ...d, polizza: contract }
+  // Stessa nota di applyContractVerdict (polizzaOperativita.js), che l'ha già
+  // messa nel perché dell'operatività: non si ripete.
+  const note = `polizza non vista dal modello (${contract.esito || 'non verificata'}): ${contract.reason || ''}`
+  const reason = String(d.reason || '').includes('polizza non vista dal modello') ? d.reason : (d.reason ? `${d.reason}; ${note}` : note)
+  const verdict = d.verdict === 'ok' || d.verdict === 'skipped' ? 'review' : d.verdict
+  return { ...d, verdict, reason, polizza: contract }
+}
+
+function decidePrecheckCore(p) {
   const mode = p?.mode || 'off'
 
   // BLOCCANTE "da evitare" (parole del CONTENUTO): se il profilo definisce
   // contentExcludeKeywords e una di esse compare nel testo OCR, il job va in
   // 'mismatch' SEMPRE, anche con lo switch pre-check a 'off'. È la regola
   // "meglio scartare che estrarre a vuoto": non dipende da alcun metodo.
-  if (p?.hasContentExclude && p?.contentExclude?.matched?.length) {
+  // Col controllo di OPERATIVITÀ attivo (profilo con «Come riconoscerla», modo
+  // ≠ off) le parole da evitare non decidono più da sole: "ESCLUSA" in una
+  // quietanza DAS parlava dell'indicizzazione e scartava una vera tutela
+  // legale (PIZZAMIGLIO/ALZAIA). Diventano un elemento della decisione di
+  // operatività (copertura operante + parola da evitare → «da verificare»).
+  const operative = !!p?.hasRecognition && mode !== 'off'
+  if (!operative && p?.hasContentExclude && p?.contentExclude?.matched?.length) {
     return {
       verdict: 'mismatch', mode, score: 0, threshold: 0,
       reason: `parola del contenuto da evitare trovata: "${p.contentExclude.matched[0]}"`,
     }
   }
 
-  // Modalità effettiva: se il profilo ha keyword di CONTENUTO da cercare, il
-  // pre-check valuta SEMPRE (anche con switch 'off'): le parole esplicite del
-  // profilo vincono sullo switch globale. La degradazione 'keywords'→'semantic'
-  // resta (keywords configurate ma vuote nel set passato).
-  let effective = mode
-  if (p?.hasContentKeywords && mode === 'off') effective = 'keywords'
-  else if (mode === 'keywords' && !p.hasContentKeywords) effective = 'semantic'
+  // La vecchia regola a parole «polizza vera» (numero di polizza + importo
+  // strutturale, policyEvidenceReport) NON decide più (26/09/2026): marcatori
+  // hardcoded (Regola 1b) con falsi negativi veri (LUCCA AmTrust «Certificato
+  // N°» senza «polizza n.»), e dal 26/09 un fascicolo senza polizza è Non
+  // valido e NON forzabile: non può dipenderne una regex. Decide la domanda sul
+  // contratto al modello (decideContract → `contract`, gestita sopra), per
+  // tutti i profili, con o senza «Come riconoscerla». policyEvidenceReport
+  // resta come diagnostica nel log.
+
+  // OPERATIVITÀ: il verdetto è quello di decideOperativita (polizzaOperativita.js);
+  // senza risultato (chiamante senza modello) → «da verificare», mai accettato.
+  if (operative) {
+    if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
+    const op = p.operativita
+    if (op && op.verdict) return { verdict: op.verdict, mode: 'operativita', score: null, threshold: null, reason: op.reason, operativita: op }
+    return { verdict: 'review', mode: 'operativita', score: null, threshold: null, reason: 'controllo di operatività non eseguito' }
+  }
+
+  // Modalità effettiva (effectivePrecheckMode): parole del contenuto presenti
+  // → il pre-check valuta anche a switch 'off'; 'keywords' senza parole →
+  // 'semantic'.
+  const effective = effectivePrecheckMode(mode, !!p?.hasContentKeywords)
 
   if (effective === 'off') return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'pre-check disattivato' }
   if (!p?.hasProfile) return { verdict: 'skipped', mode, score: null, threshold: null, reason: 'nessun profilo sul job (campi globali)' }
@@ -146,9 +282,15 @@ export function decidePrecheck(p) {
     return { verdict: ok ? 'ok' : 'mismatch', mode: effective, score: p.keyword.ratio, threshold: KEYWORD_MIN_RATIO, reason: ok ? 'parole chiave del profilo trovate nel contenuto' : 'nessuna parola chiave del profilo nel contenuto' }
   }
   if (effective === 'semantic') {
-    if (typeof p.semantic !== 'number') return { verdict: 'skipped', mode: effective, score: null, threshold: null, reason: 'embeddings non disponibili' }
-    const ok = p.semantic >= SEMANTIC_MIN
-    return { verdict: ok ? 'ok' : 'mismatch', mode: effective, score: p.semantic, threshold: SEMANTIC_MIN, reason: ok ? 'contenuto affine alle descrizioni dei campi' : 'contenuto NON affine alle descrizioni dei campi del profilo' }
+    // CONFRONTO tra profili (nessuna soglia): `p.semanticRanking` è la
+    // classifica di TUTTI i profili per affinità con le descrizioni dei campi;
+    // il job passa se il suo profilo è il più affine. Chiamanti storici senza
+    // classifica: 'skipped' (mai un blocco a soglia indovinata).
+    if (Array.isArray(p.semanticRanking) && p.jobProfileId) {
+      const r = semanticRankingVerdict(p.jobProfileId, p.semanticRanking)
+      return { verdict: r.verdict, mode: effective, score: r.score, threshold: null, reason: r.reason, ranking: p.semanticRanking, best: r.best }
+    }
+    return { verdict: 'skipped', mode: effective, score: typeof p.semantic === 'number' ? p.semantic : null, threshold: null, reason: 'classifica dei profili non disponibile' }
   }
   if (effective === 'llm') {
     if (typeof p.llm !== 'number') return { verdict: 'skipped', mode: effective, score: null, threshold: null, reason: 'modello non disponibile o risposta non valida' }
@@ -182,4 +324,77 @@ export function topContentTerms(normText, n = 5) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, n)
     .map(([t]) => t)
+}
+
+// ─── VALIDITÀ POLIZZA VERA (non solo materiale informativo/quietanza) ────────
+// Una cartella può contenere SOLO il profilo informativo/DIP o quietanze di
+// rinnovo, senza il frontespizio di una polizza reale. In quei casi l'estrazione
+// NON ha senso: i campi strutturali (numeri, massimali, premi) non esistono,
+// e il job produrrebbe valori da materiale non-valido. Qui si rileva la
+// PRESENZA di evidenza di "polizza vera" (markers tipici del frontespizio) e,
+// se manca E il flag lo richiede, il pre-check blocca con 'mismatch'.
+//
+// Regole TRASVERSALI: il rilevamento è per CONTENUTO (mai per nome file/tipo);
+// un guasto infra o un'ambiguità NON devono mai produrre blocco (→ 'skipped',
+// mai 'mismatch'); il flag `polizzaRequireValidPolicy` permette l'OPT-OUT.
+
+/**
+ * Default del flag "richiedi polizza vera": DISATTIVO (opt-in).
+ * La regola usa liste di marcatori hardcoded (numero polizza + importo) e
+ * scarta un intero fascicolo senza che il modello lo abbia letto: è una
+ * "guardia indovinata" (REGOLE_AGENTI, Regola 1b). Resta disponibile come
+ * opt-in esplicito (`polizzaRequireValidPolicy=true`) per chi la vuole.
+ */
+// [12/09/2026] ATTIVA di default su richiesta dell'utente: una cartella senza
+// la polizza principale non ha dati da estrarre e va ACCANTONATA dicendo
+// perché (policyEvidenceReport). `polizzaRequireValidPolicy=false` la spegne.
+// [26/09/2026] La regola è diventata SEMPRE (utente: «SENZA UNA POLIZZA È
+// SEMPRE NON VALIDO»): la decide la domanda sul contratto al modello
+// (decideContract), non questi marcatori, e il flag non la spegne più. La
+// costante resta per chi legge le impostazioni salvate; policyEvidenceReport
+// e hasPolicyEvidence restano come DIAGNOSTICA nel log del pre-controllo.
+export const REQUIRE_VALID_POLICY_DEFAULT = true
+
+// Marker di "frontespizio di polizza vera" nel testo NORMALIZZATO (minuscole,
+// senza punteggiatura): n° polizza alfanumerico, massimali con importi,
+// premi/imponibili con importi. Un documento informativo/DIP/quietanza quasi
+// mai li ha tutti insieme.
+// "Polizza n. 0146905119" (normalizzato: "polizza n 0146905119") è la forma più
+// comune e NON era coperta: `polizz\s*n` pretende la "n" subito dopo "polizz".
+// La quietanza DAS di ALZAIA (numero di polizza + premi) finiva «cartella
+// senza polizza principale» prima ancora del controllo di operatività.
+const POLICY_NUM_RE = /(?:n[.:°]?\s*polizz|polizz[ae]?\s*n[.:°]?\s*\d|polizz\s*n[.:°]?|contraent|numero\s+(?:di\s+)?polizz)/i
+const POLICY_AMOUNT_RE = /(?:massimal|franchig[ie]|premio|imponibil|impost|scopert|tasso\s+regolaz|indennit)/i
+
+/**
+ * Indica se il testo (normalizzato) mostra evidenza di una polizza VERA
+ * (frontespizio con almeno un numero di polizza e almeno un importo strutturale).
+ *
+ * @param {string} normText  testo normalizzato (vedi normalizeForPrecheck)
+ * @returns {boolean} true se pare esserci una polizza reale
+ */
+/**
+ * Come hasPolicyEvidence, ma dice COSA manca: la ragione va scritta all'utente
+ * ("accantonata perché…"), non basta un verdetto.
+ * @returns {{ ok: boolean|null, missing: string[] }}
+ */
+export function policyEvidenceReport(normText) {
+  const t = String(normText || '')
+  if (t.length < 80) return { ok: null, missing: ['testo troppo scarso per giudicare'] }
+  const missing = []
+  if (!POLICY_NUM_RE.test(t)) missing.push('nessuna voce di polizza (numero di polizza / contraente)')
+  if (!POLICY_AMOUNT_RE.test(t)) missing.push('nessun importo strutturale (massimale, franchigia, premio, imponibile, imposte)')
+  return { ok: missing.length === 0, missing }
+}
+
+export function hasPolicyEvidence(normText) {
+  const t = String(normText || '')
+  // Troppo poco testo: NON giudicabile. Deve essere `null` (non `false`):
+  // decidePrecheck blocca con 'mismatch' solo su boolean false; con `false`
+  // qui ogni pagina OCR corta o markdown di soli marcatori mandava il job in
+  // "cartella senza polizza valida" (visto in produzione sui PDF scansionati).
+  if (t.length < 80) return null
+  const hasNum = POLICY_NUM_RE.test(t)
+  const hasAmount = POLICY_AMOUNT_RE.test(t)
+  return hasNum && hasAmount
 }

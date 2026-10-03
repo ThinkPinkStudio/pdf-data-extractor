@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { getBatch, jobSnapshot } from '@/lib/polizzaJobStore'
+import { batchLastRunAt, getBatch, jobSnapshot } from '@/lib/polizzaJobStore'
 
 export const runtime = 'nodejs'
 
@@ -19,6 +19,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     owner: result.batch.email,
     createdAt: result.batch.created_at,
     updatedAt: result.batch.updated_at,
+    lastLaunchAt: result.batch.last_launch_at != null ? Number(result.batch.last_launch_at) : null,
+    lastLaunchBy: result.batch.last_launch_by || null,
+    lastRunAt: await batchLastRunAt(result.batch.id).catch(() => null),
     jobs: result.jobs.map(jobSnapshot),
   })
 }

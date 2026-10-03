@@ -130,3 +130,14 @@ export function isThinkingModel(model) {
 export function ollamaThinkOpts(model) {
   return isThinkingModel(model) ? { think: false } : {}
 }
+
+// RAGIONAMENTO del modello per FASE (25/09/2026, server RTX 6000 Ada 48 GB):
+// impostazione `polizzaThink` = 'off' (default) | 'abbinamento' | 'estrazione'
+// | 'tutto'. Sulla 3060 Ti il ragionamento costava minuti per chiamata e restava
+// sempre spento; col server nuovo si accende dove rende (i giudizi di
+// operatività dell'abbinamento sono poche chiamate e i più difficili). Vale solo
+// per i modelli che ragionano (isThinkingModel): agli altri il campo non si manda.
+export function thinkEnabled(settings, phase) {
+  const mode = String(settings?.polizzaThink || 'off')
+  return mode === 'tutto' || mode === phase
+}

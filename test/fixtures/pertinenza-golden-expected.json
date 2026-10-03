@@ -1,0 +1,110 @@
+{
+  "_doc": "Verità di PERTINENZA dei fascicoli GOLDEN a verità piena (scripts/golden-cases.mjs, FULL_CASES: stessi id, cartelle, file e profili — test/pertinenzaGoldenFixture.test.mjs lo controlla): i 12 casi VALIDI sono polizze vere del loro profilo, quindi il pre-controllo deve dire «operante» (verdetto ok); un blocco (review/mismatch/non valido) vale 0 campi per il cliente perché golden-prod non forza più. alzaia-tl (una sola quietanza DAS, nessuna polizza) deve dire NON VALIDO (mismatch+notValid, non forzabile: regola dell'utente del 26/09/2026). Profilo PER CASO (`profile`, come golden-cases): la chiave `profile` di testa è null apposta, così una versione di scripts/pertinenza-eval.mjs che legge un solo profilo si ferma («Profilo non trovato», exit 2) invece di misurare le RC col profilo Tutela Legale. `dir` letto RICORSIVAMENTE (`recursive`, come FULL_CASES: la polizza di bolchini-tl sta in «…/POLIZZA»); `files` = solo quei file (percorsi relativi a `dir`). Profili: polizze_test/profili-polizza-riconoscimento.json (FULL_PROFILES). Misura: node scripts/pertinenza-eval.mjs --cases test/fixtures/pertinenza-golden-expected.json --ollama http://192.168.100.72:11434 --model <modello> --mode llm --ctx 32768 (una run alla volta).",
+  "profile": null,
+  "recursive": true,
+  "cases": [
+    {
+      "id": "bolchini-rc-2026",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BOLCHINI MARGHERITA/In vigore/RC PROF. 04.2026",
+      "expected": "operante",
+      "note": "AIG IPD0017417, rinnovo dal 19/04/2026. Notte 26/09 (qwen3:32b, produzione): ok"
+    },
+    {
+      "id": "bolchini-rc-2025",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BOLCHINI MARGHERITA/Cessate/RC PROF. 04.2025",
+      "expected": "operante",
+      "note": "AIG IPD0017417, dal 19/04/2025. Notte 26/09: review «esiti contraddittori» — batch 1 = questionario/proposta, «non operante» citando la DOMANDA del modulo «Indicare il massimale per il quale si richiede copertura: € 250.000»; batch 2 = polizza «operante». Dal 26/09/2026 la prova di «non operante» presa in una pagina di QUESTIONARIO/PROPOSTA (titolo della pagina) è un dubbio neutro, non contraddice l'«operante» della polizza"
+    },
+    {
+      "id": "guffanti-rc-2025",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/GUFFANTI GROUP/GUFFANTI GROUP RC PROF 06.2025( CESSATA 06.2026)",
+      "expected": "operante",
+      "note": "Lloyd's A4000060771-LB, dal 30/06/2025. Notte 26/09: ok"
+    },
+    {
+      "id": "guffanti-rc-2026",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/GUFFANTI GROUP/GUFFANTI GROUP RINNOVO RC PROF. 06.2026",
+      "expected": "operante",
+      "note": "Lloyd's A46S513704A-LB, rinnovo dal 30/06/2026. Notte 26/09: ok (prova = riga della quotazione RC Professionale 5 mln)"
+    },
+    {
+      "id": "spallino-rc",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/SPALLINO LORENZO E STUDIO/SPALLINO LORENZO studio Legale RC PROF",
+      "expected": "operante",
+      "note": "AIG BLUE055945, dal 31/03/2026, RC professionale avvocato. Notte 26/09: ok"
+    },
+    {
+      "id": "rcp-pilato",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/rcp rc professionali",
+      "files": [
+        "Polizza RC Professionale BL05000049 Pilato Franco.pdf"
+      ],
+      "expected": "operante",
+      "note": "XL Insurance BL05000049, dal 09/11/2017. Notte 26/09: ok"
+    },
+    {
+      "id": "rcp-saporiti",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/rcp rc professionali",
+      "files": [
+        "Polizza Rc Professionale BL05002415 Saporiti Massimo.pdf"
+      ],
+      "expected": "operante",
+      "note": "XL Insurance BL05002415, dal 31/03/2022. Notte 26/09: ok"
+    },
+    {
+      "id": "rcp-cresta",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/rcp rc professionali",
+      "files": [
+        "Polizza Rc Professionale BLUE053434 Cresta  Associati .pdf"
+      ],
+      "expected": "operante",
+      "note": "AIG BLUE053434, dal 30/01/2017 (nome file con doppio spazio e spazio prima di .pdf). Notte 26/09: ok"
+    },
+    {
+      "id": "rcpm-lucca",
+      "profile": "RC PROF MED V2",
+      "dir": "polizze_test/rcpm rc professionale medica",
+      "files": [
+        "LUCCA_VIVIANA.pdf"
+      ],
+      "expected": "operante",
+      "note": "AmTrust RCSPEM00000098, dal 30/11/2025, RC sanitaria di personale sanitario NON medico. Notte 26/09 (qwen3:32b): mismatch con prova «ATTIVITÀ: PERSONALE SANITARIO NON MEDICO» (non medico letto come non sanitario); 25/09 (qwen2.5:32b): review. Nome della copertura «medica» / «sanitaria» a parola singola: «SANITARIO» del certificato non combacia, nessuna riga ‡. Dal 26/09/2026 il nome si cerca in qualsiasi forma della parola (radice: SANITARIO = sanitaria) e la bozza di «Come riconoscerla» dice che «non medico» è la categoria dell'assicurato, non un'esclusione"
+    },
+    {
+      "id": "guffanti-tl",
+      "profile": "Tutela Legale 3",
+      "dir": "polizze_test/guffanti",
+      "expected": "operante",
+      "note": "DAS 01469DAS00086, dal 04/06/2025. Notte 26/09: ok"
+    },
+    {
+      "id": "bolchini-tl",
+      "profile": "Tutela Legale 3",
+      "dir": "polizze_test/BOLCHINI MARGHERITA/In vigore/TUT. LEGALE PROF",
+      "expected": "operante",
+      "note": "DAS 01469DAS00074, dal 28/04/2025. La polizza è SOLO nella sottocartella POLIZZA/ (in testa: 2 proposte + Set Informativo): senza lettura ricorsiva il caso misura un fascicolo senza polizza. Notte 26/09: ok"
+    },
+    {
+      "id": "spallino-tl",
+      "profile": "Tutela Legale 3",
+      "dir": "polizze_test/SPALLINO LORENZO E STUDIO/SPALLINO LORENZO Tutela legale GJ009XD",
+      "expected": "operante",
+      "note": "DAS 01469DAS00037, quietanza di rinnovo «Dal 16/12/25 al 16/12/26» più polizza. Notte 26/09: ok"
+    },
+    {
+      "id": "alzaia-tl",
+      "profile": "Tutela Legale 3",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/ALZAIA NAVIGLIO PAVESE 104/ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS",
+      "expected": "non valido",
+      "note": "Una sola QUIETANZA di rinnovo DAS (0146905119, dal 31/01/2026), nessuna polizza: NON VALIDO, non forzabile (regola dell'utente 26/09). Stessa cartella di pizzamiglio-das-alzaia in pertinenza-expected.json"
+    }
+  ]
+}
