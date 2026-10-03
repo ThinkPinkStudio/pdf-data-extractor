@@ -449,3 +449,18 @@ test('risposta ILLEGGIBILE (Ollama in loop): si rifà la domanda sulle due metà
   assert.ok(diag.some((l) => /risposta illeggibile, nuovo tentativo sulle due metà/.test(l)), diag.join('\n'))
   assert.equal(r.verdict, 'ok', diag.join('\n'))
 })
+
+test('copertura MAI nominata (estrazione forzata di un altro ramo): vuoti i soli campi che la descrizione riferisce alla copertura', async () => {
+  const { neverNamedCoverFields } = await import('../src/services/polizzaPrecheckService.js')
+  const fields = [
+    { id: 'num', label: 'N° Polizza', description: 'Numero identificativo della polizza: la sequenza accanto a POLIZZA N.' },
+    { id: 'mass', label: 'Massimale', description: "Massimale per sinistro: l'importo massimo che la compagnia paga per ogni sinistro coperto dalla garanzia tutela legale." },
+    { id: 'lordo', label: 'Lordo', description: "Premio lordo ANNUO della tutela legale: l'importo (in euro) comprensivo di imposte." },
+    { id: 'neg', label: 'X', description: 'Data di decorrenza: NON è una data della tutela legale di un altro contratto.' },
+  ]
+  const allRisk = [doc('allrisk.pdf', ['POLIZZA ALL RISKS   Polizza n. 50321243\nIncendio   1.200,00\nFurto   300,00'])]
+  const r = neverNamedCoverFields({ docs: allRisk, spatialDocs: allRisk, profile: TL, profiles: PROFILES, fields })
+  assert.deepEqual(r.ids.sort(), ['lordo', 'mass'])
+  const das = [doc('das.pdf', ['POLIZZA DI TUTELA LEGALE   Polizza n. 01469DAS00074\nTutela Legale Pacchetto Base   95,14'])]
+  assert.equal(neverNamedCoverFields({ docs: das, spatialDocs: das, profile: TL, profiles: PROFILES, fields }), null)
+})

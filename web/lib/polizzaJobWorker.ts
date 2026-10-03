@@ -887,6 +887,23 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
       clearInterval(cancelPoll)
     }
     const { data, sources, diag, reliability } = extractResult
+    // COPERTURA MAI NOMINATA nel fascicolo (estrazione forzata di una polizza di
+    // un altro ramo): i campi che la descrizione riferisce alla copertura restano
+    // vuoti, col perché nel log — prima uscivano premio e garanzie del contratto.
+    try {
+      const covSvc = await importSharedService<{ neverNamedCoverFields: (p: any) => { name: string; ids: string[] } | null }>('polizzaPrecheckService.js')
+      const jobNow = await getJob(job.id)
+      const prof = (settings.polizzaProfiles || []).find((p: any) => p && p.id === (jobNow?.profile_id || job.profile_id))
+      const nn = prof ? covSvc.neverNamedCoverFields({ docs: docsFlat, spatialDocs, profile: prof, profiles: activeProfiles, fields: jobNow?.field_defs || job.field_defs || [] }) : null
+      if (nn && nn.ids.length && data) {
+        const dropped = nn.ids.filter((id) => data[id] != null && String(data[id]).trim() !== '')
+        for (const id of dropped) { delete (data as any)[id]; if (sources) delete (sources as any)[id] }
+        const labelOf = (id: string) => ((jobNow?.field_defs || job.field_defs || []) as any[]).find((f) => f.id === id)?.label || id
+        await appendLog(job, `Copertura «${nn.name}» mai nominata nel fascicolo: ${nn.ids.length} campi della copertura restano vuoti${dropped.length ? ` (tolti ${dropped.length} valori: ${dropped.map(labelOf).join(', ')})` : ''}`, logs)
+      }
+    } catch (e: any) {
+      await appendLog(job, `Controllo copertura mai nominata non eseguito (non fatale): ${e?.message || e}`, logs)
+    }
     extractedData = data || {}
     // Diagnostica della chiamata LLM (modello, num_ctx, token letti, risposta grezza
     // se 0 campi): nel log del job, come su desktop.
