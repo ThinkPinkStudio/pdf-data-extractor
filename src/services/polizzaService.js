@@ -3921,6 +3921,71 @@ function valueKey(v) {
   return t.length >= 2 ? [...t].sort().join('|') : normForMatch(v)
 }
 
+// Token e radici per l'affinità LESSICALE di un'intestazione con un campo
+// (stesse regole dell'arbitro: parole ≥ 4 lettere, senza parole vuote).
+const lexTokenizeStaged = (str) => String(str || '')
+  .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STAGED_STOPWORDS.has(t))
+const stem6 = (t) => String(t || '').slice(0, 6)
+const headStemPoolCache = new WeakMap()
+// Radici della TESTA della descrizione (prima dei due punti, parte positiva);
+// se la testa non ha parole utili, la descrizione intera senza esempi.
+function headStemPool(f) {
+  let pool = f && typeof f === 'object' ? headStemPoolCache.get(f) : null
+  if (!pool) {
+    const head = lexTokenizeStaged(positiveDescriptionText(String(f?.description || '').split(':')[0])).map(stem6)
+    pool = new Set(head.length ? head : lexTokenizeStaged(positiveDescriptionText(stripFieldExamples(f?.description || f?.label || f?.id))).map(stem6))
+    if (f && typeof f === 'object') headStemPoolCache.set(f, pool)
+  }
+  return pool
+}
+
+/**
+ * Affinità di un'INTESTAZIONE (di colonna o di riga) con il campo: frazione
+ * delle parole dell'intestazione presenti nella TESTA della descrizione,
+ * confrontate per radice (prime 6 lettere: "imposta" ≈ "imposte").
+ * L'intestazione va passata GREZZA (con gli spazi).
+ */
+export function headerLexOf(f, headerText) {
+  const ht = [...new Set(lexTokenizeStaged(headerText).map(stem6))]
+  if (!ht.length) return 0
+  const pool = headStemPool(f)
+  let hit = 0
+  for (const t of ht) if (pool.has(t)) hit++
+  return hit / ht.length
+}
+
+/**
+ * COLONNA DI UN ALTRO CAMPO IMPORTO. Per un campo importo, la cella sotto
+ * un'intestazione che nomina DI PIÙ un altro campo importo del profilo, e che
+ * non ha nessuna parola che nomini SOLO questo campo, è il dato dell'altro
+ * campo: «3.784,00» sotto «Lordo» non è il massimale, «22.903,88» sotto
+ * «Premio netto» non è il premio lordo, «19,23» sotto «Premio lordo annuo» non
+ * è l'imponibile. Le parole condivise («premio», «annuo») non distinguono;
+ * una parola propria sì: «FRAZIONAMENTO NETTO IMPONIBILE» (intestazioni fuse
+ * da Docling nelle schede DAS) resta degli interessi di frazionamento.
+ * Solo tra campi IMPORTO (tipo dalla testa della descrizione): «fiscale» o
+ * «assicurato» in un'intestazione non fanno di una colonna di importi il dato
+ * della P.IVA o della compagnia.
+ * @returns {object|null} il campo a cui appartiene la colonna, o null
+ */
+export function amountColumnOwner(field, headerText, fields) {
+  if (!headerText || !String(headerText).trim() || fieldValueKind(field) !== 'amount') return null
+  const own = headerLexOf(field, headerText)
+  let owner = null
+  let ownerLex = 0
+  for (const g of fields || []) {
+    if (!g || g.id === field.id || g.enabled === false || fieldValueKind(g) !== 'amount') continue
+    const l = headerLexOf(g, headerText)
+    if (l > ownerLex) { ownerLex = l; owner = g }
+  }
+  if (!owner || ownerLex <= own) return null
+  const mine = headStemPool(field)
+  const theirs = headStemPool(owner)
+  for (const t of new Set(lexTokenizeStaged(headerText).map(stem6))) if (mine.has(t) && !theirs.has(t)) return null
+  return owner
+}
+
 /**
  * Evidenza strutturale di due RIGHE DI TABELLA, nell'ordine dell'arbitro
  * (pickSemanticCandidate): prima structLex, poi rowLex; un valore assente non
@@ -5032,15 +5097,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // radice "premio" stava nella testa di ogni campo premio → PREMIO LORDO
   // batteva NETTO IMPONIBILE per il premio imponibile (SPALLINO TL: 24,88
   // "corretto" in 28,00).
-  const headerLex = (f, headerText) => {
-    const ht = [...new Set(lexTokenize(headerText).map(stem))]
-    if (!ht.length) return 0
-    const headToks = lexTokenize(positiveDescriptionText(String(f.description || '').split(':')[0])).map(stem)
-    const pool = new Set(headToks.length ? headToks : lexTokensOf(f).map(stem))
-    let hit = 0
-    for (const t of ht) if (pool.has(t)) hit++
-    return hit / ht.length
-  }
+  // (headerLexOf / amountColumnOwner: funzioni pure a livello di modulo.)
+  const headerLex = headerLexOf
+  const otherAmountFieldOfColumn = (f, headerText) => amountColumnOwner(f, headerText, activeFields)
   const lexAffinity = (f, normText) => {
     const toks = lexTokensOf(f)
     if (!toks.length || !normText) return 0
@@ -5503,15 +5562,22 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // una riga ("Rata alla firma fino al 19/04/2027") la colonna giusta
             // perdeva il merge contro due letture del netto nei batch.
             let colLex = 0
+            // Campo importo a cui appartiene la colonna scelta (se non è questo).
+            let columnOwner = null
             const rowHit = findA7Row(rows, rowLabelNorm, normForMatch(cleaned))
             {
               const cols = rowHit?.row?.cols || []
               const named = cols.filter((c) => c.header && c.header.trim())
               const vn = normForMatch(cleaned)
               const chosen = cols.find((c) => vn && normForMatch(c.value) && (normForMatch(c.value) === vn || normForMatch(c.value).includes(vn)))
-              if (chosen && chosen.header) colLex = headerLex(f, chosen.header)
+              if (chosen && chosen.header) {
+                colLex = headerLex(f, chosen.header)
+                columnOwner = otherAmountFieldOfColumn(f, chosen.header)
+              }
+              // Una colonna di un altro campo importo non è mai la colonna giusta
+              // di questo campo: non la si sceglie per correggere.
+              const lexOf = (c) => (otherAmountFieldOfColumn(f, c.header) ? 0 : headerLex(f, c.header))
               if (named.length >= 2) {
-                const lexOf = (c) => headerLex(f, c.header)
                 if (chosen) {
                   const best = Math.max(...cols.map(lexOf))
                   const bestCols = cols.filter((c) => lexOf(c) === best)
@@ -5527,6 +5593,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
                       diag.push(`Tabella-focus[${f.label}]: "${cleaned}" preso dalla colonna "${chosen.header}" → corretto in "${fixed}" dalla colonna "${bestCol.header}" (stessa riga, intestazione che nomina il campo)`)
                       cleaned = fixed
                       colLex = best
+                      columnOwner = null
                     } else {
                       colOk = false
                       diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — preso dalla colonna "${chosen.header}" ma la colonna "${bestCol?.header}" corrisponde di più alla descrizione`)
@@ -5539,6 +5606,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               }
             }
             if (!colOk) continue
+            if (columnOwner) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — la colonna "${rowHit?.row?.cols?.find((c) => normForMatch(c.value) && normForMatch(c.value).includes(normForMatch(cleaned)))?.header || ''}" è del campo «${columnOwner.label}»`)
+              continue
+            }
             // Il valore è il NOME di una colonna, non un dato: nessuna cella della
             // riga citata lo porta e ogni sua voce coincide con un'intestazione di
             // colonna delle tabelle del documento («TUTELA LEGALE» per le Garanzie
