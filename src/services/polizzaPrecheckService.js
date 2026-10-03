@@ -447,15 +447,19 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       // limit reached», CAVALLO FT394VX/FT796KM del 01/10): si rifà la domanda
       // sulle due metà del batch, ognuna come un batch a sé (la combinazione
       // tra batch resta quella di sempre: contraddizioni comprese).
-      let tries = [{ ...first, part: blocks }]
-      if (!first.answer && blocks.length > 1) {
-        const half = Math.ceil(blocks.length / 2)
-        log(`Operatività «${profile?.name || ''}» batch ${b + 1}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${blocks.length - half} pagine)`)
-        tries = []
-        for (const part of [blocks.slice(0, half), blocks.slice(half)]) tries.push({ ...(await askBatch(part)), part })
+      // Una metà ancora illeggibile si divide di nuovo (fino ai quarti): CAVALLO
+      // FT394VX del 03/10, metà «1a» di 7 pagine illeggibile → «Da verificare»
+      // per pagine mai lette.
+      const splitTries = async (part, res, tag, depth) => {
+        if (res.answer || part.length < 2 || depth >= 2) return [{ ...res, part, tag }]
+        const half = Math.ceil(part.length / 2)
+        log(`Operatività «${profile?.name || ''}» batch ${tag}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${part.length - half} pagine)`)
+        const out = []
+        for (const [k, sub] of [part.slice(0, half), part.slice(half)].entries()) out.push(...await splitTries(sub, await askBatch(sub), `${tag}${'ab'[k]}`, depth + 1))
+        return out
       }
-      tries.forEach(({ answer, evidence, decision, part }, k) => {
-        const tag = tries.length > 1 ? `${b + 1}${'ab'[k]}` : `${b + 1}`
+      const tries = await splitTries(blocks, first, `${b + 1}`, 0)
+      tries.forEach(({ answer, evidence, decision, part, tag }) => {
         log(`Operatività «${profile?.name || ''}» batch ${tag}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
         // la ‡ protegge un «non determinabile» solo dove la definizione ammette una
         // SEZIONE (lì la riga copertura+premio è la prova); per gli altri profili è

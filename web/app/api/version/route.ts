@@ -44,6 +44,7 @@ const BUILD_FEATURES = [
   'forzate-copertura-assente', // Estrazione forzata di una polizza che non nomina mai la copertura: i campi della copertura restano vuoti; riconciliazione con numeri letti diversi dall'OCR (03/10/2026)
   'datazione-colonne-frontespizio', // Datazione dei documenti senza date dell'impresa/timbri/eventi e letture OCR isolate, preventivi senza data; A.7: colonna di un altro campo importo, recency tra righe; A.8 dal documento più recente; frase negata come etichetta (03/10/2026)
   'testo-cella-completamento', // Campi di testo: la cella della scheda batte la prosa delle condizioni e l'opzione del solo questionario (anche «Valutazione delle richieste ed esigenze»); A.7 completa la riga del premio per i campi «sulla stessa riga»; casella iniziale tolta (04/10/2026)
+  'illeggibile-quarti', // Pertinenza: una metà di batch ancora illeggibile si divide di nuovo (fino ai quarti) prima del «Da verificare» (04/10/2026)
 ]
 
 export async function GET() {

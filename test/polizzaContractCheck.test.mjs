@@ -450,6 +450,22 @@ test('risposta ILLEGGIBILE (Ollama in loop): si rifà la domanda sulle due metà
   assert.equal(r.verdict, 'ok', diag.join('\n'))
 })
 
+test('risposta ILLEGGIBILE anche su una metà: si divide ancora (quarti) prima di arrendersi', async () => {
+  let n = 0
+  const callModel = async (_s, _sys, user, opts) => {
+    if (opts?.format?.properties?.contratto) return JSON.stringify(PRESENTE(1))
+    n++
+    if (n <= 2) return '{"esito": "operante", "evidenza": "Tutela Tutela Tutela Tutela' // batch intero e prima metà troncati
+    const m = user.match(/\[Documento (\d+) · pag\. 1\]/)
+    return JSON.stringify({ esito: 'operante', documento: `Documento ${m ? m[1] : 1}`, pagina: 1, evidenza: 'SEZIONE TUTELA LEGALE          Premio annuo imponibile  615,25', motivo: 'sezione con premio' })
+  }
+  const diag = []
+  const Q = (num) => `QUIETANZA   Polizza n. ${num}\nSEZIONE TUTELA LEGALE          Premio annuo imponibile  615,25`
+  const r = await runOperativita({ docs: [doc('q1.pdf', [Q('0146905119')]), doc('q2.pdf', [Q('0146905119')]), doc('q3.pdf', [Q('0146905119')]), doc('q4.pdf', [Q('0146905119')])], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel, embed } })
+  assert.ok(diag.some((l) => /batch 1a: risposta illeggibile, nuovo tentativo sulle due metà/.test(l)), diag.join('\n'))
+  assert.equal(r.verdict, 'ok', diag.join('\n'))
+})
+
 test('copertura MAI nominata (estrazione forzata di un altro ramo): vuoti i soli campi che la descrizione riferisce alla copertura', async () => {
   const { neverNamedCoverFields } = await import('../src/services/polizzaPrecheckService.js')
   const fields = [
