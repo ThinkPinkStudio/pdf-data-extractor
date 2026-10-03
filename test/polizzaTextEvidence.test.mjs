@@ -60,3 +60,17 @@ test('casella barrata davanti a un testo: resta la voce', () => {
   assert.equal(sanitizeFieldValue(parametro, '[x] Fatturato'), 'Fatturato')
   assert.equal(sanitizeFieldValue(parametro, 'Xerox addetti'), 'Xerox addetti')
 })
+
+test('arbitro, DATE: l\'affinità non fa vincere una data più vecchia (P11: polizza 2025 etichettata contro il rinnovo 2026 di A.8)', () => {
+  const rinnovo = { valore: '30/06/2026', affinity: 0.48, effDate: '30/06/2027' }
+  const vecchia = { valore: '30/06/2025', affinity: 0.70, effDate: '30/06/2025', tableRow: true, labelToken: 'decorrenza' }
+  assert.equal(pickSemanticCandidate(rinnovo, vecchia, 'anagrafica'), rinnovo)
+  // la data più nuova segue la logica di sempre: etichettata e molto più affine resta
+  const nuovaDebole = { valore: '30/06/2026', affinity: 0.40, effDate: '30/06/2026' }
+  const etichettata = { valore: '30/06/2025', affinity: 0.70, effDate: '30/06/2025', tableRow: true }
+  assert.equal(pickSemanticCandidate(etichettata, nuovaDebole, 'anagrafica'), etichettata)
+  // un preventivo non tiene il campo con la sua data più nuova
+  const preventivo = { valore: '28/07/2027', affinity: 0.5, effDate: '28/07/2027', preContract: true }
+  const polizza = { valore: '28/07/2026', affinity: 0.7, effDate: '28/07/2026' }
+  assert.equal(pickSemanticCandidate(preventivo, polizza, 'anagrafica'), polizza)
+})

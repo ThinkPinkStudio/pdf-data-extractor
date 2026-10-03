@@ -1626,6 +1626,18 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
     if (strictlyNewer(oldC, newC)) return oldC
     return strongText(newC) ? newC : oldC
   }
+  // DATE (decorrenza, scadenza): l'affinità non fa vincere una data PIÙ
+  // VECCHIA. Nel giro del 28/09 tutti i 13 errori di decorrenza/scadenza erano
+  // una data più vecchia della vera (P11: la polizza 2025 con l'etichetta
+  // «Decorrenza», 0,70, scavalcava il 30/06/2026 del rinnovo letto da A.8). Una
+  // data più NUOVA segue la logica di sempre (una data etichettata resta
+  // protetta dal veto). Il valore di un preventivo senza numero di polizza non
+  // tiene il campo così.
+  {
+    const dts = (c) => (/^\d{2}\/\d{2}\/\d{4}$/.test(String(c?.valore ?? '').trim()) ? dateStrToTs(String(c.valore).trim()) : null)
+    const d0 = dts(oldC), d1 = dts(newC)
+    if (d0 != null && d1 != null && d1 < d0 && !oldC.preContract) return oldC
+  }
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2

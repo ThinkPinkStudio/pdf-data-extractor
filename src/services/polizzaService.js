@@ -4640,6 +4640,7 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
       runningTextAllowed: descriptionAllowsRunningText(field) || undefined,
       // Campi di TESTO: cella o prosa, solo questionario (textCellEvidence).
       ...(fieldValueKind(field) === 'text' && srcDoc ? textCellEvidence(srcDoc, cleaned) : {}),
+      preContract: srcDoc?.preContract ? true : undefined,
     }
     // ARBITRO SEMANTICO: affinità nettamente diversa → vince la più alta;
     // collasso numerico >80% solo con affinità superiore; comparabili → recency
