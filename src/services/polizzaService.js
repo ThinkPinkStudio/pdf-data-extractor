@@ -5655,7 +5655,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             }
             const prevC = best[f.id]
             const before = prevC?.valore
-            best[f.id] = pickSemanticCandidate(prevC, cand, 'anagrafica')
+            best[f.id] = pickSemanticCandidate(prevC, cand, 'anagrafica', { tableRecency: true })
             a7Rows++
             // Nel REGISTRO del consenso come ogni candidato accettato dei batch:
             // prima le letture di tabella avevano zero voti, e una sola lettura
@@ -5664,7 +5664,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             if (!clog) { clog = {}; STAGED_CANDIDATE_LOG.set(best, clog) }
             ;(clog[f.id] ??= []).push(cand)
             const taken = best[f.id] === cand
-            diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}, riga "${valObj.riga || (v && typeof v === 'object' ? v.riga : '') || ''}" col "${valObj.colonna || (v && typeof v === 'object' ? v.colonna : '') || ''}"${before ? (taken ? `, sostituisce "${before}"` : `, NON sostituisce "${before}" (${prevC?.tableRow === true && prevC.structLex === structLex && prevC.rowLex === rowLex ? 'riga di tabella pari: decide il consenso sui documenti distinti' : 'riga meno coerente con la descrizione'})`) : ''})`)
+            diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}, riga "${valObj.riga || (v && typeof v === 'object' ? v.riga : '') || ''}" col "${valObj.colonna || (v && typeof v === 'object' ? v.colonna : '') || ''}"${before ? (taken ? `, sostituisce "${before}"` : `, NON sostituisce "${before}" (${prevC?.tableRow === true && prevC.structLex === structLex && prevC.rowLex === rowLex ? 'riga di tabella pari: decide il consenso sui documenti distinti' : (prevC?.tableRow === true && (dateStrToTs(prevC.effDate) ?? -Infinity) > (dateStrToTs(cand.effDate) ?? -Infinity) ? 'documento più recente' : 'riga meno coerente con la descrizione')})`) : ''})`)
           }
         }
       } else {

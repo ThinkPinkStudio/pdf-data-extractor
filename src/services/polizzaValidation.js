@@ -1593,6 +1593,15 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
   // premio lordo 2.250,00 della riga componente al posto di 18.000,00), poi
   // l'affinità; a parità resta la prima.
   if (oldC.tableRow === true && newC.tableRow === true) {
+    // Stadio A.7 (opts.tableRecency: effDate = data del DOCUMENTO): anche tra
+    // due righe di tabella la recency viene prima, come sopra. La riga
+    // «Tutela Legale» di una regolazione del 2014 sostituiva la riga «Totale:»
+    // della quietanza 2026 (SONZOGNI TL); la rata iniziale della scheda 2020
+    // sostituiva il rinnovo 2026-2027 (VERRO 89: 175,73 invece di 179,00).
+    if (opts.tableRecency) {
+      if (strictlyNewer(newC, oldC)) return newC
+      if (strictlyNewer(oldC, newC)) return oldC
+    }
     const s0 = typeof oldC.structLex === 'number' ? oldC.structLex : null
     const s1 = typeof newC.structLex === 'number' ? newC.structLex : null
     if (s0 != null && s1 != null && s1 !== s0) return s1 > s0 ? newC : oldC

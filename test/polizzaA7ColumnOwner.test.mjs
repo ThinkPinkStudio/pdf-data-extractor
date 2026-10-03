@@ -7,6 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { amountColumnOwner, headerLexOf } from '../src/services/polizzaService.js'
+import { pickSemanticCandidate } from '../src/services/polizzaValidation.js'
 
 // Teste delle descrizioni del profilo «Tutela Legale 3» (v4); le label sono
 // volutamente neutre: la regola non le legge.
@@ -58,4 +59,18 @@ test('solo tra campi importo: «fiscale» o «assicurato» non danno la colonna 
 test('nessuna intestazione: nessun proprietario', () => {
   assert.equal(amountColumnOwner(massimale, '', FIELDS), null)
   assert.equal(amountColumnOwner(massimale, 'col3', FIELDS), null)
+})
+
+test('A.7: tra due righe di tabella la recency del DOCUMENTO viene prima (tableRecency)', () => {
+  // VERRO 89: rinnovo 2026-2027 «dal 30/06/26» contro la rata iniziale della scheda 2020
+  const rinnovo = { valore: '179,00', tableRow: true, structLex: 0.5, rowLex: 0, affinity: 0.8, effDate: '30/06/2027', file: 'rinnovo.pdf' }
+  const scheda = { valore: '175,73', tableRow: true, structLex: 1, rowLex: 0.5, affinity: 0.9, effDate: '30/06/2021', file: 'scheda.pdf' }
+  assert.equal(pickSemanticCandidate(rinnovo, scheda, 'anagrafica', { tableRecency: true }), rinnovo)
+  assert.equal(pickSemanticCandidate(scheda, rinnovo, 'anagrafica', { tableRecency: true }), rinnovo)
+  // senza l'opzione (altri stadi: effDate può essere il valore) resta lo spareggio strutturale
+  assert.equal(pickSemanticCandidate(rinnovo, scheda, 'anagrafica'), scheda)
+  // stessa data: decide ancora l'evidenza strutturale
+  const totale = { ...rinnovo, valore: '18.000,00', structLex: 1, rowLex: 1 }
+  const comp = { ...rinnovo, valore: '2.250,00', structLex: 1, rowLex: 0.33 }
+  assert.equal(pickSemanticCandidate(totale, comp, 'anagrafica', { tableRecency: true }), totale)
 })
