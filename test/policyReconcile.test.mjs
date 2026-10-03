@@ -230,3 +230,21 @@ test('preContractLabel: preventivi, proposte e quotazioni sì; contratti che nom
   // il numero di polizza può stare in una pagina dopo la prima (entro la 5ª)
   assert.equal(preContractLabel(['Proposta n. 123456 di assicurazione', 'testo', 'Polizza n. 01469DAS00074']), null)
 })
+
+test('planReconcile: lo stesso numero letto diverso dall\'OCR (I/1, O/0, R/1) è la stessa polizza', async () => {
+  const { planReconcile } = await import('../src/services/policyReconcile.js')
+  // BOLCHINI RC 2025: la polizza scansionata dice «1PD0017417», le altre «IPD0017417»
+  const plan = planReconcile([
+    { id: 'rc26', path: 'R/In vigore/RC PROF. 04.2026', files: [{ idx: 0, numbers: ['IPD0017417'] }] },
+    { id: 'rc25', path: 'R/Cessate/RC PROF. 04.2025', files: [{ idx: 0, numbers: ['1PD0017417'] }, { idx: 1, numbers: ['IPD0017417'] }, { idx: 2, numbers: [] }] },
+  ])
+  assert.equal(plan.length, 1)
+  const mv = plan[0].moves.find((m) => m.from !== plan[0].target)
+  assert.equal(mv.all, true, 'la cartella 2025 non è più un contenitore: si unisce intera')
+  // numeri davvero diversi restano separati
+  const sep = planReconcile([
+    { id: 'a', path: 'R/A', files: [{ idx: 0, numbers: ['1469DAS00074'] }] },
+    { id: 'b', path: 'R/B', files: [{ idx: 0, numbers: ['1469DAS00075'] }] },
+  ])
+  assert.equal(sep.length, 0)
+})

@@ -242,6 +242,30 @@ export function planReconcile(dossiers) {
     const longer = num.length >= 8 ? all.find((o) => o.length > num.length && o.endsWith(num) && canon.get(o) === o) : null
     canon.set(num, longer || num)
   }
+  // Stesso numero letto due volte DIVERSO dall'OCR: caratteri che l'OCR scambia
+  // (I/L/R↔1, O/D/Q↔0, S↔5, B↔8, Z↔2) nella stessa posizione. «1PD0017417» e
+  // «IPD0017417» (BOLCHINI RC 2025, 03/10/2026) erano due polizze: la cartella
+  // diventava un contenitore e i suoi file finivano divisi in due dossier;
+  // ZELO: «2R2.044…» per «212.044…». Solo numeri di almeno 8 caratteri: due
+  // polizze diverse non differiscono per un I al posto di un 1.
+  const ocrKey = (n) => n.replace(/[ILR]/g, '1').replace(/[ODQ]/g, '0').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2')
+  {
+    const freq = new Map()
+    for (const d of raw) for (const f of d.files || []) for (const n of f.numbers || []) { const c = canon.get(n) || n; freq.set(c, (freq.get(c) || 0) + 1) }
+    const byKey = new Map()
+    for (const c of new Set(canon.values())) {
+      if (c.length < 8) continue
+      const k = ocrKey(c)
+      if (!byKey.has(k)) byKey.set(k, [])
+      byKey.get(k).push(c)
+    }
+    for (const group of byKey.values()) {
+      if (group.length < 2) continue
+      // rappresentante: il più frequente (a parità, il primo in ordine alfabetico)
+      const rep = [...group].sort((a, b2) => (freq.get(b2) || 0) - (freq.get(a) || 0) || a.localeCompare(b2))[0]
+      for (const [n, c] of canon) if (group.includes(c)) canon.set(n, rep)
+    }
+  }
   const list = raw.map((d) => ({ ...d, files: (d.files || []).map((f) => ({ ...f, numbers: [...new Set((f.numbers || []).map((n) => canon.get(n) || n))] })) }))
   // 1. Componenti di file per dossier (file collegati da un numero in comune).
   const nodes = [] // { key, dossier, idxs, numbers:Set, whole }
