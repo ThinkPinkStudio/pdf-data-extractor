@@ -42,6 +42,7 @@ const BUILD_FEATURES = [
   'elaborazioni-parola-da-evitare', // Elaborazioni: i fascicoli fermi per una parola da evitare del profilo lo dicono (testa «Parola da evitare «x»», riquadro nel dettaglio), non «prova respinta» (28/09/2026)
   'preventivi-riunisci', // Preventivi/proposte/quotazioni senza numero di polizza fuori dalla domanda sul contratto e mai prova di acquisto; riunione per numero di polizza accesa di default in ogni Riabbina di batch; nuovo tentativo a metà batch su risposta illeggibile; campi importo solo importi (03/10/2026)
   'forzate-copertura-assente', // Estrazione forzata di una polizza che non nomina mai la copertura: i campi della copertura restano vuoti; riconciliazione con numeri letti diversi dall'OCR (03/10/2026)
+  'datazione-colonne-frontespizio', // Datazione dei documenti senza date dell'impresa/timbri/eventi e letture OCR isolate, preventivi senza data; A.7: colonna di un altro campo importo, recency tra righe; A.8 dal documento più recente; frase negata come etichetta (03/10/2026)
 ]
 
 export async function GET() {
