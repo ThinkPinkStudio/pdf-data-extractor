@@ -268,3 +268,19 @@ test('valueWindows: tutte le occorrenze del valore (esatte e riordinate), così 
   assert.ok(wins.length >= 2, String(wins.length))
   assert.ok(wins.some((w) => normForMatch(w).includes('sedeedirezionegenerale')))
 })
+
+// Campo IMPORTO (tipo dalla testa della descrizione): solo importi, o la parola
+// che la descrizione ammette. «Assistenza» come Premio lordo (SONZOGNI All risk,
+// 02/10/2026: correzione di colonna dello stadio tabelle in JSON libero).
+test('sanitizeFieldValue: un campo importo non riceve un testo (stesso pattern dello schema)', async () => {
+  const { sanitizeFieldValue } = await import('../src/services/polizzaService.js')
+  const lordo = { id: 'l', label: 'Premio lordo totale tutela legale', type: 'number', description: "Premio lordo ANNUO della tutela legale: l'importo (in euro) comprensivo di imposte, diritti e interessi (es. 255,00, 611,41)." }
+  const annuo = { id: 'a', label: 'Massimale per anno', type: 'number', description: 'Massimale per anno: l\'importo massimo (in euro) che la compagnia paga in un anno. È un importo (es. 40.000,00) oppure la parola "Illimitato"/"ILLIMITATO" quando non c\'è limite.' }
+  assert.equal(sanitizeFieldValue(lordo, 'Assistenza'), null)
+  assert.equal(sanitizeFieldValue(lordo, '14.396,00'), '14.396,00')
+  assert.equal(sanitizeFieldValue(lordo, '€ 1.540,00'), '1.540,00')
+  assert.equal(sanitizeFieldValue(lordo, '1.540,00 euro'), '1.540,00')
+  assert.equal(sanitizeFieldValue(lordo, '0,00'), '0,00')
+  assert.equal(sanitizeFieldValue(annuo, 'Illimitato'), 'Illimitato')
+  assert.equal(sanitizeFieldValue(annuo, '40.000,00'), '40.000,00')
+})

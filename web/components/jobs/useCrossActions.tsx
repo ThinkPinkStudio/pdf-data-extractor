@@ -111,11 +111,18 @@ export function useCrossActions({ batches, hits, reload }: { batches: BatchSumma
   // Esecuzione: una chiamata bulk per batch, una per job per le singole.
   async function execute(action: string, groups: Map<string | null, JobSnapshot[]>, body: Record<string, unknown> = {}) {
     let ok = 0, skipped = 0, notValid = 0
+    const refused: string[] = []
     for (const [batchId, jobs] of groups) {
       if (batchId) {
         const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action, jobIds: jobs.map((j) => j.jobId), ...body })
         const d = await res.json().catch(() => ({}))
-        if (res.ok) { ok += d.done || 0; skipped += d.skipped || 0; notValid += d.notValid || 0 } else skipped += jobs.length
+        if (res.ok) { ok += d.done || 0; skipped += d.skipped || 0; notValid += d.notValid || 0 }
+        else {
+          // Rifiuto del batch (es. «Riconciliazione non avviata: N dossier in corso»): si dice quale e perché.
+          skipped += jobs.length
+          const label = batches.find((b) => b.id === batchId)?.label || looseHits.find((h) => h.batchId === batchId)?.batchLabel || batchId
+          if (d?.error) refused.push(`${label}: ${d.error}`)
+        }
       } else {
         for (const j of jobs) {
           const r = await post(`/api/polizza/job/${j.jobId}/${action}`, body)
@@ -126,7 +133,7 @@ export function useCrossActions({ batches, hits, reload }: { batches: BatchSumma
       }
     }
     const msg = t('jobsDash.bulkResult', { ok, skipped })
-    setResult(notValid > 0 ? `${msg} · ${t('jobsDash.bulkResultNotValid', { n: notValid })}` : msg)
+    setResult([notValid > 0 ? `${msg} · ${t('jobsDash.bulkResultNotValid', { n: notValid })}` : msg, ...refused].join(' · '))
   }
 
   async function loadDialogData() {
@@ -182,6 +189,9 @@ export function useCrossActions({ batches, hits, reload }: { batches: BatchSumma
     const body: Record<string, unknown> = {}
     if (v.profileId) body.profileId = v.profileId
     if (!isReprofile && v.extractAfter) body.extract = true
+    // Riunisci per numero di polizza: per batch (una chiamata bulk per batch); le
+    // estrazioni singole non hanno un batch da riconciliare (la route per job la ignora).
+    if (!isReprofile && v.reconcile) body.reconcile = true
     if (isReprofile) {
       if (v.model.trim()) body.model = v.model.trim()
       if (v.strategy === 'perfield') body.perField = true
@@ -204,7 +214,7 @@ export function useCrossActions({ batches, hits, reload }: { batches: BatchSumma
 
   const dialog = dial ? (
     <RelaunchDialog mode={dial.mode} jobs={dial.jobs} profiles={profiles} models={models} busy={busy} error={dialogError}
-      canReconcile={false} initialExtractAfter={dial.action === 'rematchExtract' ? true : dial.action === 'rematch' ? false : undefined}
+      canReconcile initialExtractAfter={dial.action === 'rematchExtract' ? true : dial.action === 'rematch' ? false : undefined}
       onCancel={() => { setDial(null); setDialGroups(null) }} onSubmit={submitDialog} />
   ) : null
 

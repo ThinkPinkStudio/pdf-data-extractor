@@ -18,6 +18,7 @@ import {
 } from './polizzaPrecheck.js'
 import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage, pageHead } from './polizzaOperativita.js'
 import { isQuestionnairePageTitle } from './polizzaFactsRegistry.js'
+import { preContractLabel } from './policyReconcile.js'
 import { stripFieldExamples } from './polizzaValidation.js'
 import { usefulLength } from './ocrLayout.js'
 import {
@@ -191,6 +192,24 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
   return { candidates, docsWithoutText }
 }
 
+/**
+ * Documenti PRE-CONTRATTUALI del fascicolo (preContractLabel: si dichiarano
+ * preventivo / quotazione / offerta / proposta numerata e non portano un
+ * numero di polizza): ordinale (1-based, come «Documento N») → dichiarazione.
+ * Sulla griglia se c'è, altrimenti sul testo piatto (OCR).
+ */
+export function preContractDocs(docs, spatialDocs) {
+  const out = new Map()
+  ;(docs || []).forEach((d, i) => {
+    const grid = spatialDocs?.[i]?.pages || []
+    const pages = grid.some((p) => String(p || '').trim()) ? grid : (d?.pages || [])
+    const label = preContractLabel(pages)
+    if (label) out.set(i + 1, label)
+  })
+  return out
+}
+const preContractList = (m) => [...m].map(([o, l]) => `Documento ${o} («${l}»)`).join(', ')
+
 const pageKey = (c) => `${c.ord}:${c.page}`
 const partKey = (c) => `${c.ord}:${c.page}:${c.part || 0}`
 const blockList = (blocks) => blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}`).join(', ')
@@ -238,7 +257,21 @@ export async function runContractCheck({ docs, spatialDocs, settings, diag = nul
   const answers = []
   try {
     const budgetChars = contractBudget(settings)
-    const { candidates, docsWithoutText } = buildPageCandidates(docs, spatialDocs, { capped: false, partChars: budgetChars })
+    const built = buildPageCandidates(docs, spatialDocs, { capped: false, partChars: budgetChars })
+    const { docsWithoutText } = built
+    // PREVENTIVI / PROPOSTE / QUOTAZIONI (si dichiarano tali e non hanno un
+    // numero di polizza): non sono il contratto e non si mostrano alla domanda.
+    // Il modello prendeva «PREVENTIVO Numero 4171» Vittoria per una polizza
+    // (SUSA 12) e la estraeva. Restano nel fascicolo per tutto il resto.
+    const pre = preContractDocs(docs, spatialDocs)
+    const candidates = built.candidates.filter((c) => !pre.has(c.ord))
+    if (pre.size) log(`Polizza: ${pre.size} ${pre.size === 1 ? 'documento si dichiara' : 'documenti si dichiarano'} preventivo/proposta senza numero di polizza, ${pre.size === 1 ? 'escluso' : 'esclusi'} dalla domanda sul contratto: ${preContractList(pre)}`)
+    if (!candidates.length && built.candidates.length) {
+      // Solo documenti pre-contrattuali (più eventuali scansioni senza testo).
+      const c = decideContract([{ contratto: 'assente', documento: null, pagina: null, motivo: `solo preventivi/proposte senza numero di polizza: ${preContractList(pre)}` }], { docsWithoutText })
+      log(`Polizza: ${c.esito} — ${c.reason} (nessuna chiamata)`)
+      return { ...c, asked: 0, preContract: Object.fromEntries(pre) }
+    }
     if (!candidates.length) {
       const c = { ...decideContract([], { docsWithoutText }), reason: 'nessuna pagina con testo: presenza della polizza non verificabile' }
       log(`Polizza: ${c.esito} — ${c.reason}`)
@@ -251,7 +284,18 @@ export async function runContractCheck({ docs, spatialDocs, settings, diag = nul
       if (!blocks.length) break
       const taken = new Set(blocks.map(partKey))
       remaining = remaining.filter((c) => !taken.has(partKey(c)))
-      const ca = await askContract({ settings, blocks, callModel, diag })
+      let ca = await askContract({ settings, blocks, callModel, diag })
+      // Risposta ILLEGGIBILE (Ollama: «prediction aborted, token repeat limit
+      // reached», JSON troncato): si rifà la domanda sulle due metà del batch
+      // invece di arrendersi (prima diventava «non determinabile» → Da verificare).
+      if (!ca && blocks.length > 1) {
+        const half = Math.ceil(blocks.length / 2)
+        log(`Polizza batch ${b + 1}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${blocks.length - half} pagine)`)
+        const parts = [blocks.slice(0, half), blocks.slice(half)]
+        const got = []
+        for (const part of parts) got.push(await askContract({ settings, blocks: part, callModel, diag }))
+        ca = got.find((x) => x?.contratto === 'presente') || (got.every((x) => x?.contratto === 'assente') ? got[0] : got.find((x) => x && x.contratto !== 'assente') || null)
+      }
       answers.push(ca)
       sent.push(...blocks)
       log(`Polizza batch ${b + 1}: ${ca?.contratto || 'risposta illeggibile'}${ca?.documento ? ` (Documento ${ca.documento}${ca.pagina ? ` pag. ${ca.pagina}` : ''})` : ''}${ca?.motivo ? ` — ${ca.motivo.slice(0, 140)}` : ''} (${blocks.length} pagine: ${blockList(blocks)}; restano ${remaining.length})`)
@@ -345,24 +389,52 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     let remaining = candidates
     const results = []
     const pagesSent = []
+    // Documenti che si dichiarano preventivo/proposta senza numero di polizza:
+    // una prova di «operante» presa da lì non prova un ACQUISTO (vale per il
+    // preventivo, non per il contratto) e conta come «non determinabile».
+    const pre = preContractDocs(docs, spatialDocs)
+    // Una domanda su un batch: risposta, prova verificata, decisione.
+    const askBatch = async (blocks) => {
+      const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
+      const raw = await callModel({ ...settings, __phase: 'abbinamento' }, system, user, {
+        numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
+      })
+      let answer = parseOperativitaAnswer(raw)
+      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
+      if (answer?.esito === 'operante' && evidence?.found && pre.has(evidence.ord)) {
+        answer = { ...answer, esito: 'non determinabile', motivo: `la prova di «operante» sta nel Documento ${evidence.ord}, che si dichiara «${pre.get(evidence.ord)}» e non ha un numero di polizza: un preventivo o una proposta non provano l'acquisto${answer.motivo ? ` (${answer.motivo})` : ''}` }
+      }
+      const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
+      return { answer, evidence, decision }
+    }
     for (let b = 0; b < maxBatches && remaining.length; b++) {
       const blocks = selectOperativitaPages(remaining, { budgetChars, lexTokens })
       if (!blocks.length) break
       const taken = new Set(blocks.map(pageKey))
       remaining = remaining.filter((c) => !taken.has(pageKey(c)))
-      const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
       log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${blocks.length} pagine (restano ${remaining.length} su ${candidates.length}; budget ${budgetChars} char utili): ${blocks.map((x) => `D${x.ord}p${x.page}${x.part ? `/${x.part}` : ''}${x.cut ? '*' : ''}${x.structural ? '‡' : x.lex ? '†' : ''}${x.amount ? '€' : ''}${x.questionnaire ? '§' : ''} ${(x.score ?? 0).toFixed(2)}`).join(', ')}${blocks.some((x) => x.lex || x.questionnaire) ? ' (‡ = riga copertura+importo, † = nomina la copertura, € = con importi, § = pagina di questionario/proposta)' : ''}`)
-      const raw = await callModel({ ...settings, __phase: 'abbinamento' }, system, user, {
-        numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
+      const first = await askBatch(blocks)
+      // Risposta ILLEGGIBILE (Ollama in loop: «prediction aborted, token repeat
+      // limit reached», CAVALLO FT394VX/FT796KM del 01/10): si rifà la domanda
+      // sulle due metà del batch, ognuna come un batch a sé (la combinazione
+      // tra batch resta quella di sempre: contraddizioni comprese).
+      let tries = [{ ...first, part: blocks }]
+      if (!first.answer && blocks.length > 1) {
+        const half = Math.ceil(blocks.length / 2)
+        log(`Operatività «${profile?.name || ''}» batch ${b + 1}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${blocks.length - half} pagine)`)
+        tries = []
+        for (const part of [blocks.slice(0, half), blocks.slice(half)]) tries.push({ ...(await askBatch(part)), part })
+      }
+      tries.forEach(({ answer, evidence, decision, part }, k) => {
+        const tag = tries.length > 1 ? `${b + 1}${'ab'[k]}` : `${b + 1}`
+        log(`Operatività «${profile?.name || ''}» batch ${tag}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
+        // la ‡ protegge un «non determinabile» solo dove la definizione ammette una
+        // SEZIONE (lì la riga copertura+premio è la prova); per gli altri profili è
+        // solo l'ordine di lettura
+        results.push({ ...decision, structuralBatch: recognitionAllowsSection(recognition) && part.some((x) => x.structural) })
       })
-      const answer = parseOperativitaAnswer(raw)
-      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
-      const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
-      log(`Operatività «${profile?.name || ''}» batch ${b + 1}: ${decision.verdict} — ${decision.reason}${answer?.evidenza ? ` · prova: «${answer.evidenza.slice(0, 120)}» (${evidence?.reason || ''})` : ''}`)
-      // la ‡ protegge un «non determinabile» solo dove la definizione ammette una
-      // SEZIONE (lì la riga copertura+premio è la prova); per gli altri profili è
-      // solo l'ordine di lettura
-      results.push({ ...decision, structuralBatch: recognitionAllowsSection(recognition) && blocks.some((x) => x.structural) })
+      const decision = tries.find((x) => x.decision.verdict === 'ok')?.decision || tries[tries.length - 1].decision
+      const answer = tries.find((x) => x.decision.verdict === 'ok')?.answer || tries[tries.length - 1].answer
       pagesSent.push(...blocks.map((x) => ({ ord: x.ord, page: x.page, score: x.score, batch: b + 1 })))
       // «Operante» provato: combineOperativitaBatches guarda il primo «ok» e i
       // batch PRIMA, quelli dopo non contano. La polizza è già decisa.

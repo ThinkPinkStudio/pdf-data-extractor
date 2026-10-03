@@ -20,7 +20,7 @@ try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
 import { postJsonStream } from './httpStream.js'
-import { ollamaFormatFor, fieldValueKind } from './gbnfSchema.js'
+import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
 // Modulo date PURO e testato (test/polizzaDates.test.mjs): datazione dei documenti
 // per PERIODO DI COPERTURA (mai per data di emissione — era il bug dei duplicati
@@ -1085,6 +1085,19 @@ export function sanitizeFieldValue(field, rawValue) {
   // intera: bastava una parola citata di passaggio.
   if (valueKind === 'amount'
       && field?.type !== 'date' && /\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(v) && normalizeDateValue(v)) return null
+
+  // Un campo IMPORTO (tipo dalla testa della descrizione) contiene un IMPORTO,
+  // o la parola che la descrizione ammette («Illimitato»): lo STESSO pattern
+  // dello schema JSON (amountPatternKey). Le letture in JSON libero (stadio
+  // tabelle, correzione di colonna, recupero) non passano dallo schema e
+  // portavano testi nei premi: «Assistenza» come Premio lordo e Frazionamento
+  // (SONZOGNI All risk, 02/10/2026, colonna «Premio rate successive»).
+  if (valueKind === 'amount') {
+    const bare = v.replace(/^(?:€|eur(?:o)?\b)\s*/i, '').replace(/\s*(?:€|eur(?:o)?)\.?$/i, '').trim()
+    const re = new RegExp(VALUE_PATTERNS[amountPatternKey(field)] || VALUE_PATTERNS.amount)
+    // …o una parola che la descrizione stessa cita come risposta («'NESSUNA' se la scheda lo dice»)
+    if (!re.test(bare)) { if (!descAllows) return null } else v = bare
+  }
 
   return v
 }

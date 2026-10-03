@@ -44,8 +44,11 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   const [extractAfter, setExtractAfter] = useState(false)
   useEffect(() => { if (isRematch) setExtractAfter(initialExtractAfter ?? readExtractAfter()) }, [isRematch, initialExtractAfter])
   // RICONCILIA prima dell'abbinamento: unisce i dossier con lo stesso numero di
-  // polizza (batch caricati prima della riconciliazione). Mai ricordata: è rara.
-  const [reconcile, setReconcile] = useState(false)
+  // polizza. ACCESA di default (03/10/2026, richiesta dell'utente: «deve essere
+  // automatico»): spenta a ogni apertura, il Riabbina del 30/09 su BOLCHINI è
+  // partito senza riunire e la cartella delle proposte è rimasta un dossier a sé.
+  // Si spegne solo a mano (es. un batch con dossier ancora in corso).
+  const [reconcile, setReconcile] = useState(true)
   const showReconcile = isRematch && isBatch && !!canReconcile
 
   // Preselezione (rielabora con profilo, singolo): l'ultimo profilo di QUESTO

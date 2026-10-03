@@ -380,3 +380,72 @@ test('runOperativita, DAS condominio: la scheda col premio nella colonna TUTELA 
   assert.match(diag.find((l) => /batch 1: \d+ pagine/.test(l)), /D1p1‡/)
   assert.equal(m.calls.op, 1)
 })
+
+// ── PREVENTIVI / PROPOSTE / QUOTAZIONI (03/10/2026) ────────────────────────
+// Un documento che si DICHIARA preventivo/proposta numerata e non porta un
+// numero di polizza non è il contratto: fuori dalla domanda sul contratto e
+// mai prova di un acquisto. Casi veri: SUSA 12 «VITTORIA» (PREVENTIVO Numero
+// 4171 + condizioni, estratto come polizza), BOLCHINI «TUT. LEGALE PROF» (le
+// proposte DAS «…COLLEGATO ALLA PROPOSTA N. 25062766»).
+const PREVENTIVO_VITTORIA = [
+  'Agenzia     Avvertenza Le dichiarazioni non veritiere possono compromettere il diritto alla prestazione.',
+  'PREVENTIVO Numero 4171        Numero Cartella 212',
+  'Contraente: CONDOMINIO PIAZZALE SUSA 12',
+  'SEZIONE TUTELA LEGALE          Premio annuo imponibile  180,00',
+].join('\n')
+const CGA = 'CONDIZIONI DI ASSICURAZIONE\nArt. 1 - Oggetto della tutela legale: la Società assicura le spese legali alle condizioni seguenti.'
+
+test('preventivo + condizioni: il preventivo non si mostra alla domanda sul contratto (SUSA «VITTORIA» → Non valido)', async () => {
+  const seen = []
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: (user) => { seen.push(user); return ASSENTE } })
+  const diag = []
+  const c = await runContractCheck({ docs: [doc('preventivo.pdf', [PREVENTIVO_VITTORIA]), doc('cga.pdf', [CGA])], settings: SETTINGS, diag, deps: { callModel: m.callModel } })
+  assert.equal(c.esito, 'assente', diag.join('\n'))
+  assert.ok(seen.every((u) => !u.includes('PREVENTIVO Numero 4171')), 'il preventivo non arriva al modello')
+  assert.ok(diag.some((l) => /si dichiara preventivo\/proposta/.test(l) && /Documento 1/.test(l)))
+})
+
+test('solo preventivi: Non valido senza chiamare il modello', async () => {
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => PRESENTE(1) })
+  const diag = []
+  const c = await runContractCheck({ docs: [doc('allianz.pdf', ['Preventivo n. 211755582 Emesso il: 15/09/2025\nTutela legale  28,00'])], settings: SETTINGS, diag, deps: { callModel: m.callModel } })
+  assert.equal(c.esito, 'assente', diag.join('\n'))
+  assert.equal(m.calls.contract, 0)
+  assert.match(c.reason, /preventivi\/proposte senza numero di polizza/)
+})
+
+test('proposta DAS accanto alla polizza: la polizza c\'è (la proposta è solo fuori dalla domanda)', async () => {
+  const PROPOSTA = 'PROFILO CLIENTE E CONSULENZA ASSICURATIVA COLLEGATO ALLA PROPOSTA N. 25062766\nTutela Legale Pacchetto Base   95,14   20,24   115,38'
+  const POLIZZA = 'PROFILO CLIENTE E CONSULENZA ASSICURATIVA COLLEGATO ALLA POLIZZA N. 01469DAS00074\nTutela Legale Pacchetto Base   95,14   20,24   115,38'
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: (user) => (user.includes('[Documento 2') ? PRESENTE(2) : ASSENTE) })
+  const diag = []
+  const c = await runContractCheck({ docs: [doc('proposta.pdf', [PROPOSTA]), doc('polizza.pdf', [POLIZZA])], settings: SETTINGS, diag, deps: { callModel: m.callModel } })
+  assert.equal(c.esito, 'presente', diag.join('\n'))
+  assert.equal(c.documento, 2)
+})
+
+test('«operante» provato SOLO da un preventivo: non prova l\'acquisto (non determinabile, mai abbinato)', async () => {
+  const POLIZZA_SENZA_TL = 'POLIZZA DI ASSICURAZIONE FABBRICATI      Polizza n. 212044000090\nContraente: CONDOMINIO PIAZZALE SUSA 12\nIncendio   1.200,00'
+  const op = { esito: 'operante', documento: 'Documento 1', pagina: 1, evidenza: 'SEZIONE TUTELA LEGALE          Premio annuo imponibile  180,00', motivo: 'sezione con premio' }
+  const m = fakeModel({ op, contract: (user) => (user.includes('[Documento 2') ? PRESENTE(2) : ASSENTE) })
+  const diag = []
+  const r = await runOperativita({ docs: [doc('preventivo.pdf', [PREVENTIVO_VITTORIA]), doc('polizza.pdf', [POLIZZA_SENZA_TL])], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
+  assert.notEqual(r.verdict, 'ok', diag.join('\n'))
+  assert.ok(diag.some((l) => /si dichiara «PREVENTIVO Numero»/.test(l)), diag.join('\n'))
+})
+
+test('risposta ILLEGGIBILE (Ollama in loop): si rifà la domanda sulle due metà invece di arrendersi', async () => {
+  let n = 0
+  const callModel = async (_s, _sys, user, opts) => {
+    if (opts?.format?.properties?.contratto) return JSON.stringify(PRESENTE(1))
+    n++
+    if (n === 1) return '{"esito": "operante", "evidenza": "Tutela Tutela Tutela Tutela' // troncata: token repeat limit
+    return JSON.stringify({ esito: 'operante', documento: 'Documento 1', pagina: 1, evidenza: 'SEZIONE TUTELA LEGALE          Premio annuo imponibile  615,25', motivo: 'sezione con premio' })
+  }
+  const diag = []
+  // due pagine con la riga copertura+premio: il primo batch ne ha più d'una e si può spezzare
+  const QUIETANZA_TL = 'QUIETANZA   Polizza n. 0146905119\nSEZIONE TUTELA LEGALE          Premio annuo imponibile  615,25'
+  const r = await runOperativita({ docs: [doc('polizza.pdf', [FRONTESPIZIO, CONDIZIONI(1)]), doc('quietanza.pdf', [QUIETANZA_TL])], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel, embed } })
+  assert.ok(diag.some((l) => /risposta illeggibile, nuovo tentativo sulle due metà/.test(l)), diag.join('\n'))
+  assert.equal(r.verdict, 'ok', diag.join('\n'))
+})

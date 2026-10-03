@@ -204,3 +204,29 @@ test('extractPolicyNumbersFromPages: mai il numero della polizza SOSTITUITA o un
   // Kerning nella cella a destra: gruppi riattaccati
   assert.deepEqual(extractPolicyNumbersFromPages(['NUMERO   POLIZZA   212 . 044 . 0000902378']), ['2120440000902378'])
 })
+
+// ── Documento PRE-CONTRATTUALE (03/10/2026): si dichiara preventivo/proposta
+// numerata e NON porta un numero di polizza. Teste vere dei PDF del cliente.
+test('preContractLabel: preventivi, proposte e quotazioni sì; contratti che nominano una proposta no', async () => {
+  const { preContractLabel } = await import('../src/services/policyReconcile.js')
+  const yes = [
+    'Agenzia Avvertenza Le dichiarazioni non veritiere… PREVENTIVO Numero 4171 Numero Cartella',
+    'BUCCINASCO Via Giotto 7/B, 20090 Buccinasco (MI) Proposta N. 0G / TPO16505846 AGENZIA A429 / BUCCINASCO',
+    'PROFILO CLIENTE E CONSULENZA ASSICURATIVA COLLEGATO ALLA PROPOSTA N. 25062766 Con questo documento',
+    'Zurigò Veicoli a motore Il tuo preventivo Preventivo n. QA15871152 Targa GH844VT',
+    '9150 Preventivo %%COPY_1_S% La mia agenzia: CANALE BROKER Il preventivo ha validità 60 giorni dal 04/09/2025',
+    'QUOTAZIONE    ASSICURATO (I)    Nome e Cognome o Ragione Sociale',
+  ]
+  for (const h of yes) assert.ok(preContractLabel([h]), h)
+  const no = [
+    'BUCCINASCO Via Giotto 7/B Polizza N. 0G / M16181009 AGENZIA A429 / BUCCINASCO ID CONTRAENTE',
+    'PROPOSTA DI RINNOVO N.1 POLIZZA N. IPD0017417 Contraente: BOLCHINI',
+    'PROFILO CLIENTE E CONSULENZA ASSICURATIVA COLLEGATO ALLA POLIZZA N. 01469DAS00074',
+    "FABBRICATO AGENZIA DI MILANO CODICE NUMERO DI BOZZA NUMERO DI SUB SIRE VARIAZIONE",
+    'MODULO DI PROPOSTA / QUESTIONARIO PER L’ ASSICURAZIONE DELLA RESPONSABILITÀ CIVILE',
+    '',
+  ]
+  for (const h of no) assert.equal(preContractLabel([h]), null, h)
+  // il numero di polizza può stare in una pagina dopo la prima (entro la 5ª)
+  assert.equal(preContractLabel(['Proposta n. 123456 di assicurazione', 'testo', 'Polizza n. 01469DAS00074']), null)
+})

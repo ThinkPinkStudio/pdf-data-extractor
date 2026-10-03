@@ -165,6 +165,52 @@ export function extractPolicyNumbersFromPages(pages) {
   return [...out].filter((n) => !fiscal.has(n))
 }
 
+// DOCUMENTO PRE-CONTRATTUALE (03/10/2026, richiesta dell'utente: «capire se
+// siamo di fronte a una proposta, bozza, quotazione, preventivo da non
+// estrarre, senza rompere il resto»). Decide il DOCUMENTO stesso, con due
+// fatti insieme: (1) si DICHIARA preventivo / quotazione / offerta / proposta
+// nella testa della sua prima pagina con testo — con un numero («PREVENTIVO
+// Numero 4171» Vittoria, «Preventivo n. 211755582» Allianz, «Proposta N. 0G /
+// TPO16505846» ITAS, «…COLLEGATO ALLA PROPOSTA N. 25062766» DAS), con le frasi
+// dei preventivi («Il tuo preventivo», «Il preventivo ha validità 60 giorni»
+// Unipol, «BOZZA DA APPROVARE») o con la parola da sola in una delle prime
+// celle («QUOTAZIONE ASSICURATO…»); (2) NON porta un numero di POLIZZA nelle
+// prime 5 pagine (stessa lettura della riconciliazione). Il secondo fatto
+// tiene fuori i contratti che nominano una proposta: «PROPOSTA DI RINNOVO N.1
+// POLIZZA N. IPD0017417» (AIG), «la Proposta di Assicurazione n. … relativa
+// alla polizza n. …» (Vita), «Polizza N. 0G / M16181009» (contratto ITAS).
+// «NUMERO DI BOZZA» (casella del modulo Italiana sulla polizza vera) non è
+// una dichiarazione. Nessun nome file, nessun tipo di documento a priori.
+const PRE_CONTRACT_NUMBERED_RE = /\b(preventivo|quotazione|offerta|proposta)(?:\s+(?:di|del|della)\s+[a-zà-ù]+)?\s*(?:n\.|nr\.?|n°|nº|numero)(?=\s*[:.]?\s*[A-Z0-9])/i
+const PRE_CONTRACT_PHRASE_RE = /\bil tuo preventivo\b|\bil preventivo ha validit|\bbozza da approvare\b/i
+const PRE_CONTRACT_CELL_RE = /^(preventivo|quotazione|offerta)$/i
+
+/**
+ * La dichiarazione di documento pre-contrattuale («Preventivo n. …»,
+ * «QUOTAZIONE»…) se il documento lo è (vedi sopra), altrimenti null.
+ * @param {string[]} pages  pagine del documento (griglia spaziale o testo piatto)
+ */
+export function preContractLabel(pages) {
+  const list = pages || []
+  const first = list.findIndex((p) => String(p || '').trim())
+  if (first < 0) return null
+  const page = String(list[first])
+  const flat = page.replace(/\s+/g, ' ').trim()
+  const head = flat.slice(0, 400)
+  let label = null
+  const m = PRE_CONTRACT_NUMBERED_RE.exec(head) || PRE_CONTRACT_PHRASE_RE.exec(head)
+  if (m) label = m[0]
+  if (!label) {
+    // la parola da sola in una delle prime celle della pagina (titolo di un modulo)
+    const cells = page.split('\n').filter((l) => l.trim()).slice(0, 4).flatMap((l) => gridCells(l).map((c) => c.text)).slice(0, 6)
+    const c = cells.find((t) => PRE_CONTRACT_CELL_RE.test(t.trim()))
+    if (c) label = c.trim()
+  }
+  if (!label) return null
+  if (extractPolicyNumbersFromPages(list.slice(0, 5)).length) return null
+  return label.replace(/\s+/g, ' ').trim()
+}
+
 function unionFind() {
   const parent = new Map()
   const find = (x) => { if (!parent.has(x)) parent.set(x, x); let r = x; while (parent.get(r) !== r) r = parent.get(r); parent.set(x, r); return r }
