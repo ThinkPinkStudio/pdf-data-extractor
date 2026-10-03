@@ -48,6 +48,7 @@ import {
 } from './polizzaValidation.js'
 import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs, extractMarkdownColumns, extractTableBlocks, repairTableMarkdown, tableRowsWithHeaders } from './ocrLayout.js'
 import { cosineSim } from './polizzaPrecheck.js'
+import { preContractLabel } from './policyReconcile.js'
 import {
   buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText, isQuestionnaireTitle, hasOptionAmountLine,
   vetoForeignNatureMassimaleAnnuo, vetoForeignNatureFatturato, vetoForeignNatureFranchigia,
@@ -3087,8 +3088,17 @@ function analyzeStagedDocs(docs) {
     // reale) + pages (markdown Docling): in quel caso si rispettano entrambi.
     const { pages, spatialPages, textMode } = normalizeStagedDocInput(d)
     const text = pages.join('\n')
-    let dateStr = latestDateExcludingEmission(text) || null
-    const ym = name.match(/\b(19|20)\d{2}\b/)
+    // Testo da OCR: solo date confermate (riga di periodo o ripetute), vedi
+    // latestDateExcludingEmission.
+    let dateStr = latestDateExcludingEmission(text, { ocr: !!d?.ocr }) || null
+    // PREVENTIVO / PROPOSTA / QUOTAZIONE senza numero di polizza (la stessa
+    // regola della domanda sul contratto, preContractLabel): descrive un
+    // contratto che forse non c'è, quindi non data il fascicolo e non è mai «il
+    // documento più recente» — né per la cascata né per il frontespizio.
+    // Resta leggibile come ogni documento senza data (in coda).
+    const preContract = preContractLabel(spatialPages.some((p) => p.trim()) ? spatialPages : pages)
+    if (preContract) dateStr = null
+    const ym = preContract ? null : name.match(/\b(19|20)\d{2}\b/)
     if (ym) {
       const fromName = `01/07/${ym[0]}`
       if (!dateStr || (dateStrToTs(fromName) ?? -Infinity) > (dateStrToTs(dateStr) ?? -Infinity)) {
@@ -3101,6 +3111,7 @@ function analyzeStagedDocs(docs) {
       // Testo da OCR (scansione) invece che dal text layer: a pari data vale
       // meno (byStagedRecency) — l'OCR può alterare cifre e simboli.
       ocr: !!d?.ocr,
+      preContract,
       normPages: pages.map((p) => normForMatch(p)),
       type: classifyDocType(name),
       dateStr,
@@ -4632,6 +4643,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (!d.dateStr) undated++
   }
   diag.push(`Stadio A: ${Object.entries(typeCounts).map(([t, n]) => `${n} ${t}`).join(', ')} — ${undated} senza data (datazione per periodo di copertura, mai per emissione)`)
+  const preContractDocsList = analyzed.filter((d) => d.preContract)
+  if (preContractDocsList.length) diag.push(`Documenti pre-contrattuali (senza numero di polizza, nessuna data: mai il documento più recente): ${preContractDocsList.map((d) => `${d.name} «${d.preContract}»`).join(', ')}`)
 
   // Partizione dei campi + mappa id → genere (per priorità documenti e merge)
   const partition = partitionFields(activeFields)
@@ -5707,7 +5720,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           break
         }
       } else {
-        for (const d of analyzed) {
+        // Dal documento PIÙ RECENTE che ha un frontespizio, non dal primo
+        // caricato (ordine dei nomi file): la voltura «APP. 11» o la scheda del
+        // 2016 davano contraente e date di un periodo superato (SONZOGNI TL;
+        // P20, P41, P44, P45 del giro 27/09). Simulato sulle 45 posizioni: il
+        // valore vero sta nel blocco 165 volte su 224 contro 148.
+        for (const d of [...analyzed].sort(byStagedRecency)) {
           const md = d.pages?.join('\n') || d.text || ''
           const m = md.match(/(DATI\s+ANAGRAFICI|POLIZZA\s+N[°oO.\s]?|N[°oO.]?\s*POLIZZA)[\s\S]{0,1400}/i)
           if (m) { frontBlock = m[0]; frontDoc = d; break }

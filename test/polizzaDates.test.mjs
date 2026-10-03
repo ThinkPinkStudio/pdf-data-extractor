@@ -276,3 +276,44 @@ test('latestDateExcludingEmission: la parola di periodo altrove nella riga non c
   assert.equal(latestDateExcludingEmission('con effetto 31/03/26'), '31/03/2026')
   assert.equal(latestDateExcludingEmission('appartenente al Gruppo 31/12/2025'), '31/12/2025')
 })
+
+test('latestDateExcludingEmission: le righe sull\'IMPRESA e i timbri con l\'orario non datano il documento', () => {
+  // SONZOGNI TL, REGOLAZIONE 2015 (scansione): il piè di pagina ARAG letto
+  // dall'OCR come 2045 apriva la cascata
+  const reg2015 = [
+    'Si provvede ad effettuare la regolazione del premio per il periodo 31/12/2014 - 31/12/2015',
+    'Le rate semestrali successive dal 30/06/2016 vengono fissate come segue:',
+    "ISeritta in dala 20/08/2045 all'Albo Vama [mpreze:di EOLO ta; ARAG",
+  ].join('\n')
+  assert.equal(latestDateExcludingEmission(reg2015), '30/06/2016')
+  // visura camerale: la durata della società non è un periodo di copertura
+  assert.equal(latestDateExcludingEmission('Data atto di costituzione: 12/03/1985\ndurata della società Data termine: 31/12/2050\nDal 31/12/2024 al 31/12/2025'), '31/12/2025')
+  assert.equal(latestDateExcludingEmission('Impresa autorizzata con D.M. del 18/12/2099'), null)
+  // timbro di stampa ITAS «[prnt gg/mm/aaaa hh:mm]», anche con «;» dall'OCR
+  assert.equal(latestDateExcludingEmission('[prd][prnt 13/04/2026 19:15] pagina 2 di 4\nDecorrenza 13/01/2025 Scadenza 13/01/2026'), '13/01/2026')
+  assert.equal(latestDateExcludingEmission('{prat 28/04/2028 13:50) {P ]'), null)
+  assert.equal(latestDateExcludingEmission('[prnt 13/01/2026 19;15]'), null)
+  // l'orario PRIMA della data (decorrenza alle ore 24:00) non è un timbro
+  assert.equal(latestDateExcludingEmission('Scadenza alle ore 24:00 31/12/2026'), '31/12/2026')
+})
+
+test('latestDateExcludingEmission: «in data <data>» è la data di un evento, non un periodo', () => {
+  assert.equal(latestDateExcludingEmission('Il presente documento è stato redatto in data 15/09/2025\nDecorrenza 31/12/2024'), '31/12/2024')
+  assert.equal(latestDateExcludingEmission('Pagina 9 di 44 stampata in data 03/12/2024'), null)
+  assert.equal(latestDateExcludingEmission('Pata In data: 26/08/2028 UU'), null)
+  assert.equal(latestDateExcludingEmission('il pagamento è stato effettuato in data 29.06.2026'), null)
+})
+
+test('latestDateExcludingEmission (ocr): vale la data in una riga di periodo o ripetuta, non la lettura storpiata isolata', () => {
+  const copia = [
+    'POLIZZA N. 207008347   Decorrenza 15/09/2025   Scadenza 15/09/2026',
+    'KS2_RCA_POL 85112 306 207008347 15/09/2078 Stampala 15/99/2025 16 07 PIF RA Pagina 3 di 4',
+    'paoina 3 dia NONO | N ATA 29/01/2028',
+  ].join('\n')
+  assert.equal(latestDateExcludingEmission(copia), '15/09/2078', 'senza l\'opzione: la regola di sempre')
+  assert.equal(latestDateExcludingEmission(copia, { ocr: true }), '15/09/2026')
+  // ripetuta su due pagine senza parola di periodo: confermata
+  assert.equal(latestDateExcludingEmission('Totale 900,00 30/06/2026\nfirma 30/06/2026', { ocr: true }), '30/06/2026')
+  // nessuna data confermata: la regola di sempre
+  assert.equal(latestDateExcludingEmission('foglio 12/03/2024', { ocr: true }), '12/03/2024')
+})
