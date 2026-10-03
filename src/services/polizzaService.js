@@ -3374,9 +3374,11 @@ export function completeA7Row(entries, rows, fields, fieldOfKey) {
     // riga o nello stesso riepilogo del Premio imponibile…»).
     if (!/\bstessa\s+riga\b/i.test(positiveDescriptionText(String(f.description || '')))) continue
     for (const hit of usedRows) {
+      // …e la cui cella è un valore valido del campo (l'aliquota «12,50%»
+      // sotto «Imposta» non è l'importo delle imposte sotto «Importo Imposte»).
       const owned = (hit.row?.cols || []).filter((c) => {
         const val = String(c.value || '').trim()
-        if (!c.header || !val || val === '-') return false
+        if (!c.header || !val || val === '-' || /%/.test(val) || !sanitizeFieldValue(f, val)) return false
         const lex = headerLexOf(f, c.header)
         return lex > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, c.header) < lex)
       })

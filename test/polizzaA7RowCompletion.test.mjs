@@ -98,3 +98,15 @@ test('isRowLabelValue: l\'etichetta della riga letta da una colonna di importi n
     .map((r) => ({ page: 1, key: normForMatch(r.label), row: r }))
   assert.equal(isRowLabelValue('Difesa Condominio - ed.2019', garanzie[0], 'GARANZIE PRESCELTE'), false)
 })
+
+test('completeA7Row: tra le colonne che nominano le imposte conta quella con un importo, non l\'aliquota (Allianz, sezione Tutela Giudiziaria)', () => {
+  const t = '| Coperture | prima rata (1) | Imposta | Importo Imposte | SSN | alla firma |\n| --- | --- | --- | --- | --- | --- |\n| Tutela Giudiziaria | 23,10 | 12,50% | 2,89 | - | 25,99 |\n| Totali | 634,08 | - | 88,16 | 18,26 | 740,50 |'
+  const rows = tableRowsWithHeaders(t).map((r) => ({ page: 9, key: normForMatch(r.label), row: r }))
+  const fields = [byLabel('Premio imponibile tutela legale'), byLabel('Imposte'), byLabel('Premio lordo totale tutela legale')]
+  const entries = [
+    ['0', { valore: '23,10', riga: 'Tutela Giudiziaria', colonna: 'prima rata (1)' }],
+    ['2', { valore: '25,99', riga: 'Tutela Giudiziaria', colonna: 'alla firma' }],
+  ]
+  const out = completeA7Row(entries, rows, fields, (k) => fields[Number(k)] || null)
+  assert.deepEqual(out.map((x) => [x.field.label.trim(), x.entry[1].valore, x.entry[1].riga]), [['Imposte', '2,89', 'Tutela Giudiziaria']])
+})
