@@ -1611,6 +1611,21 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
     if (a0 != null && a1 != null && a1 !== a0) return a1 > a0 ? newC : oldC
     return oldC
   }
+  // TESTO: la CELLA del contratto contro una frase di PROSA o un'opzione del
+  // SOLO questionario (cellKind/qOnly, textCellEvidence). L'affinità non le fa
+  // vincere: la prosa somiglia sempre a una descrizione più di una cella di
+  // tabella («numero degli addetti e/o del fatturato annuo» delle condizioni,
+  // 0,68, batteva «X Unità Immobiliari : 17» della scheda, 0,51), e la casella
+  // «X Tutela legale del condominio» del questionario delle esigenze è un
+  // bisogno, non la garanzia della scheda «Difesa Condominio - ed.2019». La
+  // recency resta prima; a pari data vince la cella.
+  const strongText = (c) => c?.cellKind === 'cell' && c?.qOnly === false
+  const weakText = (c) => c?.cellKind === 'prose' || c?.qOnly === true
+  if ((strongText(oldC) && weakText(newC)) || (strongText(newC) && weakText(oldC))) {
+    if (strictlyNewer(newC, oldC)) return newC
+    if (strictlyNewer(oldC, newC)) return oldC
+    return strongText(newC) ? newC : oldC
+  }
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)
   const collapse = o != null && n != null && o > 0 && n < o * 0.2

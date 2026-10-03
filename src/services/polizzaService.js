@@ -50,7 +50,7 @@ import { buildSpatialPage, collapseSpatial, usefulLength, detectLabelValuePairs,
 import { cosineSim } from './polizzaPrecheck.js'
 import { preContractLabel } from './policyReconcile.js'
 import {
-  buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText, isQuestionnaireTitle, hasOptionAmountLine,
+  buildFactsRegistry, vetoStructuralDuplicate, vetoOptionSourceOnly, detectOptionLikeText, isQuestionnaireTitle, isQuestionnairePageTitle, hasOptionAmountLine,
   vetoForeignNatureMassimaleAnnuo, vetoForeignNatureFatturato, vetoForeignNatureFranchigia,
   vetoSottolimitiOptionOnly, vetoFranchigiaAsMassimale, vetoForeignNatureMassimale, guardAntiSpill,
   detectCheckedValues, descriptionAsksCheckbox,
@@ -950,6 +950,13 @@ export function sanitizeFieldValue(field, rawValue) {
   // non riceve "Sì" (SPALLINO RC: Esclusioni particolari = "Sì").
   if (/^(?:s[iì]|no)$/i.test(v) && field && !descriptionAsksVerification(field.description)
       && !/s[ìí]|\bsi\s*\/\s*no\b|\bno\b/i.test(String(field.description || ''))) return null
+  // CASELLA barrata davanti a un testo (\u00abX Unit\u00e0 Immobiliari\u00bb dalla riga \u00abX \u2016
+  // Unit\u00e0 Immobiliari \u2016 : 17\u00bb della scheda): la casella dice che la voce \u00e8
+  // scelta, il dato \u00e8 la voce.
+  if (field && fieldValueKind(field) === 'text') {
+    const unboxed = v.replace(/^(?:\[[xX\u2713\u2714]\]|[\u2612\u2611\u2713\u2714]|[xX])\s+(?=\p{Lu})/u, '').trim()
+    if (unboxed) v = unboxed
+  }
   const descLow = String(field?.description || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const descAllows = descriptionAllowsValue(field, v)
   if (!descAllows && isPlaceholderValue(v)) return null
@@ -3106,8 +3113,14 @@ function analyzeStagedDocs(docs) {
       }
     }
     const om = name.match(APPENDIX_ORD_RE)
+    // Pagine di QUESTIONARIO (1-based): tutto il documento se lo dice il titolo
+    // della prima pagina, altrimenti le pagine col titolo di questionario in
+    // testa (stesse regole della pertinenza).
+    const qDoc = isQuestionnaireTitle(pages.find((p) => String(p || '').trim()) || '')
+    const qPages = new Set()
+    pages.forEach((p, pi) => { if (qDoc || isQuestionnairePageTitle(spatialPages[pi] && spatialPages[pi].trim() ? spatialPages[pi] : p)) qPages.add(pi + 1) })
     return {
-      name, pages, spatialPages, text, textMode,
+      name, pages, spatialPages, text, textMode, qPages,
       // Testo da OCR (scansione) invece che dal text layer: a pari data vale
       // meno (byStagedRecency) — l'OCR può alterare cifre e simboli.
       ocr: !!d?.ocr,
@@ -3326,6 +3339,54 @@ export function findA7Row(rows, rowLabelNorm, valueNorm) {
     return !!n && (n === valueNorm || n.includes(valueNorm))
   })
   return exact.find(carries) || loose.find(carries) || exact[0] || loose[0] || null
+}
+
+/**
+ * COMPLETAMENTO di una riga di tabella dello Stadio A.7: per ogni campo IMPORTO
+ * senza risposta del modello e che la descrizione lega alla «stessa riga» del
+ * premio, la cella della riga da cui il modello ha letto almeno due importi,
+ * sotto la colonna che il campo nomina (headerLexOf > 0) più di ogni altro
+ * campo importo del profilo, unica nella riga. Restituisce le
+ * voci da aggiungere ([chiave d'indice, {valore, riga, colonna}]).
+ * @param {[string, any][]} entries risposta del modello (chiave, voce)
+ * @param {{page:number,key:string,row:{label:string,cols:{header:string,value:string}[]}}[]} rows
+ * @param {object[]} fields campi della chiamata (indice = chiave)
+ * @param {(k:string)=>object|null} fieldOfKey
+ */
+export function completeA7Row(entries, rows, fields, fieldOfKey) {
+  const amount = (fields || []).filter((f) => fieldValueKind(f) === 'amount')
+  const answered = new Set()
+  const rowUses = new Map() // riga → quanti campi importo il modello ne ha letto
+  for (const [k, v] of entries || []) {
+    const f = fieldOfKey(k)
+    if (!f) continue
+    answered.add(f.id)
+    if (fieldValueKind(f) !== 'amount' || !v || typeof v !== 'object' || !v.riga) continue
+    const hit = findA7Row(rows, normForMatch(String(v.riga)), normForMatch(String(v.valore ?? '')))
+    if (hit) rowUses.set(hit, (rowUses.get(hit) || 0) + 1)
+  }
+  // Solo una riga di RIEPILOGO del premio: il modello ne ha letto almeno due importi.
+  const usedRows = [...rowUses].filter(([, n]) => n >= 2).map(([hit]) => hit)
+  const out = []
+  for (const f of amount) {
+    if (answered.has(f.id)) continue
+    // Solo i campi che la DESCRIZIONE lega alla riga del premio («sulla stessa
+    // riga o nello stesso riepilogo del Premio imponibile…»).
+    if (!/\bstessa\s+riga\b/i.test(positiveDescriptionText(String(f.description || '')))) continue
+    for (const hit of usedRows) {
+      const owned = (hit.row?.cols || []).filter((c) => {
+        const val = String(c.value || '').trim()
+        if (!c.header || !val || val === '-') return false
+        const lex = headerLexOf(f, c.header)
+        return lex > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, c.header) < lex)
+      })
+      if (owned.length !== 1) continue
+      const idx = fields.indexOf(f)
+      out.push({ field: f, entry: [String(idx), { valore: owned[0].value, riga: hit.row.label, colonna: owned[0].header }] })
+      break
+    }
+  }
+  return out
 }
 
 /**
@@ -3932,6 +3993,44 @@ function valueKey(v) {
   return t.length >= 2 ? [...t].sort().join('|') : normForMatch(v)
 }
 
+/**
+ * EVIDENZA DI UN TESTO nel suo documento: il valore sta in una CELLA della
+ * griglia (la cella, unita al più a 3 celle vicine, ha al massimo 3 parole
+ * oltre al valore: «X ‖ Unità Immobiliari ‖ : 17», «Difesa Condominio - ed.2019
+ * ‖ 159,99») o solo dentro una frase di PROSA («Tale parametro è costituito dal
+ * numero degli addetti e/o del fatturato annuo, o altro…»)? E sta SOLO in pagine
+ * di questionario (`doc.qPages`)? Sulle 41 posizioni del 28/09 i testi giusti
+ * stanno in una cella 279 volte su 281; 16 sbagliati erano prosa contro una
+ * cella vera, 9 un'opzione del solo questionario contro la riga della scheda.
+ * @returns {{cellKind?: 'cell'|'prose', qOnly?: boolean}} vuoto se il valore non si trova
+ */
+export function textCellEvidence(doc, value) {
+  const v = normForMatch(value)
+  if (!doc || !v || v.length < 3) return {}
+  const grid = Array.isArray(doc.spatialPages) && doc.spatialPages.some((p) => String(p || '').trim()) ? doc.spatialPages : (doc.pages || [])
+  const words = (x) => String(x).split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length
+  const nv = words(value)
+  let cell = false, prose = false, inQ = false, outQ = false
+  grid.forEach((pg, pi) => {
+    for (const line of String(pg || '').split('\n')) {
+      if (!normForMatch(line).includes(v)) continue
+      const cells = line.split(/\s{2,}|\|/)
+      let isCell = false
+      for (let a = 0; a < cells.length && !isCell; a++) {
+        let acc = ''
+        for (let b = a; b < cells.length && b < a + 4; b++) {
+          acc = acc ? `${acc} ${cells[b]}` : cells[b]
+          if (normForMatch(acc).includes(v)) { isCell = words(acc) - nv <= 3; break }
+        }
+      }
+      if (isCell) cell = true; else prose = true
+      if (doc.qPages && doc.qPages.has(pi + 1)) inQ = true; else outQ = true
+    }
+  })
+  if (!cell && !prose) return {}
+  return { cellKind: cell ? 'cell' : 'prose', qOnly: inQ && !outQ }
+}
+
 // Token e radici per l'affinità LESSICALE di un'intestazione con un campo
 // (stesse regole dell'arbitro: parole ≥ 4 lettere, senza parole vuote).
 const lexTokenizeStaged = (str) => String(str || '')
@@ -4518,6 +4617,8 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
       // pagina nel consenso (numero di polizza in testa a ogni pagina). Il
       // flag resta: serve al proprietario negato.
       runningTextAllowed: descriptionAllowsRunningText(field) || undefined,
+      // Campi di TESTO: cella o prosa, solo questionario (textCellEvidence).
+      ...(fieldValueKind(field) === 'text' && srcDoc ? textCellEvidence(srcDoc, cleaned) : {}),
     }
     // ARBITRO SEMANTICO: affinità nettamente diversa → vince la più alta;
     // collasso numerico >80% solo con affinità superiore; comparabili → recency
@@ -5504,6 +5605,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
             diag.push(`Stadio A.7 [${d.name}]: risposta ARRAY (${parsed.length} voci) senza indice "campo" — NON mappata; i campi restano ai gruppi normali`)
           }
+          // COMPLETAMENTO DELLA RIGA letta dal modello: un campo importo senza
+          // risposta prende la cella della STESSA riga (quella da cui il modello
+          // ha letto altri importi) sotto la colonna che la testa della sua
+          // descrizione nomina più di ogni altro campo importo, unica nella riga
+          // (completeA7Row). Le descrizioni lo chiedono («sulla stessa riga o
+          // nello stesso riepilogo del Premio imponibile»); il modello ometteva lo
+          // «0,00» della colonna FRAZIONAMENTO delle schede DAS (14 interessi su
+          // 41 posizioni il 28/09). Le voci aggiunte passano dalle stesse verifiche.
+          for (const extra of completeA7Row(entries, rows, a7Fields, (k) => a7FieldOfKey(k, a7Fields))) {
+            entries.push(extra.entry)
+            diag.push(`Tabella-completamento[${extra.field.label}] = "${extra.entry[1].valore}" (riga "${extra.entry[1].riga}" col "${extra.entry[1].colonna}": stessa riga degli altri importi letti)`)
+          }
           for (const [k, v] of entries) {
             // chiavi di servizio ("riga"/"colonna" a livello radice nel caso di
             // risposta mista) NON sono campi: si saltano
@@ -5651,6 +5764,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               lex: Math.max(affPair && typeof affPair === 'object' && typeof affPair.lex === 'number' ? affPair.lex : 0, structLex),
               tableRow: structLex > 0,
               structLex, rowLex,
+              ...(fieldValueKind(f) === 'text' ? textCellEvidence(d, cleaned) : {}),
               deterministic: false,
               // [flag a78] Proposta PROVVISORIA: la cascata richiede il campo al
               // primo documento dove è eleggibile e l'arbitro decide (come nei gruppi).
@@ -5798,6 +5912,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             file: srcDoc?.name, page: origin?.page || 1,
             affinity: affPair && typeof affPair === 'object' ? affPair.aff : affPair,
             lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
+            ...(fieldValueKind(f) === 'text' && srcDoc ? textCellEvidence(srcDoc, cleaned) : {}),
             deterministic: false,
             ...(a78 ? { preStage: true } : {}),
           }

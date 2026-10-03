@@ -244,6 +244,14 @@ export function isQuestionnaireTitle(firstPageText) {
   return QUESTIONNAIRE_TITLE_RE.test(head)
 }
 const QUESTIONNAIRE_TITLE_RE = /questionario|modulo di proposta|proposta di assicurazione|proposta\s*\/\s*questionario/
+// Solo per la PAGINA (titolo all'inizio di una cella della sua testa): anche
+// «Valutazione delle richieste ed esigenze…» / «Richieste ed esigenze…», il
+// questionario IDD delle esigenze senza la parola «questionario» (DAS Difesa
+// Condominio, pag. 18: le caselle «X Tutela legale del condominio» sono
+// BISOGNI dichiarati, non le garanzie acquistate). Mai per il documento intero:
+// le polizze Allianz cominciano col «Riepilogo delle richieste ed esigenze» e
+// poi c'è il contratto (31 documenti del corpus).
+const QUESTIONNAIRE_PAGE_TITLE_RE = new RegExp(`${QUESTIONNAIRE_TITLE_RE.source}|valutazione delle richieste ed esigenze|richieste ed esigenze`)
 
 /**
  * La PAGINA ha un titolo di questionario/proposta: nella sua testa (gli stessi
@@ -264,7 +272,7 @@ const QUESTIONNAIRE_TITLE_RE = /questionario|modulo di proposta|proposta di assi
  */
 export function isQuestionnairePageTitle(pageText) {
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const starts = new RegExp(`^(?:${QUESTIONNAIRE_TITLE_RE.source})`)
+  const starts = new RegExp(`^(?:${QUESTIONNAIRE_PAGE_TITLE_RE.source})`)
   let used = 0
   for (const line of String(pageText || '').split('\n')) {
     const flat = line.replace(/\s+/g, ' ').trim()
