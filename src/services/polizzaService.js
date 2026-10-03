@@ -35,7 +35,7 @@ import {
 import {
   parsePureAmount, isPlaceholderValue, isAbsencePlaceholder, isTextualZeroPlaceholder, isTextualNumericOnly,
   looksLikeJsonFragment, isZeroPlaceholder, isRunningTextInAnyLayer, negatedOwnerFields, descriptionAllowsRunningText,
-  valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels, valueWindows,
+  valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels, negatedPhrases, negatedPhraseLabelling, valueWindows,
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
   partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
@@ -1002,6 +1002,17 @@ export function sanitizeFieldValue(field, rawValue) {
   if (field) {
     const nv = normForMatch(v)
     if (nv && (nv === normForMatch(field.label || '') || nv === normForMatch(field.id || ''))) return null
+  }
+
+  // NOME chiesto dalla testa della descrizione («Ragione sociale o nome del
+  // contraente…», «Denominazione…»): un CODICE tutto attaccato con almeno 5
+  // cifre («01469DAS00074», una P.IVA) non è un nome. BOLCHINI TL 03/10/2026:
+  // il frontespizio dell'appendice DAS stampa «CONTRAENTE / ASSICURATO:
+  // 01469DAS00074» e il numero di polizza diventava il contraente.
+  if (field && fieldValueKind(field) === 'text') {
+    const headN = descLow.split(':')[0]
+    if (/\b(?:ragione sociale|nome|denominazione|nominativo)\b/.test(headN) && !/\bnumero\b|\bcodice\b/.test(headN)
+        && !/\s/.test(v) && (v.match(/\d/g) || []).length >= 5) return null
   }
 
   // "€ 3.000.000,00" / "EUR 3.000.000,00" → "3.000.000,00"
@@ -4367,7 +4378,7 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     {
       const negLabels = negatedQuotedLabels(field.description)
       const wins = affPair && typeof affPair === 'object' && Array.isArray(affPair.winsShort) ? affPair.winsShort : []
-      if (negLabels.length && wins.length) {
+      if ((negLabels.length && wins.length) || negatedPhrases(field.description).length) {
         // Etichetta di UNA parola ('Sinistro'): conta solo se nel testo è
         // davvero un'etichetta, cioè seguita dai due punti ("Sinistro:"); la
         // parola nuda sta ovunque (Sinistri: la definizione di 'Sinistro'
@@ -4377,6 +4388,12 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
           : new RegExp(`(?<![\\p{L}])${l.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'iu').test(win)) }
         let hit = null
         for (const w of wins) { hit = hitIn(w); if (hit) break }
+        // FRASE NEGATA senza virgolette che fa da ETICHETTA del valore
+        // («Anticipo spese penale doloso 5.000 euro» per la franchigia).
+        if (!hit) {
+          const phrases = negatedPhrases(field.description)
+          if (phrases.length) hit = negatedPhraseLabelling(String(srcDoc?.text || rawCtx || ''), cleaned, phrases)
+        }
         if (hit) {
           let tainted = STAGED_TAINTED.get(best)
           if (!tainted) { tainted = {}; STAGED_TAINTED.set(best, tainted) }

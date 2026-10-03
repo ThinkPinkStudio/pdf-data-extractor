@@ -409,6 +409,66 @@ export function negatedQuotedLabels(description) {
 }
 
 /**
+ * FRASI NEGATE senza virgolette: nelle clausole «NON …» della descrizione, le
+ * voci di almeno TRE parole piene («NON i limiti tipo anticipo spese penale
+ * doloso» → «anticipo spese penale doloso»). Come le etichette tra virgolette
+ * (negatedQuotedLabels): un candidato la cui finestra nel documento contiene
+ * una di queste frasi è ciò che il campo NON è (BOLCHINI TL 03/10/2026:
+ * franchigia = «Anticipo spese penale doloso 5.000 euro»). «tipo», «come»,
+ * «es.» separano le voci; articoli e preposizioni in testa si tolgono.
+ */
+const NEG_LEAD_STOP = new Set(['i', 'il', 'lo', 'la', 'le', 'gli', 'l', 'un', 'una', 'uno', 'di', 'del', 'della', 'dei', 'delle', 'dello', 'degli', 'da', 'dal', 'dalla', 'a', 'al', 'alla', 'e', 'o', 'ne', 'quelle', 'quelli', 'quella', 'quello', 'che', 'sono', 'e\'', 'mai', 'non'])
+const NEG_WEAK = new Set(['della', 'delle', 'dello', 'degli', 'dalla', 'dalle', 'nella', 'nelle', 'sulla', 'sulle', 'quelle', 'quelli', 'quella', 'quello', 'sono', 'come', 'tipo', 'altre', 'altri', 'altro', 'altra', 'polizza', 'campo', 'valore', 'documento'])
+export function negatedPhrases(description) {
+  const out = []
+  const seen = new Set()
+  const d = String(description || '')
+  for (const clause of d.matchAll(/(?:^|[.;:!?(]\s*|,\s*)(?:NON|non|né|mai)\s+[^.;!?]*/g)) {
+    const body = clause[0].replace(/^[\s.;:!?(,]*(?:NON|non|né|mai)\s+/, '')
+    for (const piece of body.split(/[,()]|\s+(?:né|oppure|o)\s+|\btipo\b|\bcome\b|\bes\.\s*/)) {
+      const words = String(piece).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
+      while (words.length && NEG_LEAD_STOP.has(words[0])) words.shift()
+      const content = words.filter((w) => w.length >= 4 && !NEG_WEAK.has(w) && !/^\d/.test(w))
+      if (content.length < 3 || words.length > 7) continue
+      const phrase = words.join(' ')
+      if (seen.has(phrase)) continue
+      seen.add(phrase); out.push(phrase)
+    }
+  }
+  return out
+}
+
+/**
+ * La frase negata (negatedPhrases) è l'ETICHETTA del valore nel testo: lo
+ * precede subito, con in mezzo solo spazi, due punti, «€»/«euro» (layout
+ * etichetta → valore). Restituisce la frase o null. Senza adiacenza la frase
+ * non conta: «Massimale per singolo sinistro € 50.000 – Massimale per anno
+ * illimitato» non toglie «illimitato» al massimale annuo.
+ */
+export function negatedPhraseLabelling(text, value, phrases) {
+  if (!phrases?.length || !text || value == null) return null
+  const norm = (x) => String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const t = norm(text).replace(/[ \t]+/g, ' ')
+  const v = norm(value).trim()
+  if (!v) return null
+  const forms = [v]
+  const intPart = v.match(/^([\d.]+),\d{1,2}$/)
+  if (intPart) forms.push(intPart[1])
+  for (const f of forms) {
+    let from = 0
+    for (;;) {
+      const at = t.indexOf(f, from)
+      if (at < 0) break
+      from = at + 1
+      const before = t.slice(Math.max(0, at - 90), at).replace(/(?:\s|:|€|\beur(?:o)?\b)*$/, '')
+      const hit = phrases.find((p) => before.endsWith(p))
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/**
  * true se il valore è un FRAMMENTO DI JSON e non un dato: 'valore": null,
  * "documento":"…', '{"valore"', una virgoletta seguita da due punti. Nasce
  * quando il modello annida un oggetto dentro la stringa del valore; nessun

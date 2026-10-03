@@ -284,3 +284,23 @@ test('sanitizeFieldValue: un campo importo non riceve un testo (stesso pattern d
   assert.equal(sanitizeFieldValue(annuo, 'Illimitato'), 'Illimitato')
   assert.equal(sanitizeFieldValue(annuo, '40.000,00'), '40.000,00')
 })
+
+// FRASE NEGATA senza virgolette come ETICHETTA del valore (BOLCHINI TL
+// 03/10/2026: franchigia = «Anticipo spese penale doloso 5.000 euro»).
+test('negatedPhrases / negatedPhraseLabelling: solo frasi di 3+ parole piene, solo se precedono subito il valore', async () => {
+  const { negatedPhrases, negatedPhraseLabelling } = await import('../src/services/polizzaValidation.js')
+  const fr = "Franchigia della tutela legale: l'importo che resta a carico dell'assicurato. NON sono franchigie della tutela legale quelle di altre garanzie, NON i limiti tipo anticipo spese penale doloso, NON i massimali né i premi."
+  assert.deepEqual(negatedPhrases(fr), ['anticipo spese penale doloso'])
+  assert.equal(negatedPhraseLabelling('Tutela Legale Pacchetto Base   Anticipo spese penale doloso 5.000 euro   95,14', '5.000', ['anticipo spese penale doloso']), 'anticipo spese penale doloso')
+  assert.equal(negatedPhraseLabelling('FRANCHIGIA   5.000', '5.000', ['anticipo spese penale doloso']), null)
+  assert.equal(negatedPhraseLabelling('Massimale per singolo sinistro € 50.000 - Massimale per anno illimitato', 'Illimitato', ['massimale per singolo sinistro']), null)
+})
+
+test('sanitizeFieldValue: un CODICE (5+ cifre, senza spazi) non è il nome chiesto dalla descrizione', async () => {
+  const { sanitizeFieldValue } = await import('../src/services/polizzaService.js')
+  const contr = { id: 'c', label: 'Contraente', description: 'Ragione sociale o nome del contraente/assicurato (es. ADAMANT BIONRG SRL). È il NOME della persona/azienda assicurata.' }
+  assert.equal(sanitizeFieldValue(contr, '01469DAS00074'), null)
+  assert.equal(sanitizeFieldValue(contr, '10576980154'), null)
+  assert.equal(sanitizeFieldValue(contr, 'BOLCHINI MARGHERITA'), 'BOLCHINI MARGHERITA')
+  assert.equal(sanitizeFieldValue(contr, 'A2A SPA'), 'A2A SPA')
+})
