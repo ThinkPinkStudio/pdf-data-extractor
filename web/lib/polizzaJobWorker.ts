@@ -481,14 +481,7 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       // non ha text layer (numeri spezzati ricomposti, vedi rejoinCachedGrid).
       const info = await textLayerInfo(buf, settings)
       spatial = info.pages
-      // Documento con pagine «sandwich»: il markdown Docling è costruito sul testo
-      // invisibile dello scanner («12/0512025 al 12lo512Ù26»): non vale nemmeno
-      // per date e regex. Si usa il testo dell'OCR del programma per tutto
-      // (BOIARDO 18 del 04/10: quietanza 2025-2026 «senza data» → decorrenza e
-      // scadenza del 2023).
-      let gridOnly = false
       if (info.sandwich > 0) {
-        gridOnly = true
         // Pagine «sandwich»: il testo invisibile dello scanner è spazzatura
         // (anche Docling lo usa); la griglia di quelle pagine viene dall'OCR del
         // programma, in cache sotto la chiave `…:sw`.
@@ -508,12 +501,6 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
       } else if (cacheIsGrid) spatial = await rejoinCachedGrid(cachedRaw!, null)
       totalPagesProcessed += (spatial?.length || docPages.length)
       pagesWithText++
-      if (gridOnly && spatial && spatial.some((t) => t && t.trim())) {
-        parts.push(`\n===== DOCUMENTO: ${docName} =====\n${spatial.filter(Boolean).join('\n').trim()}`)
-        docsForIndex.push({ name: docName, pages: spatial, hash: fileHash, ocr: true })
-        docsFlat.push({ name: docName, pages: spatial.map(toFlat) })
-        continue
-      }
       parts.push(`\n===== DOCUMENTO: ${docName} =====\n${mdDoc}`)
       docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ...(spatial ? { spatialPages: spatial } : {}) })
       // PRE-CONTROLLO sullo STESSO testo della misura locale (griglia pdf.js
