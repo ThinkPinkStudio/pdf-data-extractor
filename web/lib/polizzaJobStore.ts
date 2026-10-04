@@ -1120,22 +1120,38 @@ export async function getJobFileBase64(jobId: string, idx: number): Promise<stri
   return rows[0]?.pdf_base64 ?? null
 }
 
+/** Un'unione del piano: in una destinazione esistente o (create) in un dossier NUOVO. */
+export interface ReconcileMerge { target: string | null; create?: boolean; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }
+/**
+ * Un PDF con più polizze diviso per pagine: il file `idx` del dossier `job` è
+ * sostituito dalle sue PARTI; ogni parte va nell'unione `merge` del piano
+ * (indice) o resta nel dossier (null).
+ */
+export interface ReconcileSplit { job: string; idx: number; fileName: string; parts: { merge: number | null; file_name: string; pdf_base64: string; pages: string }[] }
+
 /**
  * Applica il PIANO di riconciliazione (policyReconcile.planReconcile) in UNA
  * transazione: sposta i file nei dossier di destinazione (in coda ai loro),
- * rinomina ogni destinazione col percorso più corto tra quelli uniti, elimina i
- * dossier rimasti vuoti, ricalcola alla FINE gli indici contigui (0..n-1, come
- * scanned_files: la pagina apre i file per posizione) e scrive il perché nel
- * log. Gli indici del piano sono quelli originali: un contenitore può cedere
- * file a più destinazioni. Se un dossier coinvolto non è più in coda, nulla.
+ * crea i dossier NUOVI (polizza fatta di pezzi di più contenitori) con le
+ * impostazioni del primo dossier da cui prendono file, sostituisce i PDF con
+ * più polizze con le loro parti, rinomina ogni destinazione col percorso più
+ * corto tra quelli uniti, elimina i dossier rimasti vuoti, ricalcola alla FINE
+ * gli indici contigui (0..n-1, come scanned_files: la pagina apre i file per
+ * posizione) e scrive il perché nel log. Gli indici del piano sono quelli
+ * originali: un contenitore può cedere file a più destinazioni. Se un dossier
+ * coinvolto non è più in coda, nulla.
  * @returns numero di unioni applicate
  */
 export async function applyReconcilePlan(
-  plan: { target: string; name: string; numbers: string[]; moves: { from: string; all: boolean; idxs: number[] }[] }[],
+  plan: ReconcileMerge[],
   pathOf: Record<string, string>,
+  splits: ReconcileSplit[] = [],
 ): Promise<number> {
-  if (!plan.length) return 0
-  const involved = [...new Set(plan.flatMap((m) => [m.target, ...m.moves.map((x) => x.from)]))]
+  if (!plan.length && !splits.length) return 0
+  const involved = [...new Set([
+    ...plan.flatMap((m) => [...(m.target ? [m.target] : []), ...m.moves.map((x) => x.from)]),
+    ...splits.map((x) => x.job),
+  ])]
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -1144,22 +1160,78 @@ export async function applyReconcilePlan(
     )
     if (st.length !== involved.length || st.some((r) => r.status !== 'queued')) { await client.query('ROLLBACK'); return 0 }
     const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
+    const touched = new Set(involved)
+    const nextIdx = async (jobId: string): Promise<number> => {
+      const { rows } = await client.query<{ n: number }>('SELECT COALESCE(MAX(idx), -1)::int AS n FROM polizza_job_files WHERE job_id = $1', [jobId])
+      return Math.max((rows[0]?.n ?? -1) + 1, 2000000) // fuori dagli indici originali di chiunque
+    }
+    // Dossier NUOVI: stesse impostazioni (profilo, campi, pre-controllo) del primo dossier da cui prendono file.
+    const targets: string[] = []
     for (const merge of plan) {
-      const { rows: maxRow } = await client.query<{ n: number }>('SELECT COALESCE(MAX(idx), -1)::int AS n FROM polizza_job_files WHERE job_id = $1', [merge.target])
-      let next = Math.max((maxRow[0]?.n ?? -1) + 1, 2000000) // fuori dagli indici originali di chiunque
+      if (merge.target) { targets.push(merge.target); continue }
+      const { rows: src } = await client.query('SELECT * FROM polizza_jobs WHERE id = $1', [merge.moves[0]?.from])
+      const job = src[0]
+      if (!job) { await client.query('ROLLBACK'); return 0 }
+      const id = randomUUID()
+      const fieldDefs = Array.isArray(job.field_defs) ? job.field_defs : []
+      await client.query(
+        `INSERT INTO polizza_jobs (id, email, batch_id, dossier_name, status, whole_dossier, scanned_files, field_defs, prompt_extra, profile_id, profile_name, rolling_state, settings_override, precheck, created_at, updated_at, logs)
+         VALUES ($1,$2,$3,$4,'queued',$5,'[]'::jsonb,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$13,'[]'::jsonb)`,
+        [id, job.email, job.batch_id, merge.name, job.whole_dossier, JSON.stringify(fieldDefs), job.prompt_extra ?? null,
+          job.profile_id ?? null, job.profile_name ?? null, JSON.stringify(initRollingState(fieldDefs)),
+          job.settings_override ? JSON.stringify(job.settings_override) : null,
+          job.precheck ? JSON.stringify(job.precheck) : null, now()],
+      )
+      touched.add(id)
+      targets.push(id)
+    }
+    // Parti dei PDF con più polizze: il file originale esce, le parti entrano dove vanno.
+    const relOf = new Map<string, string | null>()
+    const partLines = new Map<number, string[]>()
+    for (const sp of splits) {
+      const { rows } = await client.query<{ rel_path: string | null }>('DELETE FROM polizza_job_files WHERE job_id = $1 AND idx = $2 RETURNING rel_path', [sp.job, sp.idx])
+      if (!rows.length) { await client.query('ROLLBACK'); return 0 }
+      relOf.set(`${sp.job}#${sp.idx}`, rows[0].rel_path)
+      const here: string[] = []
+      for (const part of sp.parts) {
+        const dest = part.merge == null ? sp.job : targets[part.merge]
+        await client.query(
+          'INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash, rel_path) VALUES ($1,$2,$3,$4,$5,$6)',
+          [dest, await nextIdx(dest), part.file_name, part.pdf_base64, hashPdfBase64(part.pdf_base64), rows[0].rel_path],
+        )
+        if (part.merge == null) here.push(`pagine ${part.pages} restano qui`)
+        else {
+          if (!partLines.has(part.merge)) partLines.set(part.merge, [])
+          partLines.get(part.merge)!.push(`pagine ${part.pages} di "${sp.fileName}" da "${pathOf[sp.job] || sp.job}"`)
+          here.push(`pagine ${part.pages} con la polizza ${plan[part.merge].numbers.join(', ')}`)
+        }
+      }
+      await client.query('UPDATE polizza_jobs SET logs = logs || $1::jsonb WHERE id = $2',
+        [JSON.stringify([`${stamp} "${sp.fileName}" contiene più polizze: diviso per pagine (${here.join('; ')}).`]), sp.job])
+    }
+    for (let k = 0; k < plan.length; k++) {
+      const merge = plan[k]
+      const target = targets[k]
+      let next = await nextIdx(target)
       const lines: string[] = []
       for (const m of merge.moves) {
+        let moved = 0
         for (const idx of m.idxs) {
-          await client.query('UPDATE polizza_job_files SET job_id = $1, idx = $2 WHERE job_id = $3 AND idx = $4', [merge.target, next++, m.from, idx])
+          const r = await client.query('UPDATE polizza_job_files SET job_id = $1, idx = $2 WHERE job_id = $3 AND idx = $4', [target, next++, m.from, idx])
+          moved += r.rowCount || 0
         }
-        lines.push(`${m.all ? 'unita la cartella' : `${m.idxs.length} file spostati da`} "${pathOf[m.from] || m.from}"`)
+        if (moved) lines.push(`${m.all ? 'unita la cartella' : `${moved} file spostati da`} "${pathOf[m.from] || m.from}"`)
       }
+      lines.push(...(partLines.get(k) || []))
+      const why = merge.target
+        ? `${lines.join('; ')} — stessa polizza, un solo dossier.`
+        : `dossier nuovo con i documenti di questa polizza: ${lines.join('; ')} — stessa polizza, un solo dossier.`
       await client.query(
         'UPDATE polizza_jobs SET dossier_name = $1, logs = logs || $2::jsonb WHERE id = $3',
-        [merge.name, JSON.stringify([`${stamp} Riconciliazione per numero di polizza (${merge.numbers.join(', ')}): ${lines.join('; ')} — stessa polizza, un solo dossier.`]), merge.target],
+        [merge.name, JSON.stringify([`${stamp} Riconciliazione per numero di polizza (${merge.numbers.join(', ')}): ${why}`]), target],
       )
     }
-    for (const id of involved) {
+    for (const id of touched) {
       const { rows: fs } = await client.query<{ idx: number; file_name: string }>('SELECT idx, file_name FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [id])
       if (!fs.length) { await client.query('DELETE FROM polizza_jobs WHERE id = $1', [id]); continue }
       await client.query('UPDATE polizza_job_files SET idx = -idx - 1 WHERE job_id = $1', [id])
@@ -1167,7 +1239,7 @@ export async function applyReconcilePlan(
       await client.query('UPDATE polizza_jobs SET scanned_files = $1::jsonb, updated_at = $2 WHERE id = $3', [JSON.stringify(fs.map((f) => f.file_name)), now(), id])
     }
     await client.query('COMMIT')
-    return plan.length
+    return plan.length + splits.length
   } catch (e) {
     await client.query('ROLLBACK')
     throw e

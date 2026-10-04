@@ -90,18 +90,15 @@ test('numeri: kerning riattaccato, stessa polizza col ramo davanti, colonna più
   assert.deepEqual(plan[0].moves, [{ from: 'b', all: true, idxs: [0, 1, 2] }], 'col ramo davanti è la stessa polizza: il dossier resta UNA posizione')
 })
 
-test('cartella senza numeri con UNA polizza sotto ne fa parte e le dà il nome; con due polizze sotto resta com\'è', () => {
+test('cartella senza numeri: NESSUNA unione per struttura (conta solo il contenuto dei documenti)', () => {
+  // 04/10/2026, decisione dell'utente: «il documento conta, e solo il suo contenuto»
   const parent = D('p', 'G/COI/TL PENALE', [[]])
   const child = D('c', 'G/COI/TL PENALE/POLIZZA', [['1469DAS00039'], ['1469DAS00039'], []])
-  const plan = planReconcile([parent, child])
-  assert.equal(plan.length, 1)
-  assert.equal(plan[0].target, 'c')
-  assert.equal(plan[0].name, 'G/COI/TL PENALE', 'il dossier unito prende il nome della cartella madre')
-  assert.deepEqual(plan[0].moves, [{ from: 'p', all: true, idxs: [0] }])
+  assert.deepEqual(planReconcile([parent, child]), [], 'la cartella madre senza numeri resta com\'è')
   const client = D('cl', 'G/RUZZA', [[], []])
   const v1 = D('v1', 'G/RUZZA/ET103PP', [['111111111']])
   const v2 = D('v2', 'G/RUZZA/FD611EL', [['222222222']])
-  assert.deepEqual(planReconcile([client, v1, v2]), [], 'due polizze sotto: il contenitore resta com\'è')
+  assert.deepEqual(planReconcile([client, v1, v2]), [])
 })
 
 test('codice fiscale di persona e numeri etichettati come P.IVA/C.F. non sono numeri di polizza', () => {
@@ -119,29 +116,81 @@ test('codice fiscale di persona e numeri etichettati come P.IVA/C.F. non sono nu
   assert.deepEqual(planReconcile([a, b]), [])
 })
 
-test('cartella senza numeri: la copia di una polizza di FUORI archiviata sotto di lei non conta', () => {
-  // BESA CAT NAT: «PREMENUGO/COPIE FIRMATE» ha la polizza di Settala (EXM16548705),
-  // «PREMENUGO/POLIZZA» la sua (EXM16536864); la cartella madre e «PREMENUGO»
-  // hanno solo scansioni senza numero.
+test('la copia di una polizza archiviata nella cartella di un\'altra torna alla sua polizza; le cartelle senza numeri restano', () => {
+  // BESA CAT NAT: «PREMENUGO/COPIE FIRMATE» ha la polizza di Settala (EXM16548705)
+  // e i moduli precontrattuali che a pag. 9 citano «N° Polizza EX/M16536864»
+  // (Premenugo); «PREMENUGO» e la madre hanno solo il questionario ITAS scritto
+  // a mano, senza numero (verità del catalogo: Non valido da solo).
   const settala = D('s', 'G/BESA/SETTALA CAT NAT/SETTALA/POLIZZA', [['EXM16548705'], []])
-  const settalaFirm = D('sf', 'G/BESA/SETTALA CAT NAT/SETTALA/COPIE FIRMATE', [['EXM16548705'], []])
   const top = D('t', 'G/BESA/PREMENUGO CAT NAT', [[]])
   const mid = D('m', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO', [[]])
-  const firm = D('f', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO/COPIE FIRMATE', [['EXM16548705'], []])
+  const firm = D('f', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO/COPIE FIRMATE', [['EXM16548705'], ['EXM16536864'], []])
   const pol = D('p', 'G/BESA/PREMENUGO CAT NAT/PREMENUGO/POLIZZA', [['EXM16536864'], []])
-  const plan = planReconcile([settala, settalaFirm, top, mid, firm, pol])
+  const plan = planReconcile([settala, top, mid, firm, pol])
+  const sett = plan.find((x) => x.target === 's')
+  assert.deepEqual(sett.moves, [{ from: 'f', all: false, idxs: [0] }], 'la copia di Settala torna a Settala')
   const prem = plan.find((x) => x.target === 'p')
-  assert.ok(prem, 'Premenugo diventa un dossier solo')
-  assert.equal(prem.name, 'G/BESA/PREMENUGO CAT NAT')
-  assert.deepEqual(prem.moves.map((m) => m.from).sort(), ['m', 't'])
-  const sett = plan.find((x) => x.numbers.includes('EXM16548705'))
-  assert.ok(sett.moves.some((m) => m.from === 'f'), 'la copia di Settala torna a Settala')
-  // Senza una polizza «di casa» sotto (tutte di fuori) la cartella resta com'è
-  const lone = D('l', 'G/X', [[]])
-  const stray = D('y', 'G/X/COPIA', [['EXM16548705']])
-  const home = D('h', 'G/Y', [['EXM16548705']])
-  const plan2 = planReconcile([home, lone, stray])
-  assert.ok(!plan2.some((x) => x.moves.some((m) => m.from === 'l')))
+  assert.deepEqual(prem.moves, [{ from: 'f', all: false, idxs: [1] }], 'il modulo che cita la polizza di Premenugo va a Premenugo')
+  assert.ok(!plan.some((x) => x.moves.some((m) => m.from === 't' || m.from === 'm')), 'il questionario senza numero resta dov\'è')
+})
+
+test('pezzi della stessa polizza in DUE contenitori → un dossier nuovo, nella cartella comune', () => {
+  // RUZZA: le pagine 27-39 del PDF con cinque polizze DAS (parte 2 del file 0)
+  // e l'appendice ET103PP della stessa 01469AC12900058, in cartelle che hanno
+  // anche altre polizze.
+  const fd = { id: 'fd', path: 'G/RUZZA FABIO/RUZZA FABIO', files: [
+    { idx: 1000000, numbers: ['1469AC12900216'] }, { idx: 1000001, numbers: ['1469AC12900058'] }, { idx: 1, numbers: ['1469AC12900216'] },
+  ] }
+  const et = D('et', 'G/RUZZA FABIO/RUZZA FABIO ET 103 PP', [['1469AC12900058'], ['539295277'], ['539295277']])
+  const plan = planReconcile([fd, et])
+  assert.equal(plan.length, 1)
+  assert.equal(plan[0].target, null)
+  assert.equal(plan[0].create, true)
+  assert.equal(plan[0].name, 'G/RUZZA FABIO/Polizza 1469AC12900058')
+  assert.deepEqual(plan[0].moves, [{ from: 'fd', all: false, idxs: [1000001] }, { from: 'et', all: false, idxs: [0] }])
+  // pezzi di UN solo contenitore: restano dove sono
+  assert.deepEqual(planReconcile([fd]), [])
+})
+
+test('numeri NOTI in tutto il documento: OCR storpiato, senza etichetta, mai due polizze né codici fiscali', async () => {
+  const { numbersWithKnown, sameNumber } = await import('../src/services/policyReconcile.js')
+  const pol = (n) => ({ numbers: [n], pages: [`Polizza n. ${n}`] })
+  const files = [
+    pol('1469DAS00031'), pol('2120440000902030'), pol('146905087'), pol('2120440000902205'),
+    { numbers: [], pages: ['testo', 'FRONTESPIZIO O1469D0AS00031_AA pagina 6 della copia firmata'] }, // OCR: O/0, D/0
+    { numbers: [], pages: ['RIFERIMENTO 2T20440000902030 RAMI ELEMENTARI'] }, // OCR: T per 1
+    { numbers: [], pages: ['D.A.S. S.p.A. di ASS.NI   0146905087   Quietanza Di Rinnovo 30/04/2026'] }, // cella senza etichetta
+    { numbers: [], pages: ['Polizza 212.044.0000902206 del condominio vicino'] }, // consecutivo: non è 902205
+    { numbers: [], pages: ['elenco: 0146905087 e 212.044.0000902030'] }, // due polizze: nessuna
+  ]
+  const out = numbersWithKnown(files)
+  assert.deepEqual(out[4], ['1469DAS00031'])
+  assert.deepEqual(out[5], ['2120440000902030'])
+  assert.deepEqual(out[6], ['146905087'])
+  assert.deepEqual(out[7], [], 'un numero consecutivo (902206) non è la polizza 902205')
+  assert.deepEqual(out[8], [], 'un documento che cita due polizze non si collega')
+  assert.equal(sameNumber('2120440000902205', '2120440000902206'), false)
+  // P.IVA etichettata altrove nel batch: mai un numero di polizza
+  const coi = numbersWithKnown([
+    { numbers: ['6359220966'], pages: ['Polizza n. 06359220966', 'P.IVA 06359220966'] },
+    { numbers: [], pages: ['COI TECHNOLOGY SRL 06359220966'] },
+  ])
+  assert.deepEqual(coi, [[], []])
+})
+
+test('PDF con più polizze: tratti di pagine per numero, solo dal testo digitale', async () => {
+  const { compositeSegments } = await import('../src/services/policyReconcile.js')
+  const fr = (n) => `FRONTESPIZIO   Polizza n. ${n}   Contraente RUZZA FABIO`
+  const ruzza = { pages: [fr('01469AC12900216'), 'condizioni', 'privacy', fr('01469AC12900006'), 'condizioni', fr('01469AC12900058'), 'condizioni'] }
+  const [segs] = compositeSegments([ruzza])
+  assert.deepEqual(segs.map((s) => [s.from, s.to, s.numbers[0]]), [[0, 2, '1469AC12900216'], [3, 4, '1469AC12900006'], [5, 6, '1469AC12900058']])
+  // stesso numero letto diverso dall'OCR in una scansione: le pagine OCR non dividono
+  const scan = { pages: [fr('950M3062'), fr('980M3062'), fr('950M3062')], digital: [false, false, false] }
+  // una polizza che cita quella sostituita a metà documento: il numero torna, nessun tratto
+  const back = { pages: [fr('539574458'), fr('539168184'), fr('539574458')] }
+  // lo stesso numero decorato (Unipol: ramo/numero/controllo e agenzia/ramo/numero)
+  const unipol = { pages: ['RAMO / NUMERO POLIZZA\n30/161659629/5', 'testo', 'Allegato alla Polizza n. 1/85112/30/161659629'] }
+  assert.deepEqual(compositeSegments([scan, back, unipol]), [null, null, null])
 })
 
 test('frammento di numero (testa comune a più polizze) non unisce polizze diverse', () => {

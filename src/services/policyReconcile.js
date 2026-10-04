@@ -106,6 +106,175 @@ const OTHER_POLICY_CTX_RE = /sostitui|annull|precedent/i
 // sotto «Polizza/e sostituita/e»).
 const DATE_LIKE_RE = /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/
 
+// Forma di confronto di un numero letto (anche dall'OCR): solo lettere e cifre,
+// maiuscole, con i caratteri che l'OCR scambia ridotti a una forma sola.
+const ocrNorm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  .replace(/[ILRT]/g, '1').replace(/[ODQ]/g, '0').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2')
+// Al più UN carattere in più o in meno (mai una cifra al posto di un'altra: i
+// numeri Vittoria e DAS dello stesso intermediario sono CONSECUTIVI, 902205 e
+// 902206, 00075 e 00076, e uno scambio di cifra li confondeva).
+function oneIndel(a, b) {
+  if (a === b) return true
+  const la = a.length, lb = b.length
+  if (Math.abs(la - lb) !== 1) return false
+  const [lo, sh] = la > lb ? [a, b] : [b, a]
+  let i = 0
+  while (i < sh.length && lo[i] === sh[i]) i++
+  return lo.slice(i + 1) === sh.slice(i)
+}
+
+/**
+ * NUMERI NOTI in tutto il documento. Un file che nelle prime pagine non mostra
+ * un numero di polizza (copia firmata scansionata col numero a pag. 6, estratto
+ * conto con «0146905087» in una cella senza etichetta, frontespizio letto
+ * dall'OCR come «O1469D0AS00031_AA» o «2T20440000902030») si collega a una
+ * polizza se in QUALSIASI pagina compare un numero già trovato nelle prime
+ * pagine di un altro documento del batch: esatto (con le lettere che l'OCR
+ * scambia per cifre ricondotte), oppure — dai 10 caratteri — con un solo
+ * carattere letto in più o in meno. Solo numeri che
+ * esistono davvero nel batch, mai un numero nuovo. Il chiamante lo usa solo se
+ * il documento cita UNA sola polizza (sameNumber).
+ * @param {string[]} pages tutte le pagine del documento
+ * @param {string[]} known numeri trovati dagli altri documenti (forma canonica)
+ * @returns {string[]} i numeri noti trovati
+ */
+export function knownNumbersInPages(pages, known) {
+  const keys = [...new Set(known || [])].map((k) => ({ k, n: ocrNorm(k).replace(/^0+/, '') })).filter((x) => x.n.length >= 8)
+  const hits = new Set()
+  if (!keys.length) return []
+  for (const page of pages || []) {
+    for (const line of String(page || '').split('\n')) {
+      // GETTONI INTERI della riga (lettere/cifre con «.», «/», «-» dentro), anche
+      // due o tre di fila separati da UNO spazio («212 044 0000902205»): mai un
+      // pezzo di gettone — «01469DAS00021» non deve diventare «…0002» e
+      // combaciare con «…00082» di un'altra polizza.
+      const toks = [...line.matchAll(/[A-Za-z0-9][A-Za-z0-9./-]*/g)].map((m) => ({ t: m[0], a: m.index, b: m.index + m[0].length }))
+      const cands = []
+      for (let i = 0; i < toks.length; i++) {
+        let joined = toks[i].t
+        cands.push(joined)
+        for (let j = i + 1; j < Math.min(toks.length, i + 3); j++) {
+          if (toks[j].a - toks[j - 1].b !== 1) break
+          joined += toks[j].t
+          cands.push(joined)
+        }
+      }
+      for (const c of cands) {
+        const x = ocrNorm(c).replace(/^0+/, '')
+        if (x.length < 8) continue
+        for (const { k, n } of keys) {
+          if (hits.has(k)) continue
+          if (x === n || (x.length > n.length && x.endsWith(n)) || (n.length >= 10 && oneIndel(x, n))) hits.add(k)
+        }
+      }
+    }
+  }
+  return [...hits]
+}
+
+/** Due numeri sono la stessa polizza letta in modi diversi (OCR, ramo davanti). */
+export function sameNumber(a, b) {
+  const x = ocrNorm(a).replace(/^0+/, ''), y = ocrNorm(b).replace(/^0+/, '')
+  if (x === y) return true
+  if (x.length >= 8 && y.length >= 8 && (x.endsWith(y) || y.endsWith(x))) return true
+  return x.length >= 10 && y.length >= 10 && oneIndel(x, y)
+}
+
+/**
+ * Numeri dei file SENZA numero nelle prime pagine, cercati in tutto il
+ * documento tra quelli noti nel batch (knownNumbersInPages). Vale solo se il
+ * documento cita una sola polizza del batch (anche in più grafie): un
+ * documento che ne cita due (un PDF con più polizze, condizioni che rinviano a
+ * un altro contratto) resta senza numero.
+ * @param {{numbers: string[], pages: string[]}[]} files tutti i file del batch
+ * @returns {string[][]} i numeri di ogni file (quelli di prima per i file che li avevano)
+ */
+export function numbersWithKnown(files) {
+  // Codici FISCALI del batch: un numero etichettato P.IVA/C.F. in un qualunque
+  // documento non è mai un numero di polizza, nemmeno dove compare senza
+  // etichetta (la P.IVA della COI «06359220966» in calce ai suoi documenti
+  // univa sette cartelle di polizze diverse).
+  const fiscal = new Set()
+  for (const f of files || []) for (const n of fiscalNumbers((f.pages || []).join('\n'))) fiscal.add(ocrNorm(n).replace(/^0+/, ''))
+  const isFiscal = (n) => fiscal.has(ocrNorm(n).replace(/^0+/, ''))
+  const primary = (files || []).map((f) => (f.numbers || []).filter((n) => !isFiscal(n)))
+  const known = [...new Set(primary.flat())]
+  const usable = known
+  return (files || []).map((f, i) => {
+    if (primary[i].length) return primary[i]
+    const hits = knownNumbersInPages(f.pages || [], usable)
+    if (!hits.length) return []
+    return hits.every((h) => sameNumber(h, hits[0])) ? hits : []
+  })
+}
+
+// Lo stesso numero DECORATO in modi diversi nello stesso documento: Unipol
+// «30/161659629/5» (ramo, numero, controllo) e «1/85112/30/161659629»
+// (agenzia, ramo, numero) → «301616596295» e «18511230161659629». Il nucleo
+// comune copre il più corto tranne al più un carattere ed è la CODA di uno dei
+// due. Numeri consecutivi (1469AC12900216 / …00006, 902058 / 902158) hanno in
+// comune solo la TESTA: restano diversi. Solo per decidere se dividere un file
+// (mai per unire dossier).
+function decoratedSame(a, b) {
+  const x = ocrNorm(a).replace(/^0+/, ''), y = ocrNorm(b).replace(/^0+/, '')
+  const short = x.length <= y.length ? x : y
+  if (short.length < 9) return false
+  let best = 0, endX = 0, endY = 0
+  const prev = new Array(y.length + 1).fill(0)
+  for (let i = 1; i <= x.length; i++) {
+    let diag = 0
+    for (let j = 1; j <= y.length; j++) {
+      const keep = prev[j]
+      prev[j] = x[i - 1] === y[j - 1] ? diag + 1 : 0
+      if (prev[j] > best) { best = prev[j]; endX = i; endY = j }
+      diag = keep
+    }
+  }
+  return best >= short.length - 1 && (endX === x.length || endY === y.length)
+}
+
+/**
+ * PDF con PIÙ POLIZZE, una dopo l'altra (RUZZA FABIO - FD611EL.pdf: cinque
+ * polizze DAS, ognuna col suo frontespizio e le sue condizioni, alle pagine 1,
+ * 14, 27, 40 e 53). Il contenuto decide: i numeri di polizza letti PAGINA PER
+ * PAGINA formano tratti consecutivi e disgiunti — ogni tratto comincia alla
+ * prima pagina col suo numero, nessuna pagina ne porta due di polizze diverse e
+ * nessun numero torna dopo che è comparso il successivo (una polizza che cita
+ * quella sostituita a metà documento non è divisa). Contano solo le pagine del
+ * text layer: l'OCR legge lo stesso numero in grafie diverse da una pagina
+ * all'altra (950M3062, 980M3062) e non deve dividere niente. Esclusi i
+ * frammenti (inizio di un numero più lungo del batch: il codice agenzia
+ * «185112» di «18511230161659629») e i codici fiscali del batch.
+ * @param {{pages: string[], digital?: boolean[]}[]} files tutti i file del batch
+ * @returns {({from:number, to:number, numbers:string[]}[] | null)[]} per file: i tratti (pagine 0-based, estremi inclusi) o null
+ */
+export function compositeSegments(files) {
+  const list = files || []
+  const perPage = list.map((f) => (f.pages || []).map((p, i) => (f.digital && f.digital[i] === false ? [] : extractPolicyNumbersFromPages([p]))))
+  const all = [...new Set(perPage.flat(2))]
+  const fragment = new Set(all.filter((n) => all.some((o) => o.length >= n.length + 4 && o.startsWith(n))))
+  const fiscal = new Set()
+  for (const f of list) for (const n of fiscalNumbers((f.pages || []).join('\n'))) fiscal.add(ocrNorm(n).replace(/^0+/, ''))
+  const usable = (n) => !fragment.has(n) && !fiscal.has(ocrNorm(n).replace(/^0+/, ''))
+  const same = (x, y) => sameNumber(x, y) || decoratedSame(x, y)
+  return perPage.map((pp) => {
+    const segs = []
+    for (let i = 0; i < pp.length; i++) {
+      const ns = pp[i].filter(usable)
+      if (!ns.length) continue
+      const cur = segs[segs.length - 1]
+      const inCur = (x) => !!cur && cur.numbers.some((m) => same(x, m))
+      if (cur && ns.every(inCur)) { for (const x of ns) if (!cur.numbers.includes(x)) cur.numbers.push(x); continue }
+      if (cur && ns.some(inCur)) return null // una pagina con due polizze: non sono tratti
+      if (segs.some((s) => ns.some((x) => s.numbers.some((m) => same(x, m))))) return null // un numero che torna
+      if (!ns.every((x) => same(x, ns[0]))) return null // due numeri nuovi nella stessa pagina
+      segs.push({ first: i, numbers: [...ns] })
+    }
+    if (segs.length < 2) return null
+    return segs.map((s, k) => ({ from: k ? s.first : 0, to: k + 1 < segs.length ? segs[k + 1].first - 1 : pp.length - 1, numbers: s.numbers }))
+  })
+}
+
 /**
  * Numeri di polizza di un documento dalla GRIGLIA spaziale (pagine del text
  * layer o dell'OCR): nella cella dell'etichetta («Polizza n. 01469DAS00040»)
@@ -317,16 +486,32 @@ export function planReconcile(dossiers) {
   // 3. Un'unione per gruppo; destinazione = la posizione dal percorso più corto.
   const order = new Map(list.map((d, i) => [d.id, i]))
   const depth = (p) => String(p || '').split('/').filter(Boolean).length
+  const pathOf = new Map(list.map((d) => [d.id, d.path || '']))
   const byTarget = new Map() // target → { target, numbers:Set, moves:Map }
-  const targetOfDossier = new Map() // dossier «whole» → target del suo gruppo
+  const fresh = [] // polizze fatte solo di pezzi di contenitori diversi
   for (const g of groups.values()) {
     const wholes = g.filter((n) => n.whole)
-    if (!wholes.length) continue // solo pezzi di contenitori: nessuna posizione dove unirli
+    if (!wholes.length) {
+      // Solo PEZZI di contenitori. Da UN contenitore la polizza resta dov'è,
+      // con le altre. Da PIÙ contenitori (RUZZA: le pagine 27-39 del PDF con
+      // cinque polizze DAS e l'appendice ET103PP della stessa 01469AC12900058,
+      // in due cartelle che hanno anche altre polizze) diventa un dossier NUOVO
+      // con i soli documenti di quella polizza.
+      const from = [...new Set(g.map((n) => n.dossier.id))]
+      if (from.length < 2) continue
+      const moves = new Map()
+      for (const n of g) {
+        const m = moves.get(n.dossier.id) || { from: n.dossier.id, all: false, idxs: [] }
+        m.idxs.push(...n.idxs)
+        moves.set(n.dossier.id, m)
+      }
+      fresh.push({ numbers: new Set(g.flatMap((n) => [...n.numbers])), moves, paths: from.map((id) => pathOf.get(id)) })
+      continue
+    }
     wholes.sort((a, b) => depth(a.dossier.path) - depth(b.dossier.path) || order.get(a.dossier.id) - order.get(b.dossier.id))
     const target = wholes[0].dossier.id
     const entry = { target, numbers: new Set(g.flatMap((n) => [...n.numbers])), moves: new Map() }
     for (const n of g) {
-      if (n.whole) targetOfDossier.set(n.dossier.id, target)
       if (n.dossier.id === target) continue
       const m = entry.moves.get(n.dossier.id) || { from: n.dossier.id, all: false, idxs: [] }
       if (n.whole) { m.all = true; m.idxs = (n.dossier.files || []).map((f) => f.idx) }
@@ -335,26 +520,12 @@ export function planReconcile(dossiers) {
     }
     byTarget.set(target, entry)
   }
-  // 4. Cartelle senza numeri con UNA sola polizza sotto di sé. Una posizione
-  // sotto la cartella che si unisce a una polizza di FUORI (la copia firmata di
-  // un'altra sede archiviata lì: BESA «PREMENUGO/COPIE FIRMATE» con la polizza
-  // di Settala) non è «sotto»: resta la polizza di casa.
-  const numbered = new Set(nodes.map((n) => n.dossier.id))
-  const inside = (p, root) => String(p || '').startsWith(`${root}/`)
-  const pathOf = new Map(list.map((d) => [d.id, d.path || '']))
-  for (const d of list) {
-    if (numbered.has(d.id) || !(d.files || []).length || !d.path) continue
-    const below = list.filter((o) => o.id !== d.id && inside(o.path, d.path) && numbered.has(o.id))
-    if (!below.length) continue
-    const targets = new Set(below
-      .map((o) => targetOfDossier.get(o.id) || `container:${o.id}`)
-      .filter((t) => t.startsWith('container:') || t === d.id || inside(pathOf.get(t), d.path)))
-    if (targets.size !== 1) continue
-    const target = [...targets][0]
-    if (target.startsWith('container:')) continue
-    const entry = byTarget.get(target)
-    entry.moves.set(d.id, { from: d.id, all: true, idxs: (d.files || []).map((f) => f.idx) })
-  }
+  // Nessuna regola sulle CARTELLE (04/10/2026, decisione dell'utente: «il
+  // documento conta, e solo il suo contenuto»): una cartella senza numeri non
+  // si unisce alla polizza che ha sotto (il questionario ITAS scritto a mano di
+  // «PRODUZIONE PREMENUGO» finiva nella polizza della sottocartella; COSTA 1A,
+  // la Unipol scansionata nella DAS). I file senza numero restano dove sono,
+  // a meno che il loro testo citi una polizza del batch (numbersWithKnown).
   const plan = []
   for (const e of byTarget.values()) {
     if (!e.moves.size) continue
@@ -365,7 +536,105 @@ export function planReconcile(dossiers) {
       moves: [...e.moves.values()].map((m) => ({ ...m, idxs: [...new Set(m.idxs)].sort((a, b) => a - b) })),
     })
   }
+  for (const e of fresh) {
+    // Nome: la cartella comune ai pezzi e il numero della polizza.
+    const parts = e.paths.map((p) => String(p || '').split('/').filter(Boolean))
+    const common = []
+    for (let i = 0; parts.every((x) => i < x.length - 1 && x[i] === parts[0][i]); i++) common.push(parts[0][i])
+    const numbers = [...e.numbers].sort()
+    const rep = [...numbers].sort((a, b) => b.length - a.length || a.localeCompare(b))[0]
+    plan.push({
+      target: null, create: true, name: [...common, `Polizza ${rep}`].join('/'), numbers,
+      moves: [...e.moves.values()].map((m) => ({ ...m, idxs: [...new Set(m.idxs)].sort((a, b) => a - b) })),
+    })
+  }
   return plan
+}
+
+// Indici delle PARTI di un PDF con più polizze: solo nel piano, mai nel DB.
+const partIdx = (idx, j) => 1000000 + idx * 1000 + j
+/** «1-13, 40-52» */
+export const pageRanges = (segs) => segs.map((s) => (s.from === s.to ? `${s.from + 1}` : `${s.from + 1}-${s.to + 1}`)).join(', ')
+
+/**
+ * RICONCILIAZIONE DAL TESTO dei documenti, la stessa per il worker web, gli
+ * script e i test: si legge TUTTO il documento. (1) I PDF con più polizze
+ * diventano parti, una per polizza (compositeSegments); (2) numeri etichettati
+ * nelle prime 5 pagine di ogni file o parte; (3) per chi non ne ha, i numeri del
+ * batch citati in tutto il suo testo (numbersWithKnown); (4) piano di unione
+ * (planReconcile: solo numeri in comune, mai le cartelle). Le parti di un PDF che
+ * finiscono tutte nello stesso posto restano il PDF intero; altrimenti il PDF si
+ * divide (splits) e ogni gruppo di pagine va dove va la sua polizza.
+ * @param {{id:string, path:string, files:{idx:number, name?:string, pages:string[], digital?:boolean[]}[]}[]} dossiers in ordine di caricamento
+ * @param {{ noSplit?: Set<string> }} [opts] PDF da NON dividere (`${dossier}#${idx}`: non si lasciano dividere) — restano dove sono
+ * @returns {{
+ *   plan: {target:string|null, create?:boolean, name:string, numbers:string[], moves:{from:string, all:boolean, idxs:number[]}[]}[],
+ *   splits: {dossier:string, idx:number, name:string, groups:{merge:number|null, segs:{from:number, to:number, numbers:string[]}[]}[]}[],
+ *   read: {id:string, numbers:string[], notes:string[]}[],
+ * }}
+ */
+export function reconcileFromPages(dossiers, opts = {}) {
+  const NP = 5
+  const noSplit = opts.noSplit || new Set()
+  const list = (dossiers || []).filter((d) => d && d.id)
+  const flat = list.flatMap((d) => (d.files || []).map((f) => ({ d, f })))
+  const segsOf = compositeSegments(flat.map(({ f }) => ({ pages: f.pages || [], digital: f.digital })))
+    .map((segs, k) => (segs && noSplit.has(`${flat[k].d.id}#${flat[k].f.idx}`) ? 'whole' : segs))
+  const units = []
+  flat.forEach(({ d, f }, k) => {
+    const segs = segsOf[k]
+    // Un PDF con più polizze che non si lascia dividere non porta con sé nessuna delle sue polizze.
+    if (segs === 'whole') { units.push({ d, f, idx: f.idx, pages: [] }); return }
+    if (!segs) { units.push({ d, f, idx: f.idx, pages: f.pages || [] }); return }
+    segs.forEach((seg, j) => units.push({ d, f, seg, idx: partIdx(f.idx, j), pages: (f.pages || []).slice(seg.from, seg.to + 1) }))
+  })
+  for (const u of units) u.numbers = extractPolicyNumbersFromPages(u.pages.slice(0, NP))
+  const withKnown = numbersWithKnown(units.map((u) => ({ numbers: u.numbers, pages: u.pages })))
+  units.forEach((u, k) => { u.known = !u.numbers.length && withKnown[k].length > 0; u.numbers = withKnown[k] })
+  const plan = planReconcile(list.map((d) => ({ id: d.id, path: d.path, files: units.filter((u) => u.d === d).map((u) => ({ idx: u.idx, numbers: u.numbers })) })))
+  const destOf = (dossier, idx) => {
+    const k = plan.findIndex((m) => m.moves.some((mv) => mv.from === dossier && (mv.all || mv.idxs.includes(idx))))
+    return k < 0 ? null : k
+  }
+  const splits = []
+  flat.forEach(({ d, f }, k) => {
+    const segs = segsOf[k]
+    if (!segs || segs === 'whole') return
+    const virt = segs.map((_, j) => partIdx(f.idx, j))
+    const dests = virt.map((v) => destOf(d.id, v))
+    const together = dests.every((x) => x === dests[0])
+    for (const m of plan) {
+      for (const mv of m.moves) {
+        if (mv.from !== d.id) continue
+        const had = mv.idxs.some((x) => virt.includes(x))
+        mv.idxs = mv.idxs.filter((x) => !virt.includes(x))
+        if (had && together && !mv.idxs.includes(f.idx)) mv.idxs.push(f.idx)
+        mv.idxs.sort((a, b) => a - b)
+      }
+    }
+    if (together) return
+    const groups = new Map()
+    segs.forEach((s, j) => { if (!groups.has(dests[j])) groups.set(dests[j], []); groups.get(dests[j]).push(s) })
+    splits.push({ dossier: d.id, idx: f.idx, name: f.name || '', groups: [...groups].map(([merge, gs]) => ({ merge, segs: gs })) })
+  })
+  // Unioni rimaste senza niente da spostare (le parti erano tutto): fuori dal piano.
+  const keep = plan.map((m, k) => m.moves.some((mv) => mv.all || mv.idxs.length) || splits.some((sp) => sp.groups.some((g) => g.merge === k)))
+  const remap = new Map()
+  plan.forEach((_, k) => { if (keep[k]) remap.set(k, remap.size) })
+  for (const sp of splits) for (const g of sp.groups) if (g.merge != null) g.merge = remap.get(g.merge)
+  const read = list.map((d) => {
+    const mine = units.filter((u) => u.d === d)
+    const notes = []
+    for (const u of mine) if (u.known) notes.push(`${u.numbers.join(', ')} citato nel testo di "${u.f.name || u.f.idx}"${u.seg ? ` (pag. ${pageRanges([u.seg])})` : ''}`)
+    flat.forEach(({ d: dd, f }, k) => {
+      if (dd !== d || !segsOf[k]) return
+      notes.push(segsOf[k] === 'whole'
+        ? `"${f.name || f.idx}" contiene più polizze ma non si lascia dividere: resta dov'è`
+        : `"${f.name || f.idx}" contiene più polizze: ${segsOf[k].map((s) => `pag. ${pageRanges([s])} n. ${s.numbers.join('/')}`).join('; ')}`)
+    })
+    return { id: d.id, numbers: [...new Set(mine.flatMap((u) => u.numbers))], notes }
+  })
+  return { plan: plan.filter((_, k) => keep[k]), splits, read }
 }
 
 /**
