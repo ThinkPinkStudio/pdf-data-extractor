@@ -4087,6 +4087,41 @@ export function headerLexOf(f, headerText) {
 }
 
 /**
+ * ZERO STAMPATO sotto la colonna del campo: «0,00» in una cella della griglia la
+ * cui intestazione (la cella della riga sopra che le si sovrappone, ±3
+ * caratteri) nomina questo campo importo più di ogni altro campo importo del
+ * profilo (headerLexOf). Le schede DAS: «PREMIO TOTALE ‖ FRAZIONAMENTO ‖ NETTO
+ * IMPONIBILE…» e sotto «PREMIO RATA INIZIALE ‖ 0,00 ‖ 702,67…»: lo zero è
+ * l'interesse di frazionamento stampato, non il segnaposto del modello.
+ * @returns {{labelled: boolean, token?: string}}
+ */
+export function zeroUnderOwnHeader(field, fields, pages, value) {
+  const v = String(value || '').trim()
+  if (!/^0(?:[.,]0+)?$/.test(v)) return { labelled: false }
+  const amount = (fields || []).filter((g) => g && g.enabled !== false && fieldValueKind(g) === 'amount')
+  for (const pg of pages || []) {
+    const lines = String(pg || '').split('\n')
+    for (let i = 1; i < lines.length; i++) {
+      for (const m of lines[i].matchAll(/(?<![\d.,])0(?:,0+)?(?![\d.,])/g)) {
+        if (m[0] !== v && !(v === '0' && m[0] === '0') && !(v.startsWith('0,') && m[0] === v)) continue
+        let j = i - 1
+        while (j >= 0 && !lines[j].trim()) j--
+        if (j < 0) continue
+        const a = m.index, b = m.index + m[0].length
+        // celle della riga sopra (tratti separati da ≥2 spazi) sovrapposte al valore
+        for (const c of lines[j].matchAll(/\S+(?: \S+)*/g)) {
+          const ca = c.index, cb = c.index + c[0].length
+          if (ca > b + 3 || cb < a - 3) continue
+          const lex = headerLexOf(field, c[0])
+          if (lex > 0 && amount.every((g) => g.id === field.id || headerLexOf(g, c[0]) < lex)) return { labelled: true, token: c[0].trim().toLowerCase() }
+        }
+      }
+    }
+  }
+  return { labelled: false }
+}
+
+/**
  * COLONNA DI UN ALTRO CAMPO IMPORTO. Per un campo importo, la cella sotto
  * un'intestazione che nomina DI PIÙ un altro campo importo del profilo, e che
  * non ha nessuna parola che nomini SOLO questo campo, è il dato dell'altro
@@ -5448,6 +5483,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // un'edizione) "massimale 25.000" in una cella d'esempio batteva 5 voti
     // per il 50.000,00 della polizza (GUFFANTI TL 9/23).
     try { if (srcDoc.dateStr && fieldValueKind(field) === 'date') lab = valueLabelledByLayout(distinctHead.get(field.id) || [], srcDoc.spatialPages?.length ? srcDoc.spatialPages : srcDoc.pages, cleaned) } catch { lab = { labelled: false } }
+    // ZERO STAMPATO di un campo importo la cui descrizione ammette «0,00»
+    // (interessi, diritti): vale se sta sotto la colonna che nomina il campo
+    // (zeroUnderOwnHeader). Senza, lo «0,00» degli interessi delle schede DAS
+    // era scartato come segnaposto (15 posizioni su 41 il 04/10).
+    try {
+      if (!lab.labelled && fieldValueKind(field) === 'amount' && isZeroPlaceholder(cleaned)
+          && /(?<![\d,])0,00(?![\d])/.test(positiveDescriptionText(String(field.description || '')))) {
+        lab = zeroUnderOwnHeader(field, activeFields, srcDoc.spatialPages?.some((p) => String(p || '').trim()) ? srcDoc.spatialPages : srcDoc.pages, cleaned)
+      }
+    } catch { /* resta senza etichetta */ }
     // finestra STRETTA (±80) per le etichette negate: nel frontespizio
     // "Decorrenza 19/04/2025" e "Data di continuità 19/04/2024" stanno a
     // poche righe e con ±200 la data vera cadeva per l'etichetta della vicina.

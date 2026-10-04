@@ -110,3 +110,16 @@ test('completeA7Row: tra le colonne che nominano le imposte conta quella con un 
   const out = completeA7Row(entries, rows, fields, (k) => fields[Number(k)] || null)
   assert.deepEqual(out.map((x) => [x.field.label.trim(), x.entry[1].valore, x.entry[1].riga]), [['Imposte', '2,89', 'Tutela Giudiziaria']])
 })
+
+test('zeroUnderOwnHeader: lo 0,00 sotto FRAZIONAMENTO è l\'interesse stampato; non il massimale, non i diritti', async () => {
+  const { zeroUnderOwnHeader } = await import('../src/services/polizzaService.js')
+  const grid = [
+    '   PREMIO TOTALE          FRAZIONAMENTO    NETTO IMPONIBILE   RIMBORSO   DIRITTO   IMPOSTE   PREMIO LORDO',
+    '   PREMIO RATA INIZIALE        0,00            702,67           0,00       2,48     149,85      855,00',
+  ].join('\n')
+  const fields = TL
+  assert.equal(zeroUnderOwnHeader(byLabel('Interessi di frazionamento'), fields, [grid], '0,00').labelled, true)
+  assert.equal(zeroUnderOwnHeader(byLabel('Massimale per sinistro tutela legale'), fields, [grid], '0,00').labelled, false)
+  assert.equal(zeroUnderOwnHeader(byLabel('Diritti'), fields, [grid], '0,00').labelled, false, 'sotto DIRITTO c\'è 2,48')
+  assert.equal(zeroUnderOwnHeader(byLabel('Interessi di frazionamento'), fields, [grid], '2,48').labelled, false, 'solo zeri')
+})
