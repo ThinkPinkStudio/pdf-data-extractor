@@ -852,7 +852,8 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   posizione; un dossier con più posizioni è un CONTENITORE e cede solo i file
   col numero; posizioni con un numero in comune (anche col ramo davanti,
   suffisso ≥ 8 caratteri) si uniscono nella cartella dal percorso più corto;
-  una cartella SENZA numeri con UNA sola polizza sotto ne fa parte. Il perché
+  ~~una cartella SENZA numeri con UNA sola polizza sotto ne fa parte~~
+  (TOLTA il 04/10/2026, vedi «SOLO IL CONTENUTO» sotto). Il perché
   sta nel log del dossier («Riconciliazione per numero di polizza …»); i
   dossier svuotati spariscono. Simulato sui PDF veri (solo text layer):
   BESA TL penale, COI TL penale, Bertolotti GT724FH, cartelle doppie RC
@@ -868,6 +869,30 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   dossier). Resta separata — giustamente, per la prova — una «BOZZA DA
   APPROVARE» col numero provvisorio (EX/TPO17428237) dalla polizza definitiva
   (EX/M16548705): numeri diversi, nessun legame nei documenti.
+  **SOLO IL CONTENUTO (04/10/2026, regola dell'utente, testuale: «IL
+  DOCUMENTO CONTA; E SOLO IL SUO CONTENUTO» e «la riconciliazione DEVE
+  FUNZIONARE, a costo di analizzare tutto il documento»)**: nessuna regola sulle
+  cartelle (la «cartella senza numeri» univa il questionario ITAS scritto a
+  mano di PREMENUGO, Non valido per il catalogo, alla polizza della
+  sottocartella). `reconcileFromPages` (pura, la usano il server e
+  `.goldens-out/work/recon-measure.mjs`): numeri etichettati nelle prime 5
+  pagine; per i documenti senza, i numeri NOTI del batch in TUTTE le pagine
+  (`numbersWithKnown`: OCR storpiato «O1469D0AS00031_AA», cella senza
+  etichetta «0146905087», solo se il documento cita UNA polizza, codici fiscali
+  del batch esclusi, mai cifre scambiate: i numeri consecutivi restano
+  diversi); PDF con PIÙ polizze divisi per pagine (`compositeSegments`: tratti
+  disgiunti di numeri nel solo testo digitale, mai un numero che torna né lo
+  stesso numero decorato in due modi; RUZZA FD611EL, cinque DAS), con pdf-lib,
+  parti in cache OCR, il PDF resta intero se le parti vanno tutte nello stesso
+  posto; pezzi della stessa polizza in più contenitori → dossier NUOVO «…/Polizza
+  N» con le impostazioni del primo. Unica associazione non da contenuto: i file
+  senza numero viaggiano col proprio dossier quando si unisce INTERO a un altro.
+  Misura contro i `collegamento` del catalogo: produzione 21/41, nuovo 35/41,
+  nessuna unione sbagliata (le 17 «in più» sono stesso numero o copie identiche;
+  il modulo precontrattuale di PREMENUGO/COPIE FIRMATE cita a pag. 9 «N°
+  Polizza EX/M16536864» e va a quella polizza). Non collegabili per contenuto:
+  appendici Helvetia 47538578 (numero assente dal text layer, OCR «4/538578»),
+  rinumerazione Unipol di gorini, set informativo identico senza numero.
 
   **Batch GIÀ CARICATI (26/09/2026, scelta dell'utente)**: i batch del
   cliente (PIZZAMIGLIO 18/09, BESA e CONDOMINI 22/09) sono anteriori alla
