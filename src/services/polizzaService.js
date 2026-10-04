@@ -5538,7 +5538,13 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         const fieldLines = a7Fields
           .map((f, i) => `${i}. ${stripFieldExamples(f.description || '')}`)
           .join('\n')
-        const sys = A7_SYSTEM_PROMPT
+        // [flag sezioni] Il «TOTALE» del prompt vale per le RATE (rata iniziale /
+        // successiva); con una riga per copertura (RCA, Incendio, Tutela
+        // Giudiziaria… e «Totali») il modello prendeva il totale del contratto
+        // (Allianz P15: 740,50 invece di 25,99 della riga Tutela Giudiziaria).
+        const sys = engineFlag(settings, 'sezioni') ? A7_SYSTEM_PROMPT.replace(
+          "scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
+          "scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta; se invece le righe sono COPERTURE diverse (una riga per sezione o garanzia e una riga di totale del contratto) e la descrizione chiede il valore di una copertura o sezione, prendi la riga di quella copertura, non il totale;") : A7_SYSTEM_PROMPT
         const userOf = (tableBlock) => `TABELLE DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'oggetto JSON, es. {"voci": [{"campo": 1, "valore": "...", "riga": "...", "colonna": "..."}]}. I campi senza valore non compaiono.`
         // Budget di TESTO per chiamata (stesso calcolo dei gruppi): le tabelle
         // di un documento entrano in ordine di pagina finché ci stanno; la prima
