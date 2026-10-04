@@ -37,7 +37,7 @@ export const KNOWN_FLAGS = Object.freeze({
   elenchi: 'elenchi «voce; voce»: sorgente = pagina con più voci, affinità sulle finestre delle voci (F08, parte 2)',
   verifiche: 'prompt: anche per le verifiche la frase può usare parole diverse (resta la citazione che nomina l\'oggetto)',
   recupero: 'Stadio E con le pagine dei batch, budget dal contesto, ranking semantico+IDF per rango, senza label (F07)',
-  sezioni: 'A.7: tra righe di coperture diverse (una riga per sezione/garanzia più un totale) la riga della copertura che la descrizione nomina, non il totale del contratto',
+  sezioni: 'A.7: tra più righe (rate, coperture e totale) la riga che la DESCRIZIONE chiede (premio annuo, non la rata iniziale; la copertura, non il totale del contratto), invece del «TOTALE dell\'intero periodo»',
 })
 
 /** @returns {Set<string>} */

@@ -5587,9 +5587,13 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // successiva); con una riga per copertura (RCA, Incendio, Tutela
         // Giudiziaria… e «Totali») il modello prendeva il totale del contratto
         // (Allianz P15: 740,50 invece di 25,99 della riga Tutela Giudiziaria).
+        // …e per le RATE la descrizione chiede il premio ANNUO, non la rata
+        // iniziale che copre il periodo più lungo (GORINI P31: 282,65 della rata
+        // iniziale di 14 mesi invece di 241,00 della rata annuale successiva).
+        // Con il flag decide la DESCRIZIONE quale riga prendere.
         const sys = engineFlag(settings, 'sezioni') ? A7_SYSTEM_PROMPT.replace(
-          "scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
-          "scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta; se invece le righe sono COPERTURE diverse (una riga per sezione o garanzia e una riga di totale del contratto) e la descrizione chiede il valore di una copertura o sezione, prendi la riga di quella copertura, non il totale;") : A7_SYSTEM_PROMPT
+          "Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
+          "Se la stessa voce compare in PIU righe (rate del premio come RATA INIZIALE e RATA SUCCESSIVA; coperture o sezioni diverse e un totale del contratto), scegli la riga che la DESCRIZIONE del campo chiede (per esempio il premio annuo e non la rata iniziale; la copertura nominata dalla descrizione e non il totale del contratto con le altre coperture) e rispondi UNA SOLA volta;") : A7_SYSTEM_PROMPT
         const userOf = (tableBlock) => `TABELLE DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'oggetto JSON, es. {"voci": [{"campo": 1, "valore": "...", "riga": "...", "colonna": "..."}]}. I campi senza valore non compaiono.`
         // Budget di TESTO per chiamata (stesso calcolo dei gruppi): le tabelle
         // di un documento entrano in ordine di pagina finché ci stanno; la prima
