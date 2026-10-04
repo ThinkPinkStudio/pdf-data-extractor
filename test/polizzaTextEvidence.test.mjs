@@ -90,3 +90,12 @@ test('coerenza premio: diritti o interessi uguali al premio, imponibile uguale a
   assert.equal(best.tot.valore, '30,01')
   assert.equal(best.int.valore, '0,00', 'lo zero resta')
 })
+
+test('tasso per mille: un numero che nel documento è solo una percentuale non è il tasso (ITAS P35: 21,25 delle imposte)', async () => {
+  const { onlyAsPercentInText } = await import('../src/services/polizzaService.js')
+  const f = { id: 't', label: 'campo', description: 'Tasso di regolazione: il tasso espresso per mille (‰) applicato al parametro di regolazione (es. 0,245, 44,16).' }
+  assert.equal(onlyAsPercentInText(f, 'Imposte 21,25% € 1.054,15', '21,25'), true)
+  assert.equal(onlyAsPercentInText(f, 'Tasso 2,450 ‰ sulle retribuzioni', '2,450'), false)
+  assert.equal(onlyAsPercentInText(f, 'tasso 21,25 per mille; imposte 21,25%', '21,25'), false, 'compare anche senza %')
+  assert.equal(onlyAsPercentInText({ ...f, description: 'Tasso percentuale (es. 3%)' }, 'aliquota 3%', '3'), false, 'solo se la descrizione dice per mille')
+})

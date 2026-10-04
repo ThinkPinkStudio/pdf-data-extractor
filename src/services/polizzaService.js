@@ -4087,6 +4087,22 @@ export function headerLexOf(f, headerText) {
 }
 
 /**
+ * Un tasso che la descrizione dice «per mille» (‰) non è un numero che nel
+ * documento compare SOLO come percentuale («21,25%» delle imposte): il modello
+ * toglie il «%» e la regola sul valore non lo vede più (ITAS P35 del 04/10:
+ * Tasso regolazione ‰ = 21,25). Falso se il numero non si trova.
+ */
+export function onlyAsPercentInText(field, text, value) {
+  if (fieldValueKind(field) !== 'rate' || !/per\s*mille|‰/i.test(String(field?.description || ''))) return false
+  const v = String(value || '').trim().replace(/\s*[‰%]\s*$/, '')
+  if (!/^\d+(?:[.,]\d+)?$/.test(v)) return false
+  const re = new RegExp(`(?<![\\d.,])${v.replace(/[.,]/g, '[.,]')}(?![\\d])(\\s*%)?`, 'g')
+  let seen = 0, pct = 0
+  for (const m of String(text || '').matchAll(re)) { seen++; if (m[1]) pct++ }
+  return seen > 0 && pct === seen
+}
+
+/**
  * ZERO STAMPATO sotto la colonna del campo: «0,00» in una cella della griglia la
  * cui intestazione (la cella della riga sopra che le si sovrappone, ±3
  * caratteri) nomina questo campo importo più di ogni altro campo importo del
@@ -4644,6 +4660,7 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     // STRUTTURALE: cella di tabella (Stadio A.7, che non passa di qui) o
     // etichetta di layout. Qui, senza etichetta, resta fuori dal merge.
     if (isZeroPlaceholder(cleaned) && !labelled) { counters.placeholders++; note(k, 'placeholder:zero', cleaned); continue }
+    if (srcDoc && onlyAsPercentInText(field, srcDoc.text, cleaned)) { counters.guardrail++; note(k, 'percentuale-non-per-mille', cleaned); continue }
     const baseAffinity = affPair && typeof affPair === 'object' ? affPair.aff : affPair
     const cand = {
       valore: cleaned,
@@ -5720,6 +5737,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             }
             let cleaned = sanitizeFieldValue(f, valObj.valore)
             if (!cleaned) continue
+            if (onlyAsPercentInText(f, d.text, cleaned)) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — nel documento è solo una percentuale, il campo è per mille`)
+              continue
+            }
             if (!passesStagedEvidence(f, cleaned, valObj, a7NormCtx, a7RawCtx)) {
               diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — non compare nelle tabelle inviate (senza evidenza)`)
               continue
