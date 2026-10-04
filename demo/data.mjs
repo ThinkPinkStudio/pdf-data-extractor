@@ -30,6 +30,7 @@ const F = (id, label, type, description) => ({ id, label, type, description, ena
 export const PROFILES = [
   {
     id: 'prof_fatture',
+    recognition: 'È una fattura (o nota di credito) emessa da un fornitore verso l’azienda: riporta numero e data documento, cedente e cessionario con P.IVA, righe con imponibile, IVA e totale da pagare.',
     name: 'Fatture fornitori',
     matchKeywords: 'fattur, passive',
     matchExcludeKeywords: 'bozze, annullate',
@@ -37,7 +38,7 @@ export const PROFILES = [
     contentExcludeKeywords: 'curriculum, preventivo',
     promptExtra: 'Importi in formato italiano (1.234,56). Se la fattura ha più aliquote IVA restituisci il totale IVA.',
     fields: [
-      F('f_num', 'Numero fattura', 'text', 'Numero progressivo del documento, così come stampato (es. "FT 2026/0418").'),
+      F('f_num', 'Numero fattura', 'text', 'Identificativo del documento così come stampato (es. "FT 2026/0418").'),
       F('f_data', 'Data emissione', 'date', 'Data di emissione della fattura, formato GG/MM/AAAA.'),
       F('f_forn', 'Fornitore', 'text', 'Ragione sociale di chi EMETTE la fattura (cedente/prestatore).'),
       F('f_piva', 'P.IVA fornitore', 'fiscal', 'Partita IVA del fornitore, 11 cifre senza prefisso IT.'),
@@ -48,11 +49,12 @@ export const PROFILES = [
       F('f_scad', 'Scadenza pagamento', 'date', 'Data entro cui pagare; se indicata solo come "60 gg d.f.f.m." calcola la data.'),
       F('f_mod', 'Modalità di pagamento', 'enum', 'Bonifico, RiBa, RID/SDD, carta, contanti.'),
       F('f_iban', 'IBAN', 'text', 'IBAN del fornitore su cui effettuare il pagamento.'),
-      F('f_oda', 'Riferimento ordine', 'text', 'Numero e data dell’ordine d’acquisto richiamato in fattura, se presente.'),
+      F('f_oda', 'Riferimento ordine', 'text', 'Estremi (codice e data) dell’ordine d’acquisto richiamato in fattura, se presente.'),
     ],
   },
   {
     id: 'prof_fornitura',
+    recognition: 'Contratto, accordo quadro o loro addendum che regola una fornitura continuativa di beni o servizi: parti, oggetto, durata, prezzi o listini, pagamenti, penali e recesso. Listini e verbali di audit dello stesso fornitore fanno parte del fascicolo.',
     name: 'Contratti di fornitura',
     matchKeywords: 'contratt, accordo quadro, fornitori',
     matchExcludeKeywords: 'bozza',
@@ -80,6 +82,7 @@ export const PROFILES = [
   },
   {
     id: 'prof_locazione',
+    recognition: 'Contratto di locazione di un immobile (uso commerciale o abitativo) tra locatore e conduttore: indirizzo e dati catastali, canone, durata, deposito cauzionale, registrazione.',
     name: 'Contratti di locazione',
     matchKeywords: 'locazion, immobili, affitt',
     matchExcludeKeywords: '',
@@ -103,6 +106,7 @@ export const PROFILES = [
   },
   {
     id: 'prof_ddt',
+    recognition: 'Documento di trasporto che accompagna la merce: mittente, destinatario, luogo di consegna, causale, vettore, colli e peso. Non contiene prezzi né IVA.',
     name: 'Documenti di trasporto (DDT)',
     matchKeywords: 'ddt, bolle, trasporto',
     matchExcludeKeywords: '',
@@ -110,20 +114,21 @@ export const PROFILES = [
     contentExcludeKeywords: '',
     promptExtra: '',
     fields: [
-      F('d_num', 'Numero DDT', 'text', 'Numero del documento di trasporto.'),
+      F('d_num', 'Numero DDT', 'text', 'Identificativo del documento di trasporto.'),
       F('d_data', 'Data DDT', 'date', 'Data di emissione del DDT.'),
       F('d_mitt', 'Mittente', 'text', 'Ragione sociale del mittente.'),
       F('d_dest', 'Destinatario', 'text', 'Ragione sociale del destinatario.'),
       F('d_luogo', 'Luogo di destinazione', 'text', 'Indirizzo di consegna della merce.'),
       F('d_caus', 'Causale trasporto', 'enum', 'Vendita, conto lavorazione, reso, conto visione…'),
       F('d_vett', 'Vettore', 'text', 'Trasportatore incaricato.'),
-      F('d_colli', 'Numero colli', 'number', 'Totale colli spediti.'),
-      F('d_peso', 'Peso lordo (kg)', 'number', 'Peso lordo complessivo in kg.'),
+      F('d_colli', 'Numero colli', 'number', 'Numero totale di colli spediti.'),
+      F('d_peso', 'Peso lordo (kg)', 'number', 'Numero di kg di peso lordo complessivo.'),
       F('d_porto', 'Porto', 'enum', 'Franco, assegnato, franco con addebito.'),
     ],
   },
   {
     id: 'prof_cedolini',
+    recognition: 'Cedolino o busta paga mensile di un dipendente: periodo di paga, voci di competenza e trattenute, netto in busta, TFR e ferie.',
     name: 'Cedolini paga',
     matchKeywords: 'cedolin, buste paga, paghe',
     matchExcludeKeywords: '',
@@ -135,15 +140,16 @@ export const PROFILES = [
       F('p_cf', 'Codice fiscale', 'fiscal', 'Codice fiscale del dipendente (16 caratteri).'),
       F('p_mese', 'Periodo di paga', 'text', 'Mese e anno di competenza.'),
       F('p_liv', 'Livello e CCNL', 'text', 'Livello di inquadramento e contratto applicato.'),
-      F('p_ore', 'Ore ordinarie', 'number', 'Ore ordinarie lavorate nel mese.'),
+      F('p_ore', 'Ore ordinarie', 'number', 'Numero di ore ordinarie lavorate nel mese.'),
       F('p_lordo', 'Totale competenze', 'number', 'Retribuzione lorda complessiva del mese.'),
       F('p_netto', 'Netto in busta', 'number', 'Importo netto pagato al dipendente.'),
       F('p_tfr', 'TFR maturato nel mese', 'number', 'Quota TFR maturata nel periodo.'),
-      F('p_ferie', 'Ferie residue (gg)', 'number', 'Giorni di ferie residui a fine mese.'),
+      F('p_ferie', 'Ferie residue (gg)', 'number', 'Numero di giorni di ferie residui a fine mese.'),
     ],
   },
   {
     id: 'prof_cv',
+    recognition: 'Curriculum vitae di un candidato: dati di contatto, esperienze lavorative con date, formazione, competenze e lingue.',
     name: 'Curriculum candidati',
     matchKeywords: 'cv, candidature, curriculum',
     matchExcludeKeywords: '',
@@ -154,9 +160,9 @@ export const PROFILES = [
       F('v_nome', 'Candidato', 'text', 'Nome e cognome.'),
       F('v_ruolo', 'Ruolo attuale', 'text', 'Posizione ricoperta attualmente o più recente.'),
       F('v_email', 'Email', 'text', 'Indirizzo email di contatto.'),
-      F('v_tel', 'Telefono', 'text', 'Numero di telefono.'),
+      F('v_tel', 'Telefono', 'text', 'Recapito telefonico del candidato.'),
       F('v_citta', 'Città', 'text', 'Città di residenza o domicilio.'),
-      F('v_anni', 'Anni di esperienza', 'number', 'Anni di esperienza nel ruolo, calcolati dalle date.'),
+      F('v_anni', 'Anni di esperienza', 'number', 'Numero di anni di esperienza nel ruolo, calcolati dalle date.'),
       F('v_studio', 'Titolo di studio', 'text', 'Titolo di studio più alto conseguito.'),
       F('v_skill', 'Competenze chiave', 'text', 'Competenze principali (max 6).'),
       F('v_lingue', 'Lingue', 'text', 'Lingue straniere e livello.'),
@@ -165,6 +171,7 @@ export const PROFILES = [
   },
   {
     id: 'prof_preventivi',
+    recognition: 'Offerta o preventivo commerciale inviato all’azienda: elenco di attività o prodotti con prezzi, totale, validità dell’offerta e condizioni.',
     name: 'Preventivi e offerte',
     matchKeywords: 'preventiv, offert',
     matchExcludeKeywords: '',
@@ -172,7 +179,7 @@ export const PROFILES = [
     contentExcludeKeywords: '',
     promptExtra: '',
     fields: [
-      F('o_num', 'Numero offerta', 'text', 'Numero/codice del preventivo.'),
+      F('o_num', 'Numero offerta', 'text', 'Codice identificativo del preventivo.'),
       F('o_data', 'Data offerta', 'date', 'Data del preventivo.'),
       F('o_forn', 'Fornitore', 'text', 'Chi presenta l’offerta.'),
       F('o_ogg', 'Oggetto', 'text', 'Descrizione sintetica della fornitura/progetto.'),
@@ -184,6 +191,7 @@ export const PROFILES = [
   },
   {
     id: 'prof_utenze',
+    recognition: 'Bolletta di una fornitura di energia elettrica o gas: punto di prelievo (POD/PDR), periodo, consumi, importo e scadenza.',
     name: 'Bollette e utenze',
     matchKeywords: 'utenze, bollett, energia, gas',
     matchExcludeKeywords: '',
@@ -193,9 +201,10 @@ export const PROFILES = [
     fields: [
       F('u_forn', 'Fornitore', 'text', 'Società di vendita dell’energia/gas.'),
       F('u_pod', 'POD / PDR', 'text', 'Codice del punto di prelievo.'),
+      F('u_inizio', 'Inizio periodo', 'date', 'Primo giorno del periodo di consumo fatturato.'),
       F('u_per', 'Periodo di fatturazione', 'text', 'Intervallo di date dei consumi fatturati.'),
-      F('u_cons', 'Consumo (kWh)', 'number', 'Consumo complessivo del periodo.'),
-      F('u_pot', 'Potenza impegnata (kW)', 'number', 'Potenza contrattualmente impegnata.'),
+      F('u_cons', 'Consumo (kWh)', 'number', 'Numero di kWh consumati nel periodo.'),
+      F('u_pot', 'Potenza impegnata (kW)', 'number', 'Numero di kW di potenza impegnata da contratto.'),
       F('u_tot', 'Totale da pagare', 'number', 'Importo totale della bolletta.'),
       F('u_scad', 'Scadenza', 'date', 'Data di scadenza del pagamento.'),
     ],
@@ -367,3 +376,67 @@ export const LEASE_CHAT = [
   { role: 'user', content: 'Il deposito cauzionale produce interessi?' },
   { role: 'assistant', content: 'Sì. Il deposito di 6.600,00 € (tre mensilità) è produttivo di interessi legali, che vengono corrisposti al conduttore alla fine di ogni anno di locazione (art. 6).' },
 ]
+
+// ─── Archivi pluriennali per i Riepiloghi (grafici per anno) ──────────────────
+// PRNG deterministico: rilanciando il seed escono sempre gli stessi numeri.
+function prng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296) }
+const fmtEur = (n) => { const [i, d] = (Math.round(n * 100) / 100).toFixed(2).split('.'); return i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + d }
+const pad = (n) => String(n).padStart(2, '0')
+
+// Fatture 2024–2025 degli stessi fornitori (due per fornitore all'anno).
+export function archiveInvoices() {
+  const rnd = prng(2024)
+  const out = []
+  const growth = { 2024: 0.82, 2025: 0.93 }
+  for (const year of [2024, 2025]) {
+    for (const [k, inv] of INVOICES.entries()) {
+      for (const half of [0, 1]) {
+        const base = Number(inv.imp.replace(/\./g, '').replace(',', '.'))
+        const imp = base * growth[year] * (0.7 + rnd() * 0.6)
+        const iva = Math.round(imp * 22) / 100
+        const month = half ? 7 + Math.floor(rnd() * 5) : 1 + Math.floor(rnd() * 5)
+        const day = 3 + Math.floor(rnd() * 24)
+        const dueMonth = month + 2 > 12 ? month - 10 : month + 2
+        const dueYear = month + 2 > 12 ? year + 1 : year
+        const num = `${String(100 + k * 37 + half * 211 + (year - 2024) * 503)}/${year}`
+        out.push({
+          ...inv, dossier: `${inv.dossier} · ${pad(month)}-${year}`, file: `Fattura_${num.replace('/', '-')}_${inv.dossier.replace(/[^A-Za-z]+/g, '-')}.pdf`,
+          num, data: `${pad(day)}/${pad(month)}/${year}`, imp: fmtEur(imp), iva: fmtEur(iva), tot: fmtEur(imp + iva),
+          scad: `${pad(Math.min(day, 28))}/${pad(dueMonth)}/${dueYear}`, oda: '',
+        })
+      }
+    }
+  }
+  return out
+}
+
+// Bollette mensili della sede (gen 2025 – ago 2026), consumi stagionali.
+export function monthlyBills() {
+  const kwh = [5480, 5120, 4710, 4020, 3880, 4470, 5210, 4390, 4150, 4380, 4960, 5390]
+  const out = []
+  for (let y = 2025; y <= 2026; y++) {
+    for (let m = 1; m <= 12; m++) {
+      if (y === 2026 && m > 8) break
+      // Agosto 2026 = la bolletta PDF di esempio (4.640 kWh, 1.486,22 €).
+      const aug26 = y === 2026 && m === 8
+      const cons = aug26 ? 4640 : Math.round(kwh[m - 1] * (y === 2026 ? 0.94 : 1))
+      const tot = aug26 ? 1486.22 : cons * (y === 2026 ? 0.3203 : 0.2961)
+      const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
+      const dm = m === 12 ? 1 : m + 1
+      const dy = m === 12 ? y + 1 : y
+      out.push({
+        dossier: `Energia sede · ${pad(m)}-${y}`, file: y === 2026 && m === 8 ? 'Bolletta_energia_08-2026.pdf' : `Bolletta_energia_${pad(m)}-${y}.pdf`,
+        inizio: `01/${pad(m)}/${y}`, per: `01/${pad(m)}/${y} – ${last}/${pad(m)}/${y}`, cons: fmtEur(cons).replace(',00', ''), tot: fmtEur(tot), scad: `25/${pad(dm)}/${dy}`,
+      })
+    }
+  }
+  return out
+}
+
+export function billState(b) {
+  const f = b.file
+  return {
+    u_forn: v('Lumen Energia S.p.A.', f), u_pod: v('IT001E00012345', f), u_inizio: v(b.inizio, f), u_per: v(b.per, f),
+    u_cons: v(b.cons, f), u_pot: v('30', f), u_tot: v(b.tot, f), u_scad: v(b.scad, f),
+  }
+}

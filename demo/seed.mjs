@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import {
   DEMO_USER, TEAM, PROFILES, GENERIC_PROFILES, profileById, FILES, DOSSIER_MERIDIANE,
   INVOICES, invoiceState, PAYSLIPS, payslipState, LEASES, leaseState, SUPPLY_CONTRACTS,
-  MAIN_SESSION_CHAT, LEASE_CHAT, CLIENT,
+  MAIN_SESSION_CHAT, LEASE_CHAT, CLIENT, archiveInvoices, monthlyBills, billState,
 } from './data.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -60,8 +60,25 @@ function jobLogs(t0, profile, files, { status = 'done', n = 0 } = {}) {
   return lines.map((l, i) => `[${clock(t0 + i * 7)}] ${l}`)
 }
 
-async function insertJob({ batchId = null, email, dossier, profile, files, state = {}, status = 'done', created, progress = {}, error = null, precheck = null, withPdf = true }) {
+// Esito del controllo di pertinenza di un job estratto (parole del contenuto trovate).
+const DETECTED = {
+  prof_fatture: 'fattura elettronica', prof_fornitura: 'contratto di fornitura con allegati', prof_locazione: 'contratto di locazione commerciale',
+  prof_ddt: 'documento di trasporto', prof_cedolini: 'cedolino paga', prof_cv: 'curriculum vitae', prof_preventivi: 'offerta commerciale', prof_utenze: 'bolletta energia elettrica',
+}
+function okPrecheck(profile, at) {
+  const words = (profile.contentKeywords || '').split(',').map((w) => w.trim()).filter(Boolean)
+  return {
+    verdict: 'ok', mode: 'keywords', score: 1, threshold: 0.25, at,
+    reason: 'parole chiave del profilo trovate nel contenuto', matched: words,
+    detected: { type: DETECTED[profile.id] || profile.name, keywords: words.slice(0, 3) },
+    summary: `Il testo contiene ${words.length}/${words.length} parole del profilo «${profile.name}»: si procede con l'estrazione.`,
+  }
+}
+const folderOf = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '')
+
+async function insertJobRaw({ batchId = null, batchLabel = null, email, dossier, profile, files, state = {}, status = 'done', created, progress = {}, error = null, precheck = null, withPdf = true, runs = null }) {
   const id = randomUUID()
+  if (!precheck && status === 'done') precheck = okPrecheck(profile, created + 30)
   const st = fullState(profile, state)
   const n = Object.values(state).filter((e) => e && e.valore != null && e.valore !== '').length
   await q(
@@ -79,20 +96,42 @@ async function insertJob({ batchId = null, email, dossier, profile, files, state
     for (const f of files) {
       if (!pdfExists(f)) { idx++; continue }
       const b64 = pdfB64(f)
-      await q('INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash) VALUES ($1,$2,$3,$4,$5)', [id, idx++, f, b64, sha(b64)])
+      const rel = `${folderOf(batchLabel || 'Estrazioni_singole')}/${folderOf(dossier)}/${f}`
+      if (HAS_REL) await q('INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash, rel_path) VALUES ($1,$2,$3,$4,$5,$6)', [id, idx++, f, b64, sha(b64), rel])
+      else await q('INSERT INTO polizza_job_files (job_id, idx, file_name, pdf_base64, file_hash) VALUES ($1,$2,$3,$4,$5)', [id, idx++, f, b64, sha(b64)])
+    }
+  }
+  // Storico delle run (test_branch): una run per ogni job arrivato a un esito,
+  // più eventuali run precedenti passate dal chiamante.
+  if (HAS_RUNS && ['done', 'mismatch', 'error'].includes(status)) {
+    const flat = Object.fromEntries(Object.entries(state).filter(([, e]) => e && e.valore != null && e.valore !== '').map(([k, e]) => [k, String(e.valore)]))
+    const fields = profile.fields.map(({ id: fid, label }) => ({ id: fid, label }))
+    const all = [...(runs || []), { at: created + 60 + files.length * 45, values: flat }]
+    for (const r of all) {
+      const filled = Object.keys(r.values).length
+      await q(`INSERT INTO polizza_job_runs (job_id, batch_id, finished_at, status, profile_id, profile_name, model, ctx, verdict, summary, error, fields, field_values, filled, total)
+               VALUES ($1,$2,$3,$4,$5,$6,'qwen2.5:7b-instruct',24576,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13)`,
+        [id, batchId, r.at, status, profile.id, profile.name, precheck?.verdict || null, r.summary || precheck?.summary || null, error, JSON.stringify(fields), JSON.stringify(r.values), filled, profile.fields.length])
     }
   }
   return id
 }
 
+const batchLabels = {}
 async function insertBatch(label, email, created) {
   const id = randomUUID()
   await q('INSERT INTO batch_jobs (id, email, label, upload_complete, created_at, updated_at, notified_at) VALUES ($1,$2,$3,TRUE,$4,$4,$5)', [id, email, label, created, created + 2 * H])
+  batchLabels[id] = label
   return id
 }
+const insertJob = (o) => insertJobRaw({ ...o, batchLabel: o.batchId ? batchLabels[o.batchId] : null })
 
 // ─── Pulizia (solo DB demo) ────────────────────────────────────────────────────
-await q('TRUNCATE polizza_job_files, polizza_jobs, batch_jobs, sessions, settings, action_logs, users, ocr_cache RESTART IDENTITY CASCADE')
+const { rows: extra } = await q(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('polizza_job_runs','polizza_summaries')`)
+await q(`TRUNCATE polizza_job_files, polizza_jobs, batch_jobs, sessions, settings, action_logs, users, ocr_cache${extra.map((r) => ', ' + r.table_name).join('')} RESTART IDENTITY CASCADE`)
+const HAS_RUNS = extra.some((r) => r.table_name === 'polizza_job_runs')
+const { rows: relCol } = await q(`SELECT 1 FROM information_schema.columns WHERE table_name = 'polizza_job_files' AND column_name = 'rel_path'`)
+const HAS_REL = relCol.length > 0
 
 // ─── Utenti e impostazioni ─────────────────────────────────────────────────────
 for (const e of TEAM) await q('INSERT INTO users (email, created_at) VALUES ($1,$2)', [e, NOW - 90 * D])
@@ -118,6 +157,9 @@ const settings = {
   bulkExcludeKeywords: 'annullat',
   language: 'it',
   theme: 'dark',
+  // Menu essenziale per la presentazione (Impostazioni tecniche → Voci di menu):
+  // le pagine nascoste restano raggiungibili dal loro indirizzo.
+  navHiddenExtractor: JSON.stringify(['/batch', '/archive', '/chat', '/maintenance', '/diagnostics']),
 }
 for (const [k, v] of Object.entries(settings)) await q('INSERT INTO settings (key, value) VALUES ($1,$2)', [k, String(v)])
 
@@ -135,7 +177,12 @@ const ids = {}
   await insertJob({
     batchId: b, email: DEMO_USER, dossier: 'Documenti vari (da smistare)', profile: fatture, files: [FILES.cv], status: 'mismatch', created: t0 + i * 140,
     error: 'Contenuto non pertinente al profilo "Fatture fornitori" — rilevato: curriculum vitae (esperienze, formazione, competenze). Verifica il profilo o premi "Procedi comunque".',
-    precheck: { verdict: 'mismatch', mode: 'keywords', score: 0.0, threshold: 0.25, reason: 'nessuna parola chiave del profilo nel contenuto', detected: { type: 'curriculum vitae' } },
+    precheck: {
+      verdict: 'mismatch', mode: 'keywords', score: 0.0, threshold: 0.25, reason: 'nessuna parola chiave del profilo nel contenuto',
+      missing: ['fattura', 'imponibile', 'IVA', 'totale documento'], detected: { type: 'curriculum vitae', keywords: ['esperienze', 'formazione', 'competenze'] },
+      suggestion: { id: 'prof_cv', name: 'Curriculum candidati' },
+      summary: 'Nessuna parola del profilo «Fatture fornitori» nel testo; il contenuto somiglia a «Curriculum candidati». Il job resta fermo finché non scegli: cambia profilo o «Procedi comunque».',
+    },
   })
   ids.batchInvoices = b
 }
@@ -179,10 +226,41 @@ const ids = {}
   })
 }
 
+// 5) Archivio fatture 2024–2025 (per il riepilogo pluriennale).
+{
+  const t0 = NOW - 12 * D - 3 * H
+  const b = await insertBatch('Fatture passive · archivio 2024–2025', 'davide.conti@example.com', t0)
+  let i = 0
+  for (const inv of archiveInvoices()) {
+    await insertJob({ batchId: b, email: 'davide.conti@example.com', dossier: inv.dossier, profile: fatture, files: [inv.file], state: invoiceState(inv), created: t0 + (i++) * 75 })
+  }
+  ids.batchArchive = b
+}
+
+// 6) Bollette mensili della sede (gen 2025 – ago 2026).
+{
+  const t0 = NOW - 9 * D - 6 * H
+  const b = await insertBatch('Utenze · bollette energia 2025–2026', 'davide.conti@example.com', t0)
+  let i = 0
+  for (const bill of monthlyBills()) {
+    await insertJob({ batchId: b, email: 'davide.conti@example.com', dossier: bill.dossier, profile: profileById.prof_utenze, files: [bill.file], state: billState(bill), created: t0 + (i++) * 60 })
+  }
+  ids.batchBills = b
+}
+
 // ─── Estrazioni singole (fuori batch) ──────────────────────────────────────────
 ids.dossierMeridiane = await insertJob({
   email: DEMO_USER, dossier: 'Fornitore Officine Meridiane', profile: profileById.prof_fornitura, files: DOSSIER_MERIDIANE.files,
   state: DOSSIER_MERIDIANE.state, created: NOW - 50 * 60,
+  runs: [{
+    at: NOW - 3 * D,
+    summary: 'Prima run sul solo contratto quadro: addendum e verbale di audit caricati dopo.',
+    values: {
+      c_forn: 'Officine Meridiane S.r.l.', c_piva: '09356720961', c_ogg: 'Fornitura di componenti metallici per arredo', c_stip: '15/01/2024',
+      c_scad: '31/12/2026', c_rinn: 'Sì, annuale (tacito)', c_prea: '90 giorni', c_val: '120.000,00', c_pag: 'Bonifico 60 gg d.f.f.m.',
+      c_pen: '0,5% al giorno lavorativo, max 10%', c_foro: 'Milano', c_ref: 'Ing. Paolo Re',
+    },
+  }],
 })
 await insertJob({
   email: 'sara.galli@example.com', dossier: 'Candidatura UX Designer', profile: profileById.prof_cv, files: [FILES.cv], created: NOW - 5 * H,
@@ -208,6 +286,7 @@ await insertJob({
   email: 'davide.conti@example.com', dossier: 'Energia sede · agosto 2026', profile: profileById.prof_utenze, files: [FILES.bolletta], created: NOW - 3 * D,
   state: {
     u_forn: { valore: 'Lumen Energia S.p.A.', fonte: { file: FILES.bolletta, page: 1 } }, u_pod: { valore: 'IT001E00012345', fonte: { file: FILES.bolletta, page: 1 } },
+    u_inizio: { valore: '01/08/2026', fonte: { file: FILES.bolletta, page: 1 } },
     u_per: { valore: '01/08/2026 – 31/08/2026', fonte: { file: FILES.bolletta, page: 1 } }, u_cons: { valore: '4.640', fonte: { file: FILES.bolletta, page: 1 } },
     u_pot: { valore: '30', fonte: { file: FILES.bolletta, page: 1 } }, u_tot: { valore: '1.486,22', fonte: { file: FILES.bolletta, page: 1 } },
     u_scad: { valore: '25/09/2026', fonte: { file: FILES.bolletta, page: 1 } },

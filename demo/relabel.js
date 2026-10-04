@@ -27,6 +27,7 @@
     [/polizze/g, 'pratiche'], [/Polizze/g, 'Pratiche'], [/POLIZZE/g, 'PRATICHE'],
     [/polizza/g, 'pratica'], [/Polizza/g, 'Pratica'], [/POLIZZA/g, 'PRATICA'],
     [/ \(RCT\/O\/P\)/g, ''], [/\bRCT_O e RCP\b/g, ''], [/^1 pagine\b/, '1 pagina'], [/OCR visivo completato/, 'Estrazione completata'],
+    [/verifica che questa copertura sia OPERANTE nei documenti e cita la prova/, 'verifica che il contenuto dei documenti corrisponda a questo profilo e cita la prova'],
   ]
   // Mai toccare CSS/JS inline: le classi delle pagine contengono "polizza".
   const SKIP = new Set(['STYLE', 'SCRIPT', 'NOSCRIPT', 'TEXTAREA'])

@@ -111,3 +111,9 @@
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(147, 189, 240, 0.25); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* test_branch: pillole e KPI delle Elaborazioni armonizzate con il navy. */
+.jb-pill.info { background: rgba(90, 144, 217, 0.18) !important; color: #93bdf0 !important; }
+[data-theme="light"] .jb-pill.info { color: #1e4a8c !important; }
+.jb-c-info { color: #93bdf0 !important; }
+.nav-item span.nav-new { background: var(--c-accent-dim); color: var(--c-text-primary); }

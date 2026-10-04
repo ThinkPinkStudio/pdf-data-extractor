@@ -35,6 +35,7 @@ async function newPage(theme = 'dark', { width = 1440, height = 900 } = {}) {
       localStorage.setItem('theme', theme)
       localStorage.setItem('lang', 'it')
       localStorage.removeItem('accentColor')
+      localStorage.setItem('rpNavSeen', '1') // niente badge «nuovo» su Riepiloghi
       if (jobId) localStorage.setItem('polizzaJobId', jobId)
     } catch { /* storage non disponibile */ }
     const inject = () => {
@@ -114,6 +115,50 @@ async function scrollToText(page, text, offset = 90) {
   await page.waitForTimeout(400)
 }
 
+// ─── Riepiloghi: creati con l'API reale dell'app (stessa logica del pannello
+// «Nuovo riepilogo»), una volta sola per seed. ─────────────────────────────────
+let SUMMARIES = null
+async function ensureSummaries(page) {
+  if (SUMMARIES) return SUMMARIES
+  const list = await (await page.request.get(`${BASE}/api/polizza/summaries`)).json()
+  const byName = Object.fromEntries((list.summaries || []).map((x) => [x.name, x.id]))
+  const doneIn = async (batchId) => {
+    const d = await (await page.request.get(`${BASE}/api/polizza/batch/${batchId}`)).json()
+    return (d.jobs || []).filter((j) => j.status === 'done').map((j) => j.jobId)
+  }
+  const want = [
+    { name: 'Fatture fornitori · 2024–2026', batches: [IDS.batchArchive, IDS.batchInvoices], yearFieldId: 'f_data' },
+    {
+      name: 'Energia sede · 2025–2026', batches: [IDS.batchBills], yearFieldId: 'u_inizio',
+      prefs: { ops: { u_pot: ['avg'] }, highlights: [{ fieldId: 'u_cons', op: 'sum' }, { fieldId: 'u_tot', op: 'sum' }, { fieldId: 'u_tot', op: 'avg' }] },
+    },
+  ]
+  for (const w of want) {
+    if (byName[w.name]) continue
+    const jobIds = (await Promise.all(w.batches.map(doneIn))).flat()
+    const r = await page.request.post(`${BASE}/api/polizza/summaries`, { data: { name: w.name, jobIds, yearFieldId: w.yearFieldId, mode: 'live' } })
+    if (!r.ok()) throw new Error(`riepilogo «${w.name}»: ${r.status()} ${await r.text()}`)
+    byName[w.name] = (await r.json()).id
+    // Potenza impegnata: ha senso la media, non la somma (Personalizza → calcolo).
+    if (w.prefs) await page.request.patch(`${BASE}/api/polizza/summaries/${byName[w.name]}`, { data: { prefs: w.prefs } })
+  }
+  SUMMARIES = { invoices: byName[want[0].name], energy: byName[want[1].name] }
+  return SUMMARIES
+}
+
+async function openJobRow(page, name) {
+  await page.locator('.jb-table tbody tr', { hasText: name }).first().click()
+  await page.waitForTimeout(700)
+}
+async function detailTab(page, label) {
+  await page.locator('.jb-tab', { hasText: label }).first().click()
+  await page.waitForTimeout(700)
+}
+async function summaryTab(page, label) {
+  await page.getByRole('button', { name: label, exact: true }).first().click()
+  await settle(page, 900)
+}
+
 const SHOTS = [
   ['01_estrattore_fattura', async () => {
     const page = await newPage('dark')
@@ -137,39 +182,51 @@ const SHOTS = [
     await settle(page, 1800)
     await shot(page, '03_pratica_multidocumento')
   }],
-  ['04_elaborazioni_batch', async () => {
+  ['04_elaborazioni', async () => {
     const page = await newPage('dark')
     await page.goto(`${BASE}/polizza/jobs`)
     await settle(page, 1200)
-    await shot(page, '04_elaborazioni_batch')
+    await shot(page, '04_elaborazioni')
   }],
-  ['05_elaborazioni_dettaglio', async () => {
-    const page = await newPage('dark', { height: 1000 })
-    await page.goto(`${BASE}/polizza/jobs`)
-    await settle(page, 800)
-    await page.getByText('Fatture passive · Settembre 2026').first().click()
-    await settle(page, 1000)
-    await scrollToText(page, '⬇ Esporta risultati (Excel)', 150)
-    await shot(page, '05_elaborazioni_dettaglio')
-  }],
-  ['05b_elaborazioni_valori', async () => {
-    const page = await newPage('dark', { height: 1000 })
-    await page.goto(`${BASE}/polizza/jobs`)
-    await settle(page, 800)
-    await page.getByText('Fatture passive · Settembre 2026').first().click()
-    await settle(page, 1000)
-    await page.locator('button[title]', { hasText: '▸' }).first().click()
-    await settle(page, 800)
-    await scrollToText(page, '⬇ Esporta risultati (Excel)', 150)
-    await shot(page, '05b_elaborazioni_valori')
-  }],
-  ['05c_elaborazioni_in_corso', async () => {
-    const page = await newPage('dark', { height: 1000 })
-    await page.goto(`${BASE}/polizza/jobs`)
-    await settle(page, 800)
-    await page.getByText('Contratti fornitori · rinnovi 2027').first().click()
+  ['05_batch_tabella', async () => {
+    const page = await newPage('dark')
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
     await settle(page, 1200)
-    await shot(page, '05c_elaborazioni_in_corso')
+    await shot(page, '05_batch_tabella')
+  }],
+  ['05b_batch_dettaglio_valori', async () => {
+    const page = await newPage('dark')
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await settle(page, 1000)
+    await openJobRow(page, 'Officine Meridiane')
+    await detailTab(page, 'Valori')
+    await shot(page, '05b_batch_dettaglio_valori')
+  }],
+  ['05c_batch_non_pertinente', async () => {
+    const page = await newPage('dark')
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await settle(page, 1000)
+    await openJobRow(page, 'Documenti vari')
+    await shot(page, '05c_batch_non_pertinente')
+  }],
+  ['05d_batch_in_corso', async () => {
+    const page = await newPage('dark')
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batchContracts}`)
+    await settle(page, 1200)
+    await openJobRow(page, 'Tessitura Brera Nova')
+    await detailTab(page, 'Valori')
+    await shot(page, '05d_batch_in_corso')
+  }],
+  ['05e_storico_run', async () => {
+    const page = await newPage('dark')
+    await page.goto(`${BASE}/polizza/jobs/singole`)
+    await settle(page, 1200)
+    await openJobRow(page, 'Fornitore Officine Meridiane')
+    await detailTab(page, 'Storico')
+    // apre la run più recente per mostrare i valori cambiati rispetto alla precedente
+    await page.locator('.jb-detail details summary').first().click().catch(() => {})
+    await page.waitForTimeout(700)
+    await shot(page, '05e_storico_run')
   }],
   ['06_cartella_bulk', async () => {
     const page = await newPage('dark', { height: 1100 })
@@ -213,6 +270,43 @@ const SHOTS = [
     await settle(page, 900)
     await shot(page, '14_cronologia')
   }],
+  ['18_riepiloghi_elenco', async () => {
+    const page = await newPage('dark')
+    await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi`)
+    await settle(page, 1200)
+    await shot(page, '18_riepiloghi_elenco')
+  }],
+  ['19_riepilogo_fatture_cruscotto', async () => {
+    const page = await newPage('dark', { height: 1000 })
+    const S = await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi/${S.invoices}`)
+    await settle(page, 1500)
+    await shot(page, '19_riepilogo_fatture_cruscotto')
+  }],
+  ['20_riepilogo_tabella_anno', async () => {
+    const page = await newPage('dark', { height: 1000 })
+    const S = await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi/${S.invoices}`)
+    await settle(page, 1200)
+    await summaryTab(page, 'Tabella per anno')
+    await shot(page, '20_riepilogo_tabella_anno')
+  }],
+  ['21_riepilogo_per_campo', async () => {
+    const page = await newPage('dark', { height: 1000 })
+    const S = await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi/${S.invoices}`)
+    await settle(page, 1200)
+    await summaryTab(page, 'Per campo')
+    await shot(page, '21_riepilogo_per_campo')
+  }],
+  ['23_riepilogo_energia', async () => {
+    const page = await newPage('dark', { height: 1000 })
+    const S = await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi/${S.energy}`)
+    await settle(page, 1500)
+    await shot(page, '23_riepilogo_energia')
+  }],
   ['15_light_estrattore_fattura', async () => {
     const page = await newPage('light')
     await openFromHistory(page, FILES.ftMeridiane)
@@ -233,6 +327,13 @@ const SHOTS = [
     await page.goto(`${BASE}/polizza/jobs`)
     await settle(page, 1200)
     await shot(page, '17_light_elaborazioni')
+  }],
+  ['24_light_riepilogo_fatture', async () => {
+    const page = await newPage('light', { height: 1000 })
+    const S = await ensureSummaries(page)
+    await page.goto(`${BASE}/polizza/riepiloghi/${S.invoices}`)
+    await settle(page, 1500)
+    await shot(page, '24_light_riepilogo_fatture')
   }],
 ]
 
