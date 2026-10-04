@@ -268,3 +268,8 @@ test('motore a stadi: A.7 legge ogni documento a parte e il consenso sceglie la 
     for (const u of a7Calls) assert.ok(!u.includes('BOLCHINI MARGHERITA_In vigore'), 'nome file nel prompt')
   })
 })
+
+test('flag «sezioni» e «zeri»: le frasi che sostituiscono esistono nel prompt A.7 (mai un flag muto)', () => {
+  assert.ok(A7_SYSTEM_PROMPT.includes("Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;"))
+  assert.ok(A7_SYSTEM_PROMPT.includes("Se il valore non c'è, non includere quel campo."))
+})

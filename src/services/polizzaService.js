@@ -5608,9 +5608,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // iniziale che copre il periodo più lungo (GORINI P31: 282,65 della rata
         // iniziale di 14 mesi invece di 241,00 della rata annuale successiva).
         // Con il flag decide la DESCRIZIONE quale riga prendere.
-        const sys = engineFlag(settings, 'sezioni') ? A7_SYSTEM_PROMPT.replace(
+        const sys0 = engineFlag(settings, 'sezioni') ? A7_SYSTEM_PROMPT.replace(
           "Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
           "Se la stessa voce compare in PIU righe (rate del premio come RATA INIZIALE e RATA SUCCESSIVA; coperture o sezioni diverse e un totale del contratto), scegli la riga che la DESCRIZIONE del campo chiede (per esempio il premio annuo e non la rata iniziale; la copertura nominata dalla descrizione e non il totale del contratto con le altre coperture) e rispondi UNA SOLA volta;") : A7_SYSTEM_PROMPT
+        // [flag zeri] Un importo STAMPATO a zero è un valore: le descrizioni degli
+        // interessi e dei diritti dicono «se è stampato a zero riporta '0,00'», ma
+        // il modello trattava lo 0,00 della cella come «valore assente» e lo
+        // ometteva (P27 del 04/10: «PREMIO RATA INIZIALE | 0,00 | 340,61 | … |
+        // 416,00», proposti imponibile, diritti, imposte e lordo, non gli interessi).
+        const sys = engineFlag(settings, 'zeri') ? sys0.replace(
+          "Se il valore non c'è, non includere quel campo.",
+          "Se il valore non c'è, non includere quel campo; un importo STAMPATO a zero in una cella (0,00) invece c'è: riportalo per il campo a cui appartiene quando la descrizione del campo lo prevede.") : sys0
         const userOf = (tableBlock) => `TABELLE DEL DOCUMENTO (righe enumerate):\n${tableBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'oggetto JSON, es. {"voci": [{"campo": 1, "valore": "...", "riga": "...", "colonna": "..."}]}. I campi senza valore non compaiono.`
         // Budget di TESTO per chiamata (stesso calcolo dei gruppi): le tabelle
         // di un documento entrano in ordine di pagina finché ci stanno; la prima

@@ -49,6 +49,7 @@ const BUILD_FEATURES = [
   'contratto-prompt-originale', // Domanda sul contratto: tolta la coda sui preventivi (una polizza scansionata senza numero diventava Non valida); i preventivi li toglie la regola deterministica (04/10/2026)
   'zero-stampato-sezioni', // Lo 0,00 sotto la colonna che nomina il campo (interessi DAS) non è un segnaposto; flag «sezioni» per A.7 (04/10/2026)
   'sandwich-docling-ritirato', // Ritirata la lettura OCR per tutto nei documenti «sandwich» del ramo Docling: su BOIARDO (P45) non sistemava le date e metteva testo OCR illeggibile tra i candidati della compagnia (04/10/2026 sera)
+  'flag-zeri', // Flag «zeri» (spento): in A.7 un importo stampato a zero è un valore quando la descrizione lo prevede (interessi, diritti) (05/10/2026)
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
 ]
 

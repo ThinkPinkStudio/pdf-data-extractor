@@ -38,6 +38,7 @@ export const KNOWN_FLAGS = Object.freeze({
   verifiche: 'prompt: anche per le verifiche la frase può usare parole diverse (resta la citazione che nomina l\'oggetto)',
   recupero: 'Stadio E con le pagine dei batch, budget dal contesto, ranking semantico+IDF per rango, senza label (F07)',
   sezioni: 'A.7: tra più righe (rate, coperture e totale) la riga che la DESCRIZIONE chiede (premio annuo, non la rata iniziale; la copertura, non il totale del contratto), invece del «TOTALE dell\'intero periodo»',
+  zeri: 'A.7: un importo stampato a zero (0,00) in una cella è un valore da riportare quando la descrizione del campo lo prevede (interessi, diritti)',
 })
 
 /** @returns {Set<string>} */
