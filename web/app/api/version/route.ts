@@ -48,6 +48,7 @@ const BUILD_FEATURES = [
   'date-piu-recenti', // Arbitro: l'affinità non fa vincere una decorrenza/scadenza più vecchia (04/10/2026)
   'contratto-prompt-originale', // Domanda sul contratto: tolta la coda sui preventivi (una polizza scansionata senza numero diventava Non valida); i preventivi li toglie la regola deterministica (04/10/2026)
   'zero-stampato-sezioni', // Lo 0,00 sotto la colonna che nomina il campo (interessi DAS) non è un segnaposto; flag «sezioni» per A.7 (04/10/2026)
+  'sandwich-docling', // Documento «sandwich» nel ramo Docling: testo dell'OCR del programma anche per date e regex, non il markdown del testo invisibile (04/10/2026)
 ]
 
 export async function GET() {
