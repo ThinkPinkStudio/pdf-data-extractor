@@ -1,0 +1,5 @@
+# Generati dagli script (rigenerabili)
+pdfs/
+bulk/
+screenshots/
+.seed-ids.json
