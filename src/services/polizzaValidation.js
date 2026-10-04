@@ -2304,6 +2304,27 @@ export function validateCrossFields(best, fields, opts = {}) {
       dropField(best, tImposta.id, notes, `Coerenza premio: imposte = imponibile = ${v}: svuotate`)
     }
   }
+  // COMPONENTI del premio uguali al premio: diritti o interessi non nulli
+  // uguali al lordo o all'imponibile, e un imponibile uguale al lordo (in mezzo
+  // ci sono le imposte), sono lo stesso numero copiato in più campi (P01, P05,
+  // P17 del 04/10: l'importo della riga tutela legale in imponibile, diritti e
+  // lordo). Si svuota la COMPONENTE, il lordo resta. Diritti/interessi dalla
+  // TESTA della descrizione.
+  {
+    const headOf = (f) => String(f?.description || '').split(':')[0].toLowerCase()
+    const amtOf = (f) => (f && (f.id in best) ? (parsePureAmount(entryValore(best, f.id)) ?? looseAmount(entryValore(best, f.id))) : null)
+    const tot = amtOf(tTotale), imp = amtOf(tImponibile)
+    for (const f of list) {
+      if (!/^\s*(?:diritti|interessi)\b/.test(headOf(f))) continue
+      const v = amtOf(f)
+      if (v != null && v > 0 && ((tot != null && Math.abs(v - tot) < 0.005) || (imp != null && Math.abs(v - imp) < 0.005))) {
+        dropField(best, f.id, notes, `Coerenza premio: ${f.label || f.id} = ${entryValore(best, f.id)} uguale al premio → numero copiato: svuotato`)
+      }
+    }
+    if (tImponibile && tot != null && imp != null && imp > 0 && Math.abs(imp - tot) < 0.005) {
+      dropField(best, tImponibile.id, notes, `Coerenza premio: imponibile = lordo = ${entryValore(best, tImponibile.id)} (in mezzo ci sono le imposte) → imponibile svuotato`)
+    }
+  }
   if (tTotale && tImponibile && tImposta) {
     if ((tTotale.id in best) && (tImponibile.id in best) && (tImposta.id in best)) {
       const tot = parsePureAmount(entryValore(best, tTotale.id)) ?? looseAmount(entryValore(best, tTotale.id))

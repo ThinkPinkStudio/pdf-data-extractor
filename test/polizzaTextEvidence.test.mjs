@@ -74,3 +74,19 @@ test('arbitro, DATE: l\'affinità non fa vincere una data più vecchia (P11: pol
   const polizza = { valore: '28/07/2026', affinity: 0.7, effDate: '28/07/2026' }
   assert.equal(pickSemanticCandidate(preventivo, polizza, 'anagrafica'), polizza)
 })
+
+test('coerenza premio: diritti o interessi uguali al premio, imponibile uguale al lordo → svuotati (il lordo resta)', async () => {
+  const { validateCrossFields } = await import('../src/services/polizzaValidation.js')
+  const fields = [
+    { id: 'imp', label: 'Premio imponibile tutela legale', description: 'Premio imponibile (netto) ANNUO della tutela legale: la base imponibile.' },
+    { id: 'tot', label: 'Premio lordo totale tutela legale', description: 'Premio lordo ANNUO della tutela legale: comprensivo di imposte.' },
+    { id: 'dir', label: 'Diritti', description: 'Diritti della tutela legale: l\'importo dei diritti (es. 0,00, 2,48).' },
+    { id: 'int', label: 'Interessi di frazionamento', description: 'Interessi di frazionamento della tutela legale: l\'importo (es. 0,00).' },
+  ]
+  const best = { imp: { valore: '30,01' }, tot: { valore: '30,01' }, dir: { valore: '30,01' }, int: { valore: '0,00' } }
+  validateCrossFields(best, fields)
+  assert.ok(!('imp' in best), 'imponibile = lordo')
+  assert.ok(!('dir' in best), 'diritti = premio')
+  assert.equal(best.tot.valore, '30,01')
+  assert.equal(best.int.valore, '0,00', 'lo zero resta')
+})
