@@ -46,6 +46,7 @@ const BUILD_FEATURES = [
   'testo-cella-completamento', // Campi di testo: la cella della scheda batte la prosa delle condizioni e l'opzione del solo questionario (anche «Valutazione delle richieste ed esigenze»); A.7 completa la riga del premio per i campi «sulla stessa riga»; casella iniziale tolta (04/10/2026)
   'illeggibile-quarti', // Pertinenza: una metà di batch ancora illeggibile si divide di nuovo (fino ai quarti) prima del «Da verificare» (04/10/2026)
   'date-piu-recenti', // Arbitro: l'affinità non fa vincere una decorrenza/scadenza più vecchia (04/10/2026)
+  'contratto-prompt-originale', // Domanda sul contratto: tolta la coda sui preventivi (una polizza scansionata senza numero diventava Non valida); i preventivi li toglie la regola deterministica (04/10/2026)
 ]
 
 export async function GET() {

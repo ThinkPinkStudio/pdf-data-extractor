@@ -625,7 +625,12 @@ export function buildContrattoPrompt({ blocks = [] }) {
   const pages = blocks.map((b) => `${operativitaPageTag(b.ord, b.page)}\n${b.text}`).join('\n\n')
   const user = [
     'Le pagine qui sotto vengono da un fascicolo assicurativo.',
-    'DOMANDA: tra queste pagine c\'è il CONTRATTO vero e proprio — frontespizio o scheda di polizza, appendice o atto con le garanzie e i premi — oppure ci sono SOLTANTO quietanze di pagamento del premio, set informativo, DIP, questionari, condizioni generali, o preventivi / quotazioni / offerte / proposte che non riportano un numero di polizza?',
+    // (03/10/2026: aggiunta e TOLTA la coda «o preventivi / quotazioni / offerte /
+    // proposte che non riportano un numero di polizza»: il modello la ripeteva per
+    // una polizza scansionata senza numero leggibile (ARENA 1 TL «assente», Non
+    // valido non forzabile) e prendeva una voltura per contratto (SONZOGNI). I
+    // preventivi li toglie preContractLabel, prima del modello.)
+    'DOMANDA: tra queste pagine c\'è il CONTRATTO vero e proprio — frontespizio o scheda di polizza, appendice o atto con le garanzie e i premi — oppure ci sono SOLTANTO quietanze di pagamento del premio, set informativo, DIP, questionari o condizioni generali?',
     '',
     'Rispondi con un oggetto JSON con queste chiavi:',
     '{"contratto": "presente" | "assente" | "non determinabile",',
