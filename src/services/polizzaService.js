@@ -6032,7 +6032,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             lex: affPair && typeof affPair === 'object' ? affPair.lex : null,
             ...(fieldValueKind(f) === 'text' && srcDoc ? textCellEvidence(srcDoc, cleaned) : {}),
             deterministic: false,
-            ...(a78 ? { preStage: true } : {}),
+            // [flag date8] Le DATE del frontespizio sono provvisorie: la cascata le
+            // chiede comunque ai documenti più recenti e decide l'arbitro. Prima la
+            // quietanza di rinnovo più recente non veniva mai interrogata sulle date
+            // (la cascata chiede solo i campi vuoti): P39 RAMAZZINI 2, decorrenza
+            // 15/07/2024 della polizza invece del 15/07/2026 del rinnovo.
+            ...((a78 || (engineFlag(settings, 'date8') && fieldValueKind(f) === 'date')) ? { preStage: true } : {}),
           }
           best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
           a8Rows++
@@ -6106,7 +6111,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // [flag a78] Campi con una proposta PROVVISORIA degli stadi A.7/A.8 non ancora
   // richiesti alla cascata: contano come mancanti finché un documento li chiede.
   const preStageAsked = new Set()
-  const pendingPre = (f) => engineFlag(settings, 'a78') && best[f.id]?.preStage === true && !preStageAsked.has(f.id)
+  const pendingPre = (f) => (engineFlag(settings, 'a78') || engineFlag(settings, 'date8')) && best[f.id]?.preStage === true && !preStageAsked.has(f.id)
   const missingEligible = (doc) => {
     const base = activeFields.filter((f) => {
       if (!(f.id in best)) return (missCount[f.id] || 0) < RECOVERY_MISS_CAP

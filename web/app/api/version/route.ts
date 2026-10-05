@@ -52,6 +52,7 @@ const BUILD_FEATURES = [
   'flag-zeri', // Flag «zeri» (spento): in A.7 un importo stampato a zero è un valore quando la descrizione lo prevede (interessi, diritti) (05/10/2026)
   'forzate-tutti-i-campi', // Estrazione forzata: si estraggono TUTTI i campi del profilo; tolta la regola che svuotava i campi della copertura «mai nominata» (05/10/2026, decisione dell'utente)
   'zeri-default-righe', // Flag «zeri» acceso di default; flag «righe» (spento): in A.7 la riga la sceglie la descrizione, senza istruzioni fisse né esempi (05/10/2026)
+  'flag-date8', // Flag «date8» (spento): le date del frontespizio sono provvisorie, la cascata le chiede anche ai documenti più recenti (05/10/2026)
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
 ]
 

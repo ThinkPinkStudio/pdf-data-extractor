@@ -273,3 +273,10 @@ test('flag «sezioni» e «zeri»: le frasi che sostituiscono esistono nel promp
   assert.ok(A7_SYSTEM_PROMPT.includes("Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;"))
   assert.ok(A7_SYSTEM_PROMPT.includes("Se il valore non c'è, non includere quel campo."))
 })
+
+test('flag «date8» e «righe» conosciuti dal motore (spenti di default; «zeri» acceso)', async () => {
+  const { engineFlags } = await import('../src/services/engineFlags.js')
+  assert.deepEqual([...engineFlags({})].sort(), ['zeri'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe' })].sort(), ['date8', 'righe', 'zeri'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-zeri' })], [])
+})
