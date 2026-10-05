@@ -729,7 +729,7 @@ export function contrattoSchema() {
  * @param {{ord:number,page:number,part?:number|null,text:string,flat?:string,first?:boolean}[]} candidates
  * @returns {{ord:number,page:number,text:string,cut:boolean}[]}
  */
-export function selectContrattoPages(candidates, { budgetChars, maxPageChars = OPERATIVITA_MAX_PAGE_CHARS } = {}) {
+export function selectContrattoPages(candidates, { budgetChars, maxPageChars = OPERATIVITA_MAX_PAGE_CHARS, firstsOnly = false } = {}) {
   const list = (candidates || []).filter((c) => c && String(c.flat || c.text || '').trim())
   const byPos = (a, b) => (a.ord - b.ord) || (a.page - b.page) || ((a.part || 0) - (b.part || 0))
   // «Prima pagina» = la prima CON TESTO del documento (`first`, marcata da chi
@@ -737,7 +737,11 @@ export function selectContrattoPages(candidates, { budgetChars, maxPageChars = O
   // senza marcatura, la pagina 1.
   const isFirst = (c) => (typeof c.first === 'boolean' ? c.first : c.page === 1)
   const firsts = list.filter(isFirst).sort(byPos)
-  const rest = list.filter((c) => !isFirst(c)).sort(byPos)
+  // [flag primepagine] Il primo batch con le SOLE prime pagine: in un PDF unico
+  // la scheda di polizza non finisce sommersa da venti parti di set informativo
+  // e condizioni (DAS ARENA, scansione: «presente» o «assente» a seconda della
+  // corsa). Le altre pagine aprono il batch dopo.
+  const rest = firstsOnly && firsts.length ? [] : list.filter((c) => !isFirst(c)).sort(byPos)
   const budget = Math.max(0, Number(budgetChars) || 0)
   const chosen = []
   let used = 0

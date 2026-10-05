@@ -22,6 +22,7 @@ import { preContractLabel } from './policyReconcile.js'
 import { stripFieldExamples } from './polizzaValidation.js'
 import { positiveDescriptionText } from './polizzaFieldKind.js'
 import { usefulLength } from './ocrLayout.js'
+import { engineFlag } from './engineFlags.js'
 import {
   selectOperativitaPages, buildOperativitaPrompt, operativitaSchema, parseOperativitaAnswer,
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
@@ -310,7 +311,7 @@ export async function runContractCheck({ docs, spatialDocs, settings, diag = nul
     let remaining = candidates
     const sent = []
     for (let b = 0; b < maxBatches && remaining.length; b++) {
-      const blocks = selectContrattoPages(remaining, { budgetChars })
+      const blocks = selectContrattoPages(remaining, { budgetChars, firstsOnly: b === 0 && engineFlag(settings, 'primepagine') })
       if (!blocks.length) break
       const taken = new Set(blocks.map(partKey))
       remaining = remaining.filter((c) => !taken.has(partKey(c)))
