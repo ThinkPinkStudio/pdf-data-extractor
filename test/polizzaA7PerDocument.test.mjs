@@ -274,8 +274,9 @@ test('flag «sezioni» e «zeri»: le frasi che sostituiscono esistono nel promp
   assert.ok(A7_SYSTEM_PROMPT.includes("Se il valore non c'è, non includere quel campo."))
 })
 
-test('flag «date8», «righe», «zeri» conosciuti dal motore e spenti di default', async () => {
+test('flag del motore: «filtroelenchi» acceso di default; «date8», «righe», «zeri» spenti', async () => {
   const { engineFlags } = await import('../src/services/engineFlags.js')
-  assert.deepEqual([...engineFlags({})], [])
-  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['date8', 'righe', 'zeri'])
+  assert.deepEqual([...engineFlags({})], ['filtroelenchi'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['date8', 'filtroelenchi', 'righe', 'zeri'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-filtroelenchi' })], [])
 })

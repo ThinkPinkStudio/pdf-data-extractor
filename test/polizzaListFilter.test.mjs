@@ -39,17 +39,20 @@ async function withFake(answerFilter, fn) {
 const DOCS = [{ name: 'polizza.pdf', pages: ['POLIZZA N. 12345678\nGaranzie: Kasko 300,00   Tutela Legale Pacchetto Base 95,14\nDecorrenza 01/01/2026'] }]
 const SETTINGS = (url, flags) => ({ ollamaUrl: url, ollamaModel: 'fake', polizzaFields: [FIELD], polizzaAutoVerify: false, polizzaStagedCascade: true, polizzaEngineFlags: flags })
 
-test('filtroelenchi: il modello tiene solo le voci che la descrizione ammette; senza flag nessuna chiamata', async () => {
-  await withFake(JSON.stringify({ tenere: [1] }), async (url, calls) => {
+test('filtroelenchi: un elenco estraneo per intero si svuota; una scelta parziale lascia l\'elenco com\'è; spento: nessuna chiamata', async () => {
+  await withFake(JSON.stringify({ tenere: [] }), async (url, calls) => {
     const out = await extractPolizzaStaged(DOCS, SETTINGS(url, 'filtroelenchi'))
-    assert.ok(out.data.gar != null, out.diag.slice(-25).join("\n"))
-    assert.equal(out.data.gar, 'Tutela Legale Pacchetto Base', out.diag.filter((l) => l.startsWith('Elenco')).join('\n'))
+    assert.equal(out.data.gar, undefined, out.diag.filter((l) => l.startsWith('Elenco')).join('\n'))
     assert.equal(calls.length, 1)
     assert.match(calls[0], /0\. Kasko\n1\. Tutela Legale Pacchetto Base/)
   })
+  await withFake(JSON.stringify({ tenere: [1] }), async (url) => {
+    const out = await extractPolizzaStaged(DOCS, SETTINGS(url, 'filtroelenchi'))
+    assert.equal(out.data.gar, 'Kasko, Tutela Legale Pacchetto Base', 'scelta parziale: elenco invariato')
+  })
   await withFake(JSON.stringify({ tenere: [] }), async (url, calls) => {
-    const out = await extractPolizzaStaged(DOCS, SETTINGS(url, ''))
+    const out = await extractPolizzaStaged(DOCS, SETTINGS(url, '-filtroelenchi'))
     assert.equal(calls.length, 0, 'flag spento: nessuna chiamata di filtro')
-    void out
+    assert.equal(out.data.gar, 'Kasko, Tutela Legale Pacchetto Base')
   })
 })

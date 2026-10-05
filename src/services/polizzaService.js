@@ -7322,13 +7322,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         if (!keep) { diag.push(`Elenco[${f.label}]: risposta illeggibile, voci invariate`); continue }
         if (keep.length === items.length) { diag.push(`Elenco[${f.label}]: tutte le ${items.length} voci corrispondono alla descrizione`); continue }
         const dropped = items.filter((_, i) => !keep.includes(i))
+        // Solo l'elenco ESTRANEO per intero si svuota: misurato sulle copie del
+        // 05/10, «nessuna voce» era sempre giusto (+7 campi: garanzie auto in un
+        // campo di tutela legale), le scelte PARZIALI toglievano voci vere
+        // («Pacchetto sicurezza privacy e cyber», «Tutela legale»).
         if (!keep.length) {
           delete best[f.id]
           diag.push(`Elenco[${f.label}]: nessuna delle ${items.length} voci corrisponde alla descrizione → vuoto (tolte: ${dropped.join(' | ').slice(0, 240)})`)
           continue
         }
-        best[f.id] = { ...e, valore: keep.map((i) => items[i]).join(', ') }
-        diag.push(`Elenco[${f.label}]: tenute ${keep.length} voci su ${items.length} (tolte: ${dropped.join(' | ').slice(0, 240)})`)
+        diag.push(`Elenco[${f.label}]: il modello terrebbe ${keep.length} voci su ${items.length} — elenco invariato (si svuota solo un elenco estraneo per intero; avrebbe tolto: ${dropped.join(' | ').slice(0, 200)})`)
       } catch (err) {
         diag.push(`Elenco[${f.label}]: controllo non eseguito (${err.message})`)
       }
