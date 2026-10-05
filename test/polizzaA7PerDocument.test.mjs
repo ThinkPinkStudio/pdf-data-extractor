@@ -219,7 +219,7 @@ async function withFakeOllama(fn) {
       const sys = p.messages?.find((m) => m.role === 'system')?.content || ''
       const user = p.messages?.find((m) => m.role === 'user')?.content || ''
       let content = '{}'
-      if (sys === A7_SYSTEM_PROMPT) {
+      if (String(sys).startsWith(A7_SYSTEM_PROMPT.slice(0, 60))) { // anche con le varianti dei flag (zeri di default)
         a7Calls.push(user)
         const fieldsPart = user.split('CAMPI DA ESTRARRE (numerati):\n')[1].split('\n\nRispondi')[0]
         const idxOf = (head) => Number(fieldsPart.split('\n').find((l) => l.replace(/^\d+\.\s*/, '').startsWith(head)).match(/^(\d+)\./)[1])

@@ -5608,9 +5608,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         // iniziale che copre il periodo più lungo (GORINI P31: 282,65 della rata
         // iniziale di 14 mesi invece di 241,00 della rata annuale successiva).
         // Con il flag decide la DESCRIZIONE quale riga prendere.
-        const sys0 = engineFlag(settings, 'sezioni') ? A7_SYSTEM_PROMPT.replace(
+        // [flag righe] Nessuna istruzione fissa sulla riga: tra più righe decide la
+        // DESCRIZIONE del campo (il profilo fa fede), senza esempi di righe né di
+        // campi nel prompt («prendi il TOTALE» sbagliava le sezioni Allianz; gli
+        // esempi di «sezioni» facevano prendere la riga intitolata «PREMIO ANNUO»
+        // contro la definizione del lordo, che chiede i diritti compresi).
+        const sysR = engineFlag(settings, 'righe') ? A7_SYSTEM_PROMPT.replace(
           "Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
-          "Se la stessa voce compare in PIU righe (rate del premio come RATA INIZIALE e RATA SUCCESSIVA; coperture o sezioni diverse e un totale del contratto), scegli la riga che la DESCRIZIONE del campo chiede (per esempio il premio annuo e non la rata iniziale; la copertura nominata dalla descrizione e non il totale del contratto con le altre coperture) e rispondi UNA SOLA volta;") : A7_SYSTEM_PROMPT
+          "Se lo stesso campo potrebbe stare in PIU righe, scegli la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo e rispondi UNA SOLA volta;") : A7_SYSTEM_PROMPT
+        const sys0 = engineFlag(settings, 'sezioni') ? sysR.replace(
+          "Se la stessa voce compare in PIU righe (rate del premio: RATA INIZIALE, RATA SUCCESSIVA...), scegli la riga che rappresenta il TOTALE dell'intero periodo e rispondi UNA SOLA volta;",
+          "Se la stessa voce compare in PIU righe (rate del premio come RATA INIZIALE e RATA SUCCESSIVA; coperture o sezioni diverse e un totale del contratto), scegli la riga che la DESCRIZIONE del campo chiede (per esempio il premio annuo e non la rata iniziale; la copertura nominata dalla descrizione e non il totale del contratto con le altre coperture) e rispondi UNA SOLA volta;") : sysR
         // [flag zeri] Un importo STAMPATO a zero è un valore: le descrizioni degli
         // interessi e dei diritti dicono «se è stampato a zero riporta '0,00'», ma
         // il modello trattava lo 0,00 della cella come «valore assente» e lo

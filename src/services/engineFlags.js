@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze([])
+export const DEFAULT_FLAGS = Object.freeze(['zeri'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -39,6 +39,7 @@ export const KNOWN_FLAGS = Object.freeze({
   recupero: 'Stadio E con le pagine dei batch, budget dal contesto, ranking semantico+IDF per rango, senza label (F07)',
   sezioni: 'A.7: tra più righe (rate, coperture e totale) la riga che la DESCRIZIONE chiede (premio annuo, non la rata iniziale; la copertura, non il totale del contratto), invece del «TOTALE dell\'intero periodo»',
   zeri: 'A.7: un importo stampato a zero (0,00) in una cella è un valore da riportare quando la descrizione del campo lo prevede (interessi, diritti)',
+  righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
 })
 
 /** @returns {Set<string>} */
