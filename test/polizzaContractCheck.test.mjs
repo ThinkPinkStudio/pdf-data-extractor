@@ -466,3 +466,19 @@ test('risposta ILLEGGIBILE anche su una metà: si divide ancora (quarti) prima d
   assert.equal(r.verdict, 'ok', diag.join('\n'))
 })
 
+
+test('risposta illeggibile che resiste ai quarti: si divide fino alla pagina singola (CAVALLO FT394VX del 04/10)', async () => {
+  // il modello va in loop su ogni gruppo di più pagine e risponde solo a pagine singole
+  const callModel = async (_s, _sys, user, opts) => {
+    if (opts?.format?.properties?.contratto) return JSON.stringify(PRESENTE(1))
+    const pages = (user.match(/\[Documento \d+ · pag\. \d+/g) || []).length
+    if (pages > 1) return '{"esito": "non operante", "evidenza": "Tutela Tutela Tutela'
+    return JSON.stringify({ esito: 'non operante', documento: 'Documento 1', pagina: 1, evidenza: 'Tutela legale', motivo: 'voce non barrata e senza premio' })
+  }
+  const diag = []
+  const TL_NON_BARRATA = (i) => `RIEPILOGO GARANZIE   pagina ${i}\n[ ] Tutela legale\nRCA   450,00`
+  const pagesDoc = [TL_NON_BARRATA(1), TL_NON_BARRATA(2), TL_NON_BARRATA(3), TL_NON_BARRATA(4), TL_NON_BARRATA(5), TL_NON_BARRATA(6), TL_NON_BARRATA(7), TL_NON_BARRATA(8)]
+  const r = await runOperativita({ docs: [doc('polizza.pdf', pagesDoc)], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel, embed } })
+  assert.ok(!diag.some((l) => /review — risposta del modello non leggibile/.test(l)), diag.join('\n'))
+  assert.notEqual(r.verdict, 'review', diag.join('\n'))
+})

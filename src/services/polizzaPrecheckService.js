@@ -290,14 +290,14 @@ export async function runContractCheck({ docs, spatialDocs, settings, diag = nul
       // Risposta ILLEGGIBILE (Ollama: «prediction aborted, token repeat limit
       // reached», JSON troncato): si rifà la domanda sulle due metà del batch
       // invece di arrendersi (prima diventava «non determinabile» → Da verificare).
-      // Una metà ancora illeggibile si divide di nuovo, fino ai quarti.
+      // Una metà ancora illeggibile si divide di nuovo, fino alla pagina singola.
       const splitAsk = async (part, tag, depth) => {
         const half = Math.ceil(part.length / 2)
         log(`Polizza batch ${tag}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${part.length - half} pagine)`)
         const got = []
         for (const [k, sub] of [part.slice(0, half), part.slice(half)].entries()) {
           let x = await askContract({ settings, blocks: sub, callModel, diag })
-          if (!x && sub.length > 1 && depth < 1) x = await splitAsk(sub, `${tag}${'ab'[k]}`, depth + 1)
+          if (!x && sub.length > 1) x = await splitAsk(sub, `${tag}${'ab'[k]}`, depth + 1)
           got.push(x)
         }
         return got.find((x) => x?.contratto === 'presente') || (got.every((x) => x?.contratto === 'assente') ? got[0] : got.find((x) => x && x.contratto !== 'assente') || null)
@@ -425,11 +425,11 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       // limit reached», CAVALLO FT394VX/FT796KM del 01/10): si rifà la domanda
       // sulle due metà del batch, ognuna come un batch a sé (la combinazione
       // tra batch resta quella di sempre: contraddizioni comprese).
-      // Una metà ancora illeggibile si divide di nuovo (fino ai quarti): CAVALLO
-      // FT394VX del 03/10, metà «1a» di 7 pagine illeggibile → «Da verificare»
-      // per pagine mai lette.
+      // Una metà ancora illeggibile si divide di nuovo, fino alla PAGINA SINGOLA:
+      // CAVALLO FT394VX del 04/10, quarto «1ab» di 3 pagine ancora in loop
+      // («token repeat limit reached») → «Da verificare» per pagine mai lette.
       const splitTries = async (part, res, tag, depth) => {
-        if (res.answer || part.length < 2 || depth >= 2) return [{ ...res, part, tag }]
+        if (res.answer || part.length < 2) return [{ ...res, part, tag }]
         const half = Math.ceil(part.length / 2)
         log(`Operatività «${profile?.name || ''}» batch ${tag}: risposta illeggibile, nuovo tentativo sulle due metà (${half} + ${part.length - half} pagine)`)
         const out = []
