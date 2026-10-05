@@ -3536,6 +3536,61 @@ export function completeRowFromGrid(best, fields, docs) {
 }
 
 /**
+ * Il campo a cui la DESCRIZIONE lega questo campo importo («sulla stessa riga
+ * o nello stesso riepilogo del Premio imponibile annuo della tutela legale»):
+ * il campo importo la cui testa somiglia di più alla frase (headerLexOf ≥ 0,5),
+ * null se la descrizione non lo lega a nessuno.
+ */
+export function riepilogoAnchorField(field, fields) {
+  const m = positiveDescriptionText(String(field?.description || '')).match(/stess[oa]\s+(?:riga|riepilogo)\b[^.]*?\b(?:del|della|dello|dell['’])\s*([^.;,]+)/i)
+  if (!m) return null
+  let best = null, lex = 0
+  for (const g of fields || []) {
+    if (!g || g.id === field.id || g.enabled === false || fieldValueKind(g) !== 'amount') continue
+    const l = headerLexOf(g, m[1])
+    if (l > lex) { lex = l; best = g }
+  }
+  return lex >= 0.5 ? best : null
+}
+
+/**
+ * STESSA RIGA O STESSO RIEPILOGO, dopo il merge: un campo importo che la
+ * descrizione lega al riepilogo di un altro campo («diritti … sulla stessa
+ * riga o nello stesso riepilogo del Premio imponibile annuo») non può venire da
+ * un documento o da pagine dove quel valore non c'è. Si giudica solo quando
+ * tutti e due i valori si ritrovano nella griglia dei loro documenti: il valore
+ * del campo in pagine che non portano mai il valore del campo legato (o in un
+ * altro documento) si svuota. Vittoria SUSA: imposte 687,48 della quietanza
+ * con l'imponibile 616,64 della sezione nella polizza; DAS VERRO: diritti 2,48
+ * della scheda 2020 con l'imponibile del rinnovo 2026.
+ * @returns {{field:object, valore:string, anchor:object, anchorValore:string, file:string, anchorFile:string}[]}
+ */
+export function riepilogoMismatches(best, fields, docs) {
+  const out = []
+  const pagesWith = (d, n) => gridPagesOf(d).map((p, i) => ({ i, p: String(p || '') }))
+    .filter(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, n))))
+    .map(({ i, p }) => ({ i, p }))
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
+    const e = best?.[f.id]
+    if (!e || !e.file) continue
+    const g = riepilogoAnchorField(f, fields)
+    const eg = g && best?.[g.id]
+    if (!eg || !eg.file) continue
+    const n = parsePureAmount(e.valore), ng = parsePureAmount(eg.valore)
+    if (n == null || ng == null) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    const dg = (docs || []).find((x) => x && x.name === eg.file)
+    if (!d || !dg) continue
+    const mine = pagesWith(d, n)
+    if (!mine.length || !pagesWith(dg, ng).length) continue // valori non ritrovati: non si giudica
+    const together = d === dg && mine.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
+    if (together) continue
+    out.push({ field: f, valore: e.valore, anchor: g, anchorValore: eg.valore, file: e.file, anchorFile: eg.file })
+  }
+  return out
+}
+
+/**
  * RIGA DELLA COPERTURA nella stessa colonna, dopo il merge: un importo di un
  * campo la cui DESCRIZIONE (testa) nomina la copertura del profilo («… della
  * tutela legale»), letto in una riga della griglia che NON è la copertura,
@@ -7509,10 +7564,25 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
+  // ── [flag riepilogo] STESSA RIGA O STESSO RIEPILOGO del campo legato ──────
+  // Un campo che la descrizione lega al riepilogo di un altro campo non viene da
+  // pagine o documenti dove quel valore non c'è (imposte del contratto in una
+  // quietanza, imponibile della sezione nella polizza). Con il flag anche
+  // diritti/interessi uguali alle IMPOSTE sono un numero copiato (sotto, nella
+  // coerenza cross-field).
+  const riepilogoOn = engineFlag(settings, 'riepilogo')
+  if (riepilogoOn) {
+    for (const s of riepilogoMismatches(best, activeFields, analyzed)) {
+      delete best[s.field.id]
+      diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" (${s.file}) non sta mai con ${s.anchor.label} "${s.anchorValore}" (${s.anchorFile}), a cui la descrizione lo lega → vuoto`)
+    }
+  }
+
   // ── Coerenza cross-field ──────────────────────────────────────────────────
   {
     const xfNotes = validateCrossFields(best, activeFields, {
       hasAnnualPeriodics: analyzed.some((d) => isPeriodicDocName(d.name)),
+      componentiImposte: riepilogoOn,
     })
     for (const n of xfNotes) diag.push(n)
     // ANNUO svuotato perché < sinistro (impossibile): si RIPRENDE tra i

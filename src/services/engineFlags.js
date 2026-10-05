@@ -42,6 +42,7 @@ export const KNOWN_FLAGS = Object.freeze({
   righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
   date8: 'A.8: le DATE del frontespizio sono provvisorie: la cascata le chiede anche ai documenti più recenti (quietanza di rinnovo) e decide l\'arbitro',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
+  riepilogo: 'Dopo il merge: un importo che la descrizione lega alla «stessa riga o stesso riepilogo» di un altro campo si svuota se nessuna pagina del suo documento porta anche quel valore; diritti/interessi uguali alle imposte sono un numero copiato',
   rigagriglia: 'Dopo il merge, dalla GRIGLIA: un importo della copertura letto nella riga dei totali passa alla riga della copertura nella stessa colonna; i campi vuoti «sulla stessa riga» del premio prendono la cella sotto l\'intestazione che li nomina',
 })
 

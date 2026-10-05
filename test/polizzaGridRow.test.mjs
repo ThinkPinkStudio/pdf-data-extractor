@@ -177,3 +177,41 @@ test('flag rigagriglia: acceso di default (misura offline del 05/10: +19 −1 su
   assert.equal(engineFlag({}, 'rigagriglia'), true)
   assert.equal(engineFlag({ polizzaEngineFlags: '-rigagriglia' }, 'rigagriglia'), false)
 })
+
+test('riepilogoAnchorField: diritti, interessi e imposte sono legati all\'imponibile; imponibile e lordo a nessuno', async () => {
+  const { riepilogoAnchorField } = await import('../src/services/polizzaService.js')
+  const imp = F('Premio imponibile tutela legale')
+  assert.equal(riepilogoAnchorField(F('Diritti'), TL)?.id, imp.id)
+  assert.equal(riepilogoAnchorField(F('Interessi di frazionamento'), TL)?.id, imp.id)
+  assert.equal(riepilogoAnchorField(F('Imposte'), TL)?.id, imp.id)
+  assert.equal(riepilogoAnchorField(imp, TL), null)
+  assert.equal(riepilogoAnchorField(F('Premio lordo totale tutela legale'), TL), null)
+})
+
+test('riepilogoMismatches: imposte di un altro documento rispetto all\'imponibile legato → da svuotare; stessa pagina o valore non ritrovato → niente', async () => {
+  const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
+  const POL = '       SEZIONE TUTELA LEGALE\n                  Prima rata        € 616,64        Imponibile annuo       € 616,64'
+  const QUI = '   PREMIO DI RATA      IMPONIBILE €      IMPOSTE €      TOTALE €\n                         3.112,52          687,48       3.800,00'
+  const docs = [{ name: 'polizza.pdf', spatialPages: [POL] }, { name: 'quietanza.pdf', spatialPages: [QUI] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('616,64', 'polizza.pdf'),
+    [F('Imposte').id]: entry('687,48', 'quietanza.pdf'),
+  }
+  assert.deepEqual(riepilogoMismatches(best, TL, docs).map((s) => [s.field.label.trim(), s.valore]), [['Imposte', '687,48']])
+  // imponibile e imposte nella stessa pagina: niente
+  const same = { [F('Premio imponibile tutela legale').id]: entry('3.112,52', 'quietanza.pdf'), [F('Imposte').id]: entry('687,48', 'quietanza.pdf') }
+  assert.equal(riepilogoMismatches(same, TL, docs).length, 0)
+  // valore non ritrovato nella griglia (scansione illeggibile): non si giudica
+  const ghost = { [F('Premio imponibile tutela legale').id]: entry('616,64', 'polizza.pdf'), [F('Imposte').id]: entry('99,99', 'quietanza.pdf') }
+  assert.equal(riepilogoMismatches(ghost, TL, docs).length, 0)
+})
+
+test('validateCrossFields: diritti uguali alle imposte si svuotano solo con componentiImposte', async () => {
+  const { validateCrossFields } = await import('../src/services/polizzaValidation.js')
+  const mk = () => ({ [F('Diritti').id]: { valore: '424,93' }, [F('Imposte').id]: { valore: '424,93' } })
+  const off = mk(); validateCrossFields(off, TL, {})
+  assert.ok(F('Diritti').id in off)
+  const on = mk(); validateCrossFields(on, TL, { componentiImposte: true })
+  assert.ok(!(F('Diritti').id in on))
+  assert.ok(F('Imposte').id in on)
+})

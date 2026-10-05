@@ -2314,11 +2314,14 @@ export function validateCrossFields(best, fields, opts = {}) {
     const headOf = (f) => String(f?.description || '').split(':')[0].toLowerCase()
     const amtOf = (f) => (f && (f.id in best) ? (parsePureAmount(entryValore(best, f.id)) ?? looseAmount(entryValore(best, f.id))) : null)
     const tot = amtOf(tTotale), imp = amtOf(tImponibile)
+    // [flag riepilogo] anche le IMPOSTE: diritti 424,93 = imposte 424,93 (Vittoria
+    // ZELO, 05/10) è la cella delle imposte copiata nei diritti.
+    const tax = opts.componentiImposte ? amtOf(tImposta) : null
     for (const f of list) {
       if (!/^\s*(?:diritti|interessi)\b/.test(headOf(f))) continue
       const v = amtOf(f)
-      if (v != null && v > 0 && ((tot != null && Math.abs(v - tot) < 0.005) || (imp != null && Math.abs(v - imp) < 0.005))) {
-        dropField(best, f.id, notes, `Coerenza premio: ${f.label || f.id} = ${entryValore(best, f.id)} uguale al premio → numero copiato: svuotato`)
+      if (v != null && v > 0 && ((tot != null && Math.abs(v - tot) < 0.005) || (imp != null && Math.abs(v - imp) < 0.005) || (tax != null && Math.abs(v - tax) < 0.005))) {
+        dropField(best, f.id, notes, `Coerenza premio: ${f.label || f.id} = ${entryValore(best, f.id)} uguale al premio${tax != null && Math.abs(v - tax) < 0.005 ? ' (alle imposte)' : ''} → numero copiato: svuotato`)
       }
     }
     if (tImponibile && tot != null && imp != null && imp > 0 && Math.abs(imp - tot) < 0.005) {
