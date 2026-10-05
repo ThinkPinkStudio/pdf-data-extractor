@@ -3572,8 +3572,21 @@ export function coverRowFromGrid(best, fields, docs, coverNames) {
     const props = []
     gridPagesOf(d).forEach((text, pi) => {
       const lines = String(text || '').split('\n')
+      // La riga sta già nella SEZIONE della copertura: il titolo senza importi
+      // subito sopra (entro 3 righe) la nomina. Vittoria: «SEZIONE TUTELA
+      // LEGALE / Prima rata € 757,82 … Imponibile annuo € 757,82» è il premio
+      // della sezione, le righe sotto («TUTELA LEGALE … € 249,06», «VERTENZE…»)
+      // sono le sue garanzie.
+      const inCoverSection = (i) => {
+        for (let j = i - 1; j >= 0 && j >= i - 3; j--) {
+          const l = String(lines[j] || '')
+          if (!l.trim() || gridAmountTokens(l).length) continue
+          return !!namesCoverage(l, coverNames)
+        }
+        return false
+      }
       lines.forEach((line, i) => {
-        if (line.includes('|') || isCoverRow(gridRowLabel(line))) return
+        if (line.includes('|') || isCoverRow(gridRowLabel(line)) || inCoverSection(i)) return
         for (const t of gridAmountTokens(line)) {
           if (!sameAmount(t.n, n)) continue
           const col = []

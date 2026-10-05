@@ -155,6 +155,23 @@ test('coverRowFromGrid: mai nella colonna di un altro campo, mai per un prodotto
   assert.equal(coverRowFromGrid(b2, TL, [{ name: 'das.pdf', spatialPages: [DASPKG] }], COVER).length, 0)
 })
 
+test('coverRowFromGrid: il premio della SEZIONE della copertura non scende sulla sua prima garanzia', () => {
+  // Vittoria (BOIARDO, pag. 3): 757,82 è l'imponibile della sezione, sotto il
+  // titolo «SEZIONE TUTELA LEGALE»; «TUTELA LEGALE … 249,06» è una sua garanzia.
+  const VITT = [
+    '         GELO                                                                             Imponibile annuo       € 140,47',
+    '         CONDUTTURE INTERRATE                                                             Imponibile annuo       € 144,53',
+    '         INTASAMENTO GRONDE E PLUVIALI                                                    Imponibile annuo        € 42,56',
+    '       SEZIONE TUTELA LEGALE',
+    '                  Prima rata        € 757,82        Rate successive             € 757,82  Imponibile annuo       € 757,82',
+    '         TUTELA LEGALE                                                                    Imponibile annuo       € 249,06',
+    '            Somma Assicurata                         € 30.000,00',
+    '         VERTENZE CON CONDOMINI E RECUPERO SPESE CONDOMINIALI                             Imponibile annuo       € 508,76',
+  ].join('\n')
+  const best = { [F('Premio imponibile tutela legale').id]: entry('757,82', 'boiardo.pdf', 1) }
+  assert.equal(coverRowFromGrid(best, TL, [{ name: 'boiardo.pdf', spatialPages: [VITT] }], COVER).length, 0)
+})
+
 test('flag rigagriglia: acceso di default (misura offline del 05/10: +19 −1 su 41 posizioni), spegnibile', () => {
   assert.ok('rigagriglia' in KNOWN_FLAGS)
   assert.equal(engineFlag({}, 'rigagriglia'), true)
