@@ -254,3 +254,22 @@ test('riepilogoMismatches: il lordo «comprensivo» delle imposte segue il riepi
   }
   assert.deepEqual(riepilogoMismatches(best, TL, docs).map((s) => [s.field.label.trim(), s.anchor.label.trim()]), [['Premio lordo totale tutela legale', 'Premio imponibile tutela legale']])
 })
+
+test('riepilogoMismatches: per valore — la scheda che stampa lo stesso imponibile del rinnovo tiene i suoi diritti 0,00', async () => {
+  const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
+  // DAS COI (P11): rata 2026 senza diritti; scheda con la stessa riga 24,88 · 0,00 · 0,00 · 3,12 · 28,00
+  const QUI = '        Premio netto      Imposte              Premio lordo\n        €  24,88          €  3,12              € 28,00'
+  const SCH = '      PREMIO TOTALE      NETTO IMPONIBILE INTERESSE DI  DIRITTI       IMPOSTE     PREMIO LORDO\n      PREMIO ALLA FIRMA            24,88          0,00          0,00          3,12         28,00'
+  const docs = [{ name: 'rata2026.pdf', spatialPages: [QUI] }, { name: 'scheda.pdf', spatialPages: [SCH] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('24,88', 'rata2026.pdf'),
+    [F('Diritti').id]: entry('0,00', 'scheda.pdf'),
+  }
+  assert.equal(riepilogoMismatches(best, TL, docs).length, 0)
+  // DAS VERRO (P43): la scheda 2020 ha un altro imponibile → i suoi diritti sono di un periodo superato
+  const SCH20 = '      PREMIO TOTALE      NETTO IMPONIBILE   DIRITTO   IMPOSTE   PREMIO LORDO\n      PREMIO RATA INIZIALE        142,45        2,48     31,31        176,24'
+  const QUI26 = '        Premio netto      Imposte              Premio lordo\n        €  147,62          €  31,38              € 179,00'
+  const docs2 = [{ name: 'rinnovo2026.pdf', spatialPages: [QUI26] }, { name: 'scheda2020.pdf', spatialPages: [SCH20] }]
+  const best2 = { [F('Premio imponibile tutela legale').id]: entry('147,62', 'rinnovo2026.pdf'), [F('Diritti').id]: entry('2,48', 'scheda2020.pdf') }
+  assert.deepEqual(riepilogoMismatches(best2, TL, docs2).map((s) => s.field.label.trim()), ['Diritti'])
+})

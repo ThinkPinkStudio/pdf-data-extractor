@@ -3557,12 +3557,13 @@ export function riepilogoAnchorField(field, fields) {
  * STESSA RIGA O STESSO RIEPILOGO, dopo il merge: un campo importo che la
  * descrizione lega al riepilogo di un altro campo («diritti … sulla stessa
  * riga o nello stesso riepilogo del Premio imponibile annuo») non può venire da
- * un documento o da pagine dove quel valore non c'è. Si giudica solo quando
- * tutti e due i valori si ritrovano nella griglia dei loro documenti: il valore
- * del campo in pagine che non portano mai il valore del campo legato (o in un
- * altro documento) si svuota. Vittoria SUSA: imposte 687,48 della quietanza
- * con l'imponibile 616,64 della sezione nella polizza; DAS VERRO: diritti 2,48
- * della scheda 2020 con l'imponibile del rinnovo 2026.
+ * pagine dove il VALORE di quel campo non c'è. Si giudica solo quando tutti e
+ * due i valori si ritrovano nella griglia dei loro documenti: il valore del
+ * campo in pagine che non portano mai il valore del campo legato si svuota.
+ * Vittoria SUSA: imposte 687,48 della quietanza con l'imponibile 616,64 della
+ * sezione nella polizza; DAS VERRO: diritti 2,48 della scheda 2020
+ * (imponibile 142,45) con l'imponibile 147,62 del rinnovo 2026. La scheda DAS
+ * COI che stampa lo stesso imponibile del rinnovo (24,88) tiene i suoi 0,00.
  * @returns {{field:object, valore:string, anchor:object, anchorValore:string, file:string, anchorFile:string}[]}
  */
 export function riepilogoMismatches(best, fields, docs) {
@@ -3587,7 +3588,11 @@ export function riepilogoMismatches(best, fields, docs) {
     if (!d || !dg) continue
     const mine = pagesWith(d, n)
     if (!mine.length || !pagesWith(dg, ng).length) continue // valori non ritrovati: non si giudica
-    const together = d === dg && mine.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
+    // Per VALORE, non per documento: la scheda che stampa lo stesso imponibile
+    // del rinnovo (DAS COI: 24,88 con diritti e interessi 0,00) è il riepilogo
+    // del premio attuale; quella con un imponibile diverso (VERRO: 142,45
+    // contro 147,62 del rinnovo 2026) è di un periodo superato.
+    const together = mine.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
     if (together) continue
     out.push({ field: f, valore: e.valore, anchor: g, anchorValore: eg.valore, file: e.file, anchorFile: eg.file })
   }
