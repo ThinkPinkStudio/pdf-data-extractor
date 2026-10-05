@@ -209,33 +209,6 @@ export function preContractDocs(docs, spatialDocs) {
   })
   return out
 }
-/**
- * Campi della COPERTURA da lasciare vuoti quando la copertura NON è nominata in
- * nessuna pagina del fascicolo (coverNeverNamed, la stessa regola dello scarto
- * «mai nominata»): se l'operatore forza l'estrazione di una polizza All risk,
- * D&O, Vita… col profilo Tutela Legale, i campi che la DESCRIZIONE riferisce
- * alla copertura («…della tutela legale») non possono avere un valore vero —
- * uscivano il premio e le garanzie di tutto il contratto (SONZOGNI, 02/10/2026).
- * Un campo è «della copertura» se la parte POSITIVA della sua descrizione
- * nomina la copertura (le parole di «Come riconoscerla»): decide la descrizione.
- * @returns {{name:string, ids:string[]}|null} null se la copertura è nominata (o il profilo non la definisce)
- */
-export function neverNamedCoverFields({ docs, spatialDocs, profile, profiles = [], fields = [] }) {
-  if (!recognitionOf(profile)) return null
-  const pool = [...(profiles || []).filter((p) => p && p.id && p.id !== profile?.id), profile]
-  const lexTokens = recognitionCoverName(pool, profile?.id)
-  if (!lexTokens.length) return null
-  const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: false })
-  const allPageTexts = (docs || []).flatMap((d, i) => [...(d?.pages || []), ...(spatialDocs?.[i]?.pages || [])])
-  const titlePages = [...new Set(candidates.filter((c) => c.first).flatMap((c) => [c.flat, c.text]))]
-  if (!coverNeverNamed(allPageTexts, lexTokens, { titlePages })) return null
-  const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
-  const ids = (fields || []).filter((f) => {
-    const w = words(positiveDescriptionText(f?.description || ''))
-    return lexTokens.some((run) => run.length && run.every((t) => w.some((x) => x === t || x.startsWith(t))))
-  }).map((f) => f.id)
-  return { name: lexTokens.map((n) => n.join(' ')).join(' / '), ids }
-}
 
 const preContractList = (m) => [...m].map(([o, l]) => `Documento ${o} («${l}»)`).join(', ')
 
