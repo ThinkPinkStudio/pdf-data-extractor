@@ -3601,6 +3601,23 @@ export function riepilogoMismatches(best, fields, docs) {
 }
 
 /**
+ * Il PROFILO del job nelle impostazioni: quello indicato dal worker
+ * (`polizzaJobProfileId`); senza, quello che ha PIÙ id in comune coi campi del
+ * job. Gli id dei campi si ripetono nei profili clonati (RCTOP ne ha 16 di
+ * TL3): il primo profilo che ne aveva uno era RCTOP, senza nome della
+ * copertura, e la riga della copertura non scattava mai (05/10/2026).
+ */
+export function jobProfileFor(settings, fields) {
+  const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+  const byId = profs.find((p) => p.id === settings?.polizzaJobProfileId)
+  if (byId) return byId
+  const ids = new Set((fields || []).map((f) => f && f.id).filter(Boolean))
+  const shared = (p) => (p.fields || []).filter((g) => ids.has(g.id)).length
+  const best = [...profs].sort((a, b) => shared(b) - shared(a) || (b.enabled !== false) - (a.enabled !== false))[0]
+  return best && shared(best) > 0 ? best : null
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -3747,47 +3764,56 @@ export function coverRowFromGrid(best, fields, docs, coverNames) {
     if (!namesCoverage(String(f.description || '').split(':')[0], coverNames)) continue
     const n = parsePureAmount(e.valore)
     if (n == null || n === 0) continue
-    const d = (docs || []).find((x) => x && x.name === e.file)
-    if (!d) continue
-    const props = []
-    gridPagesOf(d).forEach((text, pi) => {
-      const lines = String(text || '').split('\n')
-      // La riga sta già nella SEZIONE della copertura: il titolo senza importi
-      // subito sopra (entro 3 righe) la nomina. Vittoria: «SEZIONE TUTELA
-      // LEGALE / Prima rata € 757,82 … Imponibile annuo € 757,82» è il premio
-      // della sezione, le righe sotto («TUTELA LEGALE … € 249,06», «VERTENZE…»)
-      // sono le sue garanzie.
-      const inCoverSection = (i) => {
-        for (let j = i - 1; j >= 0 && j >= i - 3; j--) {
-          const l = String(lines[j] || '')
-          if (!l.trim() || gridAmountTokens(l).length) continue
-          return !!namesCoverage(l, coverNames)
+    const src = (docs || []).find((x) => x && x.name === e.file)
+    if (!src) continue
+    const scan = (d) => {
+      const found = []
+      gridPagesOf(d).forEach((text, pi) => {
+        const lines = String(text || '').split('\n')
+        // La riga sta già nella SEZIONE della copertura: il titolo senza importi
+        // subito sopra (entro 3 righe) la nomina. Vittoria: «SEZIONE TUTELA
+        // LEGALE / Prima rata € 757,82 … Imponibile annuo € 757,82» è il premio
+        // della sezione, le righe sotto («TUTELA LEGALE … € 249,06», «VERTENZE…»)
+        // sono le sue garanzie.
+        const inCoverSection = (i) => {
+          for (let j = i - 1; j >= 0 && j >= i - 3; j--) {
+            const l = String(lines[j] || '')
+            if (!l.trim() || gridAmountTokens(l).length) continue
+            return !!namesCoverage(l, coverNames)
+          }
+          return false
         }
-        return false
-      }
-      lines.forEach((line, i) => {
-        if (line.includes('|') || isCoverRow(gridRowLabel(line)) || inCoverSection(i)) return
-        for (const t of gridAmountTokens(line)) {
-          if (!sameAmount(t.n, n)) continue
-          const col = []
-          lines.forEach((l2, k) => {
-            if (k === i || l2.includes('|') || Math.abs(k - i) > 40) return
-            const hit = gridAmountTokens(l2).filter((u) => !(u.a > t.b + 3 || u.b < t.a - 3))
-            if (hit.length === 1) col.push({ k, u: hit[0], label: gridRowLabel(l2) })
-          })
-          const cover = col.filter((c) => isCoverRow(c.label))
-          if (cover.length !== 1 || col.length - 1 < 2) continue
-          const target = cover[0]
-          const header = gridHeaderAbove(lines, target.k, target.u.a, target.u.b)
-          if (header && amountColumnOwner(f, header, amount)) continue
-          if (!sanitizeFieldValue(f, target.u.text)) continue
-          props.push({ valore: target.u.text, n: target.u.n, page: pi + 1, riga: target.label, da: gridRowLabel(line), colonna: header })
-        }
+        lines.forEach((line, i) => {
+          if (line.includes('|') || isCoverRow(gridRowLabel(line)) || inCoverSection(i)) return
+          for (const t of gridAmountTokens(line)) {
+            if (!sameAmount(t.n, n)) continue
+            const col = []
+            lines.forEach((l2, k) => {
+              if (k === i || l2.includes('|') || Math.abs(k - i) > 40) return
+              const hit = gridAmountTokens(l2).filter((u) => !(u.a > t.b + 3 || u.b < t.a - 3))
+              if (hit.length === 1) col.push({ k, u: hit[0], label: gridRowLabel(l2) })
+            })
+            const cover = col.filter((c) => isCoverRow(c.label))
+            if (cover.length !== 1 || col.length - 1 < 2) continue
+            const target = cover[0]
+            const header = gridHeaderAbove(lines, target.k, target.u.a, target.u.b)
+            if (header && amountColumnOwner(f, header, amount)) continue
+            if (!sanitizeFieldValue(f, target.u.text)) continue
+            found.push({ valore: target.u.text, n: target.u.n, page: pi + 1, riga: target.label, da: gridRowLabel(line), colonna: header, file: d.name })
+          }
+        })
       })
-    })
+      return found
+    }
+    // Prima il documento della fonte; se lì la colonna non ha la riga della
+    // copertura, gli altri documenti del fascicolo: le imposte 88,16 lette dal
+    // certificato Allianz stanno anche nella riga «Totali» della polizza, sotto
+    // la stessa colonna della riga «Tutela Giudiziaria» (PISAPIA, SANTANGELO).
+    let props = scan(src)
+    if (!props.length) props = (docs || []).filter((x) => x && x !== src).flatMap(scan)
     if (!props.length || new Set(props.map((p) => p.n)).size !== 1 || sameAmount(props[0].n, n)) continue
     const { n: _n, ...hit } = props[0]
-    out.push({ field: f, ...hit, prima: e.valore, file: d.name })
+    out.push({ field: f, ...hit, prima: e.valore })
   }
   return out
 }
@@ -7676,8 +7702,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // riconoscerla» del profilo del job.
   if (engineFlag(settings, 'rigagriglia')) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
-    const ids = new Set(activeFields.map((f) => f.id))
-    const me = profs.find((p) => p.id === settings?.polizzaJobProfileId) || profs.find((p) => (p.fields || []).some((g) => ids.has(g.id)))
+    const me = jobProfileFor(settings, activeFields)
     const coverNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
     for (const s of coverRowFromGrid(best, activeFields, analyzed, coverNames)) {
       best[s.field.id] = { ...best[s.field.id], valore: s.valore, file: s.file, page: s.page, gridRow: true }

@@ -291,3 +291,21 @@ test('anchorByElimination: l\'imponibile vuoto è l\'unico importo libero della 
   const rca = { [F('Imposte').id]: entry('126,19', file), [F('Premio lordo totale tutela legale').id]: entry('997,71', file) }
   assert.equal(anchorByElimination(rca, TL, docs).length, 0)
 })
+
+test('jobProfileFor: il profilo del job, o quello con più id in comune (profili clonati)', async () => {
+  const { jobProfileFor } = await import('../src/services/polizzaService.js')
+  const tl3 = { id: 'tl3', name: 'Tutela Legale 3', fields: TL }
+  const rctop = { id: 'rctop', name: 'RCTOP', fields: TL.slice(0, 16) } // clonato: 16 id in comune
+  const copia = { id: 'copia', name: 'TL3 prova', enabled: false, fields: TL }
+  const settings = { polizzaProfiles: [rctop, tl3, copia] }
+  assert.equal(jobProfileFor(settings, TL)?.id, 'tl3') // prima era RCTOP, il primo con un id in comune
+  assert.equal(jobProfileFor({ ...settings, polizzaJobProfileId: 'copia' }, TL)?.id, 'copia')
+  assert.equal(jobProfileFor({ polizzaProfiles: [rctop] }, [{ id: 'altro' }]), null)
+})
+
+test('coverRowFromGrid: valore letto da un altro documento (certificato) → riga della copertura nella polizza', () => {
+  const docs = [{ name: 'CERTIFICATO.pdf', spatialPages: ['   Premio lordo annuo complessivo   740,50\n   Imposte   88,16'] }, { name: 'POLIZZA.pdf', spatialPages: [ALLIANZ.replace('274,56', '88,16')] }]
+  const best = { [F('Imposte').id]: entry('88,16', 'CERTIFICATO.pdf') }
+  const out = coverRowFromGrid(best, TL, docs, COVER)
+  assert.deepEqual(out.map((s) => [s.valore, s.file, s.riga]), [['2,02', 'POLIZZA.pdf', 'Tutela Giudiziaria']])
+})

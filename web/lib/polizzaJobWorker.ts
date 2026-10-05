@@ -246,6 +246,9 @@ async function runJob(jobId: string): Promise<void> {
   if (job.prompt_extra != null) {
     settings.polizzaPromptExtra = job.prompt_extra
   }
+  // Profilo del job per il motore (nome della copertura da «Come riconoscerla»):
+  // gli id dei campi si ripetono nei profili clonati e non lo identificano.
+  if (job.profile_id) (settings as any).polizzaJobProfileId = job.profile_id
   // Run di TEST: override puntuale dei settings scelto nel dialog, applicato
   // DOPO i globali con WHITELIST rigida (mai far entrare chiavi arbitrarie dal
   // DB nei settings in memoria) — stesso pattern di field_defs qui sopra.
@@ -703,6 +706,7 @@ if (job.profile_id === 'auto') {
       job.prompt_extra = chosen.promptExtra || ''
       settings.polizzaFields = fieldDefs.map((f: any) => ({ ...f, description: f.description ?? '' }))
       settings.polizzaPromptExtra = chosen.promptExtra || ''
+      ;(settings as any).polizzaJobProfileId = chosen.id
       precheckBase.auto = true
       precheckBase.autoRanking = ranking
       if (tried.length) precheckBase.autoTried = tried

@@ -1178,7 +1178,37 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «FRAZIONAMENTO   NETTO IMPONIBILE» erano una cella. Misura offline sui valori
   di produzione delle 41 posizioni (script
   `replay-grid.mjs` nello scratchpad): +19 −1 (P26: verità vuota per tutti i
-  premi della scheda).
+  premi della scheda). **Profilo del job**: il motore lo riceve dal worker
+  (`polizzaJobProfileId`, `jobProfileFor`); gli id dei campi si ripetono nei
+  profili clonati (RCTOP ne ha 16 di TL3) e la prima versione prendeva RCTOP,
+  senza nome della copertura: la riga della copertura non scattava mai in
+  produzione.
+- **Flag `riepilogo` (05/10/2026 sera, default)**: dopo il merge, regole dalle
+  DESCRIZIONI dei premi. (1) `includedComponentsRowFix`: il lordo «comprensivo
+  di imposte, diritti e interessi» letto in una tabella senza la colonna di una
+  componente estratta non nulla passa alla riga che porta quella componente e
+  l'imponibile (DAS: 178,99 della tabella delle garanzie → 182,00 della rata
+  successiva). (2) `riepilogoMismatches`: un importo legato «alla stessa riga o
+  allo stesso riepilogo» dell'imponibile (anche il lordo, per legame transitivo)
+  si svuota se nessuna sua pagina porta il VALORE dell'imponibile estratto —
+  per valore, non per documento: la scheda DAS COI con lo stesso imponibile del
+  rinnovo tiene i suoi 0,00 (verità P11), quella VERRO 2020 con un imponibile
+  diverso perde i diritti 2,48 (P43). (3) diritti/interessi = imposte → numero
+  copiato (`validateCrossFields`, `componentiImposte`). (4)
+  `anchorByElimination`: dopo la coerenza, l'imponibile vuoto prende l'unico
+  importo libero della riga di imposte e lordo (Allianz «Tutela Giudiziaria
+  16,17 12,50% 2,02 18,19»). La riga della copertura cerca anche negli altri
+  documenti del fascicolo (imposte lette dal certificato Allianz). Misura
+  offline sui valori di produzione delle 41 posizioni
+  (`scratchpad/replay-final.mjs`): 812 → 819 (riga della copertura col profilo
+  giusto) → 830 (+11), nessuna perdita.
+- **Prove del 05/10 bocciate (non riprovare senza un'idea nuova)**: qwen3:32b
+  think off −14 su 18 posizioni (meglio sui testi, peggio sugli importi; in
+  pertinenza blocca di più); descrizioni chiarite di attività, parametro,
+  massimale anno e tipologia −7 su 20 (+10 sui campi mirati, −17 per la
+  perturbazione degli altri: ogni modifica al prompt sposta quanto corregge).
+  OCR con qwen3-vl:32b: ~3 min a PAGINA (ragiona anche con think off); su 3
+  posizioni +2 netto (P07 sbloccata, P20 bloccata); misura completa in corso.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
