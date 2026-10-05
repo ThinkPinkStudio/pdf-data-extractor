@@ -3461,6 +3461,35 @@ export const A7_SYSTEM_PROMPT = 'Estrai i valori richiesti dalle TABELLE qui sot
   'FORMATO: un oggetto JSON {"voci": [ ... ]} dove ogni voce è {"campo": <indice del campo>, "valore": "...", "riga": "...", "colonna": "..."}. ' +
   'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE, è l\'unico modo per sapere a quale campo si riferisce il valore. UN solo valore per campo. Se nessun campo è nella tabella: {"voci": []}.'
 
+// [flag filtroelenchi] Voci di un ELENCO confrontate con la DESCRIZIONE del
+// campo, dal modello: solo il profilo dice quali voci appartengono al campo.
+export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI trovate nei documenti per quel campo. ' +
+  'Tieni SOLO le voci che la descrizione ammette, rispettando le sue esclusioni (le frasi "NON ..."). Non aggiungere voci, non riscriverle. ' +
+  'FORMATO: un oggetto JSON {"tenere": [indici delle voci da tenere]}; {"tenere": []} se nessuna voce corrisponde alla descrizione.'
+
+/** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
+export function isListDescription(description) {
+  const head = String(description || '').split(':')[0]
+  return /\belenc[oh]i?\b/i.test(head)
+}
+
+/** Voci di un valore-elenco: separate da virgola (fuori parentesi), punto e virgola, a capo o « / ». */
+export function splitListItems(value) {
+  const out = []
+  let depth = 0, cur = ''
+  const s = String(value || '')
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (ch === '(') depth++
+    if (ch === ')') depth = Math.max(0, depth - 1)
+    const slash = ch === '/' && s[i - 1] === ' ' && s[i + 1] === ' '
+    if (depth === 0 && (ch === ',' || ch === ';' || ch === '\n' || slash)) { if (cur.trim()) out.push(cur.trim()); cur = ''; continue }
+    cur += ch
+  }
+  if (cur.trim()) out.push(cur.trim())
+  return out
+}
+
 // Spezza una pagina (già con le coppie/tabelle) su confini strutturali:
 //  1. blocchi di paragrafo (doppio a-capo) e tabelle INTERE restano uniti;
 //     quando un blocco supera il budget, si spezza alla RIGA DI TABELLA
@@ -7267,6 +7296,42 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const top = [...groups.values()].sort((x, y) => y.n - x.n || (typeof y.rep.affinity === 'number' ? y.rep.affinity : -1) - (typeof x.rep.affinity === 'number' ? x.rep.affinity : -1))[0]
       best[a.id] = top.rep
       diag.push(`Coerenza massimali: annuo ripreso dai candidati coerenti (≥ sinistro ${best[s0.id].valore}): "${top.rep.valore}" (${top.n} voti)`)
+    }
+  }
+
+  // ── [flag filtroelenchi] Voci degli ELENCHI confrontate con la descrizione ──
+  // Il modello riportava le voci di un'intera tabella (le garanzie non
+  // acquistate di una polizza auto: Kasko, Infortuni, Cristalli…) in un campo la
+  // cui descrizione le esclude. Una chiamata per campo-elenco: descrizione +
+  // voci trovate → le voci che la descrizione ammette. Si tiene solo un
+  // SOTTOINSIEME delle voci trovate, mai voci nuove; nessuna voce → vuoto.
+  if (engineFlag(settings, 'filtroelenchi')) {
+    for (const f of activeFields) {
+      const e = best[f.id]
+      if (!e || !isListDescription(f.description)) continue
+      const items = splitListItems(e.valore)
+      if (!items.length) continue
+      try {
+        const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVOCI TROVATE NEI DOCUMENTI (numerate):\n${items.map((t, i) => `${i}. ${t}`).join('\n')}\n\nRispondi SOLO con l'oggetto JSON {"tenere": [...]}.`
+        const raw = await callOllamaRolling(settings, LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
+        let parsed = null
+        try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
+        const keep = parsed && Array.isArray(parsed.tenere)
+          ? [...new Set(parsed.tenere.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < items.length))].sort((a, b) => a - b)
+          : null
+        if (!keep) { diag.push(`Elenco[${f.label}]: risposta illeggibile, voci invariate`); continue }
+        if (keep.length === items.length) { diag.push(`Elenco[${f.label}]: tutte le ${items.length} voci corrispondono alla descrizione`); continue }
+        const dropped = items.filter((_, i) => !keep.includes(i))
+        if (!keep.length) {
+          delete best[f.id]
+          diag.push(`Elenco[${f.label}]: nessuna delle ${items.length} voci corrisponde alla descrizione → vuoto (tolte: ${dropped.join(' | ').slice(0, 240)})`)
+          continue
+        }
+        best[f.id] = { ...e, valore: keep.map((i) => items[i]).join(', ') }
+        diag.push(`Elenco[${f.label}]: tenute ${keep.length} voci su ${items.length} (tolte: ${dropped.join(' | ').slice(0, 240)})`)
+      } catch (err) {
+        diag.push(`Elenco[${f.label}]: controllo non eseguito (${err.message})`)
+      }
     }
   }
 
