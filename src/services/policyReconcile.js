@@ -172,6 +172,51 @@ export function knownNumbersInPages(pages, known) {
   return [...hits]
 }
 
+/**
+ * Come sameNumber, più tollerante: anche UNA cifra sostituita (OCR «207008687»
+ * per «207008647») o un numero contenuto nell'altro. Solo per decidere se un
+ * documento parla di un'ALTRA polizza (fuoco dell'estrazione), mai per unire.
+ */
+export function nearSameNumber(a, b) {
+  if (sameNumber(a, b)) return true
+  const x = ocrNorm(a).replace(/^0+/, ''), y = ocrNorm(b).replace(/^0+/, '')
+  if (x.length < 8 || y.length < 8) return false
+  if (x.includes(y) || y.includes(x)) return true
+  if (x.length !== y.length) return false
+  let diff = 0
+  for (let i = 0; i < x.length && diff <= 1; i++) if (x[i] !== y[i]) diff++
+  return diff <= 1
+}
+
+/**
+ * FUOCO SULLA POLIZZA DELLA PROVA [flag fuocopolizza]: in un fascicolo con i
+ * documenti di PIÙ polizze (cartella del veicolo: la polizza auto Allianz
+ * 539642021 e la DAS Drive 1469DAS00076 di tutela legale), l'estrazione legge
+ * solo i documenti della polizza che la pertinenza ha provato. Decide il
+ * CONTENUTO: si esclude un documento solo se porta numeri di polizza (≥ 8
+ * caratteri, letti come nella riconciliazione) e nessuno è quello del
+ * documento della prova; i documenti senza numero restano. Senza numero nel
+ * documento della prova non si esclude nulla.
+ * @param {{numbers: string[], pages: string[]}[]} files i documenti del fascicolo, in ordine
+ * @param {number} proofIndex indice (0-based) del documento della prova
+ * @returns {{keep: boolean[], proof: string[], excluded: {index:number, numbers:string[]}[]}}
+ */
+export function focusOnProofPolicy(files, proofIndex) {
+  const long = (n) => ocrNorm(n).replace(/^0+/, '').length >= 8
+  const nums = numbersWithKnown(files || []).map((ns) => [...new Set(ns)].filter(long))
+  const keep = nums.map(() => true)
+  const proof = nums[proofIndex] || []
+  const excluded = []
+  if (!proof.length) return { keep, proof, excluded }
+  nums.forEach((ns, i) => {
+    if (i === proofIndex || !ns.length) return
+    if (ns.some((n) => proof.some((p) => nearSameNumber(n, p)))) return
+    keep[i] = false
+    excluded.push({ index: i, numbers: ns })
+  })
+  return { keep, proof, excluded }
+}
+
 /** Due numeri sono la stessa polizza letta in modi diversi (OCR, ramo davanti). */
 export function sameNumber(a, b) {
   const x = ocrNorm(a).replace(/^0+/, ''), y = ocrNorm(b).replace(/^0+/, '')

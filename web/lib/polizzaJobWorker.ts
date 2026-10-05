@@ -880,9 +880,36 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
     const cancelPoll = setInterval(() => {
       isCanceled(job.id).then((c) => { if (c) cancelFlag.canceled = true }).catch(() => {})
     }, 3000)
+    // [flag fuocopolizza] Fascicolo con i documenti di PIÙ polizze (la cartella
+    // del veicolo: polizza auto + DAS di tutela legale): l'estrazione legge solo
+    // i documenti della polizza provata dalla pertinenza; fuori quelli che
+    // portano soltanto numeri di polizza diversi (focusOnProofPolicy).
+    let docsToExtract = docsForIndex
+    try {
+      const flags = await importSharedService<{ engineFlag: (s: any, n: string) => boolean }>('engineFlags.js')
+      const proofDoc = Number((precheckNow as any)?.operativita?.documento)
+      if (flags.engineFlag(settings, 'fuocopolizza') && Number.isInteger(proofDoc) && proofDoc >= 1 && proofDoc <= docsForIndex.length) {
+        const rec = await importSharedService<{
+          extractPolicyNumbersFromPages: (pages: string[]) => string[]
+          focusOnProofPolicy: (files: { numbers: string[]; pages: string[] }[], proofIndex: number) => { keep: boolean[]; proof: string[]; excluded: { index: number; numbers: string[] }[] }
+        }>('policyReconcile.js')
+        const files = docsForIndex.map((d) => {
+          const pages = (((d as any).spatialPages as string[] | undefined) || d.pages).map((p) => String(p || ''))
+          return { numbers: rec.extractPolicyNumbersFromPages(pages.slice(0, 5)), pages }
+        })
+        const focus = rec.focusOnProofPolicy(files, proofDoc - 1)
+        if (focus.excluded.length && focus.keep.some(Boolean)) {
+          docsToExtract = docsForIndex.filter((_, i) => focus.keep[i])
+          const names = focus.excluded.map((x) => `${docsForIndex[x.index].name.replace(/^.*[\\/]/, '')} (n. ${x.numbers.join(', ')})`).join('; ')
+          await appendLog(job, `Fuoco sulla polizza n. ${focus.proof.join(' / ')} (documento della prova di pertinenza): esclusi dall'estrazione ${focus.excluded.length} documenti di altre polizze — ${names}`, logs)
+        }
+      }
+    } catch (e: any) {
+      await appendLog(job, `Fuoco sulla polizza non eseguito (${e?.message || e}): si estrae da tutti i documenti`, logs)
+    }
     let extractResult
     try {
-      extractResult = await m.extractPolizzaFromDocs(docsForIndex, fullText, settings, onProgress)
+      extractResult = await m.extractPolizzaFromDocs(docsToExtract, fullText, settings, onProgress)
     } finally {
       clearInterval(cancelPoll)
     }
