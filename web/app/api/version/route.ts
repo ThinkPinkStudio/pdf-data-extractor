@@ -56,6 +56,7 @@ const BUILD_FEATURES = [
   'flag-filtroelenchi', // Flag «filtroelenchi» (spento): nei campi-elenco il modello tiene solo le voci che la descrizione ammette (05/10/2026)
   'zeri-spento', // Flag «zeri» di nuovo spento: misurato 539 → 534 su 28 posizioni (lo zero spinge il modello sulla riga «PREMIO ANNUO» delle schede DAS) (05/10/2026)
   'illeggibile-pagina-singola', // Pertinenza e domanda sulla polizza: un batch illeggibile (modello in loop) si divide fino alla pagina singola (05/10/2026, CAVALLO FT394VX)
+  'pertinente-incompleta', // Non valido «Pertinente ma incompleta – reperire la polizza principale» quando i documenti (appendici, quietanze) si riferiscono a una polizza del profilo (05/10/2026, richiesta del cliente)
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
 ]
 

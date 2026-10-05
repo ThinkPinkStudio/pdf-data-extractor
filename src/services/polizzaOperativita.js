@@ -644,6 +644,70 @@ export function buildContrattoPrompt({ blocks = [] }) {
   return { system, user }
 }
 
+/**
+ * DOCUMENTI DI UNA POLIZZA DEL PROFILO SENZA LA POLIZZA (05/10/2026, verifica
+ * del cliente su CAVALLO FT796KM: un'appendice DAS «modifica dati
+ * contrattuali» della polizza 01469AC12900228, senza il contratto, era un
+ * semplice «Non valido»; chiesto «Pertinente ma incompleta – reperire la
+ * polizza principale»). Quando la domanda sul contratto dice «assente», si
+ * chiede al modello se le pagine si riferiscono comunque a una polizza del
+ * tipo che il PROFILO definisce («Come riconoscerla»): decide la definizione,
+ * nessuna parola del codice. Il fascicolo resta Non valido (non si estrae, non
+ * si forza); cambia l'etichetta e il messaggio.
+ */
+export function buildIncompletaPrompt({ recognition, blocks = [] }) {
+  const system = 'Sei un verificatore di polizze assicurative italiane. Rispondi SOLO con un oggetto JSON, senza testo prima o dopo, senza markdown.'
+  const pages = blocks.map((b) => `${operativitaPageTag(b.ord, b.page)}\n${b.text}`).join('\n\n')
+  const user = [
+    'Le pagine qui sotto vengono da un fascicolo assicurativo in cui NON c\'è il contratto vero e proprio.',
+    'DEFINIZIONE del tipo di polizza:',
+    String(recognition || '').trim(),
+    '',
+    'DOMANDA: queste pagine si riferiscono a una polizza di QUESTO tipo (per esempio sono sue appendici, quietanze, certificati o comunicazioni)?',
+    '',
+    'Rispondi con un oggetto JSON con queste chiavi:',
+    '{"riferita": "sì" | "no" | "non determinabile",',
+    ' "numero": "il numero della polizza a cui si riferiscono, copiato dal testo (vuoto se non c\'è)",',
+    ' "documento": "Documento N", "pagina": numero della pagina,',
+    ' "evidenza": "la frase che lo mostra, copiata esattamente dal testo"}',
+    '',
+    'PAGINE:',
+    pages,
+  ].join('\n')
+  return { system, user }
+}
+
+export function incompletaSchema() {
+  return {
+    $schema: 'https://json-schema.org/draft/07/schema#',
+    type: 'object',
+    properties: { riferita: { type: 'string', enum: ['sì', 'no', 'non determinabile'] }, numero: { type: 'string' }, documento: { type: 'string' }, pagina: { type: 'integer' }, evidenza: { type: 'string' } },
+    required: ['riferita', 'numero', 'documento', 'pagina', 'evidenza'],
+    additionalProperties: false,
+  }
+}
+
+const normCite = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, ' ').trim()
+
+/**
+ * Risposta alla domanda «pertinente ma incompleta»: vale solo un «sì» la cui
+ * evidenza si ritrova nel testo di una pagina mostrata; il numero solo se è
+ * scritto in una pagina mostrata. @returns {{numero: string|null, documento: number|null, pagina: number|null} | null}
+ */
+export function checkIncompletaAnswer(raw, blocks) {
+  let a = null
+  try { a = typeof raw === 'string' ? JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] || 'null') : raw } catch { a = null }
+  if (!a || String(a.riferita || '').toLowerCase() !== 'sì') return null
+  const ev = normCite(a.evidenza)
+  const texts = (blocks || []).map((b) => normCite(b.text))
+  if (!ev || ev.length < 6 || !texts.some((t) => t.includes(ev))) return null
+  const num = String(a.numero || '').trim()
+  const numKey = num.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const numOk = numKey.length >= 5 && (blocks || []).some((b) => String(b.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(numKey))
+  const m = String(a.documento || '').match(/(\d+)/)
+  return { numero: numOk ? num : null, documento: m ? Number(m[1]) : null, pagina: Number.isInteger(a.pagina) ? a.pagina : null }
+}
+
 export function contrattoSchema() {
   return {
     $schema: 'https://json-schema.org/draft/07/schema#',

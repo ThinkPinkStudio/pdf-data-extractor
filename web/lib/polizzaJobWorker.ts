@@ -734,7 +734,7 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
   if (shouldPrecheck) {
     try {
       const pcSvc = await importSharedService<{
-        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; notValid?: boolean; polizza?: PolizzaCheck | null; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null; signal?: string | null } | null; ranking?: { id: string; name: string; score: number | null }[]; operativita?: any; operativitaTried?: { name: string; verdict: string }[]; detected: { type: string | null; keywords: string[] } }>
+        runPrecheck: (p: any) => Promise<{ verdict: string; mode: string; score: number | null; reason: string; setAside?: boolean; notValid?: boolean; incompleta?: { numero?: string | null; documento?: number | null; pagina?: number | null } | null; polizza?: PolizzaCheck | null; matched?: string[]; missing?: string[]; excludeMatched?: string[]; suggestion?: { id: string; name: string; score: number | null; signal?: string | null } | null; ranking?: { id: string; name: string; score: number | null }[]; operativita?: any; operativitaTried?: { name: string; verdict: string }[]; detected: { type: string | null; keywords: string[] } }>
       }>('polizzaPrecheckService.js')
       const opDiag: string[] = []
       const pre = await pcSvc.runPrecheck({
@@ -803,7 +803,7 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
         // store); resta «Riabbina» se i documenti cambiano. Sostituisce
         // «Accantonato», che era forzabile (decisione del 22/09, superata).
         const scarto = pre.notValid
-          ? notValidError(pre.reason, docNames)
+          ? notValidError(pre.reason, docNames, pre.incompleta || null)
           : pre.excludeMatched?.length && pre.mode !== 'operativita'
             ? `Scartato — ${pre.reason}. Documenti letti: ${docNames}.`
             : `Non pertinente al profilo "${job.profile_name || job.profile_id}" — ${pre.reason}.${proof ? ` Prova: ${proof.slice(3)}.` : ''}${missingKw}${detStr && pre.mode !== 'operativita' ? ` Rilevato nel testo: ${detStr}.` : ''}${suggTxt} Documenti letti: ${docNames}. Cambia profilo o premi "Procedi comunque".`

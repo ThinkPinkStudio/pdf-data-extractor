@@ -217,6 +217,9 @@ export function decidePrecheck(p) {
       reason: contract?.reason || p?.operativita?.reason || 'nessuna polizza tra i documenti letti',
       ...(contract ? { polizza: contract } : {}),
       ...(operative && p?.operativita ? { operativita: p.operativita } : {}),
+      // Senza polizza ma con documenti di una polizza del profilo: «Pertinente
+      // ma incompleta – reperire la polizza principale» (resta Non valido).
+      ...(operative && p?.operativita?.incompleta ? { incompleta: p.operativita.incompleta } : {}),
     }
   }
   const d = decidePrecheckCore(p)

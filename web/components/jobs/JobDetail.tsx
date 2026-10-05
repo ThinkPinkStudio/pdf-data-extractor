@@ -5,7 +5,7 @@ import type { DetailTab, JobRun, JobSnapshot } from './types'
 import type { JobActions } from './useJobActions'
 import { avoidWordOf, errorText, fileUrl, isTestRun, minutesSince, opEsitoKey, shortName, splitName, uiState, valuesCount } from './model'
 import { StatusPill } from './StatusPill'
-import { isLegacySetAside } from '@/lib/jobValidity'
+import { isLegacySetAside, incompleteOf } from '@/lib/jobValidity'
 import { ActionMenu } from './ActionMenu'
 import { actionSet, buttonClass } from './actionSet'
 import { IcAlert, IcChevLeft, IcChevRight, IcCopy, IcExternal, IcFile, IcX } from './Icons'
@@ -143,7 +143,7 @@ function PrecheckTab({ job, A }: { job: JobSnapshot; A: JobActions }) {
   const polWhere = pol?.documento
     ? (pol.pagina ? t('jobsDash.docPage', { doc: String(pol.documento), page: String(pol.pagina) }) : t('jobsDash.docOnly', { doc: String(pol.documento) }))
     : ''
-  const verdict = notValid ? { cls: 'muted', label: t('jobsDash.stNotValid') }
+  const verdict = notValid ? { cls: 'muted', label: incompleteOf(job as any) ? t('jobsDash.stIncomplete') : t('jobsDash.stNotValid') }
     : legacy ? { cls: 'orange', label: t('jobsDash.legacySetAsideHead') }
     : pc.verdict === 'ok' ? { cls: 'ok', label: pc.mode === 'operativita' ? t('jobsDash.opOperante') : t('jobsDash.verdictOk') }
       : pc.verdict === 'review' ? { cls: 'warn', label: t('jobsDash.stReview') }

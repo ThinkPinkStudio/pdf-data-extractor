@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { JobSnapshot, T, UiState } from './types'
 import { uiState } from './model'
+import { incompleteOf } from '@/lib/jobValidity'
 import { IcAlert, IcCheck, IcClock, IcHelp, IcX, IcXCircle } from './Icons'
 
 // UNA pillola per stato, uguale in tabella, lista, dettaglio: colore
@@ -21,13 +22,18 @@ const META: Record<UiState, { cls: string; key: string; icon: () => ReactElement
   canceled: { cls: 'muted', key: 'jobsDash.stCanceled', icon: IcX },
 }
 
+// Non valido «pertinente ma incompleta»: stessa pillola grigia, etichetta propria.
+const keyOf = (job: JobSnapshot) => (uiState(job) === 'notValid' && incompleteOf(job as any) ? 'jobsDash.stIncomplete' : META[uiState(job)].key)
+
 export function stateLabel(job: JobSnapshot, t: T): string {
-  return t(META[uiState(job)].key)
+  return t(keyOf(job))
 }
 
 export function StatusPill({ job, title }: { job: JobSnapshot; title?: string }) {
   const t = useT()
   const m = META[uiState(job)]
   const Icon = m.icon
-  return <span className={`jb-pill ${m.cls}`} title={title}><Icon />{t(m.key)}</span>
+  const inc = uiState(job) === 'notValid' ? incompleteOf(job as any) : null
+  const tip = inc ? `${t('jobsDash.incompleteTitle')}${inc.numero ? ` (n. ${inc.numero})` : ''}` : title
+  return <span className={`jb-pill ${m.cls}`} title={tip}><Icon />{t(keyOf(job))}</span>
 }

@@ -49,9 +49,10 @@ const embed = async (_settings, texts) => texts.map(() => [1, 0, 0])
  * Modello finto: risponde all'operatività con `op` e al contratto con la
  * funzione `contract(userPrompt)`. Conta le chiamate per tipo.
  */
-function fakeModel({ op, contract, failContract = false }) {
-  const calls = { op: 0, contract: 0 }
+function fakeModel({ op, contract, failContract = false, incompleta = { riferita: 'no', numero: '', documento: 'Documento 1', pagina: 1, evidenza: '' } }) {
+  const calls = { op: 0, contract: 0, incompleta: 0 }
   const callModel = async (_settings, _system, user, opts) => {
+    if (opts?.format?.properties?.riferita) { calls.incompleta++; return JSON.stringify(typeof incompleta === 'function' ? incompleta(user) : incompleta) }
     const isContract = !!opts?.format?.properties?.contratto
     if (isContract) {
       calls.contract++
@@ -481,4 +482,32 @@ test('risposta illeggibile che resiste ai quarti: si divide fino alla pagina sin
   const r = await runOperativita({ docs: [doc('polizza.pdf', pagesDoc)], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel, embed } })
   assert.ok(!diag.some((l) => /review — risposta del modello non leggibile/.test(l)), diag.join('\n'))
   assert.notEqual(r.verdict, 'review', diag.join('\n'))
+})
+
+
+test('senza polizza ma con un\'appendice della polizza del profilo: Non valido «pertinente ma incompleta» col numero (CAVALLO FT796KM)', async () => {
+  const APPENDICE = [
+    'Appendice MODIFICA DATI CONTRATTUALI',
+    'Polizza Nr.   Appendice   Agenzia di   Codice   Documento Emesso A   Il',
+    '01469AC12900228   2   MILANO   01469   MILANO   03/12/2018',
+    'INCLUSIONE RISCHI  Con la presente appendice si conviene che viene incluso il seguente rischio: FT796KM',
+    'D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione',
+  ].join('\n')
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '01469AC12900228', documento: 'Documento 1', pagina: 1, evidenza: 'D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione' } })
+  const diag = []
+  const r = await runOperativita({ docs: [doc('appendice.pdf', [APPENDICE])], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
+  assert.equal(r.notValid, true, diag.join('\n'))
+  assert.deepEqual(r.incompleta, { numero: '01469AC12900228', documento: 1, pagina: 1 })
+  assert.equal(m.calls.incompleta, 1)
+  assert.equal(m.calls.op, 0)
+  // evidenza inventata o «no»: semplice Non valido
+  const m2 = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '999', documento: 'Documento 1', pagina: 1, evidenza: 'polizza di tutela legale DAS attiva' } })
+  const r2 = await runOperativita({ docs: [doc('appendice.pdf', [APPENDICE])], profile: TL, profiles: PROFILES, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+  assert.equal(r2.notValid, true)
+  assert.equal(r2.incompleta, undefined)
+  // il verdetto del pre-controllo lo porta con sé
+  const { decidePrecheck } = await import('../src/services/polizzaPrecheck.js')
+  const d = decidePrecheck({ mode: 'llm', hasRecognition: true, operativita: r, contract: r.polizza })
+  assert.equal(d.notValid, true)
+  assert.deepEqual(d.incompleta, r.incompleta)
 })

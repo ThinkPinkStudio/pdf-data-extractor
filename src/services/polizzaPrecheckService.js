@@ -27,6 +27,7 @@ import {
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection, coverNeverNamed,
   selectContrattoPages, decideContract, applyContractVerdict, checkContractAnswer,
+  buildIncompletaPrompt, incompletaSchema, checkIncompletaAnswer,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES, CONTRATTO_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
@@ -230,6 +231,33 @@ async function askContract({ settings, blocks, callModel, diag }) {
   return checkContractAnswer(parseContrattoAnswer(raw), blocks)
 }
 
+/**
+ * NON VALIDO MA PERTINENTE: senza contratto, le pagine si riferiscono comunque
+ * a una polizza del tipo che il profilo definisce? Una chiamata sulle prime
+ * pagine dei documenti; vale solo un «sì» con evidenza ritrovata nel testo.
+ * Non lancia mai: un guasto lascia il semplice Non valido.
+ * @returns {Promise<{numero:string|null, documento:number|null, pagina:number|null}|null>}
+ */
+async function askIncompleta({ settings, recognition, docs, spatialDocs, callModel, diag }) {
+  const log = (m) => { if (Array.isArray(diag)) diag.push(m) }
+  try {
+    const budgetChars = contractBudget(settings)
+    const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: false, partChars: budgetChars })
+    const blocks = selectContrattoPages(candidates, { budgetChars })
+    if (!blocks.length) return null
+    const q = buildIncompletaPrompt({ recognition, blocks })
+    const raw = await callModel({ ...settings, __phase: 'abbinamento' }, q.system, q.user, {
+      numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: incompletaSchema(), fields: [], shape: 'staged', diag,
+    })
+    const r = checkIncompletaAnswer(raw, blocks)
+    log(`Polizza assente: ${r ? `i documenti si riferiscono a una polizza del profilo${r.numero ? ` (n. ${r.numero})` : ''} → pertinente ma incompleta` : 'i documenti non si riferiscono a una polizza del profilo (o risposta senza evidenza)'}`)
+    return r
+  } catch (err) {
+    log(`Polizza assente: controllo «pertinente ma incompleta» non eseguito (${err?.message || err})`)
+    return null
+  }
+}
+
 /** Budget (caratteri utili) delle pagine nella domanda sul contratto. */
 function contractBudget(settings) {
   const probe = buildContrattoPrompt({ blocks: [] })
@@ -363,7 +391,8 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
   const contract = contractKnown || await runContractCheck({ docs, spatialDocs, settings, diag, deps })
   if (contract.esito === 'assente') {
     log(`Operatività «${profile?.name || ''}»: non valutata — NON VALIDO: ${contract.reason}`)
-    return { ...applyContractVerdict({ verdict: null, reason: '' }, contract), ...who }
+    const incompleta = await askIncompleta({ settings, recognition, docs, spatialDocs, callModel, diag })
+    return { ...applyContractVerdict({ verdict: null, reason: '' }, contract), ...who, ...(incompleta ? { incompleta } : {}) }
   }
   log(`Operatività «${profile?.name || ''}»: nome della copertura da «Come riconoscerla»: ${lexTokens.length ? `«${lexTokens.join(' ')}»` : 'non determinabile (controlli lessicali non applicabili)'}`)
   try {

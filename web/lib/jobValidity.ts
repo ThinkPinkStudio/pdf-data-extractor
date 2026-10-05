@@ -79,9 +79,27 @@ export function notValidRefusal(job: JobLike | null | undefined): { error: strin
   return isNotValidJob(job) ? { error: NOT_VALID_REFUSAL, code: 'not-valid' } : null
 }
 
+/** Documenti di una polizza del profilo, senza la polizza (precheck.incompleta). */
+export interface Incompleta { numero?: string | null; documento?: number | null; pagina?: number | null }
+
 /** Testo errore scritto dal worker per un Non valido (la pillola lo riconosce dal prefisso). */
-export function notValidError(reason: string, docNames: string): string {
+export function notValidError(reason: string, docNames: string, incompleta?: Incompleta | null): string {
+  if (incompleta) {
+    const n = incompleta.numero ? ` n. ${incompleta.numero}` : ''
+    return `${NOT_VALID_PREFIX} — Pertinente ma incompleta: reperire la polizza principale${n}. ${reason}. Documenti letti: ${docNames}. Senza la polizza principale non si estrae e non si forza: caricala nella cartella e premi "Riabbina".`
+  }
   return `${NOT_VALID_PREFIX} — ${reason}. Documenti letti: ${docNames}. Senza una polizza non si estrae e non si forza: "Riabbina" rifà il controllo sugli stessi documenti; se la polizza manca, ricarica la cartella con la polizza.`
+}
+
+/**
+ * Non valido «pertinente ma incompleta» (05/10/2026, richiesta del cliente):
+ * i documenti si riferiscono a una polizza del profilo ma la polizza manca.
+ * Resta Non valido (niente estrazione né forzatura); cambia solo l'etichetta.
+ */
+export function incompleteOf(job: JobLike | null | undefined): Incompleta | null {
+  if (!isNotValidJob(job)) return null
+  const pc = precheckOf(job as JobLike) as PrecheckLike & { incompleta?: Incompleta | null }
+  return pc.incompleta && typeof pc.incompleta === 'object' ? pc.incompleta : null
 }
 
 /**
