@@ -3573,7 +3573,11 @@ export function riepilogoMismatches(best, fields, docs) {
   for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
     const e = best?.[f.id]
     if (!e || !e.file) continue
-    const g = riepilogoAnchorField(f, fields)
+    // Legame TRANSITIVO: un campo «comprensivo di» voci legate al riepilogo di
+    // un altro campo sta nello stesso riepilogo (il lordo comprende le imposte,
+    // che stanno «sulla stessa riga o nello stesso riepilogo» dell'imponibile).
+    const g = riepilogoAnchorField(f, fields) ||
+      includedComponentFields(f, fields).map((c) => riepilogoAnchorField(c, fields)).find((a) => a && a.id !== f.id) || null
     const eg = g && best?.[g.id]
     if (!eg || !eg.file) continue
     const n = parsePureAmount(e.valore), ng = parsePureAmount(eg.valore)

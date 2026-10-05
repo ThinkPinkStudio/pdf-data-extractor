@@ -242,3 +242,15 @@ test('includedComponentsRowFix: il lordo della tabella senza diritti passa alla 
   // lordo già nella riga con i diritti: niente
   assert.equal(includedComponentsRowFix({ ...best, [F('Premio lordo totale tutela legale').id]: entry('182,00', file) }, TL, docs).length, 0)
 })
+
+test('riepilogoMismatches: il lordo «comprensivo» delle imposte segue il riepilogo dell\'imponibile (legame transitivo)', async () => {
+  const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
+  const POL = '       SEZIONE TUTELA LEGALE\n                  Prima rata        € 616,64        Imponibile annuo       € 616,64'
+  const TOT = '   PREMIO DI RATA      IMPONIBILE €      IMPOSTE €      TOTALE €\n                         3.112,52          687,48       3.800,00'
+  const docs = [{ name: 'polizza.pdf', spatialPages: [POL, TOT] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('616,64', 'polizza.pdf', 1),
+    [F('Premio lordo totale tutela legale').id]: entry('3.800,00', 'polizza.pdf', 2),
+  }
+  assert.deepEqual(riepilogoMismatches(best, TL, docs).map((s) => [s.field.label.trim(), s.anchor.label.trim()]), [['Premio lordo totale tutela legale', 'Premio imponibile tutela legale']])
+})
