@@ -215,3 +215,30 @@ test('validateCrossFields: diritti uguali alle imposte si svuotano solo con comp
   assert.ok(!(F('Diritti').id in on))
   assert.ok(F('Imposte').id in on)
 })
+
+test('includedComponentFields: il lordo «comprensivo di imposte, diritti e interessi» comprende quei tre campi', async () => {
+  const { includedComponentFields } = await import('../src/services/polizzaService.js')
+  const got = includedComponentFields(F('Premio lordo totale tutela legale'), TL).map((f) => f.label.trim()).sort()
+  assert.deepEqual(got, ['Diritti', 'Imposte', 'Interessi di frazionamento'])
+  assert.deepEqual(includedComponentFields(F('Imposte'), TL), [])
+})
+
+test('includedComponentsRowFix: il lordo della tabella senza diritti passa alla riga che porta diritti e imponibile', async () => {
+  const { includedComponentsRowFix } = await import('../src/services/polizzaService.js')
+  const file = 'MONZA 293 CONDOMINIO.pdf'
+  const docs = [{ name: file, spatialPages: [DAS] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('147,62', file),
+    [F('Diritti').id]: entry('2,48', file),
+    [F('Imposte').id]: entry('31,37', file),
+    [F('Premio lordo totale tutela legale').id]: entry('178,99', file),
+  }
+  const out = includedComponentsRowFix(best, TL, docs)
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.prima, s.valore, s.riga]), [['Premio lordo totale tutela legale', '178,99', '182,00', 'PREMIO RATA SUCCESSIVA']])
+  // diritti nulli o assenti: niente
+  assert.equal(includedComponentsRowFix({ ...best, [F('Diritti').id]: entry('0,00', file) }, TL, docs).length, 0)
+  const noDir = { ...best }; delete noDir[F('Diritti').id]
+  assert.equal(includedComponentsRowFix(noDir, TL, docs).length, 0)
+  // lordo già nella riga con i diritti: niente
+  assert.equal(includedComponentsRowFix({ ...best, [F('Premio lordo totale tutela legale').id]: entry('182,00', file) }, TL, docs).length, 0)
+})

@@ -3591,6 +3591,76 @@ export function riepilogoMismatches(best, fields, docs) {
 }
 
 /**
+ * Le voci che la DESCRIZIONE dice COMPRESE nel campo («Premio lordo … comprensivo
+ * di imposte, diritti e interessi»): per ogni voce il campo importo la cui testa
+ * le somiglia di più (headerLexOf ≥ 0,5). [] se la descrizione non lo dice.
+ */
+export function includedComponentFields(field, fields) {
+  const m = positiveDescriptionText(String(field?.description || '')).match(/comprensiv[oa]\s+di\s+([^.;:]+?)(?:\s+che\b|[.;:])/i)
+  if (!m) return []
+  const amount = (fields || []).filter((g) => g && g.id !== field.id && g.enabled !== false && fieldValueKind(g) === 'amount')
+  const out = []
+  for (const w of m[1].split(/,|\s+e\s+/).map((x) => x.trim()).filter(Boolean)) {
+    let best = null, lex = 0
+    for (const g of amount) { const l = headerLexOf(g, w); if (l > lex) { lex = l; best = g } }
+    if (best && lex >= 0.5 && !out.includes(best)) out.push(best)
+  }
+  return out
+}
+
+/**
+ * RIGA CHE COMPRENDE LE COMPONENTI, dopo il merge: un campo che la descrizione
+ * dice «comprensivo di» altre voci (il lordo: imposte, diritti, interessi),
+ * letto in una tabella che non ha la colonna di una componente estratta NON
+ * nulla, si prende dalla riga della stessa pagina che porta quella componente
+ * (sotto la sua intestazione) e il valore del campo a cui la componente è
+ * legata (l'imponibile del riepilogo), nella cella sotto l'intestazione che
+ * nomina il campo. Schede DAS: «PREMIO ANNUO 147,62 0,00 0,00 31,37 178,99»
+ * della tabella delle garanzie (nessuna colonna dei diritti) → «PREMIO RATA
+ * SUCCESSIVA 0,00 147,62 2,48 31,90 182,00». Un solo valore candidato.
+ * @returns {{field:object, valore:string, prima:string, riga:string, componente:object}[]}
+ */
+export function includedComponentsRowFix(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const owns = (header, f) => {
+    if (!header) return false
+    const lex = headerLexOf(f, header)
+    return lex > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, header) < lex)
+  }
+  const out = []
+  for (const f of amount) {
+    const comps = includedComponentFields(f, fields)
+    const e = best?.[f.id]
+    if (!comps.length || !e || !e.file || e.page === '' || e.page == null) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    const lines = String(gridPagesOf(d)[Number(e.page) - 1] || '').split('\n')
+    const n = parsePureAmount(e.valore)
+    if (n == null) continue
+    const cells = (i) => gridAmountTokens(lines[i]).map((t) => ({ ...t, header: gridHeaderAbove(lines, i, t.a, t.b) }))
+    // righe dove il valore del campo sta sotto un'intestazione che lo nomina
+    const cur = lines.map((l, i) => i).filter((i) => !lines[i].includes('|') && cells(i).some((t) => sameAmount(t.n, n) && owns(t.header, f)))
+    if (!cur.length) continue
+    for (const c of comps) {
+      const cv = parsePureAmount(best?.[c.id]?.valore)
+      if (cv == null || cv === 0) continue
+      // la tabella del campo ha già la colonna della componente: niente da correggere
+      if (cur.some((i) => cells(i).some((t) => owns(t.header, c)))) continue
+      const anchor = riepilogoAnchorField(c, fields)
+      const av = anchor && anchor.id !== f.id ? parsePureAmount(best?.[anchor.id]?.valore) : null
+      const cands = lines.map((l, i) => i)
+        .filter((i) => !lines[i].includes('|') && cells(i).some((t) => sameAmount(t.n, cv) && owns(t.header, c)) && (av == null || cells(i).some((t) => sameAmount(t.n, av))))
+        .map((i) => ({ i, cell: cells(i).find((t) => owns(t.header, f)) }))
+        .filter((x) => x.cell)
+      if (new Set(cands.map((x) => x.cell.n)).size !== 1 || sameAmount(cands[0].cell.n, n)) continue
+      if (!sanitizeFieldValue(f, cands[0].cell.text)) continue
+      out.push({ field: f, valore: cands[0].cell.text, prima: e.valore, riga: gridRowLabel(lines[cands[0].i]), componente: c })
+      break
+    }
+  }
+  return out
+}
+
+/**
  * RIGA DELLA COPERTURA nella stessa colonna, dopo il merge: un importo di un
  * campo la cui DESCRIZIONE (testa) nomina la copertura del profilo («… della
  * tutela legale»), letto in una riga della griglia che NON è la copertura,
@@ -7572,6 +7642,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // coerenza cross-field).
   const riepilogoOn = engineFlag(settings, 'riepilogo')
   if (riepilogoOn) {
+    for (const s of includedComponentsRowFix(best, activeFields, analyzed)) {
+      best[s.field.id] = { ...best[s.field.id], valore: s.valore, gridRow: true }
+      diag.push(`Riga comprensiva[${s.field.label}]: "${s.prima}" → "${s.valore}" (riga "${s.riga}", che porta anche ${s.componente.label}: la descrizione lo dice comprensivo di quella voce)`)
+    }
     for (const s of riepilogoMismatches(best, activeFields, analyzed)) {
       delete best[s.field.id]
       diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" (${s.file}) non sta mai con ${s.anchor.label} "${s.anchorValore}" (${s.anchorFile}), a cui la descrizione lo lega → vuoto`)
