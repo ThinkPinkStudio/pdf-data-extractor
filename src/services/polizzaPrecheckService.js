@@ -588,6 +588,11 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
       excludeMatched: contentExclude?.matched || [], contract, deps,
     })
   }
+  // Senza polizza: i documenti si riferiscono comunque a una polizza del
+  // profilo? «Pertinente ma incompleta – reperire la polizza principale».
+  const incompleta = operative && contract.esito === 'assente'
+    ? (operativitaPre?.incompleta || await askIncompleta({ settings, recognition, docs, spatialDocs, callModel: deps.callModel || callOllamaRolling, diag }))
+    : null
 
   if (operative) {
     // I metodi storici non servono: la classifica (per il suggerimento) si calcola sotto.
@@ -648,6 +653,7 @@ export async function runPrecheck({ docs, spatialDocs, fieldDefs, profile, profi
     hasContentExclude: contentExcludeKws.length > 0,
     hasRecognition: !!recognition,
     operativita,
+    incompleta,
     keyword, semantic, llm,
     semanticRanking, jobProfileId,
     contentExclude,

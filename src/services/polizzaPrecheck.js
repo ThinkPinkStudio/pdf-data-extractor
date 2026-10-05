@@ -219,7 +219,7 @@ export function decidePrecheck(p) {
       ...(operative && p?.operativita ? { operativita: p.operativita } : {}),
       // Senza polizza ma con documenti di una polizza del profilo: «Pertinente
       // ma incompleta – reperire la polizza principale» (resta Non valido).
-      ...(operative && p?.operativita?.incompleta ? { incompleta: p.operativita.incompleta } : {}),
+      ...(operative && (p?.incompleta || p?.operativita?.incompleta) ? { incompleta: p.incompleta || p.operativita.incompleta } : {}),
     }
   }
   const d = decidePrecheckCore(p)

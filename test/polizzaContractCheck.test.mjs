@@ -511,3 +511,14 @@ test('senza polizza ma con un\'appendice della polizza del profilo: Non valido �
   assert.equal(d.notValid, true)
   assert.deepEqual(d.incompleta, r.incompleta)
 })
+
+
+test('«pertinente ma incompleta» anche dal pre-controllo vero (runPrecheck): la polizza assente non passa dall\'operatività', async () => {
+  const APPENDICE = 'Appendice MODIFICA DATI CONTRATTUALI\nPolizza Nr. 01469AC12900228\nD.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione'
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '01469AC12900228', documento: 'Documento 1', pagina: 1, evidenza: 'D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione' } })
+  const pre = await runPrecheck({ docs: [doc('appendice.pdf', [APPENDICE])], fieldDefs: [], profile: TL, profileName: TL.name, mode: 'llm', settings: SETTINGS, allProfiles: PROFILES, deps: { callModel: m.callModel, embed } })
+  assert.equal(pre.notValid, true)
+  assert.deepEqual(pre.incompleta, { numero: '01469AC12900228', documento: 1, pagina: 1 })
+  assert.equal(m.calls.incompleta, 1)
+  assert.equal(m.calls.op, 0)
+})
