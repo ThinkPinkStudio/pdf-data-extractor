@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['zeri'])
+export const DEFAULT_FLAGS = Object.freeze([])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in

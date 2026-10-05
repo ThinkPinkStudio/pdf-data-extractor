@@ -54,6 +54,7 @@ const BUILD_FEATURES = [
   'zeri-default-righe', // Flag «zeri» acceso di default; flag «righe» (spento): in A.7 la riga la sceglie la descrizione, senza istruzioni fisse né esempi (05/10/2026)
   'flag-date8', // Flag «date8» (spento): le date del frontespizio sono provvisorie, la cascata le chiede anche ai documenti più recenti (05/10/2026)
   'flag-filtroelenchi', // Flag «filtroelenchi» (spento): nei campi-elenco il modello tiene solo le voci che la descrizione ammette (05/10/2026)
+  'zeri-spento', // Flag «zeri» di nuovo spento: misurato 539 → 534 su 28 posizioni (lo zero spinge il modello sulla riga «PREMIO ANNUO» delle schede DAS) (05/10/2026)
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
 ]
 
