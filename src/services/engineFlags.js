@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -42,6 +42,7 @@ export const KNOWN_FLAGS = Object.freeze({
   righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
   date8: 'A.8: le DATE del frontespizio sono provvisorie: la cascata le chiede anche ai documenti più recenti (quietanza di rinnovo) e decide l\'arbitro',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
+  rigagriglia: 'Dopo il merge, dalla GRIGLIA: un importo della copertura letto nella riga dei totali passa alla riga della copertura nella stessa colonna; i campi vuoti «sulla stessa riga» del premio prendono la cella sotto l\'intestazione che li nomina',
 })
 
 /** @returns {Set<string>} */

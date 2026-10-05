@@ -19,6 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
+import { namesCoverage, recognitionCoverName } from './polizzaOperativita.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -3387,6 +3388,213 @@ export function completeA7Row(entries, rows, fields, fieldOfKey) {
       out.push({ field: f, entry: [String(idx), { valore: owned[0].value, riga: hit.row.label, colonna: owned[0].header }] })
       break
     }
+  }
+  return out
+}
+
+// ── GRIGLIA della pagina (pdf.js o OCR spaziale): righe e colonne ──────────
+// Celle = tratti separati da ≥2 spazi, con la loro posizione in caratteri. Le
+// righe delle tabelle markdown di Docling (aggiunte in coda alla pagina) non
+// sono griglia e si saltano.
+
+/** Celle di una riga della griglia: [{ text, a, b }] (colonne di caratteri a..b). */
+export function gridCells(line) {
+  const out = []
+  for (const m of String(line || '').matchAll(/\S+(?: \S+)*/g)) out.push({ text: m[0], a: m.index, b: m.index + m[0].length })
+  return out
+}
+
+const GRID_AMOUNT_RE = /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?![\d%]|\s?%)/g
+
+/** Importi con due decimali di una riga della griglia (mai le percentuali): [{ text, n, a, b }]. */
+export function gridAmountTokens(line) {
+  const out = []
+  for (const m of String(line || '').matchAll(GRID_AMOUNT_RE)) {
+    out.push({ text: m[0], n: Number(m[0].replace(/\./g, '').replace(',', '.')), a: m.index, b: m.index + m[0].length })
+  }
+  return out
+}
+
+// Cella di DATI (importo, numero di più cifre): non è un'intestazione. «(1)»
+// di una nota («prima rata (1)») resta testo.
+const gridDataCell = (t) => /\d[.,]\d|\d{2,}/.test(t)
+// Cella NUMERICA (importo, «€ 20.000», percentuale): chiude l'etichetta di riga.
+const gridNumericCell = (t) => gridAmountTokens(t).length > 0 || /^[€$]?\s*[\d.,]+\s*(?:%|€|euro)?$/i.test(t.trim())
+
+/**
+ * La cella di una riga che sta sopra/sotto le colonne a..b: quella che le si
+ * sovrappone DI PIÙ (intestazioni fitte: «FRAZIONAMENTO   NETTO IMPONIBILE»
+ * sopra uno «0,00» allineato a destra), entro 3 caratteri; null se nessuna.
+ */
+export function gridCellOver(cells, a, b) {
+  let best = null, bestOv = -Infinity
+  for (const c of cells || []) {
+    const ov = Math.min(b, c.b) - Math.max(a, c.a)
+    if (ov > bestOv) { bestOv = ov; best = c }
+  }
+  return best && bestOv >= -3 ? best : null
+}
+
+/**
+ * INTESTAZIONE della colonna sopra una cella (colonne a..b) della riga i: la
+ * cella di TESTO di ogni riga sopra che le si sovrappone di più
+ * (gridCellOver), saltando le righe di dati della stessa colonna; più righe
+ * d'intestazione consecutive si uniscono («PREMIO» / «LORDO»). Una frase
+ * lunga non è un'intestazione. '' se non c'è.
+ */
+export function gridHeaderAbove(lines, i, a, b) {
+  const parts = []
+  for (let j = i - 1, seen = 0; j >= 0 && seen < 25; j--) {
+    const line = String(lines[j] || '')
+    if (!line.trim()) continue
+    if (line.includes('|')) break
+    seen++
+    const c = gridCellOver(gridCells(line), a, b)
+    if (!c) { if (parts.length) break; continue }
+    if (gridDataCell(c.text)) { if (parts.length) break; continue }
+    if (c.text.split(/\s+/).length > 8) break
+    parts.unshift(c.text)
+  }
+  return parts.join(' ')
+}
+
+/** Etichetta di RIGA della griglia: le celle prima della prima cella numerica. */
+export function gridRowLabel(line) {
+  const parts = []
+  for (const c of gridCells(line)) {
+    if (gridNumericCell(c.text)) break
+    parts.push(c.text)
+  }
+  return parts.join(' ')
+}
+
+const gridPagesOf = (d) => (d?.spatialPages?.some((p) => String(p || '').trim()) ? d.spatialPages : d?.pages) || []
+const sameAmount = (x, y) => x != null && y != null && Math.abs(x - y) < 0.005
+
+/**
+ * RIGA DEL PREMIO dalla GRIGLIA, dopo il merge: per ogni campo IMPORTO ancora
+ * vuoto che la DESCRIZIONE lega alla «stessa riga» del premio, la cella della
+ * riga della griglia che porta almeno due valori GIÀ ESTRATTI per altri campi
+ * importo (nella pagina da cui vengono), sotto l'intestazione che nomina il
+ * campo più di ogni altro campo importo del profilo (headerLexOf). Schede DAS:
+ * «PREMIO RATA SUCCESSIVA ‖ 0,00 ‖ 147,62 ‖ ‖ 2,48 ‖ 31,90 ‖ 182,00» sotto
+ * «PREMIO TOTALE ‖ FRAZIONAMENTO ‖ NETTO IMPONIBILE ‖ RIMBORSO ‖ DIRITTO…»: lo
+ * 0,00 stampato sotto FRAZIONAMENTO sono gli interessi, che il modello non
+ * riporta (14 posizioni su 41 il 05/10; completeA7Row non scatta quando il
+ * modello legge i premi dalla tabella delle garanzie o dalla griglia). Righe
+ * candidate con valori diversi a pari conferme → niente (ambiguo).
+ * @param {Record<string, {valore:string, file?:string, page?:number|string}>} best
+ * @param {object[]} fields campi attivi
+ * @param {{name:string, spatialPages?:string[], pages?:string[]}[]} docs
+ * @returns {{field:object, valore:string, file:string, page:number, riga:string, colonna:string}[]}
+ */
+export function completeRowFromGrid(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const byPage = new Map() // "file\u0000page" → valori estratti dei campi importo di quella pagina
+  for (const g of amount) {
+    const e = best?.[g.id]
+    if (!e || !e.file || e.page === '' || e.page == null) continue
+    const n = parsePureAmount(e.valore)
+    if (n == null) continue
+    const k = `${e.file}\u0000${e.page}`
+    if (!byPage.has(k)) byPage.set(k, [])
+    byPage.get(k).push({ id: g.id, n })
+  }
+  const out = []
+  for (const f of amount) {
+    if (best?.[f.id]) continue
+    if (!/\bstessa\s+riga\b/i.test(positiveDescriptionText(String(f.description || '')))) continue
+    const cands = []
+    for (const [k, vals] of byPage) {
+      const [file, pageStr] = k.split('\u0000')
+      const d = (docs || []).find((x) => x && x.name === file)
+      const page = Number(pageStr)
+      const lines = String(gridPagesOf(d)[page - 1] || '').split('\n')
+      lines.forEach((line, i) => {
+        if (line.includes('|')) return
+        const toks = gridAmountTokens(line)
+        const carried = new Set(vals.filter((v) => toks.some((t) => sameAmount(t.n, v.n))).map((v) => v.id))
+        if (carried.size < 2) return
+        for (const t of toks) {
+          const header = gridHeaderAbove(lines, i, t.a, t.b)
+          if (!header) continue
+          const lex = headerLexOf(f, header)
+          if (lex <= 0 || !amount.every((g) => g.id === f.id || headerLexOf(g, header) < lex)) continue
+          if (!sanitizeFieldValue(f, t.text)) continue
+          cands.push({ valore: t.text, n: t.n, carried: carried.size, file, page, riga: gridRowLabel(line), colonna: header })
+        }
+      })
+    }
+    if (!cands.length) continue
+    const top = Math.max(...cands.map((c) => c.carried))
+    const tops = cands.filter((c) => c.carried === top)
+    if (new Set(tops.map((c) => c.n)).size !== 1) continue
+    const { n: _n, carried: _c, ...hit } = tops[0]
+    out.push({ field: f, ...hit })
+  }
+  return out
+}
+
+/**
+ * RIGA DELLA COPERTURA nella stessa colonna, dopo il merge: un importo di un
+ * campo la cui DESCRIZIONE (testa) nomina la copertura del profilo («… della
+ * tutela legale»), letto in una riga della griglia che NON è la copertura,
+ * quando nella stessa colonna della pagina c'è UNA riga che è la copertura
+ * (etichetta fatta solo delle parole del nome da «Come riconoscerla»: «Tutela
+ * Giudiziaria», «Tutela legale») e almeno altre due righe (le altre sezioni):
+ * il valore è la cella della copertura. Polizze auto Allianz: «Totali 1.900,63
+ * 274,56 82,81 2.258,00» invece di «Tutela Giudiziaria 16,17 12,50% 2,02
+ * 18,19»; la descrizione chiede la SEZIONE («NON il lordo dell'intero
+ * contratto con le altre sezioni»). Mai se l'intestazione della colonna della
+ * copertura è di un altro campo importo (amountColumnOwner: «Premio lordo
+ * annuo» non dà le imposte), mai un campo svuotato, mai con proposte diverse.
+ * @param {string[][]} coverNames recognitionCoverName del profilo del job
+ * @returns {{field:object, valore:string, prima:string, file:string, page:number, riga:string, da:string, colonna:string}[]}
+ */
+export function coverRowFromGrid(best, fields, docs, coverNames) {
+  if (!Array.isArray(coverNames) || !coverNames.length) return []
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const coverWords = new Set(coverNames.flat().map((w) => normForMatch(w)))
+  const words = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 3)
+  const isCoverRow = (label) => {
+    const ws = words(label)
+    return ws.length > 0 && !!namesCoverage(label, coverNames) && ws.every((w) => coverWords.has(w))
+  }
+  const out = []
+  for (const f of amount) {
+    const e = best?.[f.id]
+    if (!e || !e.file) continue
+    if (!namesCoverage(String(f.description || '').split(':')[0], coverNames)) continue
+    const n = parsePureAmount(e.valore)
+    if (n == null || n === 0) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    if (!d) continue
+    const props = []
+    gridPagesOf(d).forEach((text, pi) => {
+      const lines = String(text || '').split('\n')
+      lines.forEach((line, i) => {
+        if (line.includes('|') || isCoverRow(gridRowLabel(line))) return
+        for (const t of gridAmountTokens(line)) {
+          if (!sameAmount(t.n, n)) continue
+          const col = []
+          lines.forEach((l2, k) => {
+            if (k === i || l2.includes('|') || Math.abs(k - i) > 40) return
+            const hit = gridAmountTokens(l2).filter((u) => !(u.a > t.b + 3 || u.b < t.a - 3))
+            if (hit.length === 1) col.push({ k, u: hit[0], label: gridRowLabel(l2) })
+          })
+          const cover = col.filter((c) => isCoverRow(c.label))
+          if (cover.length !== 1 || col.length - 1 < 2) continue
+          const target = cover[0]
+          const header = gridHeaderAbove(lines, target.k, target.u.a, target.u.b)
+          if (header && amountColumnOwner(f, header, amount)) continue
+          if (!sanitizeFieldValue(f, target.u.text)) continue
+          props.push({ valore: target.u.text, n: target.u.n, page: pi + 1, riga: target.label, da: gridRowLabel(line), colonna: header })
+        }
+      })
+    })
+    if (!props.length || new Set(props.map((p) => p.n)).size !== 1 || sameAmount(props[0].n, n)) continue
+    const { n: _n, ...hit } = props[0]
+    out.push({ field: f, ...hit, prima: e.valore, file: d.name })
   }
   return out
 }
@@ -7262,6 +7470,30 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // description + il modello.
     for (const n of dNotes) diag.push(n)
     if (touched) diag.push(`Regole di dossier: ${touched} campi toccati (eco-coppia / attività / anti-frammento / natura-assente)`)
+  }
+
+  // ── [flag rigagriglia] RIGA DELLA COPERTURA e RIGA DEL PREMIO dalla GRIGLIA ──
+  // Lettura deterministica della griglia delle pagine da cui vengono i premi:
+  // prima la cella della riga della COPERTURA nella stessa colonna (la sezione
+  // «Tutela Giudiziaria» invece dei «Totali» del contratto), poi, per i campi
+  // ancora vuoti che la descrizione lega alla «stessa riga» del premio, la
+  // cella della riga dei premi già estratti (interessi 0,00 sotto
+  // FRAZIONAMENTO). Nessun modello e nessun formato: le intestazioni si
+  // confrontano con le DESCRIZIONI, il nome della copertura viene da «Come
+  // riconoscerla» del profilo del job.
+  if (engineFlag(settings, 'rigagriglia')) {
+    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+    const ids = new Set(activeFields.map((f) => f.id))
+    const me = profs.find((p) => p.id === settings?.polizzaJobProfileId) || profs.find((p) => (p.fields || []).some((g) => ids.has(g.id)))
+    const coverNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    for (const s of coverRowFromGrid(best, activeFields, analyzed, coverNames)) {
+      best[s.field.id] = { ...best[s.field.id], valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Riga della copertura[${s.field.label}]: "${s.prima}" (riga "${s.da}") → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page})`)
+    }
+    for (const s of completeRowFromGrid(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Riga del premio[${s.field.label}] = "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): cella stampata nella riga dei premi già estratti`)
+    }
   }
 
   // ── Coerenza cross-field ──────────────────────────────────────────────────

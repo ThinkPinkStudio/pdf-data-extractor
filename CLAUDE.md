@@ -1158,6 +1158,28 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   che citano «garanzia»/«prodotto» rendono il campo «strutturale»
   (`isStructuralField`): verificare natura/tipo prima di cambiarle.
 
+- **Righe della GRIGLIA dopo il merge, flag `rigagriglia` (05/10/2026,
+  default)**: lettura deterministica della griglia pdf.js/OCR delle pagine da
+  cui vengono i premi (`coverRowFromGrid`, `completeRowFromGrid`, test
+  `test/polizzaGridRow.test.mjs`). (1) Un importo di un campo la cui TESTA di
+  descrizione nomina la copertura, letto in una riga che non è la copertura,
+  passa alla cella della riga della copertura nella stessa colonna, se la
+  colonna ha altre ≥2 righe (le altre sezioni); riga della copertura =
+  etichetta fatta solo delle parole del nome da «Come riconoscerla»
+  (`recognitionCoverName`, profilo del job trovato per id dei campi): Allianz
+  «Totali 274,56 / 2.258,00» → «Tutela Giudiziaria 2,02 / 18,19»; mai nella
+  colonna di un altro campo importo (`amountColumnOwner`: «Premio lordo
+  annuo» non dà le imposte), mai «Tutela Legale Pacchetto Base» (altre parole).
+  (2) Un campo importo VUOTO che la descrizione lega alla «stessa riga» del
+  premio prende la cella della riga che porta ≥2 valori già estratti, sotto
+  l'intestazione che lo nomina più di ogni altro campo importo (DAS: interessi
+  0,00 sotto FRAZIONAMENTO, che il modello non propone mai). Intestazione = la
+  cella che si SOVRAPPONE DI PIÙ (`gridCellOver`): con la tolleranza ±3 da sola
+  «FRAZIONAMENTO   NETTO IMPONIBILE» erano una cella. Misura offline sui valori
+  di produzione delle 41 posizioni (script
+  `replay-grid.mjs` nello scratchpad): +19 −1 (P26: verità vuota per tutti i
+  premi della scheda).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
