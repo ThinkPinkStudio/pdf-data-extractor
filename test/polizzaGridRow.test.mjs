@@ -273,3 +273,21 @@ test('riepilogoMismatches: per valore — la scheda che stampa lo stesso imponib
   const best2 = { [F('Premio imponibile tutela legale').id]: entry('147,62', 'rinnovo2026.pdf'), [F('Diritti').id]: entry('2,48', 'scheda2020.pdf') }
   assert.deepEqual(riepilogoMismatches(best2, TL, docs2).map((s) => s.field.label.trim()), ['Diritti'])
 })
+
+test('anchorByElimination: l\'imponibile vuoto è l\'unico importo libero della riga di imposte e lordo (Allianz)', async () => {
+  const { anchorByElimination } = await import('../src/services/polizzaService.js')
+  const file = 'POLIZZA GV474DJ.pdf'
+  const docs = [{ name: file, spatialPages: [ALLIANZ] }]
+  const best = {
+    [F('Imposte').id]: entry('2,02', file),
+    [F('Premio lordo totale tutela legale').id]: entry('18,19', file),
+  }
+  assert.deepEqual(anchorByElimination(best, TL, docs).map((s) => [s.field.label.trim(), s.valore, s.riga]), [['Premio imponibile tutela legale', '16,17', 'Tutela Giudiziaria']])
+  // imponibile già estratto: niente
+  assert.equal(anchorByElimination({ ...best, [F('Premio imponibile tutela legale').id]: entry('16,17', file) }, TL, docs).length, 0)
+  // senza un secondo valore estratto nella riga: niente (la riga non è provata)
+  assert.equal(anchorByElimination({ [F('Imposte').id]: entry('2,02', file) }, TL, docs).length, 0)
+  // riga RCA: due importi liberi (788,71 e 82,81) → niente
+  const rca = { [F('Imposte').id]: entry('126,19', file), [F('Premio lordo totale tutela legale').id]: entry('997,71', file) }
+  assert.equal(anchorByElimination(rca, TL, docs).length, 0)
+})

@@ -3601,6 +3601,51 @@ export function riepilogoMismatches(best, fields, docs) {
 }
 
 /**
+ * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
+ * cui la descrizione di altri campi lega la propria riga («imposte … sulla
+ * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
+ * l'UNICO importo della riga che nessun campo ha già preso, quando la riga
+ * porta il valore estratto di un campo legato e almeno un altro valore
+ * estratto. Allianz: «Tutela Giudiziaria 16,17 12,50% 2,02 18,19» con imposte
+ * 2,02 e lordo 18,19 già letti → imponibile 16,17 (la colonna «Importo prima
+ * rata» non nomina l'imponibile). Mai una percentuale né uno zero, mai con due
+ * importi liberi o righe che danno valori diversi.
+ * @returns {{field:object, valore:string, file:string, page:number, riga:string}[]}
+ */
+export function anchorByElimination(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const out = []
+  for (const g of amount) {
+    if (best?.[g.id]) continue
+    const bound = amount.filter((f) => f.id !== g.id && riepilogoAnchorField(f, fields)?.id === g.id && best?.[f.id]?.file)
+    if (!bound.length) continue
+    const claimed = amount.map((f) => parsePureAmount(best?.[f.id]?.valore)).filter((n) => n != null)
+    const props = []
+    for (const f of bound) {
+      const e = best[f.id]
+      const n = parsePureAmount(e.valore)
+      const d = (docs || []).find((x) => x && x.name === e.file)
+      if (n == null || n === 0 || !d) continue
+      const lines = String(gridPagesOf(d)[Number(e.page) - 1] || '').split('\n')
+      for (const line of lines) {
+        if (line.includes('|')) continue
+        const toks = gridAmountTokens(line)
+        if (!toks.some((t) => sameAmount(t.n, n))) continue
+        if (toks.filter((t) => claimed.some((c) => sameAmount(c, t.n))).length < 2) continue
+        const free = toks.filter((t) => !claimed.some((c) => sameAmount(c, t.n)))
+        if (free.length !== 1 || free[0].n === 0) continue
+        if (!sanitizeFieldValue(g, free[0].text)) continue
+        props.push({ valore: free[0].text, n: free[0].n, file: d.name, page: Number(e.page), riga: gridRowLabel(line) })
+      }
+    }
+    if (!props.length || new Set(props.map((p) => p.n)).size !== 1) continue
+    const { n: _n, ...hit } = props[0]
+    out.push({ field: g, ...hit })
+  }
+  return out
+}
+
+/**
  * Le voci che la DESCRIZIONE dice COMPRESE nel campo («Premio lordo … comprensivo
  * di imposte, diritti e interessi»): per ogni voce il campo importo la cui testa
  * le somiglia di più (headerLexOf ≥ 0,5). [] se la descrizione non lo dice.
@@ -7695,6 +7740,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const top = [...groups.values()].sort((x, y) => y.n - x.n || (typeof y.rep.affinity === 'number' ? y.rep.affinity : -1) - (typeof x.rep.affinity === 'number' ? x.rep.affinity : -1))[0]
       best[a.id] = top.rep
       diag.push(`Coerenza massimali: annuo ripreso dai candidati coerenti (≥ sinistro ${best[s0.id].valore}): "${top.rep.valore}" (${top.n} voti)`)
+    }
+  }
+
+  // ── [flag riepilogo] Il campo LEGATO per esclusione (dopo la coerenza) ─────
+  // L'imponibile vuoto prende l'unico importo libero della riga dove stanno i
+  // campi legati a lui (imposte) e un altro valore estratto (lordo): Allianz
+  // «Tutela Giudiziaria 16,17 12,50% 2,02 18,19».
+  if (riepilogoOn) {
+    for (const s of anchorByElimination(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Riepilogo per esclusione[${s.field.label}] = "${s.valore}" (riga "${s.riga}", ${s.file} p.${s.page}): l'unico importo della riga non preso da altri campi`)
     }
   }
 
