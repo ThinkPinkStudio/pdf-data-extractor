@@ -2493,7 +2493,7 @@ const RECENCY_SYSTEM_EXPLICIT =
  * queste vengono anteposte come "ESTRATTI STRUTTURATI", seguite sempre dal
  * testo grezzo (spaziale o piatto) sotto.
  */
-export function withPairs(pageText) {
+export function withPairs(pageText, opts = {}) {
   const t = String(pageText || '')
   // NIENTE liste hardcoded: le intuizioni vengono SOLO dal documento (blocchi
   // tabella markdown Docling/pdf-inspector + coppie etichetta→valore dal
@@ -2501,7 +2501,8 @@ export function withPairs(pageText) {
   // Le tabelle markdown sono GIÀ nel testo che segue: ricopiarle qui le
   // raddoppiava nel prompt (e una terza volta via extractPromptTables) con
   // 8192 token di contesto. Restano le coppie etichetta→valore del layout.
-  const pairs = detectLabelValuePairs(t)
+  // [flag coppietesto] anche i testi sotto l'intestazione di colonna (opts.text)
+  const pairs = detectLabelValuePairs(t, { text: !!opts.text })
   const parts = []
   if (pairs.length) {
     const seen = new Set()

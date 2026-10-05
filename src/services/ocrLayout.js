@@ -163,7 +163,7 @@ export function usefulLength(s) {
 // @param {string[]|string} lines  righe della griglia OPPURE il testo di una
 //   pagina (viene diviso in righe)
 // @returns {Array<{row:number,label:string,value:string,column:number}>}
-export function detectLabelValuePairs(lines) {
+export function detectLabelValuePairs(lines, opts = {}) {
   const raw = Array.isArray(lines) ? lines : String(lines || '').split('\n')
   const rows = raw.map((l, i) => ({ idx: i + 1, toks: tokenizeLine(l), cells: null }))
   for (const r of rows) r.cells = lineCells(r.toks)
@@ -223,6 +223,39 @@ export function detectLabelValuePairs(lines) {
       if (!best) continue
       const pair = { row: i + 1, label: cell.text.trim(), value: best.text, column: cell.x }
       if (acceptable(pair)) pairs.push(pair)
+    }
+  }
+
+  // ── Passaggio 3 [opts.text]: anche i TESTI sotto l'intestazione di colonna ──
+  // Quietanza DAS: «Descrizione  Indicizzazione  Massimale» e, due righe sotto
+  // (in mezzo la scritta verticale a margine «per»), «Tutela Legale  ESCLUSA
+  // 31.000,00»: ESCLUSA sta sotto Indicizzazione, non sotto la copertura. La
+  // riga dei valori è la prima sotto (entro 3) che si sovrappone alle
+  // intestazioni e porta almeno un valore (numero o data): due righe di sole
+  // intestazioni non si abbinano. Ogni cella prende l'intestazione che le si
+  // sovrappone di più.
+  if (opts.text) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.cells.length < 2 || r.toks.some((t) => isValueLike(t.text))) continue
+      const ov = (hc, vc) => Math.min(hc.end, vc.end) - Math.max(hc.x, vc.x)
+      let next = null
+      for (let k = i + 1; k < rows.length && k <= i + 3; k++) {
+        const c = rows[k]
+        if (!c.toks.length) continue
+        if (!c.cells.some((vc) => r.cells.some((hc) => ov(hc, vc) > -COL_TOL))) continue
+        next = c
+        break
+      }
+      if (!next || next.cells.length < 2 || !next.toks.some((t) => isValueLike(t.text))) continue
+      for (const vc of next.cells) {
+        let best = null, bestOv = -Infinity
+        for (const hc of r.cells) { const o = ov(hc, vc); if (o > bestOv) { bestOv = o; best = hc } }
+        if (!best || bestOv < -COL_TOL) continue
+        const label = cleanLabel(best.text), value = vc.text.trim()
+        if (badLabel(label) || !value || value === label || value.length > MAX_VAL_CHARS || value.split(/\s+/).length > MAX_VAL_TOKENS) continue
+        pairs.push({ row: next.idx, label, value, column: best.x })
+      }
     }
   }
 
