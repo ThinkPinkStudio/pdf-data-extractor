@@ -694,6 +694,36 @@ const normCite = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9àèéì�
  * evidenza si ritrova nel testo di una pagina mostrata; il numero solo se è
  * scritto in una pagina mostrata. @returns {{numero: string|null, documento: number|null, pagina: number|null} | null}
  */
+/**
+ * ESEMPI che la DEFINIZIONE («Come riconoscerla») dà del tipo di polizza, nella
+ * sola parte POSITIVA (prima di «NON …»): le voci di una parola sola tra
+ * parentesi dopo «es.» («DAS», «ARAG»: nomi di prodotto o di compagnia). Servono
+ * a riconoscere senza modello i documenti di una polizza del profilo senza la
+ * polizza (l'appendice DAS di CAVALLO FT796KM non dice mai «tutela legale»). Il
+ * nome della copertura no: «tutela legale» sta anche nelle informative privacy.
+ * @returns {string[]}
+ */
+export function recognitionNamedExamples(recognition) {
+  const positive = String(recognition || '').split(/\bNON\b/)[0]
+  const out = []
+  for (const m of positive.matchAll(/\((?:es\.?|ad esempio|per esempio)\s*([^)]*)\)/gi)) {
+    for (const part of m[1].split(/[,;]/)) {
+      const t = part.replace(/["«»“”']/g, '').trim()
+      if (/^[A-Za-zÀ-ÿ.&-]{3,}$/.test(t)) out.push(t)
+    }
+  }
+  return [...new Set(out)]
+}
+
+/** Il testo nomina uno dei nomi come PAROLE intere, senza i punti delle sigle («D.A.S.» = DAS). */
+export function textNamesAny(text, names) {
+  const words = ' ' + String(text || '').replace(/\./g, '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean).join(' ') + ' '
+  return (names || []).some((n) => {
+    const w = String(n || '').replace(/\./g, '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean).join(' ')
+    return w.length >= 3 && words.includes(` ${w} `)
+  })
+}
+
 export function checkIncompletaAnswer(raw, blocks) {
   let a = null
   try { a = typeof raw === 'string' ? JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] || 'null') : raw } catch { a = null }

@@ -493,16 +493,25 @@ test('senza polizza ma con un\'appendice della polizza del profilo: Non valido �
     'INCLUSIONE RISCHI  Con la presente appendice si conviene che viene incluso il seguente rischio: FT796KM',
     'D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione',
   ].join('\n')
-  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '01469AC12900228', documento: 'Documento 1', pagina: 1, evidenza: 'D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione' } })
+  // La definizione del profilo dà «DAS» come esempio del tipo di polizza: la
+  // pagina che lo nomina («D.A.S. Difesa …») basta, senza chiedere al modello
+  // (in produzione il modello rispondeva no: l'appendice non dice «tutela legale»).
+  const m = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'no', numero: '', documento: 'Documento 1', pagina: 1, evidenza: '' } })
   const diag = []
   const r = await runOperativita({ docs: [doc('appendice.pdf', [APPENDICE])], profile: TL, profiles: PROFILES, settings: SETTINGS, diag, deps: { callModel: m.callModel, embed } })
   assert.equal(r.notValid, true, diag.join('\n'))
   assert.deepEqual(r.incompleta, { numero: '01469AC12900228', documento: 1, pagina: 1 })
-  assert.equal(m.calls.incompleta, 1)
+  assert.equal(m.calls.incompleta, 0)
   assert.equal(m.calls.op, 0)
-  // evidenza inventata o «no»: semplice Non valido
-  const m2 = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '999', documento: 'Documento 1', pagina: 1, evidenza: 'polizza di tutela legale DAS attiva' } })
-  const r2 = await runOperativita({ docs: [doc('appendice.pdf', [APPENDICE])], profile: TL, profiles: PROFILES, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
+  // senza esempi della definizione nella pagina decide il modello: «sì» con evidenza vera…
+  const ALTRA = APPENDICE.replace('D.A.S. Difesa Automobilistica Sinistri SpA di Assicurazione', 'Compagnia Esempio SpA - appendice alla polizza di tutela legale')
+  const m3 = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '01469AC12900228', documento: 'Documento 1', pagina: 1, evidenza: 'appendice alla polizza di tutela legale' } })
+  const r3 = await runOperativita({ docs: [doc('appendice.pdf', [ALTRA])], profile: TL, profiles: PROFILES, settings: SETTINGS, deps: { callModel: m3.callModel, embed } })
+  assert.deepEqual(r3.incompleta, { numero: '01469AC12900228', documento: 1, pagina: 1 })
+  assert.equal(m3.calls.incompleta, 1)
+  // …evidenza inventata o «no»: semplice Non valido
+  const m2 = fakeModel({ op: NON_OPERANTE_RIGA, contract: () => ASSENTE, incompleta: { riferita: 'sì', numero: '999', documento: 'Documento 1', pagina: 1, evidenza: 'polizza di tutela legale attiva' } })
+  const r2 = await runOperativita({ docs: [doc('appendice.pdf', [ALTRA])], profile: TL, profiles: PROFILES, settings: SETTINGS, deps: { callModel: m2.callModel, embed } })
   assert.equal(r2.notValid, true)
   assert.equal(r2.incompleta, undefined)
   // il verdetto del pre-controllo lo porta con sé
@@ -519,6 +528,6 @@ test('«pertinente ma incompleta» anche dal pre-controllo vero (runPrecheck): l
   const pre = await runPrecheck({ docs: [doc('appendice.pdf', [APPENDICE])], fieldDefs: [], profile: TL, profileName: TL.name, mode: 'llm', settings: SETTINGS, allProfiles: PROFILES, deps: { callModel: m.callModel, embed } })
   assert.equal(pre.notValid, true)
   assert.deepEqual(pre.incompleta, { numero: '01469AC12900228', documento: 1, pagina: 1 })
-  assert.equal(m.calls.incompleta, 1)
+  assert.equal(m.calls.incompleta, 0) // «DAS» è un esempio della definizione: nessuna chiamata
   assert.equal(m.calls.op, 0)
 })

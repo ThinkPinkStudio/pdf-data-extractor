@@ -18,7 +18,7 @@ import {
 } from './polizzaPrecheck.js'
 import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage, pageHead } from './polizzaOperativita.js'
 import { isQuestionnairePageTitle } from './polizzaFactsRegistry.js'
-import { preContractLabel } from './policyReconcile.js'
+import { preContractLabel, extractPolicyNumbersFromPages } from './policyReconcile.js'
 import { stripFieldExamples } from './polizzaValidation.js'
 import { positiveDescriptionText } from './polizzaFieldKind.js'
 import { usefulLength } from './ocrLayout.js'
@@ -28,7 +28,7 @@ import {
   verifyOperativitaEvidence, decideOperativita, combineOperativitaBatches, recognitionCoverName,
   buildContrattoPrompt, contrattoSchema, parseContrattoAnswer, recognitionAllowsSection, coverNeverNamed,
   selectContrattoPages, decideContract, applyContractVerdict, checkContractAnswer,
-  buildIncompletaPrompt, incompletaSchema, checkIncompletaAnswer,
+  buildIncompletaPrompt, incompletaSchema, checkIncompletaAnswer, recognitionNamedExamples, textNamesAny,
   OPERATIVITA_MAX_PAGES, OPERATIVITA_MAX_PAGES_PER_DOC, OPERATIVITA_MAX_BATCHES, CONTRATTO_MAX_BATCHES,
 } from './polizzaOperativita.js'
 import { callOllamaRolling, ctxCap, computeSafeContextBudget, withPairs } from './polizzaService.js'
@@ -244,6 +244,26 @@ async function askIncompleta({ settings, recognition, docs, spatialDocs, callMod
   try {
     const budgetChars = contractBudget(settings)
     const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: false, partChars: budgetChars })
+    // Senza modello: una pagina nomina il tipo di polizza o un suo ESEMPIO dato
+    // dalla definizione del profilo («es. DAS, ARAG»): l'appendice DAS di
+    // CAVALLO FT796KM («D.A.S. Difesa Automobilistica Sinistri», polizza
+    // 01469AC12900228) non dice mai «tutela legale» e il modello rispondeva no.
+    const names = recognitionNamedExamples(recognition)
+    const hit = names.length ? candidates.find((c) => textNamesAny(c.flat || c.text, names)) : null
+    if (hit) {
+      const docTexts = candidates.filter((c) => c.ord === hit.ord).map((c) => c.text)
+      const nums = [...new Set(extractPolicyNumbersFromPages(docTexts))]
+      // Il numero COME È STAMPATO («01469AC12900228»): la forma canonica della
+      // riconciliazione toglie gli zeri iniziali.
+      const printed = (canon) => {
+        const key = (t) => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^0+/, '')
+        for (const t of docTexts.join('\n').match(/[A-Z0-9][A-Z0-9./-]{4,}[A-Z0-9]/gi) || []) if (key(t) === key(canon)) return t
+        return canon
+      }
+      const r = { numero: nums.length === 1 ? printed(nums[0]) : null, documento: hit.ord ?? null, pagina: hit.page ?? null }
+      log(`Polizza assente: il Documento ${hit.ord} pag. ${hit.page} nomina il tipo di polizza del profilo (${names.filter((n) => textNamesAny(hit.flat || hit.text, [n])).join(', ')})${r.numero ? ` (n. ${r.numero})` : ''} → pertinente ma incompleta`)
+      return r
+    }
     const blocks = selectContrattoPages(candidates, { budgetChars })
     if (!blocks.length) return null
     const q = buildIncompletaPrompt({ recognition, blocks })
