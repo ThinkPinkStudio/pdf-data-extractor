@@ -59,6 +59,9 @@ const BUILD_FEATURES = [
   'pertinente-incompleta', // Non valido «Pertinente ma incompleta – reperire la polizza principale» quando i documenti (appendici, quietanze) si riferiscono a una polizza del profilo (05/10/2026, richiesta del cliente)
   'filtroelenchi-default', // Flag «filtroelenchi» acceso: un campo-elenco le cui voci il modello giudica TUTTE estranee alla descrizione resta vuoto (+7 campi, 0 persi sulle copie del 05/10)
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
+  'flag-riepilogo', // Flag «riepilogo» (stessa riga/stesso riepilogo del campo legato, lordo comprensivo dalla riga delle componenti, diritti = imposte)
+  'flag-primepagine', // Flag «primepagine»: domanda sulla polizza, primo batch con le sole prime pagine
+  'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
   'riga-griglia', // Flag «rigagriglia» acceso: dopo il merge, importo della copertura dalla sua riga nella stessa colonna dei totali; campi «sulla stessa riga» del premio dalla cella sotto l'intestazione che li nomina (+19 −1 su 41 posizioni, misura offline del 05/10)
 ]
 
