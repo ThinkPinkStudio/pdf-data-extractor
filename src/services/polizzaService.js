@@ -4774,6 +4774,51 @@ export function offCoverageAmounts(best, fields, docs, coverNames, candLog) {
 }
 
 /**
+ * Le VOCI che una clausola «NON …» della descrizione elenca tra parentesi
+ * («NON le garanzie di altre sezioni della polizza (RCA, incendio, furto,
+ * kasko, infortuni)»), a parole normalizzate: ['rca', 'incendio', …]. Voci di
+ * 1-4 parole senza cifre.
+ */
+export function negatedParenthesisItems(description) {
+  const words = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const out = []
+  for (const m of String(description || '').matchAll(/(?:^|[.;:!?]\s*|,\s*)(?:NON|non)\s+[^.;!?()]*\(([^)]+)\)/g)) {
+    for (const item of m[1].split(/,|\s+e\s+|\s+o\s+/)) {
+      const w = words(item.replace(/^\s*(?:es\.|ad\s+esempio|tipo)\s*/i, ''))
+      if (w && w.split(' ').length <= 4 && !/\d/.test(w)) out.push(w)
+    }
+  }
+  return out
+}
+
+/**
+ * ELENCO NEGATIVO CON VOCI ESCLUSE [flag elenconegato], dopo il merge: un campo
+ * ELENCO la cui testa di descrizione è negativa («Elenco dei nomi delle
+ * garanzie di tutela legale NON attivate/operanti») e il cui valore contiene
+ * una voce che la descrizione esclude tra parentesi («NON le garanzie di altre
+ * sezioni della polizza (RCA, incendio, furto, kasko, infortuni)») è l'elenco
+ * delle garanzie non acquistate dell'intera polizza, non della copertura: si
+ * svuota. P05 Zurich auto: «Incendio, Salvaspese, …, Kasko Collisione, …».
+ * Su 7 serie di valori: 10 elenchi così, tutti sbagliati con verità vuota.
+ * Solo gli elenchi NEGATIVI: nelle garanzie SCELTE una voce esclusa convive con
+ * quelle giuste (DAS «Assistenza Welfare» nel prodotto: 7 valori giusti).
+ * @returns {{field:object, valore:string, voci:string[]}[]}
+ */
+export function negativeListWithExcluded(best, fields) {
+  const words = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && isListDescription(x.description) && /\bNON\b/.test(String(x.description || '').split(':')[0]))) {
+    const e = best?.[f.id]
+    if (!e || !e.valore) continue
+    const neg = negatedParenthesisItems(f.description)
+    if (!neg.length) continue
+    const hit = splitListItems(e.valore).filter((it) => neg.some((n) => (` ${words(it)} `).includes(` ${n} `)))
+    if (hit.length) out.push({ field: f, valore: String(e.valore), voci: hit })
+  }
+  return out
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -8846,6 +8891,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of rowPieceLayoutValue(best, activeFields, analyzed, distinctHead)) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Etichetta della riga[${s.field.label}]: "${s.prima}" è un pezzo dell'etichetta di una riga di premi → "${s.valore}" (sotto «${s.etichetta}», ${s.file} p.${s.page})`)
+    }
+  }
+
+  // ── [flag elenconegato] Elenco negativo con voci che la descrizione esclude ──
+  if (engineFlag(settings, 'elenconegato')) {
+    for (const s of negativeListWithExcluded(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(`Elenco negativo[${s.field.label}]: "${s.valore.slice(0, 80)}" contiene ${s.voci.map((v) => `«${v}»`).join(', ')}, voci che la descrizione esclude → vuoto`)
     }
   }
 

@@ -1370,6 +1370,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `elenconegato` (07/10/2026, default)**: dopo il merge, un campo
+  ELENCO con la testa di descrizione NEGATIVA («Elenco dei nomi delle
+  garanzie di tutela legale NON attivate/operanti») il cui valore contiene una
+  voce che la descrizione esclude tra parentesi in una clausola «NON …» («NON
+  le garanzie di altre sezioni della polizza (RCA, incendio, furto, kasko,
+  infortuni)», `negatedParenthesisItems`) è l'elenco delle garanzie non
+  acquistate dell'intera polizza: si svuota (`negativeListWithExcluded`). P05
+  Zurich auto «Incendio, Salvaspese, …, Kasko Collisione, …». Su 7 serie di
+  valori 10 elenchi così, tutti sbagliati con verità vuota. NON per gli elenchi
+  positivi (garanzie scelte): lì una voce esclusa convive con quelle giuste
+  (DAS «Assistenza Welfare» del prodotto, P15 con «Tutela Giudiziaria»): 7
+  valori giusti sarebbero caduti.
 - **Flag `paginecopertura` (07/10/2026, default)**: dopo il merge (prima
   della coerenza), per un campo IMPORTO la cui descrizione (parte positiva)
   nomina la copertura («… coperto dalla garanzia tutela legale»), un valore

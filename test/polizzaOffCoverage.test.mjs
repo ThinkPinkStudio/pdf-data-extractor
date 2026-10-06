@@ -37,3 +37,23 @@ test('paginecopertura: il valore che sta anche in una pagina della copertura res
   const dasDocs = [{ name: 'S.pdf', spatialPages: [das, 'Condizioni di assicurazione tutela legale'] }]
   assert.deepEqual(offCoverageAmounts({ [sin.id]: { valore: '31.000,00', file: 'S.pdf', page: 1 } }, TL, dasDocs, COVER, {}), [])
 })
+
+test('elenconegato: le garanzie NON operanti con voci di altre sezioni si svuotano; le garanzie scelte no', async () => {
+  const { negativeListWithExcluded, negatedParenthesisItems } = await import('../src/services/polizzaService.js')
+  // descrizioni del profilo in produzione (06/10/2026)
+  const PROD = {
+    'Garanzie non operanti': "Elenco dei nomi delle garanzie di tutela legale NON attivate/operanti: le garanzie del prodotto di tutela legale o della sezione tutela legale presenti nella scheda ma non scelte, come TESTO (es. Pacchetto difesa circolazione, Vertenze contrattuali), se la scheda le indica come non operanti o non scelte. Se la scheda elenca solo garanzie scelte (con premio), il campo resta VUOTO. NON le garanzie di altre sezioni della polizza (RCA, incendio, furto, kasko, infortuni), NON frasi delle condizioni o del set informativo, NON le garanzie operanti.",
+    'Garanzie scelte/operanti': "Elenco dei nomi delle garanzie di tutela legale scelte/operanti: le garanzie attive del prodotto di tutela legale o della sezione tutela legale di una polizza più ampia, come TESTO (es. Tutela Legale, DAS Drive). Riporta i nomi delle garanzie ATTIVE di tutela legale, NON le garanzie di altre sezioni della polizza (RCA, incendio, furto, eventi naturali, cristalli, assistenza, infortuni), NON gli importi né le date.",
+  }
+  const fields = TL.map((f) => (PROD[String(f.label).trim()] ? { ...f, description: PROD[String(f.label).trim()] } : f))
+  const non = fields.find((f) => String(f.label).trim() === 'Garanzie non operanti')
+  const sce = fields.find((f) => String(f.label).trim() === 'Garanzie scelte/operanti')
+  assert.ok(negatedParenthesisItems(non.description).includes('kasko'))
+  const best = {
+    [non.id]: { valore: 'Incendio, Salvaspese, Eventi Naturali, Kasko Collisione, Cristalli, Assistenza, Tutela Legale' },
+    [sce.id]: { valore: 'Assistenza Welfare, Tutela Legale Pacchetto Base, Pacchetto sicurezza privacy e cyber' },
+  }
+  const out = negativeListWithExcluded(best, fields)
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.voci]), [['Garanzie non operanti', ['Incendio', 'Kasko Collisione']]])
+  assert.deepEqual(negativeListWithExcluded({ [non.id]: { valore: 'USA e Canada, Vertenze contrattuali' } }, fields), [])
+})
