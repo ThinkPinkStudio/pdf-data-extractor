@@ -1227,6 +1227,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   frammenti sotto gli 8 caratteri ignorati); quelli senza numero restano. Prova:
   P03 15 → 21 (compagnia, numero, massimale e premi non più dall'Allianz), P04
   invariata (i documenti Helvetia non hanno un numero leggibile).
+- **OCR visivo solo nei fascicoli di sole scansioni, flag `ocrsoloscansioni`
+  (06/10/2026, default) + `polizzaOcrEngine` = qwen3-vl:32b in produzione**
+  (scelta dell'utente: «32B del qwen3», scambi di modello accettati perché OCR
+  ed estrazione non girano insieme). Misura sulle copie: su TUTTI i fascicoli
+  peggiora (9 posizioni miste 180 → 142: le copie firmate scansionate di
+  documenti digitali cambiano testo, rimescolano i batch della pertinenza e
+  bloccano P11, P20, P35); nei fascicoli fatti di SOLE scansioni migliora:
+  P07 da Da verificare a 19/23, P37 16 → 21, P24 16 → 20, P22 14 → 17.
+  `dossierOcrEngine`: il motore visivo vale solo se nessun file ha testo
+  digitale, nel worker e nella lettura preliminare della riconciliazione
+  (stessa chiave della cache OCR). Costo: ~3 minuti a PAGINA (qwen3-vl ragiona
+  anche con think off), una volta per file (cache per hash e motore).
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il

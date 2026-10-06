@@ -274,9 +274,9 @@ test('flag «sezioni» e «zeri»: le frasi che sostituiscono esistono nel promp
   assert.ok(A7_SYSTEM_PROMPT.includes("Se il valore non c'è, non includere quel campo."))
 })
 
-test('flag del motore: «filtroelenchi», «rigagriglia», «riepilogo», «primepagine», «coppietesto», «fuocopolizza» accesi di default; «date8», «righe», «zeri» spenti', async () => {
+test('flag del motore: «filtroelenchi», «rigagriglia», «riepilogo», «primepagine», «coppietesto», «fuocopolizza», «ocrsoloscansioni» accesi di default; «date8», «righe», «zeri» spenti', async () => {
   const { engineFlags } = await import('../src/services/engineFlags.js')
-  assert.deepEqual([...engineFlags({})], ['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza'])
-  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['coppietesto', 'date8', 'filtroelenchi', 'fuocopolizza', 'primepagine', 'riepilogo', 'rigagriglia', 'righe', 'zeri'])
-  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-filtroelenchi' })], ['rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza'])
+  assert.deepEqual([...engineFlags({})], ['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['coppietesto', 'date8', 'filtroelenchi', 'fuocopolizza', 'ocrsoloscansioni', 'primepagine', 'riepilogo', 'rigagriglia', 'righe', 'zeri'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-filtroelenchi' })], ['rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni'])
 })

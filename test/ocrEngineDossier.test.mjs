@@ -10,8 +10,9 @@ test('dossierOcrEngine: modello visivo solo senza testo digitale, col flag', () 
   const on = { polizzaOcrEngine: 'qwen3-vl:32b', polizzaEngineFlags: 'ocrsoloscansioni' }
   assert.equal(dossierOcrEngine(on, [false, false]), 'qwen3-vl:32b')
   assert.equal(dossierOcrEngine(on, [false, true]), '')
-  // senza flag: il motore configurato vale per tutti i fascicoli
-  assert.equal(dossierOcrEngine({ polizzaOcrEngine: 'qwen3-vl:32b' }, [true]), 'qwen3-vl:32b')
+  // flag di default: con un file digitale Tesseract; spento: il motore configurato vale per tutti
+  assert.equal(dossierOcrEngine({ polizzaOcrEngine: 'qwen3-vl:32b' }, [true]), '')
+  assert.equal(dossierOcrEngine({ polizzaOcrEngine: 'qwen3-vl:32b', polizzaEngineFlags: '-ocrsoloscansioni' }, [true]), 'qwen3-vl:32b')
   // Tesseract configurato: nulla cambia
   assert.equal(dossierOcrEngine({ polizzaOcrEngine: '', polizzaEngineFlags: 'ocrsoloscansioni' }, [false]), '')
   assert.equal(dossierOcrEngine({ polizzaOcrEngine: 'tesseract', polizzaEngineFlags: 'ocrsoloscansioni' }, [false]), 'tesseract')
