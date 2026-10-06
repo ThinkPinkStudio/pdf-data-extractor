@@ -4801,6 +4801,59 @@ export function negativeListWithExcluded(best, fields) {
 }
 
 /**
+ * VOCE SOTTO UN TITOLO DELLA DESCRIZIONE [flag titolovoce], dopo il merge: un
+ * campo di TESTO vuoto (non elenco, non scelta chiusa) la cui descrizione
+ * (parte positiva) nomina i titoli delle tabelle da cui viene («la voce della
+ * scheda di polizza (tabella rischi assicurati, parametri di tariffa
+ * attivati, …) a cui è associato un valore dichiarato (un importo o un
+ * numero)») prende il NOME della prima voce con un numero sotto una
+ * riga-titolo fatta di quelle parole: DAS P27 «PARAMETRI TARIFFA ATTIVATI /
+ * X  Unità Immobiliari  : 52» → «Unità Immobiliari». Titolo = riga di 2-4
+ * parole diverse, senza cifre, IN FILA nella descrizione (in mezzo solo
+ * articoli e preposizioni: «parametri di tariffa attivati»; «polizza
+ * polizza» di un'intestazione di condizioni no); voce = la prima riga non vuota
+ * sotto (entro 2) con un numero, nome = il testo prima del numero senza casella
+ * né due punti; una sola lettura nel fascicolo.
+ * @returns {{field:object, valore:string, file:string, page:number, titolo:string}[]}
+ */
+export function titledItemValue(best, fields, docs) {
+  const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'text' && !isListDescription(x.description) && !enumeratedOptions(x.description).length)) {
+    if (best?.[f.id]) continue
+    const desc = ` ${words(positiveDescriptionText(String(f.description || '')))} `
+    const found = new Map()
+    for (const d of docs || []) {
+      gridPagesOf(d).forEach((text, pi) => {
+        const lines = String(text || '').split('\n')
+        lines.forEach((line, i) => {
+          const t = line.trim()
+          if (!t || /\d/.test(t)) return
+          const tw = words(t).split(' ').filter(Boolean)
+          if (tw.length < 2 || tw.length > 4 || new Set(tw).size !== tw.length || !tw.every((w) => w.length >= 3)) return
+          // le parole del titolo in fila nella descrizione (in mezzo solo articoli e preposizioni)
+          const seq = new RegExp(`\\s${tw.join('(?:\\s(?:di|del|della|dei|delle|e|o|a|da|in|per))*\\s')}\\s`)
+          if (!seq.test(desc)) return
+          let k = i + 1
+          while (k < lines.length && k <= i + 2 && !lines[k].trim()) k++
+          if (k >= lines.length || k > i + 2) return
+          const m = lines[k].trim().match(/^(?:\[[xX]\]|[xX☒☑])?\s*([^\d:]{3,60}?)\s*:?\s*(\d[\d.,]*)\b/)
+          if (!m) return
+          const name = m[1].replace(/\s+/g, ' ').trim()
+          const clean = name && /\p{L}{3}/u.test(name) ? sanitizeFieldValue(f, name) : null
+          if (!clean) return
+          const key = normForMatch(clean)
+          if (!found.has(key)) found.set(key, { valore: clean, file: d.name, page: pi + 1, titolo: t })
+        })
+      })
+    }
+    if (found.size !== 1) continue
+    out.push({ field: f, ...[...found.values()][0] })
+  }
+  return out
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -8890,6 +8943,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (!isInsurerFooterPIva(grid, e.valore)) continue
       delete best[f.id]
       diag.push(`Piè di pagina dell'assicuratore[${f.label}]: "${e.valore}" sta solo nelle righe societarie della compagnia → vuoto`)
+    }
+  }
+
+  // ── [flag titolovoce] Campo vuoto: la voce sotto un titolo della descrizione ──
+  if (engineFlag(settings, 'titolovoce')) {
+    for (const s of titledItemValue(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Voce sotto il titolo «${s.titolo}»[${s.field.label}] = "${s.valore}" (${s.file} p.${s.page})`)
     }
   }
 

@@ -64,3 +64,18 @@ test('testolettere: «1°» come Frazionamento → il candidato con lettere più
   const num = byLabel('N° Polizza')
   assert.deepEqual(letterlessTextValues({ [num.id]: { valore: '283618616' } }, TL, {}), [])
 })
+
+test('titolovoce: Parametro vuoto → la voce sotto «PARAMETRI TARIFFA ATTIVATI»; un titolo che non sta in fila nella descrizione no', async () => {
+  const { titledItemValue } = await import('../src/services/polizzaService.js')
+  const PARAM = "Parametro su cui si calcola o si regola il premio: il NOME del parametro dichiarato in polizza, come TESTO (es. Retribuzioni, Fatturato, N° addetti, Unità immobiliari), cioè la voce della scheda di polizza (tabella rischi assicurati, parametri di tariffa attivati, clausola di regolazione) a cui è associato un valore dichiarato (un importo o un numero). Vuoto se la polizza non dichiara alcun parametro."
+  const fields = TL.map((f) => (String(f.label).trim() === 'Parametro regolazione' ? { ...f, description: PARAM } : f))
+  const par = fields.find((f) => String(f.label).trim() === 'Parametro regolazione')
+  const page = 'MASSIMALE PER SINISTRO EURO   26.000,00\nPARAMETRI TARIFFA ATTIVATI\nX  Unità Immobiliari                                   : 52\nIl Contraente esprime il proprio consenso'
+  const out = titledItemValue({}, fields, [{ name: 'CIRO MENOTTI 21.pdf', spatialPages: [page] }])
+  assert.deepEqual(out.map((s) => [s.field.id === par.id, s.valore, s.titolo]), [[true, 'Unità Immobiliari', 'PARAMETRI TARIFFA ATTIVATI']])
+  // campo già pieno: niente
+  assert.deepEqual(titledItemValue({ [par.id]: { valore: 'Fatturato' } }, fields, [{ name: 'X.pdf', spatialPages: [page] }]), [])
+  // «polizza   polizza» (stessa parola due volte) non è un titolo della descrizione
+  const cond = 'polizza                            polizza\nse indicati in 12 mesi'
+  assert.deepEqual(titledItemValue({}, fields, [{ name: 'C.pdf', spatialPages: [cond] }]), [])
+})

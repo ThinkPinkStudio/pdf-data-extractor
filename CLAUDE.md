@@ -1370,6 +1370,19 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `titolovoce` (07/10/2026, default)**: dopo il merge, un campo di
+  TESTO VUOTO (non elenco, non scelta chiusa) la cui descrizione (parte
+  positiva) nomina i titoli delle tabelle da cui viene («la voce della scheda
+  di polizza (tabella rischi assicurati, parametri di tariffa attivati, …) a
+  cui è associato un valore dichiarato») prende il NOME della prima voce con un
+  numero sotto una riga-titolo di 2-4 parole diverse che stanno IN FILA nella
+  descrizione (in mezzo solo articoli e preposizioni), casella e due punti
+  tolti, una sola lettura nel fascicolo (`titledItemValue`). DAS P27
+  «PARAMETRI TARIFFA ATTIVATI / X  Unità Immobiliari  : 52» → «Unità
+  Immobiliari» (il modello rispondeva null). La prima versione accettava
+  «polizza … polizza» di un'intestazione delle condizioni (P04 «se indicati
+  in»): da qui parole diverse e in fila. Replay: +1 su ogni serie, nessuna
+  perdita.
 - **Flag `pivapiede` (07/10/2026, default)**: dopo il merge, un campo
   identificativo (`fieldAsksIdentifier`) il cui valore nella GRIGLIA di tutti
   i documenti sta solo in righe societarie dell'assicuratore

@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede', 'titolovoce'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -63,6 +63,7 @@ export const KNOWN_FLAGS = Object.freeze({
   elenconegato: 'Dopo il merge: un ELENCO con la testa negativa («garanzie … NON attivate/operanti») che contiene una voce esclusa dalla descrizione tra parentesi («(RCA, incendio, furto, kasko, infortuni)») si svuota',
   rigaaltrove: 'Riga del premio (secondo completamento): anche le righe degli ALTRI documenti che portano ≥3 valori estratti non nulli (lo stesso premio stampato altrove) danno i campi vuoti sotto le intestazioni che li nominano (RUZZA P18: diritti 0,00 dall\'appendice)',
   pivapiede: 'Dopo il merge: un identificativo (P.IVA/CF, numero) che nella GRIGLIA di tutti i documenti sta solo nelle righe societarie dell\'assicuratore si svuota (la guardia di sempre giudica il testo piatto, dove Docling spezza il piè di pagina)',
+  titolovoce: 'Dopo il merge: un campo di TESTO vuoto la cui descrizione nomina i titoli delle tabelle da cui viene prende il nome della prima voce con un numero sotto una riga-titolo fatta di quelle parole in fila («PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)',
   gemelli: 'Dopo la coerenza: due campi importo con la testa che comincia con la stessa parola («Massimale per sinistro» / «Massimale per anno») e lo stesso valore; se nei documenti il valore sta solo accanto alla parola distintiva di uno dei due, l\'altro è una copia e si svuota',
   aliquota: 'Dopo la coerenza: nella riga che porta il lordo estratto, x seguito da un\'aliquota p% e da y = x·p% con x + y = lordo dà imponibile (x) e imposte (y) ai campi vuoti (Allianz «Tutela Giudiziaria 16,17 12,50% 2,02 18,19»)',
 })
