@@ -413,3 +413,33 @@ test('coverSectionAmounts: l\'imponibile della prima riga della SEZIONE TUTELA L
   // senza il nome della copertura: niente
   assert.equal(coverSectionAmounts(best, TL, docs, []).length, 0)
 })
+
+test('detailedRiepilogo: il «Premio netto» della quietanza comprende i diritti della scheda con le stesse imposte e lo stesso lordo (GOLDONI P30)', async () => {
+  const { detailedRiepilogo } = await import('../src/services/polizzaService.js')
+  const QUI = [
+    '        Premio netto      Imposte              Premio lordo',
+    '        €  162,47          €  34,53              € 197,00',
+  ].join('\n')
+  const SCH = [
+    '   PREMIO TOTALE                                 FRAZIONAMENTO   NETTO IMPONIBILE     RIMBORSO          DIRITTO        IMPOSTE       PREMIO LORDO',
+    '   PREMIO RATA INIZIALE                                     0,00           159,99             0,00            2,48           34,53          197,00',
+    '   PREMIO RATA SUCCESSIVA                                   0,00           159,99                             2,48           34,53          197,00',
+  ].join('\n')
+  const docs = [{ name: 'rinnovo 2026.pdf', spatialPages: [QUI] }, { name: 'scheda.pdf', spatialPages: [SCH] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('162,47', 'rinnovo 2026.pdf'),
+    [F('Imposte').id]: entry('34,53', 'rinnovo 2026.pdf'),
+    [F('Premio lordo totale tutela legale').id]: entry('197,00', 'rinnovo 2026.pdf'),
+  }
+  assert.deepEqual(detailedRiepilogo(best, TL, docs).map((s) => [s.field.label.trim(), s.prima, s.valore]).sort(), [
+    ['Diritti', '', '2,48'],
+    ['Interessi di frazionamento', '', '0,00'],
+    ['Premio imponibile tutela legale', '162,47', '159,99'],
+  ])
+  // la somma non torna (imponibile diverso): niente
+  assert.equal(detailedRiepilogo({ ...best, [F('Premio imponibile tutela legale').id]: entry('170,00', 'rinnovo 2026.pdf') }, TL, docs).length, 0)
+  // un solo valore del riepilogo in comune (lordo diverso): niente
+  assert.equal(detailedRiepilogo({ ...best, [F('Premio lordo totale tutela legale').id]: entry('214,00', 'rinnovo 2026.pdf') }, TL, docs).length, 0)
+  // imponibile già quello della scheda: niente
+  assert.equal(detailedRiepilogo({ ...best, [F('Premio imponibile tutela legale').id]: entry('159,99', 'scheda.pdf') }, TL, docs).length, 0)
+})

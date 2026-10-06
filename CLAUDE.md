@@ -1218,7 +1218,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   SUPERA il lordo viene da un altro riepilogo e si svuota (il lordo resta):
   Unipol KM&SERVIZI P01, imposte 108,51 della rata alla firma dell'intero
   contratto contro il lordo 21,37 della tutela legale. Nel corpus 2 casi
-  (P01, P14), in entrambi voce sbagliata e lordo giusto: replay +1 −0.
+  (P01, P14), in entrambi voce sbagliata e lordo giusto: replay +1 −0. (7)
+  `detailedRiepilogo` (06/10, dopo (6)): lo STESSO premio stampato altrove con
+  le voci separate — una riga di qualunque documento che porta almeno due
+  valori estratti del riepilogo (le voci legate all'imponibile e il lordo che
+  le comprende) — se l'imponibile della riga (colonna che lo nomina) più le
+  voci legate non ancora estratte dà ESATTAMENTE l'imponibile estratto,
+  l'estratto le comprendeva: imponibile e voci si prendono dalla riga, tutti
+  stampati. GOLDONI P30: quietanza 2026 «Premio netto 162,47 Imposte 34,53
+  Premio lordo 197,00», scheda «PREMIO RATA SUCCESSIVA 0,00 159,99 2,48
+  34,53 197,00» → 159,99 / 2,48 / 0,00 (la verità). Replay +3 −0.
 - **Flag `altresezioni` (06/10/2026, default)**: dopo il merge (dopo il
   riepilogo), in un documento che ha una riga «SEZIONE <copertura>» (il nome
   da «Come riconoscerla»; la parola «sezione» la usano il riconoscimento e le

@@ -3807,6 +3807,67 @@ export function otherSectionAmounts(best, fields, docs, coverNames) {
 }
 
 /**
+ * RIEPILOGO DETTAGLIATO, dopo il riepilogo: lo STESSO premio (una riga di
+ * qualunque documento che porta almeno due valori estratti dei campi legati
+ * all'imponibile: imposte e lordo) stampato con le voci separate. Se in quella
+ * riga l'imponibile (colonna che lo nomina) più le voci che la sua descrizione
+ * esclude («al netto di … diritti e interessi»: i campi legati alla «stessa
+ * riga» dell'imponibile) dà ESATTAMENTE l'imponibile estratto, l'estratto le
+ * comprendeva: si prendono imponibile e voci dalla riga. GOLDONI (P30): la
+ * quietanza 2026 «Premio netto 162,47  Imposte 34,53  Premio lordo 197,00»,
+ * la scheda «PREMIO RATA SUCCESSIVA 0,00 159,99 2,48 34,53 197,00»:
+ * 162,47 = 159,99 + 2,48 + 0,00 → imponibile 159,99, diritti 2,48, interessi
+ * 0,00. Nessun calcolo nel valore: ogni importo è stampato nella riga.
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, riga:string, colonna:string}[]}
+ */
+export function detailedRiepilogo(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const anchors = [...new Set(amount.map((f) => riepilogoAnchorField(f, fields)).filter(Boolean))]
+  const owner = (header) => {
+    let top = null, lex = 0, tie = false
+    for (const g of amount) { const l = headerLexOf(g, header); if (l > lex) { lex = l; top = g; tie = false } else if (l === lex && l > 0) tie = true }
+    return tie ? null : top
+  }
+  const out = []
+  for (const a of anchors) {
+    const I = parsePureAmount(best?.[a.id]?.valore)
+    if (I == null || I <= 0) continue
+    const bound = amount.filter((f) => f.id !== a.id && riepilogoAnchorField(f, fields)?.id === a.id)
+    // il riepilogo: le voci legate e il lordo che le comprende (legame transitivo)
+    const group = [...bound, ...amount.filter((g) => g.id !== a.id && !bound.includes(g) && includedComponentFields(g, fields).some((c) => bound.includes(c)))]
+    const extracted = group.map((f) => ({ f, n: parsePureAmount(best?.[f.id]?.valore) })).filter((x) => x.n != null && x.n > 0)
+    if (extracted.length < 2) continue
+    const hits = []
+    for (const d of docs || []) {
+      gridPagesOf(d).forEach((page, pi) => {
+        const lines = String(page || '').split('\n')
+        lines.forEach((line, i) => {
+          if (line.includes('|')) return
+          const toks = gridAmountTokens(line)
+          if (toks.filter((t) => extracted.some((x) => sameAmount(x.n, t.n))).length < 2) return
+          const cells = toks.map((t) => { const header = gridHeaderAbove(lines, i, t.a, t.b) || ''; return { t, header, f: owner(header) } })
+          const anc = cells.find((c) => c.f && c.f.id === a.id)
+          if (!anc || sameAmount(anc.t.n, I)) return
+          // voci separate nella riga: campi legati con un valore che non è già quello estratto
+          const comps = cells.filter((c) => c.f && bound.includes(c.f) && !extracted.some((x) => x.f.id === c.f.id && sameAmount(x.n, c.t.n)))
+          const sum = anc.t.n + comps.reduce((acc, c) => acc + c.t.n, 0)
+          if (!comps.some((c) => c.t.n > 0) || !sameAmount(sum, I)) return
+          hits.push({ anc, comps, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
+        })
+      })
+    }
+    if (!hits.length || new Set(hits.map((h) => h.anc.t.n)).size !== 1) continue
+    const h = hits[0]
+    out.push({ field: a, prima: best[a.id].valore, valore: h.anc.t.text, file: h.file, page: h.page, riga: h.riga, colonna: h.anc.header })
+    for (const c of h.comps) {
+      if (!sanitizeFieldValue(c.f, c.t.text)) continue
+      out.push({ field: c.f, prima: best?.[c.f.id]?.valore ?? '', valore: c.t.text, file: h.file, page: h.page, riga: h.riga, colonna: c.header })
+    }
+  }
+  return out
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -7973,6 +8034,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of componentsOverGross(best, activeFields)) {
       delete best[s.field.id]
       diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" supera ${s.lordo.label} "${s.lordoValore}", che per descrizione la comprende → vuoto`)
+    }
+    for (const s of detailedRiepilogo(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Riepilogo dettagliato[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): lo stesso premio con le voci separate`)
     }
   }
 
