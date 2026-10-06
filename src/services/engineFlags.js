@@ -42,7 +42,7 @@ export const KNOWN_FLAGS = Object.freeze({
   righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
   date8: 'A.8: le DATE del frontespizio sono provvisorie quando un documento datato è più recente: la cascata le chiede anche a lui (quietanza di rinnovo) e decide l\'arbitro',
   a7ripiego: 'A.7: una proposta la cui riga e colonna non nominano il campo (riga «Categoria» per l\'Attività) è solo ripiego: il campo resta da chiedere alla cascata (la sola regola di a78)',
-  a7ripiegotesti: 'Come a7ripiego ma per i soli campi di TESTO: gli importi di A.7 da righe che non nominano il campo restano come prima',
+  a7ripiegotesti: 'Come a7ripiego ma non per gli IMPORTI (testi e date): gli importi di A.7 da righe che non nominano il campo restano come prima',
   altresezioni: 'Dopo il merge: in un documento con una «SEZIONE <copertura>», un importo dei campi della copertura che compare solo dentro ALTRE sezioni si svuota (Vittoria: «Franchigia 300» della sezione acqua condotta)',
   garanziecolonna: 'Dopo il merge: l\'elenco delle garanzie scelte della copertura dalle righe con un premio nella colonna intestata alla copertura, se il valore estratto non ne nomina nessuna (DAS: «Difesa Condominio»)',
   verificatesti: 'Dopo il merge: ogni valore di TESTO (non elenco, non verifica) chiesto al modello in una chiamata a sé contro la sola descrizione del campo; se non corrisponde cade e si prova il candidato alternativo',

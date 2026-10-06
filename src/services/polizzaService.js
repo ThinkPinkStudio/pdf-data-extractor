@@ -6951,10 +6951,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // il massimale): non chiude il campo, resta solo come RIPIEGO se il
             // modello lo lascia vuoto (come i seed di Stadio A). `a7ripiego` è
             // questa sola regola, senza il resto di a78.
-            // `a7ripiegotesti`: la stessa regola per i soli campi di TESTO (gli
+            // `a7ripiegotesti`: la stessa regola per tutto tranne gli IMPORTI
+            // (testi e date: «MILANO 19/12/2024» non è la decorrenza). Gli
             // importi restano: il lordo del contratto da ripiego portava un
-            // campo in più nella cascata e il prompt si spostava).
-            if ((engineFlag(settings, 'a78') || engineFlag(settings, 'a7ripiego') || (engineFlag(settings, 'a7ripiegotesti') && fieldValueKind(f) === 'text')) && !(structLex > 0)) {
+            // campo in più nella cascata e il prompt si spostava (P09 del 06/10:
+            // imponibile e imposte persi, massimali guadagnati, saldo nullo).
+            if ((engineFlag(settings, 'a78') || engineFlag(settings, 'a7ripiego') || (engineFlag(settings, 'a7ripiegotesti') && fieldValueKind(f) !== 'amount')) && !(structLex > 0)) {
               if (!seedBest[f.id]) seedBest[f.id] = cand
               diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}) — riga/colonna non nominano il campo: solo ripiego`)
               continue
