@@ -470,3 +470,26 @@ test('coherentPremiumRow: le imposte della riga dove imponibile + voci = lordo, 
   // lordo della riga della garanzia (266,99): la riga coerente è quella, imposte 46,79 invariate
   assert.equal(coherentPremiumRow({ ...best, [F('Premio lordo totale tutela legale').id]: entry('266,99', file) }, TL, docs).length, 0)
 })
+
+test('coverColumnGuarantees: le garanzie scelte sono le righe col premio nella colonna TUTELA LEGALE, non le frasi delle condizioni (P27)', async () => {
+  const { coverColumnGuarantees } = await import('../src/services/polizzaService.js')
+  const LIST = PROFILES.find((p) => p.name === 'Tutela Legale 3').fields.map((f) => (String(f.label).trim() === 'Garanzie scelte/operanti'
+    ? { ...f, description: "Elenco dei nomi delle garanzie di tutela legale scelte/operanti: i nomi delle garanzie acquistate, come stampati." }
+    : String(f.label).trim() === 'Garanzie non operanti' ? { ...f, description: "Elenco dei nomi delle garanzie di tutela legale NON attivate/operanti: i nomi stampati." } : f))
+  const G = (label) => LIST.find((f) => String(f.label).trim() === label)
+  const AGR = [
+    '     GARANZIE PRESCELTE',
+    '                                                                                       TUTELA      PERDITE     ASSISTENZA    IMPOSTE     PREMIO',
+    '                                                                                       LEGALE     PECUNIARIE                              LORDO',
+    '     Difesa Condominio                                                                   431,81                                  91,76      523,57',
+    '     Recupero Quote Cond.4 Casi                                                          270,86                                  57,56      328,42',
+    '            Segue Elenco Rischi                                    PREMIO ANNUO          702,67         0,00         0,00       149,32      851,99',
+  ].join('\n')
+  const docs = [{ name: 'AGRIPPA 12 CONDOMINIO.pdf', spatialPages: [AGR] }]
+  const best = { [G('Garanzie scelte/operanti').id]: entry('Difesa Legale nel caso in cui le Persone Assicurate siano sottoposte a procedimento penale', 'AGRIPPA 12 CONDOMINIO.pdf', 5) }
+  assert.deepEqual(coverColumnGuarantees(best, LIST, docs, COVER).map((s) => [s.field.label.trim(), s.valore]), [['Garanzie scelte/operanti', 'Difesa Condominio, Recupero Quote Cond.4 Casi']])
+  // valore che nomina già una garanzia della colonna: resta
+  assert.equal(coverColumnGuarantees({ [G('Garanzie scelte/operanti').id]: entry('Difesa Condominio', 'x.pdf') }, LIST, docs, COVER).length, 0)
+  // mai l'elenco delle garanzie NON operanti
+  assert.ok(!coverColumnGuarantees({}, LIST, docs, COVER).some((s) => /non operanti/i.test(s.field.label)))
+})

@@ -1258,6 +1258,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   della quietanza. Solo la prima riga: la «franchigia di € 200,00» delle
   clausole in fondo alla sezione (P39) non conta. Replay complessivo del
   06/10 (P19, P01, P39, P41, P44, P45): 887 → 896, nessuna perdita.
+- **Flag `garanziecolonna` (06/10/2026, default)**: dopo il merge, per un
+  campo ELENCO la cui testa di descrizione nomina la copertura senza «NON»
+  (le garanzie scelte, non quelle non operanti), le righe col premio proprio
+  nella colonna intestata alla copertura (`coverColumnPairs`, escluse le
+  righe di totale = somma delle righe sopra) del documento più recente che ne
+  ha sono le garanzie scelte (`coverColumnGuarantees`); il valore estratto
+  resta se ne nomina già una. DAS CIRO MENOTTI P27: «Difesa Condominio»
+  invece dei paragrafi delle condizioni. Replay +1 −0 (P30/P43 cambiano
+  «Tutela Legale» in «Difesa Condominio - ed.2019», giusti entrambi).
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

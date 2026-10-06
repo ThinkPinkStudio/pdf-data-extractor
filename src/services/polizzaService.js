@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
-import { namesCoverage, recognitionCoverName } from './polizzaOperativita.js'
+import { namesCoverage, recognitionCoverName, coverColumnPairs } from './polizzaOperativita.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -3921,6 +3921,49 @@ export function coherentPremiumRow(best, fields, docs) {
       if (!sanitizeFieldValue(c, p.t.text)) continue
       out.push({ field: c, prima: cur.valore, valore: p.t.text, file: r.file, page: r.page, riga: r.riga, colonna: p.header })
     }
+  }
+  return out
+}
+
+/**
+ * GARANZIE CON IL PREMIO NELLA COLONNA DELLA COPERTURA, dopo il merge: per un
+ * campo ELENCO la cui testa di descrizione nomina la copertura senza negarla
+ * («Elenco dei nomi delle garanzie di tutela legale scelte/operanti», non
+ * «… NON attivate»), le righe della tabella con un premio proprio nella
+ * colonna intestata alla copertura (coverColumnPairs) sono le garanzie scelte,
+ * escluse le righe di totale (importo = somma delle righe sopra). Si usa il
+ * documento più recente che ne ha; il valore estratto resta se nomina già una
+ * di quelle garanzie. DAS CIRO MENOTTI (P27): «Difesa Condominio» invece dei
+ * paragrafi delle condizioni («Difesa Legale nel caso in cui…»).
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number}[]}
+ */
+export function coverColumnGuarantees(best, fields, docs, coverNames) {
+  if (!Array.isArray(coverNames) || !coverNames.length) return []
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && isListDescription(x.description))) {
+    const head = String(f.description || '').split(':')[0]
+    if (!namesCoverage(head, coverNames) || /\bnon\b/i.test(head)) continue
+    let hit = null
+    for (const d of [...(docs || [])].sort(byStagedRecency)) {
+      gridPagesOf(d).forEach((page, pi) => {
+        if (hit) return
+        const names = []
+        let acc = 0
+        for (const p of coverColumnPairs(String(page || ''), coverNames)) {
+          const n = parsePureAmount(p.value)
+          if (n == null) continue
+          if (acc > 0 && sameAmount(n, acc)) { acc = 0; continue } // riga di totale
+          acc += n
+          if (p.riga && !names.includes(p.riga)) names.push(p.riga)
+        }
+        if (names.length) hit = { names, file: d.name, page: pi + 1 }
+      })
+      if (hit) break
+    }
+    if (!hit) continue
+    const cur = normForMatch(best?.[f.id]?.valore || '')
+    if (cur && hit.names.some((nm) => cur.includes(normForMatch(nm)) || normForMatch(nm).includes(cur))) continue
+    out.push({ field: f, prima: best?.[f.id]?.valore ?? '', valore: hit.names.join(', '), file: hit.file, page: hit.page })
   }
   return out
 }
@@ -8106,6 +8149,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // ── [flag altresezioni] Valori delle ALTRE SEZIONI della polizza ─────────
   // In un documento con una «SEZIONE <copertura>», un importo dei campi della
   // copertura che sta solo dentro altre sezioni non è suo (otherSectionAmounts).
+  // ── [flag garanziecolonna] GARANZIE col premio nella colonna della copertura ──
+  if (engineFlag(settings, 'garanziecolonna')) {
+    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+    const me = jobProfileFor(settings, activeFields)
+    const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    for (const s of coverColumnGuarantees(best, activeFields, analyzed, names)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Garanzie della colonna[${s.field.label}]: "${String(s.prima || '∅').slice(0, 60)}" → "${s.valore}" (righe con un premio nella colonna della copertura, ${s.file} p.${s.page})`)
+    }
+  }
   if (altreSezioni) {
     for (const s of otherSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
       delete best[s.field.id]
