@@ -1370,6 +1370,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `rigaaltrove` (07/10/2026, default)**: il secondo completamento
+  della riga del premio (`completeRowFromGrid(…, { otherDocs: true })`) guarda
+  anche le righe degli ALTRI documenti, ma solo se portano ≥3 valori estratti
+  NON nulli (lo stesso premio stampato altrove): RUZZA P18, imponibile,
+  imposte e lordo letti dalla parte «pag. 27-39» del PDF multipolizza, la riga
+  «RATE SUCCESSIVE 24,00 0,00 3,00 27,00» con l'intestazione DIRITTO
+  nell'appendice → diritti 0,00. Replay su 12 serie: +1 (P18) in due, nessun
+  altro cambiamento.
 - **Flag `elenconegato` (07/10/2026, default)**: dopo il merge, un campo
   ELENCO con la testa di descrizione NEGATIVA («Elenco dei nomi delle
   garanzie di tutela legale NON attivate/operanti») il cui valore contiene una

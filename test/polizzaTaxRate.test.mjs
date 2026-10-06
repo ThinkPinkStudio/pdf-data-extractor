@@ -61,3 +61,29 @@ test('aliquota: niente senza la percentuale, se la somma non torna, o se il lord
   // «Totali»: 1.900,63 + 274,56 ≠ 2.258,00 (c'è il contributo SSN) e nessuna aliquota nella riga
   assert.deepEqual(taxRateRow({ [gross.id]: { valore: '2.258,00', file: FILE, page: 2 } }, TL, docs), [])
 })
+
+test('rigaaltrove: lo stesso premio stampato in un ALTRO documento dà i diritti 0,00 sotto DIRITTO (RUZZA P18)', async () => {
+  const { completeRowFromGrid } = await import('../src/services/polizzaService.js')
+  const dir = byLabel('Diritti')
+  const PART = 'RUZZA FABIO - FD611EL (pag. 27-39).pdf'
+  const APP = 'appendice_print RUZZA FABIO ET103PP.pdf'
+  const best = {
+    [imp.id]: { valore: '24,00', file: PART, page: 1 },
+    [tax.id]: { valore: '3,00', file: PART, page: 1 },
+    [gross.id]: { valore: '27,00', file: PART, page: 1 },
+  }
+  const partPage = 'Premio rata alla firma   24,00   3,00   27,00'
+  const appendice = [
+    'PREMIO                                                         NETTO       DIRITTO      IMPOSTE   PREMIO LORDO',
+    '',
+    'RATE SUCCESSIVE                                                    24,00         0,00        3,00       27,00',
+  ].join('\n')
+  const docs = [{ name: PART, spatialPages: [partPage] }, { name: APP, spatialPages: [appendice] }]
+  assert.deepEqual(completeRowFromGrid(best, TL, docs), [])
+  const out = completeRowFromGrid(best, TL, docs, { otherDocs: true })
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.valore, s.file]), [['Diritti', '0,00', APP]])
+  assert.equal(out[0].field.id, dir.id)
+  // con soli due valori estratti nella riga dell'altro documento: niente
+  const two = { [imp.id]: best[imp.id], [gross.id]: best[gross.id] }
+  assert.deepEqual(completeRowFromGrid(two, TL, docs, { otherDocs: true }).filter((s) => s.file === APP), [])
+})

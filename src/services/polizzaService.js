@@ -3562,9 +3562,10 @@ const sameAmount = (x, y) => x != null && y != null && Math.abs(x - y) < 0.005
  * @param {{name:string, spatialPages?:string[], pages?:string[]}[]} docs
  * @returns {{field:object, valore:string, file:string, page:number, riga:string, colonna:string}[]}
  */
-export function completeRowFromGrid(best, fields, docs) {
+export function completeRowFromGrid(best, fields, docs, opts = {}) {
   const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
   const byPage = new Map() // "file\u0000page" → valori estratti dei campi importo di quella pagina
+  const allVals = []
   for (const g of amount) {
     const e = best?.[g.id]
     if (!e || !e.file || e.page === '' || e.page == null) continue
@@ -3573,6 +3574,19 @@ export function completeRowFromGrid(best, fields, docs) {
     const k = `${e.file}\u0000${e.page}`
     if (!byPage.has(k)) byPage.set(k, [])
     byPage.get(k).push({ id: g.id, n })
+    allVals.push({ id: g.id, n })
+  }
+  // [flag rigaaltrove] anche le pagine degli ALTRI documenti: lo STESSO premio
+  // stampato altrove (≥3 valori estratti NON nulli nella riga). RUZZA P18: i
+  // premi letti dalla parte «pag. 27-39» del PDF multipolizza, la riga
+  // «RATE SUCCESSIVE 24,00 0,00 3,00 27,00» con DIRITTO nell'appendice.
+  if (opts.otherDocs) {
+    for (const d of docs || []) {
+      gridPagesOf(d).forEach((_, pi) => {
+        const k = `${d.name}\u0000${pi + 1}`
+        if (!byPage.has(k)) byPage.set(k, allVals.map((v) => ({ ...v, elsewhere: true })))
+      })
+    }
   }
   const out = []
   for (const f of amount) {
@@ -3587,8 +3601,8 @@ export function completeRowFromGrid(best, fields, docs) {
       lines.forEach((line, i) => {
         if (line.includes('|')) return
         const toks = gridAmountTokens(line)
-        const carried = new Set(vals.filter((v) => toks.some((t) => sameAmount(t.n, v.n))).map((v) => v.id))
-        if (carried.size < 2) return
+        const carried = new Set(vals.filter((v) => toks.some((t) => sameAmount(t.n, v.n)) && !(v.elsewhere && v.n === 0)).map((v) => v.id))
+        if (carried.size < (vals.some((v) => v.elsewhere) ? 3 : 2)) return
         for (const t of toks) {
           const header = gridHeaderAbove(lines, i, t.a, t.b)
           if (!header) continue
@@ -8771,7 +8785,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     // (AGRIPPA P21: le imposte 149,32 della riga della garanzia diventano 149,85
     // della rata, e gli interessi 0,00 della stessa riga si possono leggere).
     if (engineFlag(settings, 'rigagriglia')) {
-      for (const s of completeRowFromGrid(best, activeFields, analyzed)) {
+      for (const s of completeRowFromGrid(best, activeFields, analyzed, { otherDocs: engineFlag(settings, 'rigaaltrove') })) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Riga del premio (dopo il riepilogo)[${s.field.label}] = "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page})`)
       }
