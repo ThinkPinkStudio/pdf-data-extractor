@@ -69,7 +69,7 @@ test('a7ripiego: l\'Attività della riga «Categoria» resta ripiego, la cascata
       ollamaUrl: url, ollamaModel: 'fake', polizzaFields: TL, polizzaAutoVerify: false, polizzaStagedCascade: true, polizzaEngineFlags: flags,
     })
     const att = byLabel('Attività assicurata').id
-    const base = await run('')
+    const base = await run('-a7ripiegotesti')
     assert.equal(base.data[att], 'Veicoli conducibili con patente A-B e Rimorchi', base.diag.filter((l) => /Tabella-focus|Attivit/.test(l)).join('\n'))
     const out = await run('a7ripiego')
     assert.equal(out.data[att], 'Servizi vari', out.diag.filter((l) => /Tabella-focus|Cascata|ripiego/.test(l)).join('\n'))

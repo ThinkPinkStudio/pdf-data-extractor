@@ -8548,6 +8548,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const f of activeFields) {
       const e = best[f.id]
       if (!e || !isListDescription(f.description)) continue
+      // L'elenco letto dalla STRUTTURA della tabella (righe col premio nella
+      // colonna della copertura, tabella intitolata come il campo) è una prova,
+      // non un'opinione del modello: il filtro non lo svuota (RUZZA P16/P18:
+      // «Circolazione Stradale Standard - AB» col premio sotto TUTELA LEGALE).
+      if (e.gridRow === true) { diag.push(`Elenco[${f.label}]: dalla struttura della tabella, non filtrato`); continue }
       const items = splitListItems(e.valore)
       if (!items.length) continue
       try {

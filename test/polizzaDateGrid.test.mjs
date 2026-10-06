@@ -107,9 +107,9 @@ test('latestDateExcludingEmission confirmedOnly: senza riga di periodo né data 
 
 test('datagriglia: la quietanza «sandwich» si data dalla griglia OCR e apre la cascata', async () => {
   await withFakeOllama(async (url) => {
-    const base = await run(url, '')
+    const base = await run(url, '-date8,-datagriglia')
     assert.ok(!order(base).startsWith(`Cascata — ordine di visita: ${QZA}`), order(base))
-    const out = await run(url, 'datagriglia')
+    const out = await run(url, '-date8')
     assert.ok(order(out).startsWith(`Cascata — ordine di visita: ${QZA} (15/07/2027)`), order(out))
   })
 })
@@ -117,11 +117,11 @@ test('datagriglia: la quietanza «sandwich» si data dalla griglia OCR e apre la
 test('date8 + datagriglia: decorrenza e scadenza dal rinnovo più recente, non dal frontespizio della polizza', async () => {
   await withFakeOllama(async (url) => {
     const dec = byLabel('Decorrenza').id, sca = byLabel('Scadenza').id
-    const base = await run(url, '')
+    const base = await run(url, '-date8,-datagriglia')
     assert.deepEqual([base.data[dec], base.data[sca]], ['15/07/2024', '15/07/2026'])
     // la sola datazione non basta: le date del frontespizio sono già piene e la
     // cascata non le chiede alla quietanza
-    const only = await run(url, 'datagriglia')
+    const only = await run(url, '-date8')
     assert.deepEqual([only.data[dec], only.data[sca]], ['15/07/2024', '15/07/2026'])
     const out = await run(url, 'date8,datagriglia')
     assert.deepEqual([out.data[dec], out.data[sca]], ['15/07/2026', '15/07/2027'], out.diag.filter((l) => /Decorrenza|Scadenza|Cascata/.test(l)).join('\n'))
@@ -134,7 +134,7 @@ test('date8 mirato: se il frontespizio è già il documento più recente, nessun
     const one = (flags) => extractPolizzaStaged([docs()[0]], {
       ollamaUrl: url, ollamaModel: 'fake', polizzaFields: TL, polizzaAutoVerify: false, polizzaStagedCascade: true, polizzaEngineFlags: flags,
     })
-    const a = await one(''), b = await one('date8')
+    const a = await one('-date8'), b = await one('date8')
     const cascadeLines = (o) => o.diag.filter((l) => /^Cascata \d+\//.test(l)).map((l) => l.replace(/\d+(\.\d+)?s/g, ''))
     assert.deepEqual(cascadeLines(b), cascadeLines(a))
     assert.deepEqual(b.data, a.data)

@@ -70,6 +70,7 @@ const BUILD_FEATURES = [
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
+  'flag-promossi-0610', // Accesi di default date8, datagriglia, coppiecopertura, a7ripiegotesti (corsa A/B del 06/10 su 45 posizioni: 907 → 953, P16/P18 estratte, date dei rinnovi P39/P44/P45); elenchi letti dalla struttura non filtrati; voce non stampata senza intestazione non giudicata; altre sezioni su tutto il documento; riepilogo con le righe «|» dell'OCR
   'elenco-titolo', // Flag «elencotitolo» acceso: un campo elenco dalla tabella sotto un titolo fatto di parole della descrizione («GARANZIE SCELTE»), fino alla riga di totale (P04, P06, P13; replay +3 −0); riepilogo: lo stesso premio stampato in un altro documento tiene le voci
   'flag-verificatesti', // Flag «verificatesti» (spento): ogni valore di testo chiesto al modello contro la sola descrizione del campo (chiamata a sé); se non corrisponde cade e si prova il candidato alternativo
   'categoria-altrui', // Flag «categoriaaltrui» acceso: un campo di testo con un'opzione chiusa di un altro campo che la sua descrizione non nomina si svuota (Attività = «Auto/Circolazione» della Tipologia, P07/P14; replay +2 −0)

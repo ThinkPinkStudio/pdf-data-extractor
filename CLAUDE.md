@@ -1294,6 +1294,24 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   la descrizione): il valore fuori elenco si scarta all'INGRESSO, così il
   campo resta da chiedere alla cascata invece di restare pieno di «Rata
   Successiva» dello Stadio A.7.
+- **Corsa A/B del 06/10 (45 copie, flag `date8,datagriglia,coppiecopertura,
+  a7ripiego`) → promossi di default `date8`, `datagriglia`, `coppiecopertura`
+  e `a7ripiegotesti`**: 907 → 953 nella vista cliente (base
+  `score-client-0610-regole.json`). P16 e P18 (RUZZA, DAS OneClick) passano la
+  pertinenza ed escono 19/23 e 21/23; date dei rinnovi da quietanza
+  «sandwich» su P39, P44, P45 (+6); `a7ripiego` dà Attività (P03, P10, P12),
+  Frazionamento (P26, P29, P35), decorrenza P13, ma la sua parte sugli IMPORTI
+  sposta la cascata (P09 imponibile e imposte persi; P35 massimale annuo
+  317,24 dal ripiego) → si promuove la variante senza importi. Nella stessa
+  corsa sono emersi e corretti quattro difetti delle regole del giorno: voce
+  non stampata con riga SENZA intestazione (OCR visivo, P22/P24 imposte),
+  altre sezioni guardando la sola pagina citata (P37 franchigia 250 nella
+  SEZIONE TUTELA LEGALE di pag. 7), riepilogo che saltava le righe con bordi
+  «|» dell'OCR (P39 lordo 8458,00, P44 lordo/diritti della quietanza),
+  secondo completamento della riga del premio (P21 interessi 0,00). Gli
+  elenchi letti dalla struttura (colonna della copertura, tabella intitolata)
+  non passano più dal filtro col modello (`gridRow`): P16/P18 «Circolazione
+  Stradale Standard - AB» veniva svuotata.
 - **Flag `elencotitolo` (06/10/2026, default)**: dopo il merge, per un campo
   ELENCO (testa senza «NON»), una riga-titolo senza importi né cifre di 2-4
   parole tutte nella testa della descrizione, almeno due diverse dal nome
