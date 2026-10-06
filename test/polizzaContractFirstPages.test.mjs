@@ -28,8 +28,8 @@ test('selectContrattoPages firstsOnly: il primo batch ha solo le prime pagine; i
   assert.deepEqual(selectContrattoPages(rest, { budgetChars: 100000, firstsOnly: true }).map((c) => `${c.ord}.${c.page}`), ['1.2', '1.3', '2.2'])
 })
 
-test('flag primepagine: conosciuto, spento di default', () => {
+test('flag primepagine: acceso di default (prova del 06/10), spegnibile', () => {
   assert.ok('primepagine' in KNOWN_FLAGS)
-  assert.equal(engineFlag({}, 'primepagine'), false)
-  assert.equal(engineFlag({ polizzaEngineFlags: 'primepagine' }, 'primepagine'), true)
+  assert.equal(engineFlag({}, 'primepagine'), true)
+  assert.equal(engineFlag({ polizzaEngineFlags: '-primepagine' }, 'primepagine'), false)
 })

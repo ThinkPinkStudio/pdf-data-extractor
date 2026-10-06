@@ -36,7 +36,7 @@ test('withPairs: il testo delle coppie cambia solo con text', () => {
   assert.ok(!withPairs(GOLDONI).includes('"Indicizzazione" → ESCLUSA'))
 })
 
-test('flag coppietesto: conosciuto, spento di default', () => {
+test('flag coppietesto: acceso di default (prova del 06/10: GOLDONI estratta, nessun esito peggiorato)', () => {
   assert.ok('coppietesto' in KNOWN_FLAGS)
-  assert.equal(engineFlag({}, 'coppietesto'), false)
+  assert.equal(engineFlag({}, 'coppietesto'), true)
 })

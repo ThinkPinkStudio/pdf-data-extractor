@@ -1202,6 +1202,28 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   offline sui valori di produzione delle 41 posizioni
   (`scratchpad/replay-final.mjs`): 812 → 819 (riga della copertura col profilo
   giusto) → 830 (+11), nessuna perdita.
+- **Flag `primepagine` e `coppietesto` (06/10/2026 notte, default)**:
+  pertinenza. `primepagine`: nella domanda sulla polizza il PRIMO batch porta
+  solo le prime pagine con testo dei documenti (DAS ARENA, PDF scansionato di
+  20 pagine: la scheda di pag. 1 in mezzo a 20 parti di set informativo dava
+  «presente» o «assente» a seconda della corsa, e «assente» = Non valido).
+  `coppietesto`: nella sola pertinenza (`buildPageCandidates` → `withPairs(…,
+  { text: true })` → `detectLabelValuePairs` passaggio 3) le coppie
+  etichetta→valore comprendono anche i TESTI sotto l'intestazione di colonna,
+  saltando le scritte a margine; la riga dei valori deve portare un numero o
+  una data (due righe di sole intestazioni non si abbinano). DAS GOLDONI
+  «Descrizione  Indicizzazione  Massimale / Tutela Legale  ESCLUSA  31.000,00»:
+  il modello leggeva ESCLUSA come esclusione → «Indicizzazione → ESCLUSA».
+  Prova su 41 fascicoli (errori di pertinenza, Non validi del catalogo, 12 non
+  pertinenti giusti, P22): GOLDONI estratta (20/23), BIANCA MARIA fabbricati
+  da Da verificare a non pertinente, P22 «presente» dalla sola pag. 1, nessun
+  esito peggiorato (`catalog/ab-pert.mjs`).
+- **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
+  nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
+  («es. DAS, ARAG», solo voci di una parola della parte positiva) il
+  fascicolo senza polizza è «incompleta» col numero come stampato; altrimenti
+  decide il modello (che sull'appendice DAS di CAVALLO diceva no: non nomina
+  la tutela legale).
 - **Prove del 05/10 bocciate (non riprovare senza un'idea nuova)**: qwen3:32b
   think off −14 su 18 posizioni (meglio sui testi, peggio sugli importi; in
   pertinenza blocca di più); descrizioni chiarite di attività, parametro,

@@ -61,6 +61,7 @@ const BUILD_FEATURES = [
   'riconciliazione-contenuto', // Riconciliazione solo dal CONTENUTO: numeri noti in tutto il documento, PDF con più polizze divisi per pagine, nessuna regola sulle cartelle (04/10/2026)
   'riepilogo-default', // Flag «riepilogo» acceso: stessa riga/stesso riepilogo per valore, lordo comprensivo, legame transitivo, diritti = imposte, imponibile per esclusione (+11 su 41 posizioni, misura offline del 05/10); riga della copertura col profilo del job (gli id dei campi si ripetono nei profili clonati)
   'flag-riepilogo', // Flag «riepilogo» (stessa riga/stesso riepilogo del campo legato, lordo comprensivo dalla riga delle componenti, diritti = imposte)
+  'pertinenza-default', // Flag «primepagine» e «coppietesto» accesi: domanda sulla polizza col primo batch di sole prime pagine; coppie etichetta→valore anche per i testi nella pertinenza (prova del 06/10 su 41 fascicoli: GOLDONI estratta, nessun esito peggiorato)
   'flag-primepagine', // Flag «primepagine»: domanda sulla polizza, primo batch con le sole prime pagine
   'flag-coppietesto', // Flag «coppietesto»: nella pertinenza, coppie etichetta→valore anche per i testi sotto l'intestazione di colonna
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
