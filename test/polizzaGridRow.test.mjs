@@ -621,3 +621,18 @@ test('otherSectionAmounts: il valore che sta anche nella SEZIONE TUTELA LEGALE d
   // il 150 sta solo nei danni ai beni: si svuota
   assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('150', 'pestalozza.pdf', 3) }, TL, docs, COVER).length, 1)
 })
+
+test('riepilogoMismatches: il lordo della quietanza (righe con bordi «|» dall\'OCR) che non sta con l\'imponibile della sezione si svuota (RAMAZZINI P39)', async () => {
+  const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
+  const QZA = [
+    '               | RATA ANNIVERSARIA             | Euro 6941,93           |Euro 1516,07          | Euro 8458,00            |',
+    '                Rata  Polizza dal 15/07/2026  _  al 15/07/2027 ___',
+  ].join('\n')
+  const APP = '       SEZIONE TUTELA LEGALE\n                  Prima rata         € 379,96       Rate successive              € 379,96 Imponibile annuo        € 379,96'
+  const docs = [{ name: 'qza.pdf', spatialPages: [QZA] }, { name: 'appendice.pdf', spatialPages: ['', '', '', APP] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('379,96', 'appendice.pdf', 4),
+    [F('Premio lordo totale tutela legale').id]: entry('8458,00', 'qza.pdf', 1),
+  }
+  assert.deepEqual(riepilogoMismatches(best, TL, docs).map((s) => [s.field.label.trim(), s.valore]), [['Premio lordo totale tutela legale', '8458,00']])
+})

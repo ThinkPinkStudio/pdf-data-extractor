@@ -3610,8 +3610,11 @@ export function riepilogoAnchorField(field, fields) {
  */
 export function riepilogoMismatches(best, fields, docs) {
   const out = []
+  // Controllo di PRESENZA: anche le righe con «|» (i bordi di tabella che
+  // l'OCR del programma trascrive: «| Euro 8458,00 |» della quietanza Vittoria
+  // di RAMAZZINI, altrimenti il valore «non si ritrova» e non si giudica).
   const pagesWith = (d, n) => gridPagesOf(d).map((p, i) => ({ i, p: String(p || '') }))
-    .filter(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, n))))
+    .filter(({ p }) => p.split('\n').some((l) => gridAmountTokens(l.replace(/\|/g, ' ')).some((t) => sameAmount(t.n, n))))
     .map(({ i, p }) => ({ i, p }))
   for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
     const e = best?.[f.id]
@@ -3634,7 +3637,7 @@ export function riepilogoMismatches(best, fields, docs) {
     // del rinnovo (DAS COI: 24,88 con diritti e interessi 0,00) è il riepilogo
     // del premio attuale; quella con un imponibile diverso (VERRO: 142,45
     // contro 147,62 del rinnovo 2026) è di un periodo superato.
-    const carries = (pages) => pages.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
+    const carries = (pages) => pages.some(({ p }) => p.split('\n').some((l) => gridAmountTokens(l.replace(/\|/g, ' ')).some((t) => sameAmount(t.n, ng))))
     if (carries(mine)) continue
     // …e lo STESSO premio stampato in un altro documento conta: le imposte
     // 34,53 della quietanza 2026 stanno anche nella riga della scheda con
