@@ -64,6 +64,7 @@ const BUILD_FEATURES = [
   'pertinenza-default', // Flag «primepagine» e «coppietesto» accesi: domanda sulla polizza col primo batch di sole prime pagine; coppie etichetta→valore anche per i testi nella pertinenza (prova del 06/10 su 41 fascicoli: GOLDONI estratta, nessun esito peggiorato)
   'flag-primepagine', // Flag «primepagine»: domanda sulla polizza, primo batch con le sole prime pagine
   'flag-coppietesto', // Flag «coppietesto»: nella pertinenza, coppie etichetta→valore anche per i testi sotto l'intestazione di colonna
+  'flag-ocrsoloscansioni', // Flag «ocrsoloscansioni»: OCR col modello visivo solo nei fascicoli di sole scansioni (Tesseract dove c'è testo digitale), nel worker e nella lettura preliminare
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza

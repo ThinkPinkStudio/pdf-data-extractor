@@ -77,23 +77,32 @@ export async function reconcileBatch(batchId: string): Promise<void> {
     if (dossiers.length < 2) { await markBatchReconciled(batchId); return }
     // 1. Lettura di TUTTI i file, ogni pagina (text layer + OCR delle scansioni).
     const input: { id: string; path: string; files: { idx: number; name: string; pages: string[]; digital: boolean[] }[] }[] = []
+    const engSvc = await importSharedService<{ dossierOcrEngine: (s: any, d: boolean[]) => string }>('polizzaService.js')
     for (const d of dossiers) {
       const files: { idx: number; name: string; pages: string[]; digital: boolean[] }[] = []
+      // [flag ocrsoloscansioni] Motore OCR del fascicolo, come nel worker: il
+      // modello visivo solo se nessun file ha testo digitale (stessa chiave di cache).
+      const loaded: { b64: string | null; buf: Buffer | null; probeInfo: { pages: string[] | null; sandwich: number } }[] = []
+      for (const f of d.files) {
+        const b64 = await getJobFileBase64(d.id, f.idx)
+        const buf = b64 ? Buffer.from(b64, 'base64') : null
+        loaded.push({ b64, buf, probeInfo: buf ? await spatialPagesOf(buf, settings) : { pages: null, sandwich: 0 } })
+      }
+      const eng = engSvc.dossierOcrEngine(settings, loaded.map((x) => !!x.probeInfo.pages))
+      const dSettings = eng === String(settings.polizzaOcrEngine || '').trim() ? settings : { ...settings, polizzaOcrEngine: eng }
       for (let i = 0; i < d.files.length; i++) {
         const f = d.files[i]
         await updateJob(d.id, { progress: { docIndex: i, docTotal: d.files.length, pageIndex: 0, pageTotal: 0, docName: `Lettura preliminare: ${f.file_name}`, totalPagesProcessed: 0, receivedAt: Date.now() } })
         let pages: string[] | null = null
-        const b64 = await getJobFileBase64(d.id, f.idx)
+        const { b64, buf, probeInfo } = loaded[i]
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
-        const buf = b64 ? Buffer.from(b64, 'base64') : null
-        const probeInfo = buf ? await spatialPagesOf(buf, settings) : { pages: null, sandwich: 0 }
         const probe = probeInfo.pages
-        const key = hash ? cacheKeyOf(hash, probeInfo, settings) : null
+        const key = hash ? cacheKeyOf(hash, probeInfo, dSettings) : null
         if (key) pages = await getOcrCache(key).catch(() => null)
         // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
         if (pages && probe) pages = await freshDigitalPages(pages, probe)
         if (!pages && buf) {
-          const r = await readPdfPagesWithOcr(buf, f.file_name, settings)
+          const r = await readPdfPagesWithOcr(buf, f.file_name, dSettings)
           pages = r?.pages || null
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
           if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})

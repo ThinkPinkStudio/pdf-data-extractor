@@ -2017,6 +2017,22 @@ export function visionOcrEngine(settings) {
   const e = String(settings?.polizzaOcrEngine || '').trim()
   return e && e.toLowerCase() !== 'tesseract' ? e : null
 }
+
+/**
+ * [flag ocrsoloscansioni] Motore OCR del FASCICOLO: il modello visivo di
+ * `polizzaOcrEngine` solo se NESSUN file ha testo digitale; altrimenti
+ * Tesseract (''). Prova del 06/10/2026 con qwen3-vl:32b: nei fascicoli di sole
+ * scansioni guadagna (P07 da Da verificare a 18/23, P37 +5, P24 +4); dove le
+ * scansioni sono copie firmate di documenti digitali il testo nuovo rimescola
+ * i batch della pertinenza e blocca polizze vere (P11, P20, P35).
+ * @param {boolean[]} digitalByFile per file: ha almeno una pagina col text layer
+ * @returns {string} il valore di polizzaOcrEngine da usare per il fascicolo
+ */
+export function dossierOcrEngine(settings, digitalByFile) {
+  const e = String(settings?.polizzaOcrEngine || '').trim()
+  if (!visionOcrEngine(settings) || !engineFlag(settings, 'ocrsoloscansioni')) return e
+  return (digitalByFile || []).some(Boolean) ? '' : e
+}
 const VISION_OCR_PROMPT =
   'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
   '- Ordine di lettura, riga per riga, dall\'alto in basso.\n' +

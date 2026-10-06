@@ -23,6 +23,7 @@ interface PolizzaSvc {
   extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
   extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
+  dossierOcrEngine: (settings: any, digitalByFile: boolean[]) => string
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
 
@@ -345,6 +346,19 @@ async function runVisionRolling(job: JobRow, files: { file_name: string; pdf_bas
 // ─── Modalità fascicolo intero: OCR di tutte le pagine → 1 chiamata ──────────
 async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base64: string; file_hash?: string | null }[], settings: any, logs: string[]) {
   const m = await svc()
+
+  // [flag ocrsoloscansioni] Il modello visivo solo per i fascicoli di sole
+  // scansioni: con un file che ha testo digitale, Tesseract (anche per la
+  // chiave della cache OCR, la stessa della lettura preliminare).
+  try {
+    const digital: boolean[] = []
+    for (const f of files) digital.push(!!(await textLayerInfo(Buffer.from(f.pdf_base64, 'base64'), settings)).pages)
+    const eng = m.dossierOcrEngine(settings, digital)
+    if (eng !== String(settings.polizzaOcrEngine || '').trim()) {
+      await appendLog(job, `OCR: Tesseract per questo fascicolo (${digital.filter(Boolean).length} file su ${files.length} con testo digitale); il modello visivo ${settings.polizzaOcrEngine} solo per i fascicoli di sole scansioni`, logs)
+      settings = { ...settings, polizzaOcrEngine: eng }
+    }
+  } catch { /* la scelta del motore non blocca mai il job */ }
 
   let ocr = { available: true } as { available: boolean; reason?: string }
   try { ocr = await m.probeOcr(settings) } catch (e: any) { ocr = { available: false, reason: e.message } }
