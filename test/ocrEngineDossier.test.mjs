@@ -18,3 +18,13 @@ test('dossierOcrEngine: modello visivo solo senza testo digitale, col flag', () 
   assert.equal(dossierOcrEngine({ polizzaOcrEngine: 'tesseract', polizzaEngineFlags: 'ocrsoloscansioni' }, [false]), 'tesseract')
   assert.ok('ocrsoloscansioni' in KNOWN_FLAGS)
 })
+
+test('normalizeDateValue: un giorno che il mese non ha non è una data (OCR «31/09/2022»)', async () => {
+  const { normalizeDateValue } = await import('../src/services/polizzaDates.js')
+  assert.equal(normalizeDateValue('31/09/2022'), null)
+  assert.equal(normalizeDateValue('30/02/2026'), null)
+  assert.equal(normalizeDateValue('29/02/2023'), null)
+  assert.equal(normalizeDateValue('29/02/2024'), '29/02/2024')
+  assert.equal(normalizeDateValue('31/10/2022'), '31/10/2022')
+  assert.equal(normalizeDateValue('31/01/26'), '31/01/2026')
+})

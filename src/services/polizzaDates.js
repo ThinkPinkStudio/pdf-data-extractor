@@ -252,6 +252,10 @@ export function normalizeDateValue(raw) {
   if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
   // Anni fuori da ogni contratto possibile (2631, 0026): non è una data.
   if (y < 1900 || y > 2100) return null
+  // Giorno che il mese non ha (31/09, 30/02, 29/02 di un anno non bisestile):
+  // una lettura sbagliata dell'OCR («31/10/2022» trascritto «31/09/2022» in
+  // ARENA), mai una data vera; prima passava e il calendario la spostava al 1/10.
+  if (d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
 }
 

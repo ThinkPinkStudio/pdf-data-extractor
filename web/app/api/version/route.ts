@@ -64,6 +64,7 @@ const BUILD_FEATURES = [
   'pertinenza-default', // Flag «primepagine» e «coppietesto» accesi: domanda sulla polizza col primo batch di sole prime pagine; coppie etichetta→valore anche per i testi nella pertinenza (prova del 06/10 su 41 fascicoli: GOLDONI estratta, nessun esito peggiorato)
   'flag-primepagine', // Flag «primepagine»: domanda sulla polizza, primo batch con le sole prime pagine
   'flag-coppietesto', // Flag «coppietesto»: nella pertinenza, coppie etichetta→valore anche per i testi sotto l'intestazione di colonna
+  'date-impossibili', // Date con un giorno che il mese non ha (31/09, 30/02) scartate: lettura sbagliata dell'OCR
   'ocr-scansioni-default', // Flag «ocrsoloscansioni» acceso: OCR visivo (polizzaOcrEngine) solo nei fascicoli di sole scansioni; prova del 06/10 con qwen3-vl:32b P07 0→19, P37 16→21, P24 16→20, P22 14→17
   'flag-ocrsoloscansioni', // Flag «ocrsoloscansioni»: OCR col modello visivo solo nei fascicoli di sole scansioni (Tesseract dove c'è testo digitale), nel worker e nella lettura preliminare
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
