@@ -2519,14 +2519,18 @@ export function withPairs(pageText, opts = {}) {
   // 8192 token di contesto. Restano le coppie etichetta→valore del layout.
   // [flag coppietesto] anche i testi sotto l'intestazione di colonna (opts.text)
   const pairs = detectLabelValuePairs(t, { text: !!opts.text })
+  // [flag coppiecopertura] Celle della COLONNA della copertura (pertinenza):
+  // prima di tutte, una per riga della tabella (coverColumnPairs).
+  const extra = (Array.isArray(opts.extra) ? opts.extra : [])
+    .map((p) => `RIGA ${p.row || '?'} — "${p.label}" → ${p.value}${p.riga ? ` (riga «${p.riga}»)` : ''}`)
   const parts = []
-  if (pairs.length) {
+  if (pairs.length || extra.length) {
     const seen = new Set()
     const rows = pairs
       .filter((p) => (seen.has(p.label) ? false : (seen.add(p.label), true)))
       .map((p) => `RIGA ${p.row || '?'} — "${p.label}" → ${p.value}`)
       .slice(0, 25)
-    if (rows.length) parts.push('COPPIE ETICHETTA→VALORE (dal layout):\n' + rows.join('\n'))
+    if (rows.length || extra.length) parts.push('COPPIE ETICHETTA→VALORE (dal layout):\n' + [...extra, ...rows].join('\n'))
   }
   return parts.length ? parts.join('\n\n') + '\n\nTESTO:\n' + t : t
 }

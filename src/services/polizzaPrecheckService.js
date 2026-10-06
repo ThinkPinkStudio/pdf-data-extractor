@@ -16,7 +16,7 @@ import {
   semanticScore, llmComparisonScore, decidePrecheck, topContentTerms,
   rankProfilesSemantic, policyEvidenceReport, effectivePrecheckMode, degradeWithoutRecognition,
 } from './polizzaPrecheck.js'
-import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage, pageHead } from './polizzaOperativita.js'
+import { cutUseful, OPERATIVITA_MAX_PAGE_CHARS, pageNamesCoverage, pageHead, coverColumnPairs } from './polizzaOperativita.js'
 import { isQuestionnairePageTitle } from './polizzaFactsRegistry.js'
 import { preContractLabel, extractPolicyNumbersFromPages } from './policyReconcile.js'
 import { stripFieldExamples } from './polizzaValidation.js'
@@ -134,7 +134,7 @@ export function contentExcludeMatched(profile, docs) {
  * budget del batch, così nessuna parte viene tagliata e resta non letta).
  * @returns {{candidates:object[], docsWithoutText:number}}
  */
-export function buildPageCandidates(docs, spatialDocs, { capped = true, partChars = OPERATIVITA_MAX_PAGE_CHARS, textPairs = false } = {}) {
+export function buildPageCandidates(docs, spatialDocs, { capped = true, partChars = OPERATIVITA_MAX_PAGE_CHARS, textPairs = false, coverNames = null } = {}) {
   const maxPart = Math.max(200, Math.min(OPERATIVITA_MAX_PAGE_CHARS, Number(partChars) || OPERATIVITA_MAX_PAGE_CHARS))
   const candidates = []
   let docsWithoutText = 0
@@ -170,7 +170,13 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
       // STESSO testo dei prompt di estrazione: griglia spaziale + coppie
       // etichetta→valore lette dal layout (withPairs: suggerimento di
       // lettura, mai una verità imposta — REGOLE 1c).
-      const full = grid.trim() ? withPairs(grid, { text: textPairs }) : flat
+      // [flag coppiecopertura] più le celle della colonna intestata alla
+      // copertura (coverColumnPairs): nella scheda DAS OneClick l'intestazione
+      // «TUTELA LEGALE PERDITE ASSISTENZA IMPOSTE PREMIO LORDO» è una cella
+      // unica della griglia e il modello leggeva quella riga come la voce
+      // «senza premio», col 24,00 della colonna proprio sotto (P16, P18).
+      const extra = grid.trim() && coverNames ? coverColumnPairs(grid, coverNames) : []
+      const full = grid.trim() ? withPairs(grid, { text: textPairs, extra }) : flat
       // Pagine LUNGHE (oltre il taglio per pagina): spezzate in parti, tutte
       // candidate — il taglio teneva solo l'inizio e una riga di premio in
       // fondo a una scheda fitta non arrivava mai al modello.
@@ -418,7 +424,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
   log(`Operatività «${profile?.name || ''}»: nome della copertura da «Come riconoscerla»: ${lexTokens.length ? `«${lexTokens.join(' ')}»` : 'non determinabile (controlli lessicali non applicabili)'}`)
   try {
     // Candidati: ogni pagina con testo, ordinale del documento = posizione nel fascicolo.
-    const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: true, textPairs: engineFlag(settings, 'coppietesto') })
+    const { candidates } = buildPageCandidates(docs, spatialDocs, { capped: true, textPairs: engineFlag(settings, 'coppietesto'), coverNames: engineFlag(settings, 'coppiecopertura') && lexTokens.length ? lexTokens : null })
     if (!candidates.length) return { ...applyContractVerdict(decideOperativita({ error: 'nessuna pagina con testo' }), contract), ...who }
     // Copertura mai nominata in NESSUNA pagina del fascicolo (tutte, non solo le
     // candidate): non operante per fatto del testo, senza chiamate al modello.

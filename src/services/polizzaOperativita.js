@@ -317,9 +317,22 @@ export function verticalCoverColumns(text, names) {
  * @returns {Set<number>} indici delle righe
  */
 export function coverColumnRows(text, names) {
-  const rows = new Set()
+  return new Set(coverColumnPairs(text, names).map((p) => p.row - 1))
+}
+
+/**
+ * Le celle di coverColumnRows come COPPIE etichetta→valore: per ogni riga della
+ * tabella il cui premio sta nella colonna della copertura, l'intestazione
+ * (com'è scritta nella griglia), l'importo e l'etichetta della riga. Scheda DAS
+ * OneClick di RUZZA FABIO: «TUTELA LEGALE» → 24,00 (riga «Circolazione
+ * Stradale Standard - AB»); nella griglia l'intestazione è una cella unica con
+ * le altre colonne e la coppia non si vede.
+ * @returns {{row:number, label:string, value:string, riga:string}[]} row 1-based
+ */
+export function coverColumnPairs(text, names) {
+  const out = []
   const cols = [...verticalCoverColumns(text, names), ...horizontalCoverColumns(text, names)]
-  if (!cols.length) return rows
+  if (!cols.length) return out
   const lines = String(text || '').split('\n')
   const noise = (l) => !/[\p{L}\p{N}]/u.test(l)
   const amountsOf = (l) => amountMatchesAt(l, STRUCTURAL_AMOUNT_RE)
@@ -332,7 +345,9 @@ export function coverColumnRows(text, names) {
     }
     return -1
   }
+  const seen = new Set()
   for (const col of cols) {
+    const label = lines.slice(col.first, col.line + 1).map((l) => l.slice(col.start, col.end).trim()).filter(Boolean).join(' ')
     let started = false
     for (let j = col.line + 1; j < lines.length; j++) {
       if (noise(lines[j])) continue
@@ -342,7 +357,7 @@ export function coverColumnRows(text, names) {
         break
       }
       started = true
-      const ok = amounts.some((m) => {
+      const hit = amounts.find((m) => {
         const a = m.index, b = m.index + m.text.length
         if (!/[1-9]/.test(m.text) || a >= col.end || b <= col.start) return false
         const cell = cells[j].find((c) => c.start <= a && c.end >= b)
@@ -350,10 +365,14 @@ export function coverColumnRows(text, names) {
         const k = headerAbove(j, a, b)
         return k >= col.first && k <= col.line
       })
-      if (ok) rows.add(j)
+      if (!hit || seen.has(j)) continue
+      seen.add(j)
+      const first = cells[j][0]
+      const riga = first && first.start < hit.index ? lines[j].slice(first.start, first.end).trim() : ''
+      out.push({ row: j + 1, label, value: hit.text.trim(), riga })
     }
   }
-  return rows
+  return out.sort((a, b) => a.row - b.row)
 }
 
 /**

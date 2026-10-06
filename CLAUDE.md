@@ -1213,6 +1213,20 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   32,89. Mai uno zero (0,00 sotto le intestazioni fuse col nome del prodotto
   delle schede DAS Drive è un dato), mai se il valore sta anche in una riga
   fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita.
+- **Flag `coppiecopertura` (06/10/2026, spento, da misurare)**: P16 e P18
+  (RUZZA, DAS OneClick Circolazione Stradale) restano «Da verificare»: nella
+  griglia pdf.js l'intestazione della scheda (carattere 4,8 pt) «TUTELA LEGALE
+  PERDITE ASSISTENZA IMPOSTE PREMIO LORDO» è UNA cella (parole che collidono,
+  uno spazio solo) e il 32B la legge come la voce «senza premio» (batch 1
+  «non operante» citando quella riga), col 24,00 della colonna proprio sotto;
+  nelle coppie etichetta→valore la coppia mancava (solo «PECUNIARIE → 0,00»).
+  Col flag la pertinenza mette in testa alle coppie della pagina le celle di
+  `coverColumnPairs` (stessa logica e stesse righe di `coverColumnRows`, ora
+  suo derivato): «RIGA 4 — "TUTELA LEGALE" → 24,00 (riga «Circolazione
+  Stradale Standard - AB»)». Sulle griglie del corpus: 31 pagine, tutte
+  coppie giuste (P16, P18 e le schede DAS condominio P21–P43, già pertinenti).
+  Non tocca l'estrazione. La prova «operante» citata sulla riga della colonna
+  passa già (test «colonna intestata su UNA riga»).
 - **Flag `datagriglia` e `date8` mirato (06/10/2026, spenti, da misurare)**:
   le quietanze di rinnovo Vittoria di P39 RAMAZZINI, P44 ZELO, P45 BOIARDO
   (le sole tre pagine «sandwich» del corpus) hanno il markdown Docling fatto

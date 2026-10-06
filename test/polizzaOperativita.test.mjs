@@ -946,6 +946,35 @@ test('colonna intestata su UNA riga (DAS OneClick di RUZZA FABIO) e righe di rum
   assert.deepEqual([...coverColumnRows(after, TL)], [3], 'con la riga di prosa in mezzo la tabella è finita')
 })
 
+test('[flag coppiecopertura] coverColumnPairs: «TUTELA LEGALE» → 24,00 della scheda OneClick, nelle coppie della pertinenza', async () => {
+  const { coverColumnPairs } = await import('../src/services/polizzaOperativita.js')
+  const { buildPageCandidates } = await import('../src/services/polizzaPrecheckService.js')
+  const TL = [['tutela', 'legale']]
+  const one = [
+    '     OneClick - Circolazione Stradale',
+    '                                                                                             TUTELA LEGALE PERDITE ASSISTENZA IMPOSTE PREMIO LORDO',
+    '                                                                                                       PECUNIARIE',
+    '       Circolazione Stradale Standard - AB                                                     24,00    0,00      0,00    3,00     27,00',
+    '                                                                                PREMIO ANNUO  24,00     0,00     0,00     3,00     27,00',
+  ].join('\n')
+  assert.deepEqual(coverColumnPairs(one, TL), [
+    { row: 4, label: 'TUTELA LEGALE', value: '24,00', riga: 'Circolazione Stradale Standard - AB' },
+    { row: 5, label: 'TUTELA LEGALE', value: '24,00', riga: 'PREMIO ANNUO' },
+  ])
+  assert.deepEqual([...coverColumnRows(one, TL)], [3, 4], 'stesse righe di coverColumnRows')
+  // colonna spezzata su due righe (DAS condominio): l'intestazione intera
+  assert.deepEqual(coverColumnPairs(DAS_SCHEDA, TL).map((p) => [p.label, p.value]), [['TUTELA LEGALE', '431,81']])
+  // premio a zero nella colonna: nessuna coppia
+  assert.deepEqual(coverColumnPairs(one.replace(/24,00/g, ' 0,00'), TL), [])
+  // nella pertinenza: le coppie della colonna in testa al blocco, solo col flag (coverNames)
+  const docs = [{ pages: [one.replace(/\s{2,}/g, ' ')] }]
+  const grid = [{ pages: [one] }]
+  const on = buildPageCandidates(docs, grid, { coverNames: TL }).candidates[0].text
+  assert.match(on, /COPPIE ETICHETTA→VALORE \(dal layout\):\nRIGA 4 — "TUTELA LEGALE" → 24,00 \(riga «Circolazione Stradale Standard - AB»\)/)
+  const off = buildPageCandidates(docs, grid, {}).candidates[0].text
+  assert.ok(!off.includes('"TUTELA LEGALE" → 24,00'), off.slice(0, 300))
+})
+
 test('casella DOPO il nome seguita da bordi o importi senza parole: resta della copertura', () => {
   const TL = [['tutela', 'legale']]
   assert.equal(structuralCoverLines('Tutela Legale   [X]   € 15.000', TL).length, 1)

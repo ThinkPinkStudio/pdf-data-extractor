@@ -41,6 +41,7 @@ export const KNOWN_FLAGS = Object.freeze({
   zeri: 'A.7: un importo stampato a zero (0,00) in una cella è un valore da riportare quando la descrizione del campo lo prevede (interessi, diritti)',
   righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
   date8: 'A.8: le DATE del frontespizio sono provvisorie quando un documento datato è più recente: la cascata le chiede anche a lui (quietanza di rinnovo) e decide l\'arbitro',
+  coppiecopertura: 'Pertinenza: nelle coppie etichetta→valore anche le celle col premio sotto la colonna intestata alla copertura (scheda DAS OneClick: «TUTELA LEGALE» → 24,00)',
   datagriglia: 'Datazione: un documento che il markdown lascia senza data si data dalla griglia dei prompt (solo righe di periodo o date ripetute) — quietanze «sandwich» del ramo Docling',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
   ocrsoloscansioni: 'OCR col modello visivo (polizzaOcrEngine) solo nei fascicoli di sole scansioni; dove c\'è testo digitale Tesseract',
