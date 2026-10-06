@@ -4643,6 +4643,39 @@ export function rowPieceLayoutValue(best, fields, docs, distinct) {
 }
 
 /**
+ * TESTO SENZA LETTERE [flag testolettere], dopo il merge: un campo la cui
+ * descrizione (parte positiva) chiede un TESTO («come TESTO», «È un TESTO»)
+ * non tiene un valore senza lettere: «1°» come Frazionamento dalla quietanza
+ * Vittoria di P39 (verità «Annuale»). Si prende il candidato con lettere più
+ * votato del registro del consenso (poi il più affine), sanitizzato; nessuno →
+ * vuoto. Su tutte le serie di valori misurate il solo caso è quello, sempre
+ * sbagliato.
+ * @returns {{field:object, prima:string, valore:string|null, voti:number, cand:object|null}[]}
+ */
+export function letterlessTextValues(best, fields, candLog) {
+  const aff = (c) => (typeof c?.affinity === 'number' ? c.affinity : -1)
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && /\bTESTO\b/.test(positiveDescriptionText(String(x.description || ''))))) {
+    const e = best?.[f.id]
+    if (!e || e.valore == null || /\p{L}/u.test(String(e.valore))) continue
+    const groups = new Map()
+    for (const c of candLog?.[f.id] || []) {
+      if (!c || !/\p{L}/u.test(String(c.valore ?? ''))) continue
+      const clean = sanitizeFieldValue(f, c.valore)
+      if (!clean || !/\p{L}/u.test(clean)) continue
+      const k = normForMatch(clean)
+      const g = groups.get(k) || { valore: clean, n: 0, c }
+      g.n++
+      if (aff(c) > aff(g.c)) { g.c = c; g.valore = clean }
+      groups.set(k, g)
+    }
+    const top = [...groups.values()].sort((a, b) => b.n - a.n || aff(b.c) - aff(a.c))[0] || null
+    out.push({ field: f, prima: String(e.valore), valore: top ? top.valore : null, voti: top ? top.n : 0, cand: top ? top.c : null })
+  }
+  return out
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -8699,6 +8732,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of rowPieceLayoutValue(best, activeFields, analyzed, distinctHead)) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Etichetta della riga[${s.field.label}]: "${s.prima}" è un pezzo dell'etichetta di una riga di premi → "${s.valore}" (sotto «${s.etichetta}», ${s.file} p.${s.page})`)
+    }
+  }
+
+  // ── [flag testolettere] Un TESTO senza lettere non è un testo ────────────
+  if (engineFlag(settings, 'testolettere')) {
+    for (const s of letterlessTextValues(best, activeFields, STAGED_CANDIDATE_LOG.get(best) || {})) {
+      if (s.valore) {
+        best[s.field.id] = { ...s.cand, valore: s.valore }
+        diag.push(`Testo senza lettere[${s.field.label}]: "${s.prima}" → "${s.valore}" (candidato con lettere più votato, ${s.voti} voti)`)
+      } else {
+        delete best[s.field.id]
+        diag.push(`Testo senza lettere[${s.field.label}]: "${s.prima}" → vuoto (la descrizione chiede un testo, nessun candidato con lettere)`)
+      }
     }
   }
 

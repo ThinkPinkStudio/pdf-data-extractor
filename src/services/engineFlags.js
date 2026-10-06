@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -58,6 +58,7 @@ export const KNOWN_FLAGS = Object.freeze({
   riepilogo: 'Dopo il merge: un importo che la descrizione lega alla «stessa riga o stesso riepilogo» di un altro campo si svuota se nessuna pagina del suo documento porta anche quel valore; diritti/interessi uguali alle imposte sono un numero copiato',
   rigagriglia: 'Dopo il merge, dalla GRIGLIA: un importo della copertura letto nella riga dei totali passa alla riga della copertura nella stessa colonna; i campi vuoti «sulla stessa riga» del premio prendono la cella sotto l\'intestazione che li nomina',
   etichettariga: 'Dopo il merge: un testo che nella sua pagina è solo un pezzo dell\'etichetta di righe con importi («Rata Successiva» come Frazionamento dalla riga «PREMIO RATA SUCCESSIVA») prende il testo che la griglia mette sotto l\'intestazione che nomina il campo («FRAZIONAMENTO» → «Annuale»)',
+  testolettere: 'Dopo il merge: un campo la cui descrizione chiede un TESTO non tiene un valore senza lettere («1°» come Frazionamento): candidato con lettere più votato, altrimenti vuoto',
   gemelli: 'Dopo la coerenza: due campi importo con la testa che comincia con la stessa parola («Massimale per sinistro» / «Massimale per anno») e lo stesso valore; se nei documenti il valore sta solo accanto alla parola distintiva di uno dei due, l\'altro è una copia e si svuota',
   aliquota: 'Dopo la coerenza: nella riga che porta il lordo estratto, x seguito da un\'aliquota p% e da y = x·p% con x + y = lordo dà imponibile (x) e imposte (y) ai campi vuoti (Allianz «Tutela Giudiziaria 16,17 12,50% 2,02 18,19»)',
 })

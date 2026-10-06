@@ -53,3 +53,14 @@ test('etichettariga: mai per scelte chiuse né per elenchi', () => {
   const best = { [tip.id]: { valore: 'Condominio', file: 'S.pdf', page: 1 }, [gar.id]: { valore: 'Difesa Condominio', file: 'S.pdf', page: 1 } }
   assert.deepEqual(rowPieceLayoutValue(best, fields, [{ name: 'S.pdf', spatialPages: [page] }], distinctiveHeadTokens(fields, tok)), [])
 })
+
+test('testolettere: «1°» come Frazionamento → il candidato con lettere più votato; senza candidati → vuoto', async () => {
+  const { letterlessTextValues } = await import('../src/services/polizzaService.js')
+  const log = { [fraz.id]: [{ valore: '1°', affinity: 0.5 }, { valore: 'ANNUALE', affinity: 0.4 }, { valore: 'Annuale', affinity: 0.45 }, { valore: 'ANNUALE', affinity: 0.41 }, { valore: 'semestrali', affinity: 0.6 }] }
+  const out = letterlessTextValues({ [fraz.id]: { valore: '1°' } }, TL, log)
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.prima, s.valore, s.voti]), [['Frazionamento', '1°', 'Annuale', 3]])
+  assert.deepEqual(letterlessTextValues({ [fraz.id]: { valore: '1°' } }, TL, {}).map((s) => s.valore), [null])
+  // un numero di polizza fatto di sole cifre non è un TESTO per la sua descrizione
+  const num = byLabel('N° Polizza')
+  assert.deepEqual(letterlessTextValues({ [num.id]: { valore: '283618616' } }, TL, {}), [])
+})

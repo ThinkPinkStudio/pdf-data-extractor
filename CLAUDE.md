@@ -1370,6 +1370,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `testolettere` (06/10/2026 sera, default)**: dopo il merge, un campo
+  la cui descrizione (parte positiva) chiede un TESTO («come TESTO», «È un
+  TESTO») non tiene un valore senza lettere: prende il candidato con lettere
+  più votato del registro del consenso (poi il più affine), altrimenti vuoto
+  (`letterlessTextValues`). P39: Frazionamento «1°» della quietanza Vittoria
+  → «ANNUALE» (4 voti). Su tutte le serie di valori misurate è l'unico valore
+  senza lettere in un campo TESTO, sempre sbagliato. Il N° di polizza (cifre)
+  non è toccato: la sua descrizione non dice TESTO.
 - **Flag `etichettariga` (06/10/2026 sera, default)**: dopo il merge, un
   campo di TESTO (non elenco, non scelta chiusa) il cui valore nella sua
   pagina sta SOLO come pezzo della PRIMA cella di righe di tabella con ≥2
