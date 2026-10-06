@@ -3708,6 +3708,51 @@ export function unprintedRowItems(best, fields, docs) {
 }
 
 /**
+ * VALORE DI UN'ALTRA SEZIONE, dopo il merge: in un documento diviso in SEZIONI
+ * (righe che cominciano con «Sezione») che ne ha una intestata alla copertura
+ * («SEZIONE TUTELA LEGALE»), un campo importo la cui descrizione nomina la
+ * copertura nella testa («Franchigia della tutela legale») non prende un valore
+ * che nella sua pagina compare SOLO dentro altre sezioni: la sezione più vicina
+ * sopra ogni sua occorrenza non nomina la copertura. Vittoria «Con Te
+ * Condomini» (P39, P41): «Franchigia 300» delle garanzie della SEZIONE DANNI DA
+ * ACQUA CONDOTTA, mentre la SEZIONE TUTELA LEGALE non ha franchigia. Prima
+ * della prima sezione della pagina vale l'ultima delle pagine precedenti;
+ * senza nessuna sezione sopra, il valore resta.
+ * @returns {{field:object, valore:string, sezione:string}[]}
+ */
+export function otherSectionAmounts(best, fields, docs, coverNames) {
+  if (!Array.isArray(coverNames) || !coverNames.length) return []
+  const isSection = (l) => /^\s*sezione\b/i.test(String(l || ''))
+  const numsOf = (l) => [...String(l || '').matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(?![\d.,]\d)/g)]
+    .map((m) => Number(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : '')))
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
+    const e = best?.[f.id]
+    if (!e || !e.file || e.page === '' || e.page == null) continue
+    if (!namesCoverage(String(f.description || '').split(':')[0], coverNames)) continue
+    const n = parsePureAmount(e.valore)
+    if (n == null || n === 0) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    const pages = gridPagesOf(d).map((p) => String(p || '').split('\n'))
+    if (!pages.some((ls) => ls.some((l) => isSection(l) && namesCoverage(l, coverNames)))) continue
+    const pi = Number(e.page) - 1
+    const lines = pages[pi] || []
+    // sezione corrente all'inizio della pagina: l'ultima delle pagine precedenti
+    let carried = ''
+    for (let k = 0; k < pi; k++) for (const l of pages[k]) if (isSection(l)) carried = l
+    let section = carried
+    const where = []
+    for (const l of lines) {
+      if (isSection(l)) section = l
+      if (numsOf(l).some((x) => sameAmount(x, n))) where.push(section)
+    }
+    if (!where.length || where.some((sec) => !sec || namesCoverage(sec, coverNames))) continue
+    out.push({ field: f, valore: e.valore, sezione: where[0].trim() })
+  }
+  return out
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -7828,6 +7873,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of riepilogoMismatches(best, activeFields, analyzed)) {
       delete best[s.field.id]
       diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" (${s.file}) non sta mai con ${s.anchor.label} "${s.anchorValore}" (${s.anchorFile}), a cui la descrizione lo lega → vuoto`)
+    }
+  }
+
+  // ── [flag altresezioni] Valori delle ALTRE SEZIONI della polizza ─────────
+  // In un documento con una «SEZIONE <copertura>», un importo dei campi della
+  // copertura che sta solo dentro altre sezioni non è suo (otherSectionAmounts).
+  if (engineFlag(settings, 'altresezioni')) {
+    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+    const me = jobProfileFor(settings, activeFields)
+    const coverNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    for (const s of otherSectionAmounts(best, activeFields, analyzed, coverNames)) {
+      delete best[s.field.id]
+      diag.push(`Altra sezione[${s.field.label}]: "${s.valore}" sta solo in «${s.sezione}», non nella sezione della copertura → vuoto`)
     }
   }
 

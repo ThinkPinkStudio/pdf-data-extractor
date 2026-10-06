@@ -11,12 +11,13 @@ import { completeRowFromGrid, coverRowFromGrid, gridHeaderAbove, gridAmountToken
 import { engineFlag, KNOWN_FLAGS } from '../src/services/engineFlags.js'
 
 const PROFILES = JSON.parse(readFileSync(new URL('../polizze_test/profili-polizza-riconoscimento.json', import.meta.url), 'utf8'))
-// Descrizioni v4 del profilo in produzione per i campi del premio.
+// Descrizioni v4 del profilo in produzione per i campi del premio e la franchigia.
 const V4 = {
   'Interessi di frazionamento': "Interessi di frazionamento della tutela legale: l'importo (in euro) aggiunto al premio annuo della tutela legale se il pagamento è rateizzato (es. 0,00, 2,48, 3,01), sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale. È un importo con due decimali; se è stampato a zero riporta '0,00'. Se per la tutela legale la voce non è stampata, lascia vuoto: non calcolarla. NON il contributo al Servizio Sanitario Nazionale, NON un valore di altre sezioni o garanzie della polizza.",
   Diritti: "Diritti della tutela legale: l'importo (in euro) dei diritti (di emissione, di quietanza) sul premio annuo della tutela legale, sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale (es. 0,00, 2,48, 19,30). È un importo con due decimali; se è stampato a zero riporta '0,00'. Se per la tutela legale la voce non è stampata, lascia vuoto: non calcolarla.",
   Imposte: "Imposte sul premio annuo della tutela legale: l'importo (in euro) delle imposte sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale (es. 19,30, 44,69, 110,11). È un importo con due decimali. Per un prodotto di sola tutela legale sono le imposte del premio annuo del contratto; in una polizza con più sezioni sono le imposte della SEZIONE tutela legale, se stampate. NON le imposte dell'intero contratto con le altre sezioni, NON il premio lordo né l'imponibile.",
   'Premio imponibile tutela legale': "Premio imponibile (netto) ANNUO della tutela legale: la base imponibile del premio della tutela legale per un'annualità, al netto di imposte, diritti e interessi, come stampata nel documento. È un importo con due decimali (es. 207,83, 501,30, 757,82).",
+  'Franchigia generica o minima': "Franchigia della tutela legale: l'importo (in euro) che resta a carico dell'assicurato per ogni sinistro di tutela legale, indicato esplicitamente come franchigia nella scheda o nella sezione tutela legale della polizza (es. 200,00, 1.000,00). NON sono franchigie della tutela legale quelle di altre garanzie o sezioni della polizza (incendio, eventi atmosferici, acqua condotta, kasko, furto, cristalli), NON i limiti tipo anticipo spese penale doloso, NON i massimali né i premi. Se la tutela legale non ha una franchigia indicata, lascia il campo vuoto.",
   'Premio lordo totale tutela legale': "Premio lordo ANNUO della tutela legale: l'importo (in euro) comprensivo di imposte, diritti e interessi che il contraente paga per un'annualità di tutela legale, come stampato nel documento (es. 255,00, 611,41, 918,86). Per un prodotto di sola tutela legale è il premio lordo annuo del contratto; in una polizza con più sezioni è il lordo della SEZIONE tutela legale, se stampato. NON il lordo dell'intero contratto con le altre sezioni, NON una rata frazionata.",
 }
 const TL = PROFILES.find((p) => p.name === 'Tutela Legale 3').fields.map((f) => (V4[String(f.label).trim()] ? { ...f, description: V4[String(f.label).trim()] } : f))
@@ -341,4 +342,36 @@ test('unprintedRowItems: la cella sotto l\'intestazione che nomina il campo rest
   assert.equal(unprintedRowItems({ [F('Diritti').id]: entry('0,00', file), [F('Interessi di frazionamento').id]: entry('0,00', file) }, TL, docs).length, 0)
   // l'imponibile non è legato a un riepilogo: mai giudicato
   assert.equal(unprintedRowItems({ [F('Premio imponibile tutela legale').id]: entry('147,62', file) }, TL, docs).length, 0)
+})
+
+// Appendice di rinnovo Vittoria «Con Te Condomini» (RAMAZZINI 2, pag. 4).
+const VITTORIA = [
+  '       SEZIONE DANNI DA ACQUA CONDOTTA',
+  '            Somma Assicurata                         € 1.000 per sinistro e € 3.000 per anno assicurativo',
+  '            Valore Immobile                          € 7.344.937,94',
+  '            Franchigia                               300',
+  '         CONDUTTURE INTERRATE                                                             Imponibile annuo        € 288,71',
+  '            Franchigia                               300',
+  '       SEZIONE TUTELA LEGALE',
+  '                  Prima rata         € 379,96       Rate successive              € 379,96 Imponibile annuo        € 379,96',
+  '         TUTELA LEGALE                                                                    Imponibile annuo        € 379,96',
+  '            Somma Assicurata                         € 20.000,00',
+].join('\n')
+
+test('otherSectionAmounts: la franchigia della SEZIONE DANNI DA ACQUA CONDOTTA non è della tutela legale', async () => {
+  const { otherSectionAmounts } = await import('../src/services/polizzaService.js')
+  const file = 'RAMAZZINI APPENDICE DI RINNOVO.pdf'
+  const docs = [{ name: file, spatialPages: [VITTORIA] }]
+  assert.deepEqual(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('300', file) }, TL, docs, COVER).map((s) => [s.field.label.trim(), s.valore, s.sezione]),
+    [['Franchigia generica o minima', '300', 'SEZIONE DANNI DA ACQUA CONDOTTA']])
+  // l'imponibile della SEZIONE TUTELA LEGALE resta
+  assert.equal(otherSectionAmounts({ [F('Premio imponibile tutela legale').id]: entry('379,96', file) }, TL, docs, COVER).length, 0)
+  // senza una sezione intestata alla copertura nel documento: niente (prodotto di sola tutela legale)
+  const noTl = [{ name: file, spatialPages: [VITTORIA.split('\n').slice(0, 6).join('\n')] }]
+  assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('300', file) }, TL, noTl, COVER).length, 0)
+  // senza il nome della copertura (profilo senza «Come riconoscerla»): niente
+  assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('300', file) }, TL, docs, []).length, 0)
+  // un valore che compare anche nella sezione della copertura resta
+  const both = [{ name: file, spatialPages: [VITTORIA + '\n            Franchigia                               300'] }]
+  assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('300', file) }, TL, both, COVER).length, 0)
 })

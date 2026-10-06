@@ -1213,6 +1213,19 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   32,89. Mai uno zero (0,00 sotto le intestazioni fuse col nome del prodotto
   delle schede DAS Drive è un dato), mai se il valore sta anche in una riga
   fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita.
+- **Flag `altresezioni` (06/10/2026, default)**: dopo il merge (dopo il
+  riepilogo), in un documento che ha una riga «SEZIONE <copertura>» (il nome
+  da «Come riconoscerla»; la parola «sezione» la usano il riconoscimento e le
+  descrizioni dei premi), un campo IMPORTO la cui testa di descrizione nomina
+  la copertura («Franchigia della tutela legale») si svuota se il valore, nella
+  sua pagina, compare SOLO sotto altre sezioni (la riga «Sezione …» più vicina
+  sopra ogni occorrenza non nomina la copertura; all'inizio della pagina vale
+  l'ultima sezione delle pagine precedenti; senza sezione sopra il valore
+  resta). Vittoria «Con Te Condomini» P39/P41: «Franchigia 300» delle garanzie
+  della SEZIONE DANNI DA ACQUA CONDOTTA (la SEZIONE TUTELA LEGALE non ha
+  franchigia). Replay sui valori di produzione: +2 −0 (`otherSectionAmounts`).
+  I massimali non ne sono toccati: la testa della loro descrizione non nomina
+  la copertura («Massimale per sinistro»).
 - **Flag `coppiecopertura` (06/10/2026, spento, da misurare)**: P16 e P18
   (RUZZA, DAS OneClick Circolazione Stradale) restano «Da verificare»: nella
   griglia pdf.js l'intestazione della scheda (carattere 4,8 pt) «TUTELA LEGALE
