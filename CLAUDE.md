@@ -1201,7 +1201,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   documenti del fascicolo (imposte lette dal certificato Allianz). Misura
   offline sui valori di produzione delle 41 posizioni
   (`scratchpad/replay-final.mjs`): 812 → 819 (riga della copertura col profilo
-  giusto) → 830 (+11), nessuna perdita.
+  giusto) → 830 (+11), nessuna perdita. (5) `unprintedRowItems` (06/10,
+  prima di (2)): un importo legato al riepilogo dell'imponibile (diritti,
+  interessi, imposte) letto SOLO in righe di TABELLA (≥2 importi) dove né
+  l'etichetta della riga (deve nominarlo PIÙ di ogni altro campo importo) né
+  l'intestazione della colonna (almeno quanto gli altri: le intestazioni fuse
+  DAS nominano due campi alla pari) lo nominano si svuota: quella tabella non
+  stampa la voce («Se … la voce non è stampata, lascia vuoto»). Allianz:
+  diritti 32,89 = «Importo prima rata» della riga Tutela Giudiziaria,
+  interessi 35,80 = «Contributo SSN» della RCA; poi (4) dà all'imponibile il
+  32,89. Mai uno zero (0,00 sotto le intestazioni fuse col nome del prodotto
+  delle schede DAS Drive è un dato), mai se il valore sta anche in una riga
+  fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita.
 - **Flag `primepagine` e `coppietesto` (06/10/2026 notte, default)**:
   pertinenza. `primepagine`: nella domanda sulla polizza il PRIMO batch porta
   solo le prime pagine con testo dei documenti (DAS ARENA, PDF scansionato di

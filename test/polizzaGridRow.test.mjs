@@ -309,3 +309,36 @@ test('coverRowFromGrid: valore letto da un altro documento (certificato) → rig
   const out = coverRowFromGrid(best, TL, docs, COVER)
   assert.deepEqual(out.map((s) => [s.valore, s.file, s.riga]), [['2,02', 'POLIZZA.pdf', 'Tutela Giudiziaria']])
 })
+
+test('unprintedRowItems: diritti e interessi letti in colonne che non li nominano (Allianz) → da svuotare', async () => {
+  const { unprintedRowItems } = await import('../src/services/polizzaService.js')
+  const file = 'POLIZZA GV474DJ.pdf'
+  const docs = [{ name: file, spatialPages: [ALLIANZ] }]
+  // diritti = «Importo prima rata» della riga Tutela Giudiziaria, interessi = «Contributo SSN» della RCA
+  const best = {
+    [F('Diritti').id]: entry('16,17', file),
+    [F('Interessi di frazionamento').id]: entry('82,81', file),
+    [F('Imposte').id]: entry('2,02', file),
+  }
+  assert.deepEqual(unprintedRowItems(best, TL, docs).map((s) => [s.field.label.trim(), s.valore]).sort(), [
+    ['Diritti', '16,17'],
+    ['Interessi di frazionamento', '82,81'],
+  ])
+  // le imposte sotto «Imposta Importo» sono nominate dall'intestazione: restano
+  assert.equal(unprintedRowItems({ [F('Imposte').id]: entry('2,02', file) }, TL, docs).length, 0)
+  // un valore che si ritrova anche fuori dalle tabelle («Diritti: 16,17») resta
+  const docs2 = [{ name: file, spatialPages: [ALLIANZ + '\n          Diritti di emissione:   16,17'] }]
+  assert.equal(unprintedRowItems({ [F('Diritti').id]: entry('16,17', file) }, TL, docs2).length, 0)
+})
+
+test('unprintedRowItems: la cella sotto l\'intestazione che nomina il campo resta; gli zeri non si giudicano', async () => {
+  const { unprintedRowItems } = await import('../src/services/polizzaService.js')
+  const file = 'MONZA 293 CONDOMINIO.pdf'
+  const docs = [{ name: file, spatialPages: [DAS] }]
+  // 2,48 sotto DIRITTO: nominato
+  assert.equal(unprintedRowItems({ [F('Diritti').id]: entry('2,48', file) }, TL, docs).length, 0)
+  // 0,00 sotto FRAZIONAMENTO o sotto colonne del prodotto: uno zero stampato è un dato, non si giudica
+  assert.equal(unprintedRowItems({ [F('Diritti').id]: entry('0,00', file), [F('Interessi di frazionamento').id]: entry('0,00', file) }, TL, docs).length, 0)
+  // l'imponibile non è legato a un riepilogo: mai giudicato
+  assert.equal(unprintedRowItems({ [F('Premio imponibile tutela legale').id]: entry('147,62', file) }, TL, docs).length, 0)
+})

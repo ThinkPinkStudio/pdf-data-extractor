@@ -3634,6 +3634,64 @@ export function jobProfileFor(settings, fields) {
 }
 
 /**
+ * VOCE NON STAMPATA NEL RIEPILOGO, dopo il merge: un campo importo che la
+ * descrizione lega «alla stessa riga o allo stesso riepilogo» di un altro campo
+ * («Se per la tutela legale la voce non è stampata, lascia vuoto»), letto in
+ * una riga di TABELLA (almeno due importi) dove né l'etichetta della riga né
+ * l'intestazione della sua colonna lo nominano, non è quella voce: la tabella
+ * non la stampa. Allianz: diritti 32,89 sotto «Importo prima rata» e interessi
+ * 35,80 sotto «Contributo SSN» nella riga «Tutela Giudiziaria 32,89 12,50%
+ * 4,11 37,00» → vuoti (l'imponibile per esclusione prende poi il 32,89). Si
+ * giudica solo se il valore si ritrova in una riga di tabella della sua
+ * pagina; le righe «etichetta: valore» (l'etichetta della riga lo nomina)
+ * restano.
+ * @returns {{field:object, valore:string, riga:string, colonna:string}[]}
+ */
+export function unprintedRowItems(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const out = []
+  for (const f of amount) {
+    const e = best?.[f.id]
+    if (!e || !e.file || e.page === '' || e.page == null) continue
+    if (!riepilogoAnchorField(f, fields)) continue
+    const n = parsePureAmount(e.valore)
+    // Gli zeri no: uno 0,00 stampato nelle schede DAS è un dato, e sotto
+    // intestazioni fuse col nome del prodotto non si saprebbe di chi è.
+    if (n == null || n === 0) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    const lines = String(gridPagesOf(d)[Number(e.page) - 1] || '').split('\n')
+    const hits = []
+    lines.forEach((line, i) => {
+      if (line.includes('|')) return
+      const toks = gridAmountTokens(line)
+      if (toks.length < 2) return
+      for (const t of toks) {
+        if (!sameAmount(t.n, n)) continue
+        const header = gridHeaderAbove(lines, i, t.a, t.b)
+        const label = gridRowLabel(line)
+        // L'ETICHETTA DELLA RIGA nomina il campo solo se lo nomina PIÙ di ogni
+        // altro campo importo («Tutela Giudiziaria» ha parole che tutti i premi
+        // «della tutela legale» condividono; «Diritti:» no). L'INTESTAZIONE
+        // basta che lo nomini almeno quanto gli altri: le intestazioni fuse
+        // («NETTO IMPONIBILE INTERESSE DI FRAZIONAMENTO» delle schede DAS Drive)
+        // nominano due campi alla pari.
+        const lexOf = (h) => headerLexOf(f, h)
+        const ownsStrict = (h) => { const l = lexOf(h); return l > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, h) < l) }
+        const ownsTie = (h) => { const l = lexOf(h); return l > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, h) <= l) }
+        hits.push({ named: ownsTie(header) || ownsStrict(label), riga: label, colonna: header })
+      }
+    })
+    // Solo se il valore sta in righe di tabella e in nessuna è nominato.
+    if (!hits.length || hits.some((h) => h.named)) continue
+    // …e solo se il valore non si trova anche fuori dalle tabelle (riga «Diritti: 2,48»).
+    const elsewhere = lines.some((line) => !line.includes('|') && gridAmountTokens(line).length < 2 && gridAmountTokens(line).some((t) => sameAmount(t.n, n)))
+    if (elsewhere) continue
+    out.push({ field: f, valore: e.valore, riga: hits[0].riga, colonna: hits[0].colonna })
+  }
+  return out
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -7741,6 +7799,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of includedComponentsRowFix(best, activeFields, analyzed)) {
       best[s.field.id] = { ...best[s.field.id], valore: s.valore, gridRow: true }
       diag.push(`Riga comprensiva[${s.field.label}]: "${s.prima}" → "${s.valore}" (riga "${s.riga}", che porta anche ${s.componente.label}: la descrizione lo dice comprensivo di quella voce)`)
+    }
+    for (const s of unprintedRowItems(best, activeFields, analyzed)) {
+      delete best[s.field.id]
+      diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" sta nella riga "${s.riga}" sotto "${s.colonna}", che non nomina la voce: la tabella non la stampa → vuoto`)
     }
     for (const s of riepilogoMismatches(best, activeFields, analyzed)) {
       delete best[s.field.id]
