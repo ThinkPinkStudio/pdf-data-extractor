@@ -3807,19 +3807,23 @@ export function otherSectionAmounts(best, fields, docs, coverNames) {
     const d = (docs || []).find((x) => x && x.name === e.file)
     const pages = gridPagesOf(d).map((p) => String(p || '').split('\n'))
     if (!pages.some((ls) => ls.some((l) => isSection(l) && namesCoverage(l, coverNames)))) continue
+    // Tutte le occorrenze nel documento, ognuna con la sezione più vicina sopra
+    // (all'inizio di una pagina vale l'ultima delle pagine precedenti): il
+    // modello può citare la pagina sbagliata con il valore giusto (UnipolSai
+    // PESTALOZZA P37: «Franchigia € 250» nella tabella della SEZIONE TUTELA
+    // LEGALE a pag. 7, citata dalla pagina della sezione Danni ai beni).
     const pi = Number(e.page) - 1
-    const lines = pages[pi] || []
-    // sezione corrente all'inizio della pagina: l'ultima delle pagine precedenti
-    let carried = ''
-    for (let k = 0; k < pi; k++) for (const l of pages[k]) if (isSection(l)) carried = l
-    let section = carried
+    let section = ''
     const where = []
-    for (const l of lines) {
-      if (isSection(l)) section = l
-      if (numsOf(l).some((x) => sameAmount(x, n))) where.push(section)
-    }
-    if (!where.length || where.some((sec) => !sec || namesCoverage(sec, coverNames))) continue
-    out.push({ field: f, valore: e.valore, sezione: where[0].trim() })
+    const onSource = []
+    pages.forEach((lines, k) => {
+      for (const l of lines) {
+        if (isSection(l)) section = l
+        if (numsOf(l).some((x) => sameAmount(x, n))) { where.push(section); if (k === pi) onSource.push(section) }
+      }
+    })
+    if (!onSource.length || where.some((sec) => !sec || namesCoverage(sec, coverNames))) continue
+    out.push({ field: f, valore: e.valore, sezione: onSource[0].trim() })
   }
   return out
 }

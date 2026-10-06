@@ -610,3 +610,14 @@ test('unprintedRowItems: riga senza intestazione sopra (OCR visivo, intestazioni
   const docs = [{ name: 'BIANCA MARIA.pdf', spatialPages: [VIS] }]
   assert.equal(unprintedRowItems({ [F('Imposte').id]: entry('46,58', 'BIANCA MARIA.pdf') }, TL, docs).length, 0)
 })
+
+test('otherSectionAmounts: il valore che sta anche nella SEZIONE TUTELA LEGALE di un\'altra pagina resta (UnipolSai P37)', async () => {
+  const { otherSectionAmounts } = await import('../src/services/polizzaService.js')
+  const P3 = ['SEZIONE DANNI AI BENI', '   Fenomeni elettrici        Franchigia € 250', '   Ricerca guasto            Franchigia € 150'].join('\n')
+  const P7 = ['SEZIONE TUTELA LEGALE', '   Impugnazione delle delibere assembleari   Art. 6.3.5   € 2.000 per sinistro   Franchigia € 250'].join('\n')
+  const docs = [{ name: 'pestalozza.pdf', spatialPages: ['', '', P3, '', '', '', P7] }]
+  // citato dalla pagina 3 (sezione danni ai beni), ma il 250 sta anche nella tutela legale a pag. 7
+  assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('250', 'pestalozza.pdf', 3) }, TL, docs, COVER).length, 0)
+  // il 150 sta solo nei danni ai beni: si svuota
+  assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('150', 'pestalozza.pdf', 3) }, TL, docs, COVER).length, 1)
+})
