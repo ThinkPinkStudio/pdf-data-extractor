@@ -3708,6 +3708,60 @@ export function unprintedRowItems(best, fields, docs) {
 }
 
 /**
+ * RIEPILOGO DELLA SEZIONE DELLA COPERTURA, dopo il merge: in un documento con
+ * una riga «SEZIONE <copertura>», la prima riga della sezione che porta un
+ * importo sotto un'etichetta che nomina un campo della copertura (più di ogni
+ * altro campo importo: «Imponibile annuo» → imponibile) dà il valore di quel
+ * campo. Vittoria «Con Te Condomini» (P44): «SEZIONE TUTELA LEGALE IN / Prima
+ * rata € 343,86  Rate successive € 343,86  Imponibile annuo € 343,86» (il netto
+ * della sezione, somma delle sue garanzie 91,35 + 199,66 + 52,85), mentre il
+ * modello aveva preso 2.075,07 dalla quietanza dell'intero contratto. Conta
+ * solo la PRIMA riga con importi della sezione (il riepilogo): le righe delle
+ * singole garanzie e le clausole sotto no («franchigia di € 200,00» del
+ * pacchetto acqua condotta nelle clausole integrative di P39). Solo campi la
+ * cui testa di descrizione nomina la copertura.
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, etichetta:string, sezione:string}[]}
+ */
+export function coverSectionAmounts(best, fields, docs, coverNames) {
+  if (!Array.isArray(coverNames) || !coverNames.length) return []
+  const isSection = (l) => /^\s*sezione\b/i.test(String(l || ''))
+  const amount = (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')
+  const owns = (f, label) => { const l = headerLexOf(f, label); return l > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, label) < l) }
+  const out = []
+  for (const f of amount) {
+    if (!namesCoverage(String(f.description || '').split(':')[0], coverNames)) continue
+    const found = []
+    for (const d of docs || []) {
+      gridPagesOf(d).forEach((page, pi) => {
+        const lines = String(page || '').split('\n')
+        lines.forEach((l, i) => {
+          if (!isSection(l) || !namesCoverage(l, coverNames)) return
+          // la PRIMA riga con importi della sezione è il suo riepilogo
+          let j = i + 1
+          while (j < lines.length && !isSection(lines[j]) && !gridAmountTokens(lines[j]).length) j++
+          if (j >= lines.length || isSection(lines[j])) return
+          const cells = gridCells(lines[j])
+          const hit = gridAmountTokens(lines[j]).map((t) => {
+            const k = cells.findIndex((c) => c.a <= t.a && c.b >= t.b)
+            const before = k >= 0 ? cells[k].text.slice(0, t.a - cells[k].a).replace(/€|eur(?:o)?/gi, '').trim() : ''
+            return { t, label: before || (k > 0 ? cells[k - 1].text : '') }
+          }).find((x) => x.label && owns(f, x.label))
+          if (hit) found.push({ valore: hit.t.text, n: hit.t.n, file: d.name, page: pi + 1, etichetta: hit.label, sezione: l.trim() })
+        })
+      })
+    }
+    // una sola lettura (stesso importo in tutte le sezioni della copertura trovate)
+    if (!found.length || new Set(found.map((x) => x.n)).size !== 1) continue
+    const e = best?.[f.id]
+    if (e && sameAmount(parsePureAmount(e.valore), found[0].n)) continue
+    if (!sanitizeFieldValue(f, found[0].valore)) continue
+    const { n: _n, ...hit } = found[0]
+    out.push({ field: f, prima: e?.valore ?? '', ...hit })
+  }
+  return out
+}
+
+/**
  * VALORE DI UN'ALTRA SEZIONE, dopo il merge: in un documento diviso in SEZIONI
  * (righe che cominciano con «Sezione») che ne ha una intestata alla copertura
  * («SEZIONE TUTELA LEGALE»), un campo importo la cui descrizione nomina la
@@ -7876,6 +7930,23 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
+  // ── [flag altresezioni] RIEPILOGO DELLA SEZIONE DELLA COPERTURA ──────────
+  // Prima del riepilogo: l'importo della prima riga della «SEZIONE <copertura>»
+  // sotto l'etichetta che nomina il campo (coverSectionAmounts); poi le voci
+  // legate seguono il suo riepilogo (riepilogoMismatches).
+  const altreSezioni = engineFlag(settings, 'altresezioni')
+  const sectionCoverNames = altreSezioni ? (() => {
+    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+    const me = jobProfileFor(settings, activeFields)
+    return me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+  })() : []
+  if (altreSezioni) {
+    for (const s of coverSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Sezione della copertura[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" («${s.etichetta}» nella prima riga di «${s.sezione}», ${s.file} p.${s.page})`)
+    }
+  }
+
   // ── [flag riepilogo] STESSA RIGA O STESSO RIEPILOGO del campo legato ──────
   // Un campo che la descrizione lega al riepilogo di un altro campo non viene da
   // pagine o documenti dove quel valore non c'è (imposte del contratto in una
@@ -7905,11 +7976,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // ── [flag altresezioni] Valori delle ALTRE SEZIONI della polizza ─────────
   // In un documento con una «SEZIONE <copertura>», un importo dei campi della
   // copertura che sta solo dentro altre sezioni non è suo (otherSectionAmounts).
-  if (engineFlag(settings, 'altresezioni')) {
-    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
-    const me = jobProfileFor(settings, activeFields)
-    const coverNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
-    for (const s of otherSectionAmounts(best, activeFields, analyzed, coverNames)) {
+  if (altreSezioni) {
+    for (const s of otherSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
       delete best[s.field.id]
       diag.push(`Altra sezione[${s.field.label}]: "${s.valore}" sta solo in «${s.sezione}», non nella sezione della copertura → vuoto`)
     }

@@ -1231,7 +1231,17 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   della SEZIONE DANNI DA ACQUA CONDOTTA (la SEZIONE TUTELA LEGALE non ha
   franchigia). Replay sui valori di produzione: +2 −0 (`otherSectionAmounts`).
   I massimali non ne sono toccati: la testa della loro descrizione non nomina
-  la copertura («Massimale per sinistro»).
+  la copertura («Massimale per sinistro»). Sotto lo stesso flag, PRIMA del
+  riepilogo, `coverSectionAmounts`: la PRIMA riga con importi della «SEZIONE
+  <copertura>» è il suo riepilogo e, sotto l'etichetta che nomina un campo
+  della copertura più di ogni altro («Imponibile annuo» → imponibile), ne dà
+  il valore (Vittoria P44: «SEZIONE TUTELA LEGALE IN / Prima rata € 343,86 …
+  Imponibile annuo € 343,86» = 91,35 + 199,66 + 52,85 delle garanzie, invece
+  dei 2.075,07 della quietanza dell'intero contratto; P45 757,82 invece della
+  sola garanzia 249,06); poi `riepilogoMismatches` svuota le imposte 424,93
+  della quietanza. Solo la prima riga: la «franchigia di € 200,00» delle
+  clausole in fondo alla sezione (P39) non conta. Replay complessivo del
+  06/10 (P19, P01, P39, P41, P44, P45): 887 → 896, nessuna perdita.
 - **Flag `coppiecopertura` (06/10/2026, spento, da misurare)**: P16 e P18
   (RUZZA, DAS OneClick Circolazione Stradale) restano «Da verificare»: nella
   griglia pdf.js l'intestazione della scheda (carattere 4,8 pt) «TUTELA LEGALE

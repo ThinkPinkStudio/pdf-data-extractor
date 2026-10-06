@@ -389,3 +389,27 @@ test('componentsOverGross: imposte del contratto oltre il lordo della tutela leg
   // senza lordo: niente
   assert.equal(componentsOverGross({ [F('Imposte').id]: entry('108,51', 'POLIZZA.pdf', 7) }, TL).length, 0)
 })
+
+test('coverSectionAmounts: l\'imponibile della prima riga della SEZIONE TUTELA LEGALE, non della quietanza del contratto (Vittoria P44)', async () => {
+  const { coverSectionAmounts } = await import('../src/services/polizzaService.js')
+  const POL = [
+    '       SEZIONE DANNI DA ACQUA CONDOTTA',
+    '                  Prima rata         € 597,61       Rate successive              € 597,61  Imponibile annuo        € 597,61',
+    '         ACQUA CONDOTTA                                                                    Imponibile annuo        € 152,86',
+    '       SEZIONE TUTELA LEGALE IN',
+    '                  Prima rata         € 343,86       Rate successive              € 343,86  Imponibile annuo        € 343,86',
+    '         TUTELA LEGALE                                                                     Imponibile annuo         € 91,35',
+    '         VERTENZE CON CONDOMINI E CONDUTTORI-CASI ILLIMITATI                               Imponibile annuo        € 199,66',
+    '            - Garanzia Pacchetto Acqua Condotta franchigia di € 200,00',
+  ].join('\n')
+  const docs = [{ name: 'polizza.pdf', spatialPages: ['', '', '', POL] }, { name: 'quietanza.pdf', spatialPages: ['   2075,07     424,93     2500'] }]
+  const best = { [F('Premio imponibile tutela legale').id]: entry('2075,07', 'quietanza.pdf') }
+  assert.deepEqual(coverSectionAmounts(best, TL, docs, COVER).map((s) => [s.field.label.trim(), s.prima, s.valore, s.page, s.etichetta]),
+    [['Premio imponibile tutela legale', '2075,07', '343,86', 4, 'Imponibile annuo']])
+  // valore già giusto: niente
+  assert.equal(coverSectionAmounts({ [F('Premio imponibile tutela legale').id]: entry('343,86', 'polizza.pdf', 4) }, TL, docs, COVER).length, 0)
+  // solo la prima riga della sezione: la «franchigia di € 200,00» delle clausole sotto non conta
+  assert.equal(coverSectionAmounts({}, TL, docs, COVER).filter((s) => /Franchigia/.test(s.field.label)).length, 0)
+  // senza il nome della copertura: niente
+  assert.equal(coverSectionAmounts(best, TL, docs, []).length, 0)
+})
