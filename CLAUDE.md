@@ -1370,6 +1370,24 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `paginecopertura` (07/10/2026, default)**: dopo il merge (prima
+  della coerenza), per un campo IMPORTO la cui descrizione (parte positiva)
+  nomina la copertura («… coperto dalla garanzia tutela legale»), un valore
+  che in NESSUN documento sta in una pagina che nomina la copertura (il nome,
+  anche come intestazione di colonna spezzata «TUTELA / LEGALE» o colonna
+  della copertura: `verticalCoverColumns`, `coverColumnRows`), mentre il
+  fascicolo ha pagine che la nominano, è di un'altra copertura: prende il
+  candidato del registro del consenso il cui valore sta in una pagina della
+  copertura (più voti, poi più affine), altrimenti si svuota
+  (`offCoverageAmounts`). Allianz P09/P15: massimale R.C.A. 50.000.000 /
+  10.000.000 invece del «massimale convenuto di euro 15.000,00 per singolo
+  evento» della Tutela Giudiziaria; ITAS P35 e Vittoria P41/P44/P45: imposte
+  e lordi dell'intero contratto. Il solo nome letterale NON basta: nelle
+  schede DAS condominio la pagina col premio ha «TUTELA / LEGALE» spezzato in
+  colonna e 323 valori giusti risultavano «fuori copertura». Con le
+  intestazioni spezzate il segnale, su 12 serie di valori, segnala 21 valori,
+  tutti sbagliati; replay della versione che svuota: da +1 a +8 per serie,
+  nessuna perdita.
 - **Flag `testolettere` (06/10/2026 sera, default)**: dopo il merge, un campo
   la cui descrizione (parte positiva) chiede un TESTO («come TESTO», «È un
   TESTO») non tiene un valore senza lettere: prende il candidato con lettere

@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
-import { namesCoverage, recognitionCoverName, coverColumnPairs } from './polizzaOperativita.js'
+import { namesCoverage, recognitionCoverName, coverColumnPairs, verticalCoverColumns, coverColumnRows } from './polizzaOperativita.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -4676,6 +4676,72 @@ export function letterlessTextValues(best, fields, candLog) {
 }
 
 /**
+ * IMPORTO FUORI DALLE PAGINE DELLA COPERTURA [flag paginecopertura], dopo il
+ * merge: per un campo importo la cui descrizione (parte positiva) nomina la
+ * copertura del profilo («… coperto dalla garanzia tutela legale»), un valore
+ * che in NESSUN documento del fascicolo sta in una pagina che nomina la
+ * copertura (il nome, anche come intestazione di colonna spezzata o colonna
+ * della copertura), mentre il fascicolo ha pagine che la nominano, è di
+ * un'altra copertura: si prende il candidato del registro del consenso il cui
+ * valore sta in una pagina della copertura (più voti, poi più affine),
+ * altrimenti il campo si svuota. Allianz P09/P15: massimale R.C.A.
+ * 50.000.000/10.000.000 della pagina «Massimale R.C. pattuito» invece del
+ * «massimale convenuto di euro 15.000,00 per singolo evento» della Tutela
+ * Giudiziaria; ITAS P35: imposte 1.006,77 e lordo 5.828,00 dell'intero
+ * contratto. Misura del solo segnale su 12 serie di valori: 21 valori
+ * segnalati, nessuno giusto.
+ * @returns {{field:object, prima:string, valore:string|null, voti:number, cand:object|null}[]}
+ */
+export function offCoverageAmounts(best, fields, docs, coverNames, candLog) {
+  if (!Array.isArray(coverNames) || !coverNames.length) return []
+  const numsOf = (l) => [...String(l || '').matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(?![\d.,]\d)/g)]
+    .map((m) => Number(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : '')))
+  const named = new Map()
+  const namedOf = (d) => {
+    if (!named.has(d)) named.set(d, gridPagesOf(d).map((p) => { const t = String(p || ''); return !!namesCoverage(t, coverNames) || verticalCoverColumns(t, coverNames).length > 0 || coverColumnRows(t, coverNames).length > 0 }))
+    return named.get(d)
+  }
+  const where = (n) => {
+    let any = false, onCover = false
+    for (const d of docs || []) {
+      if (!d) continue
+      const nm = namedOf(d)
+      gridPagesOf(d).forEach((p, i) => {
+        if (!String(p || '').split('\n').some((line) => numsOf(line).some((x) => sameAmount(x, n)))) return
+        any = true
+        if (nm[i]) onCover = true
+      })
+    }
+    return { any, onCover }
+  }
+  if (!(docs || []).some((d) => d && namedOf(d).some(Boolean))) return []
+  const aff = (c) => (typeof c?.affinity === 'number' ? c.affinity : -1)
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount' && namesCoverage(positiveDescriptionText(String(x.description || '')), coverNames))) {
+    const e = best?.[f.id]
+    const n = e ? parsePureAmount(e.valore) : null
+    if (n == null || n === 0) continue
+    const w = where(n)
+    if (!w.any || w.onCover) continue
+    const groups = new Map()
+    for (const c of candLog?.[f.id] || []) {
+      const m = parsePureAmount(c?.valore)
+      if (m == null || m === 0 || sameAmount(m, n) || !where(m).onCover) continue
+      const clean = sanitizeFieldValue(f, c.valore)
+      if (!clean) continue
+      const k = String(Math.round(m * 100))
+      const g = groups.get(k) || { valore: clean, n: 0, c }
+      g.n++
+      if (aff(c) > aff(g.c)) { g.c = c; g.valore = clean }
+      groups.set(k, g)
+    }
+    const top = [...groups.values()].sort((a, b) => b.n - a.n || aff(b.c) - aff(a.c))[0] || null
+    out.push({ field: f, prima: String(e.valore), valore: top ? top.valore : null, voti: top ? top.n : 0, cand: top ? top.c : null })
+  }
+  return out
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -8659,6 +8725,22 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of otherSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
       delete best[s.field.id]
       diag.push(`Altra sezione[${s.field.label}]: "${s.valore}" sta solo in «${s.sezione}», non nella sezione della copertura → vuoto`)
+    }
+  }
+
+  // ── [flag paginecopertura] Importo che non sta in nessuna pagina della copertura ──
+  if (engineFlag(settings, 'paginecopertura')) {
+    const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
+    const me = jobProfileFor(settings, activeFields)
+    const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    for (const s of offCoverageAmounts(best, activeFields, analyzed, names, STAGED_CANDIDATE_LOG.get(best) || {})) {
+      if (s.valore) {
+        best[s.field.id] = { ...s.cand, valore: s.valore }
+        diag.push(`Fuori dalla copertura[${s.field.label}]: "${s.prima}" non sta in nessuna pagina che nomina la copertura → "${s.valore}" (candidato in una pagina della copertura, ${s.voti} voti)`)
+      } else {
+        delete best[s.field.id]
+        diag.push(`Fuori dalla copertura[${s.field.label}]: "${s.prima}" non sta in nessuna pagina che nomina la copertura → vuoto`)
+      }
     }
   }
 
