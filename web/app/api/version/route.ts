@@ -70,6 +70,7 @@ const BUILD_FEATURES = [
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
+  'flag-datagriglia', // Flag «datagriglia» (spento): un documento che il markdown lascia senza data si data dalla griglia OCR (quietanze «sandwich» P39/P44/P45); «date8» mirato: date del frontespizio provvisorie solo se un documento datato è più recente, e lì vince la data più recente del documento più recente
   'riepilogo-non-stampata', // Flag «riepilogo»: diritti/interessi/imposte letti in una colonna di tabella che non li nomina si svuotano (la voce non è stampata); poi l'imponibile per esclusione (P19 18 → 21, replay del 06/10)
   'riga-griglia', // Flag «rigagriglia» acceso: dopo il merge, importo della copertura dalla sua riga nella stessa colonna dei totali; campi «sulla stessa riga» del premio dalla cella sotto l'intestazione che li nomina (+19 −1 su 41 posizioni, misura offline del 05/10)
 ]

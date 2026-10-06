@@ -1213,6 +1213,26 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   32,89. Mai uno zero (0,00 sotto le intestazioni fuse col nome del prodotto
   delle schede DAS Drive è un dato), mai se il valore sta anche in una riga
   fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita.
+- **Flag `datagriglia` e `date8` mirato (06/10/2026, spenti, da misurare)**:
+  le quietanze di rinnovo Vittoria di P39 RAMAZZINI, P44 ZELO, P45 BOIARDO
+  (le sole tre pagine «sandwich» del corpus) hanno il markdown Docling fatto
+  sul testo invisibile dello scanner («Rata Pofizza dal 1510712026 - al
+  l5t0il2Ù27») e la griglia sull'OCR del programma («dal 15/07/2026 al
+  15/07/2027»): datate sul markdown restavano «senza data», in coda alla
+  cascata, e decorrenza/scadenza restavano quelle del frontespizio della
+  polizza. `datagriglia`: un documento che il testo piatto lascia senza data
+  si data dalla griglia, solo date confermate (riga di periodo o ripetute,
+  `latestDateExcludingEmission(…, { ocr: true, confirmedOnly: true })`).
+  Da sola non basta (corsa del 04/10 sera con la quietanza datata e prima
+  nella cascata: date invariate, più «1°» come frazionamento e il totale
+  8458,00 come lordo): le date del frontespizio erano già piene. `date8` ora
+  è MIRATO: le date di A.8 sono provvisorie solo se un documento DATATO è più
+  recente di quello del frontespizio (`newerDatedDoc`; altrove nessuna domanda
+  in più), e l'arbitro dà la vittoria alla data letta nel documento più
+  recente quando anche il valore è più recente (`pickSemanticCandidate`,
+  solo contro un candidato `preStage`): prima la data etichettata del
+  frontespizio, più affine alla descrizione, vetava il «Dal» del rinnovo.
+  Test: `test/polizzaDateGrid.test.mjs` (modello finto).
 - **Flag `primepagine` e `coppietesto` (06/10/2026 notte, default)**:
   pertinenza. `primepagine`: nella domanda sulla polizza il PRIMO batch porta
   solo le prime pagine con testo dei documenti (DAS ARENA, PDF scansionato di

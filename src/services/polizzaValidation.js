@@ -1637,6 +1637,14 @@ export function pickSemanticCandidate(oldC, newC, kind, opts = {}) {
     const dts = (c) => (/^\d{2}\/\d{2}\/\d{4}$/.test(String(c?.valore ?? '').trim()) ? dateStrToTs(String(c.valore).trim()) : null)
     const d0 = dts(oldC), d1 = dts(newC)
     if (d0 != null && d1 != null && d1 < d0 && !oldC.preContract) return oldC
+    // [flag date8] Data PROVVISORIA del frontespizio (preStage) contro la data
+    // letta in un DOCUMENTO più recente: se anche la data è più recente vince
+    // il documento più recente (il «periodo PIÙ RECENTE» delle descrizioni di
+    // decorrenza e scadenza). Senza, la data del frontespizio, etichettata e
+    // quindi più affine alla descrizione, vetava il «Dal 15/07/2026» della
+    // quietanza di rinnovo (P39 RAMAZZINI 2).
+    const s0 = dateStrToTs(oldC.srcDate), s1 = dateStrToTs(newC.srcDate)
+    if (oldC.preStage === true && d0 != null && d1 != null && d1 > d0 && s0 != null && s1 != null && s1 > s0 && !newC.preContract) return newC
   }
   const o = looseAmount(oldC.valore)
   const n = looseAmount(newC.valore)

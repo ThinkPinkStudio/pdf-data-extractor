@@ -175,6 +175,8 @@ export function latestDateExcludingEmission(text, opts = {}) {
     for (const f of found) count.set(f.s, (count.get(f.s) || 0) + 1)
     const confirmed = found.filter((f) => f.periodLine || count.get(f.s) >= 2)
     if (confirmed.length) pool = confirmed
+    // opts.confirmedOnly: senza date confermate, nessuna data (niente ripiego).
+    else if (opts.confirmedOnly) return null
   }
   let best = null
   let bestTs = -Infinity

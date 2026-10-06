@@ -3100,7 +3100,7 @@ export function alignMarkdownToPages(mdPages, spatialPages) {
   return out.map((arr) => arr.join('\n\n'))
 }
 
-function analyzeStagedDocs(docs) {
+function analyzeStagedDocs(docs, opts = {}) {
   return (docs || []).map((d, i) => {
     const name = d?.name || `documento_${i + 1}.pdf`
     // DOPPIO TESTO. Le pagine arrivano SPAZIALI (griglia a colonne dall'OCR):
@@ -3116,6 +3116,18 @@ function analyzeStagedDocs(docs) {
     // Testo da OCR: solo date confermate (riga di periodo o ripetute), vedi
     // latestDateExcludingEmission.
     let dateStr = latestDateExcludingEmission(text, { ocr: !!d?.ocr }) || null
+    // [flag datagriglia] Documento che il testo PIATTO (markdown) lascia senza
+    // data ma la cui GRIGLIA — il testo dei prompt — ha una riga di periodo: si
+    // data dalla griglia con le regole del testo OCR, solo date confermate (riga
+    // di periodo o ripetute). Le quietanze «sandwich» del ramo Docling: il
+    // markdown è costruito sul testo invisibile dello scanner («dal 1510712026
+    // al l5t0il2Ù27»), la griglia sull'OCR del programma («dal 15/07/2026 al
+    // 15/07/2027»); senza, la quietanza di rinnovo più recente restava «senza
+    // data», in coda alla cascata (P39 RAMAZZINI, P44 ZELO, P45 BOIARDO: le sole
+    // tre pagine «sandwich» del corpus).
+    if (!dateStr && opts.gridDating && textMode !== 'griglia' && spatialPages.some((p) => p.trim())) {
+      dateStr = latestDateExcludingEmission(spatialPages.map(collapseSpatial).join('\n'), { ocr: true, confirmedOnly: true }) || null
+    }
     // PREVENTIVO / PROPOSTA / QUOTAZIONE senza numero di polizza (la stessa
     // regola della domanda sul contratto, preContractLabel): descrive un
     // contratto che forse non c'è, quindi non data il fascicolo e non è mai «il
@@ -5264,7 +5276,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // documenti distinti, 562 chiamate, la proroga in tre copie batteva il
   // contratto sul periodo). Confronto sul testo normalizzato intero: mai sul
   // nome, mai sul tipo (documenti tutti uguali).
-  const analyzedAll = analyzeStagedDocs(docs)
+  const analyzedAll = analyzeStagedDocs(docs, { gridDating: engineFlag(settings, 'datagriglia') })
   const analyzed = []
   {
     const seen = new Map()
@@ -6468,6 +6480,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       let frontBlock = ''
       let frontDoc = null // documento da cui viene il blocco (fonte e affinità del candidato)
       const a78 = engineFlag(settings, 'a78')
+      // Un documento DATATO più recente di quello del frontespizio (date8).
+      const newerDatedDoc = (doc) => analyzed.some((x) => x !== doc && x.ts != null && (doc?.ts == null || x.ts > doc.ts))
       if (a78) {
         // [flag a78] Stessa regola dei prompt (12/09: testo = GRIGLIA): la pagina
         // del frontespizio nella griglia con le coppie etichetta→valore, dal
@@ -6566,8 +6580,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // chiede comunque ai documenti più recenti e decide l'arbitro. Prima la
             // quietanza di rinnovo più recente non veniva mai interrogata sulle date
             // (la cascata chiede solo i campi vuoti): P39 RAMAZZINI 2, decorrenza
-            // 15/07/2024 della polizza invece del 15/07/2026 del rinnovo.
-            ...((a78 || (engineFlag(settings, 'date8') && fieldValueKind(f) === 'date')) ? { preStage: true } : {}),
+            // 15/07/2024 della polizza invece del 15/07/2026 del rinnovo. Solo se
+            // un documento DATATO è più recente di quello del frontespizio: dove il
+            // frontespizio è già il documento più recente non cambia nulla (nessuna
+            // domanda in più, nessun prompt diverso).
+            ...((a78 || (engineFlag(settings, 'date8') && fieldValueKind(f) === 'date' && newerDatedDoc(srcDoc))) ? { preStage: true } : {}),
           }
           best[f.id] = pickSemanticCandidate(best[f.id], cand, 'anagrafica')
           a8Rows++
