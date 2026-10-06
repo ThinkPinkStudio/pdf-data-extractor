@@ -431,10 +431,16 @@ test('detailedRiepilogo: il «Premio netto» della quietanza comprende i diritti
     [F('Imposte').id]: entry('34,53', 'rinnovo 2026.pdf'),
     [F('Premio lordo totale tutela legale').id]: entry('197,00', 'rinnovo 2026.pdf'),
   }
-  assert.deepEqual(detailedRiepilogo(best, TL, docs).map((s) => [s.field.label.trim(), s.prima, s.valore]).sort(), [
+  const res = detailedRiepilogo(best, TL, docs)
+  assert.deepEqual(res.filter((s) => s.prima !== s.valore).map((s) => [s.field.label.trim(), s.prima, s.valore]).sort(), [
     ['Diritti', '', '2,48'],
     ['Interessi di frazionamento', '', '0,00'],
     ['Premio imponibile tutela legale', '162,47', '159,99'],
+  ])
+  // imposte e lordo già estratti prendono la riga della scheda come fonte (stesso valore)
+  assert.deepEqual(res.filter((s) => s.prima === s.valore).map((s) => [s.field.label.trim(), s.valore, s.file]).sort(), [
+    ['Imposte', '34,53', 'scheda.pdf'],
+    ['Premio lordo totale tutela legale', '197,00', 'scheda.pdf'],
   ])
   // la somma non torna (imponibile diverso): niente
   assert.equal(detailedRiepilogo({ ...best, [F('Premio imponibile tutela legale').id]: entry('170,00', 'rinnovo 2026.pdf') }, TL, docs).length, 0)
@@ -558,4 +564,42 @@ test('sanitizeFieldValue: scelta chiusa della descrizione («una tra …») — 
   assert.equal(sanitizeFieldValue(fraz, 'ANNUALE'), 'ANNUALE')
   // senza «una tra» nessun vincolo
   assert.equal(sanitizeFieldValue({ id: 'a', label: 'Attività', description: 'Attività assicurata: il settore (es. Servizi vari).' }, 'Veicoli conducibili'), 'Veicoli conducibili')
+})
+
+test('riepilogoMismatches: lo stesso premio stampato in un altro documento tiene le voci (GOLDONI P30: imposte della quietanza, imponibile della scheda)', async () => {
+  const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
+  const QUI = '        Premio netto      Imposte              Premio lordo\n        €  162,47          €  34,53              € 197,00'
+  const SCH = '   PREMIO TOTALE    FRAZIONAMENTO   NETTO IMPONIBILE   DIRITTO   IMPOSTE   PREMIO LORDO\n   PREMIO RATA SUCCESSIVA   0,00   159,99   2,48   34,53   197,00'
+  const docs = [{ name: 'rinnovo 2026.pdf', spatialPages: [QUI] }, { name: 'scheda.pdf', spatialPages: [SCH] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('159,99', 'scheda.pdf'),
+    [F('Imposte').id]: entry('34,53', 'rinnovo 2026.pdf'),
+    [F('Premio lordo totale tutela legale').id]: entry('197,00', 'rinnovo 2026.pdf'),
+  }
+  assert.deepEqual(riepilogoMismatches(best, TL, docs), [])
+})
+
+test('titledTableList: le garanzie scelte dalla tabella «GARANZIE SCELTE», fino alla riga di totale (DAS Tutela Aziende P06)', async () => {
+  const { titledTableList } = await import('../src/services/polizzaService.js')
+  const LIST = PROFILES.find((p) => p.name === 'Tutela Legale 3').fields.map((f) => (String(f.label).trim() === 'Garanzie scelte/operanti'
+    ? { ...f, description: "Elenco dei nomi delle garanzie di tutela legale scelte/operanti: i nomi delle garanzie acquistate, come stampati." }
+    : String(f.label).trim() === 'Garanzie non operanti' ? { ...f, description: "Elenco dei nomi delle garanzie di tutela legale NON attivate/operanti: i nomi stampati." } : f))
+  const G = (label) => LIST.find((f) => String(f.label).trim() === label)
+  const AZ = [
+    '     GARANZIE SCELTE',
+    '     DESCRIZIONE GARANZIE          INFORMAZIONI AGGIUNTIVE                                PREMIO NETTO  IMPOSTE PREMIO LORDO',
+    '     Assistenza Welfare            Dettagli garanzie: art. 1.3 e 1.4                          86,12       8,62     94,74',
+    '     Tutela Legale Pacchetto Base  Importo anticipo spese penale doloso euro 5.000,00        470,75      97,98    568,73',
+    '     Pacchetto sicurezza privacy e -                                                          11,15       2,38     13,53',
+    '     cyber',
+    '                                                                          PREMIO ANNUO       568,02     108,98    677,00',
+    '     RISCHI ASSICURATI',
+  ].join('\n')
+  const docs = [{ name: 'Polizza.pdf', spatialPages: [AZ] }]
+  const out = titledTableList({ [G('Garanzie scelte/operanti').id]: entry('Tutela legale penale', 'Polizza.pdf') }, LIST, docs, COVER)
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.valore]), [['Garanzie scelte/operanti', 'Assistenza Welfare, Tutela Legale Pacchetto Base, Pacchetto sicurezza privacy e cyber']])
+  // valore che le nomina già tutte: resta
+  assert.equal(titledTableList({ [G('Garanzie scelte/operanti').id]: entry(out[0].valore, 'Polizza.pdf') }, LIST, docs, COVER).length, 0)
+  // un titolo fatto solo del nome della copertura («TUTELA LEGALE») non apre la tabella
+  assert.equal(titledTableList({}, LIST, [{ name: 'x.pdf', spatialPages: [AZ.replace('GARANZIE SCELTE', 'TUTELA LEGALE')] }], COVER).length, 0)
 })

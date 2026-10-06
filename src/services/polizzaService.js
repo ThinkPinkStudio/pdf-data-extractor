@@ -3634,8 +3634,12 @@ export function riepilogoMismatches(best, fields, docs) {
     // del rinnovo (DAS COI: 24,88 con diritti e interessi 0,00) è il riepilogo
     // del premio attuale; quella con un imponibile diverso (VERRO: 142,45
     // contro 147,62 del rinnovo 2026) è di un periodo superato.
-    const together = mine.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
-    if (together) continue
+    const carries = (pages) => pages.some(({ p }) => p.split('\n').some((l) => !l.includes('|') && gridAmountTokens(l).some((t) => sameAmount(t.n, ng))))
+    if (carries(mine)) continue
+    // …e lo STESSO premio stampato in un altro documento conta: le imposte
+    // 34,53 della quietanza 2026 stanno anche nella riga della scheda con
+    // l'imponibile 159,99 (GOLDONI P30), quindi sono dello stesso riepilogo.
+    if ((docs || []).some((x) => x && x !== d && carries(pagesWith(x, n)))) continue
     out.push({ field: f, valore: e.valore, anchor: g, anchorValore: eg.valore, file: e.file, anchorFile: eg.file })
   }
   return out
@@ -3861,7 +3865,7 @@ export function detailedRiepilogo(best, fields, docs) {
           const comps = cells.filter((c) => c.f && bound.includes(c.f) && !extracted.some((x) => x.f.id === c.f.id && sameAmount(x.n, c.t.n)))
           const sum = anc.t.n + comps.reduce((acc, c) => acc + c.t.n, 0)
           if (!comps.some((c) => c.t.n > 0) || !sameAmount(sum, I)) return
-          hits.push({ anc, comps, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
+          hits.push({ anc, comps, cells, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
         })
       })
     }
@@ -3871,6 +3875,14 @@ export function detailedRiepilogo(best, fields, docs) {
     for (const c of h.comps) {
       if (!sanitizeFieldValue(c.f, c.t.text)) continue
       out.push({ field: c.f, prima: best?.[c.f.id]?.valore ?? '', valore: c.t.text, file: h.file, page: h.page, riga: h.riga, colonna: c.header })
+    }
+    // le voci già estratte che la riga porta prendono la riga come fonte: il
+    // riepilogo resta coerente anche rileggendo i valori (imposte e lordo della
+    // quietanza ora stanno con l'imponibile della scheda)
+    for (const x of extracted) {
+      if (best?.[x.f.id]?.file === h.file && Number(best[x.f.id].page) === h.page) continue
+      const cell = h.cells.find((c) => c.f?.id === x.f.id && sameAmount(c.t.n, x.n))
+      if (cell) out.push({ field: x.f, prima: best[x.f.id].valore, valore: best[x.f.id].valore, file: h.file, page: h.page, riga: h.riga, colonna: cell.header })
     }
   }
   return out
@@ -4096,6 +4108,71 @@ export function foreignCategoryValues(best, fields) {
       const opt = enumeratedOptions(b.description).find((o) => normForMatch(o) === v)
       if (opt && !own.includes(normForMatch(opt))) { out.push({ field: a, valore: best[a.id].valore, altro: b }); break }
     }
+  }
+  return out
+}
+
+/**
+ * ELENCO DALLA TABELLA INTITOLATA COME IL CAMPO, dopo il merge: per un campo
+ * ELENCO (testa di descrizione senza «NON»), una riga-titolo senza importi di
+ * 2-4 parole tutte presenti nella testa della descrizione, con almeno due che
+ * non sono il nome della copertura («GARANZIE SCELTE» per «Elenco dei nomi
+ * delle garanzie di tutela legale scelte/operanti»), apre la tabella delle voci:
+ * le righe con importi sotto il titolo, fino alla riga di totale (ultimo
+ * importo = somma degli ultimi importi delle righe sopra: «PREMIO ANNUO»);
+ * il nome è la prima cella della riga (una riga di continuazione senza importi
+ * si accoda). DAS Tutela Aziende (P06): «Assistenza Welfare, Tutela Legale
+ * Pacchetto Base, Pacchetto sicurezza privacy e cyber» invece di «Tutela legale
+ * penale». Si usa il documento più recente che ne ha; il valore estratto resta
+ * se nomina già tutte le voci.
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, titolo:string}[]}
+ */
+export function titledTableList(best, fields, docs, coverNames) {
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const words = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 3)
+  const coverWords = new Set((coverNames || []).flat().map((w) => norm(w).slice(0, 6)))
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && isListDescription(x.description))) {
+    const head = String(f.description || '').split(':')[0]
+    if (/\bnon\b/i.test(head)) continue
+    const headW = new Set(words(head).map((w) => w.slice(0, 6)))
+    let hit = null
+    for (const d of [...(docs || [])].sort(byStagedRecency)) {
+      gridPagesOf(d).forEach((page, pi) => {
+        if (hit) return
+        const lines = String(page || '').split('\n')
+        for (let i = 0; i < lines.length && !hit; i++) {
+          const w = words(lines[i])
+          if (w.length < 2 || w.length > 4 || gridAmountTokens(lines[i]).length || /\d/.test(lines[i])) continue
+          if (!w.every((x) => headW.has(x.slice(0, 6))) || w.filter((x) => !coverWords.has(x.slice(0, 6))).length < 2) continue
+          const names = []
+          let acc = 0, started = false, closed = false
+          for (let k = i + 1; k < lines.length && k <= i + 20; k++) {
+            const toks = gridAmountTokens(lines[k])
+            if (!toks.length) {
+              const t = lines[k].trim()
+              if (started && names.length && t && !/\d/.test(t) && t.split(/\s+/).length <= 3) { names[names.length - 1] += ' ' + t; continue }
+              if (started) break
+              continue
+            }
+            started = true
+            const last = toks[toks.length - 1].n
+            if (names.length && acc > 0 && sameAmount(last, acc)) { closed = true; break }
+            acc += last
+            const cell = gridCells(lines[k])[0]?.text || ''
+            const label = cell.replace(/\s+(?:-|importo\b.*|dettagli\b.*)$/i, '').split(/\s{2,}/)[0].trim()
+            if (!label || /\d/.test(label)) { names.length = 0; break }
+            names.push(label.replace(/\s+-$/, ''))
+          }
+          if (closed && names.length) hit = { names, file: d.name, page: pi + 1, titolo: lines[i].trim() }
+        }
+      })
+      if (hit) break
+    }
+    if (!hit) continue
+    const cur = normForMatch(best?.[f.id]?.valore || '')
+    if (cur && hit.names.every((nm) => cur.includes(normForMatch(nm)))) continue
+    out.push({ field: f, prima: best?.[f.id]?.valore ?? '', valore: hit.names.join(', '), file: hit.file, page: hit.page, titolo: hit.titolo })
   }
   return out
 }
@@ -8312,11 +8389,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // In un documento con una «SEZIONE <copertura>», un importo dei campi della
   // copertura che sta solo dentro altre sezioni non è suo (otherSectionAmounts).
   // ── [flag garanziecolonna] GARANZIE col premio nella colonna della copertura ──
-  if (engineFlag(settings, 'garanziecolonna')) {
+  // e [flag elencotitolo] la tabella intitolata come il campo («GARANZIE SCELTE»)
+  if (engineFlag(settings, 'garanziecolonna') || engineFlag(settings, 'elencotitolo')) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
     const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
-    for (const s of coverColumnGuarantees(best, activeFields, analyzed, names)) {
+    if (engineFlag(settings, 'elencotitolo')) {
+      for (const s of titledTableList(best, activeFields, analyzed, names)) {
+        best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+        diag.push(`Elenco dalla tabella «${s.titolo}»[${s.field.label}]: "${String(s.prima || '∅').slice(0, 60)}" → "${s.valore}" (${s.file} p.${s.page})`)
+      }
+    }
+    for (const s of engineFlag(settings, 'garanziecolonna') ? coverColumnGuarantees(best, activeFields, analyzed, names) : []) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Garanzie della colonna[${s.field.label}]: "${String(s.prima || '∅').slice(0, 60)}" → "${s.valore}" (righe con un premio nella colonna della copertura, ${s.file} p.${s.page})`)
     }

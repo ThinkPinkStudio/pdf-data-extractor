@@ -274,9 +274,9 @@ test('flag «sezioni» e «zeri»: le frasi che sostituiscono esistono nel promp
   assert.ok(A7_SYSTEM_PROMPT.includes("Se il valore non c'è, non includere quel campo."))
 })
 
-test('flag del motore: «filtroelenchi», «rigagriglia», «riepilogo», «primepagine», «coppietesto», «fuocopolizza», «ocrsoloscansioni», «altresezioni», «garanziecolonna», «categoriaaltrui» accesi di default; «date8», «righe», «zeri» spenti', async () => {
+test('flag del motore: «filtroelenchi», «rigagriglia», «riepilogo», «primepagine», «coppietesto», «fuocopolizza», «ocrsoloscansioni», «altresezioni», «garanziecolonna», «categoriaaltrui», «elencotitolo» accesi di default; «date8», «righe», «zeri» spenti', async () => {
   const { engineFlags } = await import('../src/services/engineFlags.js')
-  assert.deepEqual([...engineFlags({})], ['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui'])
-  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['altresezioni', 'categoriaaltrui', 'coppietesto', 'date8', 'filtroelenchi', 'fuocopolizza', 'garanziecolonna', 'ocrsoloscansioni', 'primepagine', 'riepilogo', 'rigagriglia', 'righe', 'zeri'])
-  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-filtroelenchi' })], ['rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui'])
+  assert.deepEqual([...engineFlags({})], ['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: 'date8,righe,zeri' })].sort(), ['altresezioni', 'categoriaaltrui', 'coppietesto', 'date8', 'elencotitolo', 'filtroelenchi', 'fuocopolizza', 'garanziecolonna', 'ocrsoloscansioni', 'primepagine', 'riepilogo', 'rigagriglia', 'righe', 'zeri'])
+  assert.deepEqual([...engineFlags({ polizzaEngineFlags: '-filtroelenchi' })], ['rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo'])
 })

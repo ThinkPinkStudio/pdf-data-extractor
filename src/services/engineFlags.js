@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -46,6 +46,7 @@ export const KNOWN_FLAGS = Object.freeze({
   altresezioni: 'Dopo il merge: in un documento con una «SEZIONE <copertura>», un importo dei campi della copertura che compare solo dentro ALTRE sezioni si svuota (Vittoria: «Franchigia 300» della sezione acqua condotta)',
   garanziecolonna: 'Dopo il merge: l\'elenco delle garanzie scelte della copertura dalle righe con un premio nella colonna intestata alla copertura, se il valore estratto non ne nomina nessuna (DAS: «Difesa Condominio»)',
   verificatesti: 'Dopo il merge: ogni valore di TESTO (non elenco, non verifica) chiesto al modello in una chiamata a sé contro la sola descrizione del campo; se non corrisponde cade e si prova il candidato alternativo',
+  elencotitolo: 'Dopo il merge: un campo elenco dalla tabella sotto un titolo fatto di parole della testa della descrizione («GARANZIE SCELTE»): le righe con importi fino alla riga di totale',
   categoriaaltrui: 'Dopo il merge: un campo di testo il cui valore è un\'opzione che la descrizione di un ALTRO campo elenca («una tra …») e che la sua descrizione non nomina si svuota (Attività = «Auto/Circolazione» della Tipologia)',
   coppiecopertura: 'Pertinenza: nelle coppie etichetta→valore anche le celle col premio sotto la colonna intestata alla copertura (scheda DAS OneClick: «TUTELA LEGALE» → 24,00)',
   datagriglia: 'Datazione: un documento che il markdown lascia senza data si data dalla griglia dei prompt (solo righe di periodo o date ripetute) — quietanze «sandwich» del ramo Docling',

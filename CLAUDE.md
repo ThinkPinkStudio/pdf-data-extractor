@@ -1294,6 +1294,21 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   la descrizione): il valore fuori elenco si scarta all'INGRESSO, così il
   campo resta da chiedere alla cascata invece di restare pieno di «Rata
   Successiva» dello Stadio A.7.
+- **Flag `elencotitolo` (06/10/2026, default)**: dopo il merge, per un campo
+  ELENCO (testa senza «NON»), una riga-titolo senza importi né cifre di 2-4
+  parole tutte nella testa della descrizione, almeno due diverse dal nome
+  della copertura («GARANZIE SCELTE»; mai «TUTELA LEGALE» da sola), apre la
+  tabella: le righe con importi fino alla riga di totale (ultimo importo =
+  somma degli ultimi importi sopra, «PREMIO ANNUO»), nome = prima cella, le
+  righe di continuazione senza importi si accodano (`titledTableList`).
+  Sostituisce il valore solo se non nomina già tutte le voci. DAS Tutela
+  Aziende P06/P13 «Assistenza Welfare, Tutela Legale Pacchetto Base,
+  Pacchetto sicurezza privacy e cyber», DAS Drive P04 «Tutela Legale DAS
+  DRIVE». Replay +3 −0. Nello stesso giro `riepilogoMismatches` guarda anche
+  gli altri documenti: una voce resta se lo STESSO premio (pagina con la voce
+  e l'imponibile) è stampato altrove (GOLDONI: imposte della quietanza 2026,
+  imponibile della scheda); `detailedRiepilogo` rimette la fonte delle voci
+  già estratte sulla riga del riepilogo dettagliato.
 - **Flag `verificatesti` (06/10/2026, spento, da misurare)**: dopo il merge,
   ogni valore di TESTO (non elenco, non verifica Sì/No) va al modello in una
   chiamata a sé con la sola descrizione del campo, il valore e la riga del
