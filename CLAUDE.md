@@ -1234,7 +1234,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   con un valore diverso si prende da lì (mai riempimenti). LAMBRATE P32:
   imposte 46,79 della riga della garanzia (senza diritti) → 47,32 della «RATA
   SUCCESSIVA» (220,20 + 0,00 + 2,48 + 47,32 = 270,00). Le verità di P29, P34,
-  P36, P42 accettano entrambe le imposte: replay +1 −0.
+  P36, P42 accettano entrambe le imposte: replay +1 −0. (9)
+  `annualFromCoverColumn` (06/10, prima di (8)): se la descrizione
+  dell'imponibile chiede il premio ANNUO e nello STESSO documento
+  dell'imponibile estratto la colonna della copertura stampa il premio annuo
+  (riga unica o riga di totale «PREMIO ANNUO»), un imponibile diverso viene da
+  una rata che non è l'annualità: si adotta la riga coerente con quel premio
+  (imponibile + voci = lordo). GORINI P31: rata iniziale di 14 mesi 230,63 /
+  49,54 / 282,65 → rata successiva 196,28 / 42,24 / 241,00. Nello stesso
+  documento soltanto: VERRO P43 tiene il 147,62 della quietanza 2026 (la
+  scheda 2020 dice 121,23, premio poi indicizzato). Replay +3 −0.
 - **Flag `altresezioni` (06/10/2026, default)**: dopo il merge (dopo il
   riepilogo), in un documento che ha una riga «SEZIONE <copertura>» (il nome
   da «Come riconoscerla»; la parola «sezione» la usano il riconoscimento e le

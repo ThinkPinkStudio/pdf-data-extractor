@@ -493,3 +493,34 @@ test('coverColumnGuarantees: le garanzie scelte sono le righe col premio nella c
   // mai l'elenco delle garanzie NON operanti
   assert.ok(!coverColumnGuarantees({}, LIST, docs, COVER).some((s) => /non operanti/i.test(s.field.label)))
 })
+
+test('annualFromCoverColumn: la rata iniziale di 14 mesi non è l\'annualità; la colonna TUTELA LEGALE dice 196,28 (GORINI P31)', async () => {
+  const { annualFromCoverColumn } = await import('../src/services/polizzaService.js')
+  const SCH = [
+    '                                                                                       TUTELA      PERDITE     ASSISTENZA    IMPOSTE     PREMIO',
+    '                                                                                       LEGALE     PECUNIARIE                              LORDO',
+    '     Difesa Condominio - ed.2019                                                         196,28                                  41,71      237,99',
+    '            Segue Elenco Rischi                                    PREMIO ANNUO          196,28         0,00         0,00        41,71      237,99',
+    '   PREMIO TOTALE                                 FRAZIONAMENTO   NETTO IMPONIBILE     RIMBORSO          DIRITTO        IMPOSTE       PREMIO LORDO',
+    '   PREMIO RATA INIZIALE                                     0,00           230,63             0,00            2,48           49,54          282,65',
+    '   PREMIO RATA SUCCESSIVA                                   0,00           196,28                             2,48           42,24          241,00',
+  ].join('\n')
+  const file = 'GORINI 11 CONDOMINIO.pdf'
+  const docs = [{ name: file, spatialPages: [SCH] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('230,63', file),
+    [F('Imposte').id]: entry('49,54', file),
+    [F('Diritti').id]: entry('2,48', file),
+    [F('Interessi di frazionamento').id]: entry('0,00', file),
+    [F('Premio lordo totale tutela legale').id]: entry('282,65', file),
+  }
+  assert.deepEqual(annualFromCoverColumn(best, TL, docs, COVER).map((s) => [s.field.label.trim(), s.prima, s.valore]).sort(), [
+    ['Imposte', '49,54', '42,24'],
+    ['Premio imponibile tutela legale', '230,63', '196,28'],
+    ['Premio lordo totale tutela legale', '282,65', '241,00'],
+  ])
+  // imponibile da un altro documento (quietanza di rinnovo indicizzata): niente
+  assert.equal(annualFromCoverColumn({ ...best, [F('Premio imponibile tutela legale').id]: entry('230,63', 'rinnovo 2026.pdf') }, TL, docs, COVER).length, 0)
+  // già l'annualità: niente
+  assert.equal(annualFromCoverColumn({ ...best, [F('Premio imponibile tutela legale').id]: entry('196,28', file) }, TL, docs, COVER).length, 0)
+})
