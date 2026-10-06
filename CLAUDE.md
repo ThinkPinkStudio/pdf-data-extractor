@@ -1290,6 +1290,10 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Frazionamento («Rata Successiva», «OPZIONALI», «Difesa Condominio» da
   righe di tabella) basterebbe che la descrizione dicesse «una tra Annuale,
   Semestrale, …»: decisione dell'utente (si toccano solo le descrizioni).
+  Lo stesso vincolo sta in `sanitizeFieldValue` (sempre, senza flag: lo dice
+  la descrizione): il valore fuori elenco si scarta all'INGRESSO, così il
+  campo resta da chiedere alla cascata invece di restare pieno di «Rata
+  Successiva» dello Stadio A.7.
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

@@ -951,6 +951,15 @@ export function sanitizeFieldValue(field, rawValue) {
   // non riceve "Sì" (SPALLINO RC: Esclusioni particolari = "Sì").
   if (/^(?:s[iì]|no)$/i.test(v) && field && !descriptionAsksVerification(field.description)
       && !/s[ìí]|\bsi\s*\/\s*no\b|\bno\b/i.test(String(field.description || ''))) return null
+  // SCELTA CHIUSA della descrizione («una tra Azienda, Professionista/Studio
+  // professionale, Auto/Circolazione, …»): un testo che non è un'opzione né una
+  // sua parte separata da «/» non è una risposta del campo. Scartato
+  // all'ingresso, il campo resta da chiedere agli stadi successivi.
+  if (field && fieldValueKind(field) === 'text' && !isListDescription(field.description)) {
+    const opts = enumeratedOptions(field.description)
+    const strip = (x) => normForMatch(String(x || '').replace(/^(?:\[[xX\u2713\u2714]\]|[\u2612\u2611\u2713\u2714]|[xX])\s+(?=\p{Lu})/u, ''))
+    if (opts.length && !opts.some((o) => normForMatch(o) === strip(v) || o.split('/').some((part) => normForMatch(part) === strip(v)))) return null
+  }
   // CASELLA barrata davanti a un testo (\u00abX Unit\u00e0 Immobiliari\u00bb dalla riga \u00abX \u2016
   // Unit\u00e0 Immobiliari \u2016 : 17\u00bb della scheda): la casella dice che la voce \u00e8
   // scelta, il dato \u00e8 la voce.

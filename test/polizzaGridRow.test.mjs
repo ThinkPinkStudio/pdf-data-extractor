@@ -545,3 +545,17 @@ test('foreignCategoryValues: Attività = «Auto/Circolazione», opzione chiusa d
   assert.equal(foreignCategoryValues({ [H('Tipologia tutela legale').id]: entry('Auto', 'p.pdf') }, FL).length, 0)
   assert.equal(foreignCategoryValues({ [H('Tipologia tutela legale').id]: entry('CONDOMINIO', 'p.pdf') }, FL).length, 0)
 })
+
+test('sanitizeFieldValue: scelta chiusa della descrizione («una tra …») — fuori elenco scartato all\'ingresso', async () => {
+  const { sanitizeFieldValue } = await import('../src/services/polizzaService.js')
+  const tip = { id: 't', label: 'Tipologia', description: "Tipologia della copertura di tutela legale: la categoria prevalente del soggetto o del rischio coperto, una tra Azienda, Professionista/Studio professionale, Auto/Circolazione, Condominio, Altra tipologia (es. Condominio per la tutela legale di un condominio)." }
+  assert.equal(sanitizeFieldValue(tip, 'Condominio'), 'Condominio')
+  assert.equal(sanitizeFieldValue(tip, 'Auto/Circolazione'), 'Auto/Circolazione')
+  assert.equal(sanitizeFieldValue(tip, 'Professionista'), 'Professionista')
+  assert.equal(sanitizeFieldValue(tip, 'Difesa Condominio'), null)
+  const fraz = { id: 'f', label: 'Frazionamento', description: 'Frazionamento del premio: la periodicità di pagamento del premio, come TESTO, una tra Annuale, Semestrale, Trimestrale, Mensile, Unico. NON è una data né un importo.' }
+  assert.equal(sanitizeFieldValue(fraz, 'Rata Successiva'), null)
+  assert.equal(sanitizeFieldValue(fraz, 'ANNUALE'), 'ANNUALE')
+  // senza «una tra» nessun vincolo
+  assert.equal(sanitizeFieldValue({ id: 'a', label: 'Attività', description: 'Attività assicurata: il settore (es. Servizi vari).' }, 'Veicoli conducibili'), 'Veicoli conducibili')
+})
