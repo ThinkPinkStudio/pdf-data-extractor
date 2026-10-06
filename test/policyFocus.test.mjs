@@ -43,7 +43,8 @@ test('focusOnProofPolicy: senza numero nel documento della prova non si esclude 
   assert.equal(f.excluded.length, 0)
 })
 
-test('flag fuocopolizza: conosciuto, spento di default', () => {
+test('flag fuocopolizza: acceso di default (prova del 06/10: P03 15 → 21, P04 invariata), spegnibile', () => {
   assert.ok('fuocopolizza' in KNOWN_FLAGS)
-  assert.equal(engineFlag({}, 'fuocopolizza'), false)
+  assert.equal(engineFlag({}, 'fuocopolizza'), true)
+  assert.equal(engineFlag({ polizzaEngineFlags: '-fuocopolizza' }, 'fuocopolizza'), false)
 })

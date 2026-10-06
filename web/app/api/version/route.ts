@@ -64,6 +64,7 @@ const BUILD_FEATURES = [
   'pertinenza-default', // Flag «primepagine» e «coppietesto» accesi: domanda sulla polizza col primo batch di sole prime pagine; coppie etichetta→valore anche per i testi nella pertinenza (prova del 06/10 su 41 fascicoli: GOLDONI estratta, nessun esito peggiorato)
   'flag-primepagine', // Flag «primepagine»: domanda sulla polizza, primo batch con le sole prime pagine
   'flag-coppietesto', // Flag «coppietesto»: nella pertinenza, coppie etichetta→valore anche per i testi sotto l'intestazione di colonna
+  'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
   'riga-griglia', // Flag «rigagriglia» acceso: dopo il merge, importo della copertura dalla sua riga nella stessa colonna dei totali; campi «sulla stessa riga» del premio dalla cella sotto l'intestazione che li nomina (+19 −1 su 41 posizioni, misura offline del 05/10)
 ]

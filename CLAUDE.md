@@ -1218,6 +1218,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   pertinenti giusti, P22): GOLDONI estratta (20/23), BIANCA MARIA fabbricati
   da Da verificare a non pertinente, P22 «presente» dalla sola pag. 1, nessun
   esito peggiorato (`catalog/ab-pert.mjs`).
+- **Flag `fuocopolizza` (06/10/2026, default)**: in un fascicolo con i
+  documenti di PIÙ polizze (cartella del veicolo: polizza auto Allianz
+  539642021 + DAS Drive 1469DAS00076 di tutela legale) l'estrazione legge solo
+  i documenti della polizza provata dalla pertinenza: esclusi quelli che
+  portano soltanto numeri di altre polizze (`focusOnProofPolicy`, numeri letti
+  come nella riconciliazione; varianti OCR e decorazioni = stesso numero,
+  frammenti sotto gli 8 caratteri ignorati); quelli senza numero restano. Prova:
+  P03 15 → 21 (compagnia, numero, massimale e premi non più dall'Allianz), P04
+  invariata (i documenti Helvetia non hanno un numero leggibile).
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il
