@@ -76,3 +76,12 @@ test('a7ripiego: l\'Attività della riga «Categoria» resta ripiego, la cascata
     assert.ok(out.diag.some((l) => /Tabella-focus\[Attività assicurata\].*solo ripiego/.test(l)))
   })
 })
+
+test('a7ripiegotesti: la stessa regola per i soli campi di testo', async () => {
+  await withFakeOllama(async (url) => {
+    const out = await extractPolizzaStaged([{ name: 'Polizza Das In Movimento.pdf', pages: [PAGE] }], {
+      ollamaUrl: url, ollamaModel: 'fake', polizzaFields: TL, polizzaAutoVerify: false, polizzaStagedCascade: true, polizzaEngineFlags: 'a7ripiegotesti',
+    })
+    assert.equal(out.data[byLabel('Attività assicurata').id], 'Servizi vari')
+  })
+})
