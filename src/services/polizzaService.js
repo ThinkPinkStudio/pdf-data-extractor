@@ -2051,38 +2051,6 @@ const VISION_OCR_PROMPT =
   '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
   '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
   '- Non tradurre, non riassumere, non commentare, niente markdown: solo il testo della pagina.'
-/**
- * Il RAGIONAMENTO di un modello che ragiona anche con think:false (qwen3-vl:32b,
- * 06/10/2026) arriva DENTRO la risposta: «<think>» e poi paragrafi in inglese
- * («Okay, let's tackle this query…», una bozza numerata della pagina, ripassi)
- * e la trascrizione vera incollata all'ultima frase, senza «</think>» (Ollama
- * toglie il tag di chiusura): «…numbers are exact.POLIZZA N. 06171DAS00070».
- * Nella cache OCR finiva tutto e l'estrazione leggeva il ragionamento e la
- * stessa pagina tre volte (P07, P20, P22, P24, P37). Si tiene la trascrizione:
- * dopo l'ultimo «</think>» se c'è; altrimenti dopo l'ultima riga di
- * RAGIONAMENTO (almeno due parole funzionali inglesi diverse: «the», «need»,
- * «let's», …), tagliando dentro quella riga dopo l'ultimo punto seguito da una
- * maiuscola o una cifra senza spazio (il punto d'incollaggio). Senza «<think>»
- * in testa il testo resta com'è.
- */
-const REASONING_WORDS = /\b(?:the|and|that|this|there|here|need|needs|should|check|let's|let me|wait|okay|now|also|make sure|so|but|with|which|each|line|lines|image|transcribe|transcription|user|text|looks|seems|might|would|could|first|next|then|correct|exactly|maybe|actually|however|though)\b/gi
-function reasoningScore(line) {
-  return new Set((String(line || '').match(REASONING_WORDS) || []).map((w) => w.toLowerCase())).size
-}
-export function stripModelReasoning(text) {
-  const t = String(text ?? '')
-  const end = t.lastIndexOf('</think>')
-  if (end >= 0) return t.slice(end + '</think>'.length).trim()
-  if (!/^\s*<think>/i.test(t)) return t
-  const lines = t.replace(/^\s*<think>\s*/i, '').split('\n')
-  let last = -1
-  lines.forEach((l, i) => { if (reasoningScore(l) >= 2) last = i })
-  if (last < 0) return lines.join('\n').trim()
-  const glue = [...lines[last].matchAll(/[a-z)\]"'”]\.(?=[A-Z0-9«"(])/g)].pop()
-  const head = glue ? lines[last].slice(glue.index + 2) : ''
-  return [head, ...lines.slice(last + 1)].join('\n').trim()
-}
-
 export async function visionOcrPageText(imageDataUrl, settings = {}) {
   const model = visionOcrEngine(settings)
   if (!model) return ocrPageText(imageDataUrl, settings)
@@ -2106,7 +2074,7 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
   // Trattini/puntini di riempimento tra etichetta e valore («Premio Netto-----562,50»)
   // → due spazi, come le colonne della griglia digitale. Mai dentro i numeri
   // (servono 4+ caratteri consecutivi: «1.000.000» ha punti singoli).
-  return stripModelReasoning(String(content || '')).replace(/^```[a-z]*\n?|```$/gim, '').replace(/[-_.·]{4,}/g, '  ').trim()
+  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').replace(/[-_.·]{4,}/g, '  ').trim()
 }
 
 // Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un

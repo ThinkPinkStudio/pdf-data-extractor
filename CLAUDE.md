@@ -1530,17 +1530,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   this query…»), una bozza NUMERATA della pagina e i ripassi; Ollama toglie il
   «</think>» e la trascrizione vera resta incollata all'ultima frase
   («…numbers are exact.POLIZZA N. 06171DAS00070»). Tutte le 79 pagine OCR
-  visive in cache (P07, P20, P22, P24, P37, più P39/P45 non usate) erano così:
-  l'estrazione leggeva la pagina tre volte e frasi inglesi come testo.
-  `stripModelReasoning` (polizzaService) tiene la trascrizione: dopo l'ultimo
-  «</think>» se c'è, altrimenti dopo l'ultima riga di ragionamento (≥2 parole
-  funzionali inglesi), tagliando dentro la riga al punto d'incollaggio
-  («.» seguito da maiuscola o cifra senza spazio); senza «<think>» in testa il
-  testo resta. Applicata all'uscita di `visionOcrPageText` e alla LETTURA
-  della cache (`getOcrCache` via servizio condiviso): niente OCR da rifare. Su
-  79 pagine: 72 pulite senza righe inglesi, 7 vuote (6 pagine bianche, P24
-  p.3 solo ragionamento in loop senza trascrizione). Da misurare con copie
-  sulle posizioni scansionate prima di riestrarre i job del cliente.
+  visive in cache sono così. Toglierlo (tenere il testo dopo l'ultima riga di
+  ragionamento: 72 pagine pulite, 7 bianche) è stato MISURATO e BOCCIATO:
+  copie di P20/P22/P24/P37 da 78 a 70 (premi presi da righe sbagliate,
+  compagnia DAS giusta in P22/P24) e P07 bloccata «Da verificare» (il 32B
+  dice «non operante» citando la riga della tutela legale col suo premio):
+  la pagina trascritta tre volte dava al modello più occasioni. Codice tolto
+  il giorno stesso, prima che un job del cliente lo usasse. Se si riprova:
+  insieme a una lettura dei premi che non dipenda dalle colonne allineate
+  (il testo del modello visivo separa le celle con spazi ma non le allinea).
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il

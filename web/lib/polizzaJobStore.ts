@@ -193,24 +193,12 @@ export function ocrCacheKey(fileHash: string, settings: { polizzaOcrEngine?: str
   return sandwich ? `${base}:sw` : base
 }
 
-// Le pagine già salvate dal modello visivo col suo RAGIONAMENTO in testa
-// («<think>» e paragrafi in inglese, qwen3-vl:32b fino al 06/10/2026) si
-// puliscono alla LETTURA con la stessa regola dell'OCR (stripModelReasoning
-// del motore): niente OCR da rifare. Un servizio non caricabile lascia le
-// pagine come sono (la cache non blocca mai).
 export async function getOcrCache(fileHash: string): Promise<string[] | null> {
   const { rows } = await pool.query<{ pages: string[]; format: number }>(
     'SELECT pages, format FROM ocr_cache WHERE file_hash = $1', [fileHash]
   )
   if (!rows[0] || (rows[0].format ?? 1) !== OCR_FORMAT) return null
-  const pages = rows[0].pages ?? null
-  if (!pages || !pages.some((p) => /^\s*<think>/i.test(String(p ?? '')))) return pages
-  try {
-    const { stripModelReasoning } = await importSharedService<{ stripModelReasoning: (t: string) => string }>('polizzaService.js')
-    return pages.map((p) => stripModelReasoning(String(p ?? '')))
-  } catch {
-    return pages
-  }
+  return rows[0].pages ?? null
 }
 
 // true se in cache c'è una voce per questo hash ma in un FORMATO vecchio:
