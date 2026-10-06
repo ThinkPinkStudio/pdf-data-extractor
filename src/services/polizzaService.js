@@ -8385,6 +8385,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Riga coerente[${s.field.label}]: "${s.prima}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): imponibile + voci = lordo nella riga del premio`)
     }
+    // [flag rigagriglia] Secondo completamento della riga del premio: dopo le
+    // correzioni del riepilogo la riga giusta porta ora due valori estratti
+    // (AGRIPPA P21: le imposte 149,32 della riga della garanzia diventano 149,85
+    // della rata, e gli interessi 0,00 della stessa riga si possono leggere).
+    if (engineFlag(settings, 'rigagriglia')) {
+      for (const s of completeRowFromGrid(best, activeFields, analyzed)) {
+        best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+        diag.push(`Riga del premio (dopo il riepilogo)[${s.field.label}] = "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page})`)
+      }
+    }
   }
 
   // ── [flag altresezioni] Valori delle ALTRE SEZIONI della polizza ─────────
