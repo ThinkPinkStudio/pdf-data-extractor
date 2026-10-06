@@ -8714,7 +8714,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // valore cade e si prova il candidato alternativo più votato (stessa
   // domanda); nessun candidato che corrisponda → vuoto. I prompt degli stadi
   // non cambiano (una descrizione riscritta sposta tutti i campi).
-  if (engineFlag(settings, 'verificatesti')) {
+  // [flag verificaimporti] La stessa verifica per gli IMPORTI letti dal
+  // modello (non quelli provati dalla struttura: riga della griglia, riga di
+  // tabella che nomina il campo, regole deterministiche): «TOTALE FABBRICATO
+  // 6.367,26» come lordo della tutela legale, «inferiore a 500,00 euro» come
+  // franchigia, «4/1000 della somma assicurata» come tasso di regolazione.
+  const checkTexts = engineFlag(settings, 'verificatesti')
+  const checkAmounts = engineFlag(settings, 'verificaimporti')
+  if (checkTexts || checkAmounts) {
     const clog = STAGED_CANDIDATE_LOG.get(best) || {}
     const ask = async (f, valore, src) => {
       const ctx = sourceContextOf(analyzed, { ...src, valore })
@@ -8743,31 +8750,36 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       return null
     }
     for (const f of activeFields) {
-      if (fieldValueKind(f) !== 'text' || isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
+      const kind = fieldValueKind(f)
+      if (isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
+      if (!((checkTexts && kind === 'text') || (checkAmounts && kind === 'amount'))) continue
       const e = best[f.id]
+      if (kind === 'amount' && e && (e.gridRow === true || e.tableRow === true || e.deterministic === true)) continue
+      const what = kind === 'amount' ? 'Verifica importo' : 'Verifica testo'
       try {
         if (!e) {
+          if (kind !== 'text') continue
           // svuotato dalla scelta chiusa di un altro campo: si cerca un candidato conforme
           if (!categoryEmptied.has(f.id)) continue
           const alt = await tryAlternatives(f, new Set([normForMatch(categoryEmptied.get(f.id))]))
           if (alt) {
             best[f.id] = { ...alt.c, valore: alt.clean }
-            diag.push(`Verifica testo[${f.label}]: dopo "${categoryEmptied.get(f.id)}" (scelta di un altro campo) → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
+            diag.push(`${what}[${f.label}]: dopo "${categoryEmptied.get(f.id)}" (scelta di un altro campo) → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
           }
           continue
         }
         const ok = await ask(f, e.valore, e)
-        if (ok !== false) { if (ok === null) diag.push(`Verifica testo[${f.label}]: risposta illeggibile, valore invariato`); continue }
+        if (ok !== false) { if (ok === null) diag.push(`${what}[${f.label}]: risposta illeggibile, valore invariato`); continue }
         const alt = await tryAlternatives(f, new Set([normForMatch(e.valore)]))
         if (alt) {
           best[f.id] = { ...alt.c, valore: alt.clean }
-          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
+          diag.push(`${what}[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
         } else {
           delete best[f.id]
-          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → vuoto`)
+          diag.push(`${what}[${f.label}]: "${e.valore}" non corrisponde alla descrizione → vuoto`)
         }
       } catch (err) {
-        diag.push(`Verifica testo[${f.label}]: controllo non eseguito (${err.message})`)
+        diag.push(`${what}[${f.label}]: controllo non eseguito (${err.message})`)
       }
     }
   }

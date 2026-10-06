@@ -97,3 +97,51 @@ test('rankAlternativeCandidates: più voti, poi più affine, poi più recente; m
   const all = rankAlternativeCandidates(cands)
   assert.deepEqual([all[0].c.valore, all[0].votes, all[0].c.affinity], ['azienda', 3, 0.68])
 })
+
+test('verificaimporti: il lordo «TOTALE FABBRICATO» del contratto non corrisponde alla descrizione → vuoto; senza flag resta', async () => {
+  const PAGE2 = [
+    'POLIZZA N. 87654321          ITAS Mutua',
+    'CONTRAENTE   COND VIA MEDA 14',
+    'TUTELA LEGALE        30.000,00        317,24',
+    'Totale Sezione                        317,24',
+    'TOTALE FABBRICATO                   6.367,26',
+  ].join('\n')
+  const asked = []
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      const p = JSON.parse(body)
+      const sys = String(p.messages?.find((m) => m.role === 'system')?.content || '')
+      const user = String(p.messages?.find((m) => m.role === 'user')?.content || '')
+      let content = '{}'
+      if (sys === TEXT_CHECK_SYSTEM) {
+        asked.push(user)
+        content = JSON.stringify({ corrisponde: !user.includes('VALORE: 6.367,26') })
+      } else if (user.includes('CAMPI ANCORA MANCANTI DA CERCARE IN QUESTO DOCUMENTO')) {
+        const list = user.split('rispondi con chiavi c0, c1, …):\n')[1] || ''
+        const l = list.split('\n').find((x) => x.replace(/^\d+\.\s*/, '').startsWith('Premio lordo'))
+        content = JSON.stringify(l ? { [`c${Number(l.match(/^(\d+)\./)[1])}`]: { valore: '6.367,26', evidenza: 'TOTALE FABBRICATO 6.367,26' } } : {})
+      }
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
+      res.write(JSON.stringify({ message: { content }, done: false }) + '\n')
+      res.end(JSON.stringify({ message: { content: '' }, done: true, prompt_eval_count: 100, eval_count: 10 }) + '\n')
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`
+    const run = (flags) => extractPolizzaStaged([{ name: 'pol cond meda.pdf', pages: [PAGE2] }], {
+      ollamaUrl: url, ollamaModel: 'fake', polizzaFields: TL, polizzaAutoVerify: false, polizzaStagedCascade: true, polizzaEngineFlags: flags,
+    })
+    const lordo = TL.find((f) => /^Premio lordo/.test(String(f.description || ''))).id
+    const base = await run('')
+    assert.equal(base.data[lordo], '6.367,26')
+    const out = await run('verificaimporti')
+    assert.equal(out.data[lordo], undefined, out.diag.filter((l) => /Verifica importo/.test(l)).join('\n'))
+    assert.ok(out.diag.some((l) => /Verifica importo\[[^\]]+\]: "6.367,26" non corrisponde alla descrizione → vuoto/.test(l)))
+    assert.ok(asked.some((u) => u.includes('RIGA DEL VALORE: TOTALE FABBRICATO   6.367,26') && u.includes('RIGA SOPRA (intestazioni o testo precedente): Totale Sezione   317,24')))
+  } finally {
+    await new Promise((r) => server.close(r))
+  }
+})

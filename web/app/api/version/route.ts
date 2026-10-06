@@ -75,6 +75,7 @@ const BUILD_FEATURES = [
   'flag-verificatesti', // Flag «verificatesti» (spento): ogni valore di testo chiesto al modello contro la sola descrizione del campo (chiamata a sé); se non corrisponde cade e si prova il candidato alternativo
   'verifica-testi-2', // verificatesti: al modello anche la riga sopra il valore (intestazioni di colonna); fino a 3 candidati alternativi (voti, affinità, recency); ripescati anche i campi svuotati dalla scelta chiusa di un altro campo
   'flag-rigaparte', // Flag «rigaparte» (spento): A.7, un testo che è un pezzo dell'etichetta della riga letto in una colonna di importi non è un dato («Rata Successiva» come Frazionamento, P03/P04/P12)
+  'flag-verificaimporti', // Flag «verificaimporti» (spento): la verifica di verificatesti anche per gli importi letti dal modello (non quelli provati dalla struttura)
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-gemelli', // Flag «gemelli» acceso: massimale annuo uguale al per sinistro, con il valore stampato solo accanto a «per sinistro» → l'annuo è una copia e si svuota (P14, P15; replay su 8 serie di copie +3 −0)
   'flag-aliquota', // Flag «aliquota» acceso: nella riga del lordo, netto + aliquota + imposta (y = x·p%, x + y = lordo) riempiono imponibile e imposte vuoti (Allianz P09, P14; replay +4 −0)

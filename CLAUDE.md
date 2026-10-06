@@ -1346,6 +1346,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   alternativi (`rankAlternativeCandidates`: voti, poi affinità, poi recency;
   mai un'opzione chiusa di un altro campo); ripescati anche i campi svuotati
   da `categoriaaltrui` (P06: «azienda» tolta, «Servizi vari» tra i candidati).
+- **Flag `verificaimporti` (06/10/2026, spento, da misurare)**: la stessa
+  verifica di `verificatesti` per gli IMPORTI letti dal modello; non per
+  quelli provati dalla struttura (`gridRow`, `tableRow` con evidenza di riga o
+  colonna, `deterministic`). Bersagli: P35 lordo «TOTALE FABBRICATO
+  6.367,26» (contratto intero), P08 franchigia «inferiore a 500,00 euro» (una
+  soglia del Set Informativo), P41 tasso «4/1000 della somma assicurata»,
+  P39 massimale annuo «€ 3.000 per anno» della SEZIONE DANNI DA ACQUA
+  CONDOTTA. Diagnostica «Verifica importo[…]».
 - **Flag `aliquota` (06/10/2026, default)**: dopo la coerenza, nella riga
   della griglia che porta il LORDO estratto (campo «comprensivo di» voci), un
   importo x, poi una percentuale p, poi un importo y con y = x·p/100 al
