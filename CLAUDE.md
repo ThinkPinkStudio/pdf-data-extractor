@@ -236,6 +236,10 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (diverse da `matchKeywords`, che agisce sul nome cartella).
 - **Diagnostica**: la prima riga di ogni run dice strategia e modello REALI.
   "Scarica diagnostica" nella pagina Polizze è la fonte di verità per il debug.
+  Il TESTO che il motore ha letto (cache OCR: Tesseract o modello visivo, con
+  le pagine «sandwich») si legge con `GET /api/polizza/job/<id>/text` (sola
+  lettura, 06/10/2026): l'unico modo di rigiocare offline le regole sulle
+  posizioni scansionate, il cui testo non esiste fuori dal server.
 - **Eval estrazione (golden EULIP)**: `src/services/polizzaEval.js` +
   `test/fixtures/eulip-expected.json`. Punteggio di un JSON già estratto:
   `node scripts/eval-polizza.mjs --actual extracted.json`. Ogni cambio a
