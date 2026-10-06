@@ -1497,6 +1497,23 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   digitale, nel worker e nella lettura preliminare della riconciliazione
   (stessa chiave della cache OCR). Costo: ~3 minuti a PAGINA (qwen3-vl ragiona
   anche con think off), una volta per file (cache per hash e motore).
+- **OCR visivo: il RAGIONAMENTO di qwen3-vl nella trascrizione** (07/10/2026,
+  scoperto con la route `job/[id]/text`): anche con `think:false` qwen3-vl:32b
+  scrive nella risposta «<think>», paragrafi in inglese («Okay, let's tackle
+  this query…»), una bozza NUMERATA della pagina e i ripassi; Ollama toglie il
+  «</think>» e la trascrizione vera resta incollata all'ultima frase
+  («…numbers are exact.POLIZZA N. 06171DAS00070»). Tutte le 79 pagine OCR
+  visive in cache (P07, P20, P22, P24, P37, più P39/P45 non usate) erano così:
+  l'estrazione leggeva la pagina tre volte e frasi inglesi come testo.
+  `stripModelReasoning` (polizzaService) tiene la trascrizione: dopo l'ultimo
+  «</think>» se c'è, altrimenti dopo l'ultima riga di ragionamento (≥2 parole
+  funzionali inglesi), tagliando dentro la riga al punto d'incollaggio
+  («.» seguito da maiuscola o cifra senza spazio); senza «<think>» in testa il
+  testo resta. Applicata all'uscita di `visionOcrPageText` e alla LETTURA
+  della cache (`getOcrCache` via servizio condiviso): niente OCR da rifare. Su
+  79 pagine: 72 pulite senza righe inglesi, 7 vuote (6 pagine bianche, P24
+  p.3 solo ragionamento in loop senza trascrizione). Da misurare con copie
+  sulle posizioni scansionate prima di riestrarre i job del cliente.
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il
