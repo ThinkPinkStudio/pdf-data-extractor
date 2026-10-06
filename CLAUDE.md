@@ -1370,6 +1370,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
+- **Flag `pivapiede` (07/10/2026, default)**: dopo il merge, un campo
+  identificativo (`fieldAsksIdentifier`) il cui valore nella GRIGLIA di tutti
+  i documenti sta solo in righe societarie dell'assicuratore
+  (`isInsurerFooterPIva`) si svuota. La guardia di sempre giudica il testo
+  PIATTO, dove Docling spezza il piè di pagina DAS e perde «REA n.»/«direzione
+  e coordinamento»: P34, il contraente senza P.IVA, prendeva «Partita IVA
+  01333550323» della DAS. Su 7 serie: 6 casi, tutti P34, tutti sbagliati.
 - **Flag `rigaaltrove` (07/10/2026, default)**: il secondo completamento
   della riga del premio (`completeRowFromGrid(…, { otherDocs: true })`) guarda
   anche le righe degli ALTRI documenti, ma solo se portano ≥3 valori estratti

@@ -8908,6 +8908,23 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
+  // ── [flag pivapiede] Identificativo che sta solo nel piè di pagina dell'assicuratore ──
+  // La guardia di sempre (isInsurerFooterPIva) giudica il testo PIATTO, dove il
+  // piè di pagina DAS spezzato da Docling perde «REA n.»/«direzione e
+  // coordinamento» e la P.IVA della compagnia passa (P34: «Partita IVA
+  // 01333550323», il contraente non ne ha). Dopo il merge si rigiudica sulla
+  // GRIGLIA di tutti i documenti: solo righe societarie → vuoto.
+  if (engineFlag(settings, 'pivapiede')) {
+    const grid = analyzed.map((d) => gridPagesOf(d).join('\n')).join('\n')
+    for (const f of activeFields) {
+      const e = best[f.id]
+      if (!e || !fieldAsksIdentifier(f) || String(e.valore ?? '').replace(/\D/g, '').length < 10) continue
+      if (!isInsurerFooterPIva(grid, e.valore)) continue
+      delete best[f.id]
+      diag.push(`Piè di pagina dell'assicuratore[${f.label}]: "${e.valore}" sta solo nelle righe societarie della compagnia → vuoto`)
+    }
+  }
+
   // ── [flag elenconegato] Elenco negativo con voci che la descrizione esclude ──
   if (engineFlag(settings, 'elenconegato')) {
     for (const s of negativeListWithExcluded(best, activeFields)) {

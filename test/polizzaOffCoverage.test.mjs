@@ -57,3 +57,15 @@ test('elenconegato: le garanzie NON operanti con voci di altre sezioni si svuota
   assert.deepEqual(out.map((s) => [s.field.label.trim(), s.voci]), [['Garanzie non operanti', ['Incendio', 'Kasko Collisione']]])
   assert.deepEqual(negativeListWithExcluded({ [non.id]: { valore: 'USA e Canada, Vertenze contrattuali' } }, fields), [])
 })
+
+test('pivapiede: la P.IVA DAS sta solo nelle righe societarie della griglia (P34); quella del contraente nel blocco anagrafico no', async () => {
+  const { isInsurerFooterPIva } = await import('../src/services/polizzaValidation.js')
+  const grid = [
+    'Contraente / Assicurato (Ragione / Denominazione Sociale) Partita Iva/Codice Fiscale Codice Categoria               Professione/Attività',
+    'LIVRAGHI 1/A CONDOMINIO                                                            CONDOMINIO                       CONDOMINIO',
+    'dasdifesalegale@pec.das.it - www.das.it   Partita IVA 01333550323 - CCIAA VR - REA n.98740 Società soggetta alla direzione e coordinamento di Assicurazioni Generali S.p.A.',
+  ].join('\n')
+  assert.equal(isInsurerFooterPIva(grid, '01333550323'), true)
+  const withOwn = grid.replace('LIVRAGHI 1/A CONDOMINIO                                                            CONDOMINIO', 'LIVRAGHI 1/A CONDOMINIO              97312860154                                   CONDOMINIO')
+  assert.equal(isInsurerFooterPIva(withOwn, '97312860154'), false)
+})
