@@ -1294,6 +1294,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   la descrizione): il valore fuori elenco si scarta all'INGRESSO, così il
   campo resta da chiedere alla cascata invece di restare pieno di «Rata
   Successiva» dello Stadio A.7.
+- **Flag `verificatesti` (06/10/2026, spento, da misurare)**: dopo il merge,
+  ogni valore di TESTO (non elenco, non verifica Sì/No) va al modello in una
+  chiamata a sé con la sola descrizione del campo, il valore e la riga del
+  documento da cui viene (`sourceLineOf`, `TEXT_CHECK_SYSTEM`): «non
+  corrisponde» → il valore cade e si prova il candidato alternativo più
+  votato con la stessa domanda; nessuno → vuoto. I prompt degli stadi non
+  cambiano: una descrizione riscritta sposta tutti i campi (v6, v7c), una
+  verifica a parte no. Bersagli: Attività dei privati («IMPIEGATO»,
+  «MOTOCICLO»), Parametro «Classe di merito», Compagnia = broker.
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

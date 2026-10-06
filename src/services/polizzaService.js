@@ -4399,6 +4399,24 @@ export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI t
   'Tieni SOLO le voci che la descrizione ammette, rispettando le sue esclusioni (le frasi "NON ..."). Non aggiungere voci, non riscriverle. ' +
   'FORMATO: un oggetto JSON {"tenere": [indici delle voci da tenere]}; {"tenere": []} se nessuna voce corrisponde alla descrizione.'
 
+// [flag verificatesti] Un VALORE di testo confrontato con la DESCRIZIONE del suo
+// campo, dal modello, in una chiamata a sé: nessun prompt degli stadi cambia.
+export const TEXT_CHECK_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e il VALORE estratto da un documento per quel campo, con la riga del documento da cui viene. ' +
+  'Il VALORE è il dato che la descrizione chiede, rispettando le sue esclusioni (le frasi "NON ...")? ' +
+  'Rispondi false solo se il valore è chiaramente un altro dato: un\'etichetta o il nome di una riga, un dato di un altro tipo, un dato che la descrizione esclude. ' +
+  'FORMATO: un oggetto JSON {"corrisponde": true} oppure {"corrisponde": false}.'
+
+/** Riga della pagina sorgente che contiene il valore (testo normalizzato), '' se non c'è. */
+export function sourceLineOf(docs, e) {
+  if (!e?.file || e.page === '' || e.page == null) return ''
+  const d = (docs || []).find((x) => x && x.name === e.file)
+  const vn = normForMatch(e.valore)
+  if (!d || !vn) return ''
+  const page = String(gridPagesOf(d)[Number(e.page) - 1] || '')
+  const line = page.split('\n').find((l) => normForMatch(l).includes(vn))
+  return line ? line.replace(/\s{2,}/g, '   ').trim().slice(0, 300) : ''
+}
+
 /** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
 export function isListDescription(description) {
   const head = String(description || '').split(':')[0]
@@ -8361,6 +8379,51 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       diag.push(s.fuoriScelta
         ? `Scelta chiusa[${s.field.label}]: "${s.valore}" non è una delle opzioni che la descrizione elenca («una tra …») → vuoto`
         : `Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
+    }
+  }
+
+  // ── [flag verificatesti] Valori di TESTO confrontati con la descrizione ──
+  // Una chiamata per campo di testo (non elenco, non verifica Sì/No): la sola
+  // descrizione, il valore e la riga da cui viene. «Non corrisponde» → il
+  // valore cade e si prova il candidato alternativo più votato (stessa
+  // domanda); nessun candidato che corrisponda → vuoto. I prompt degli stadi
+  // non cambiano (una descrizione riscritta sposta tutti i campi).
+  if (engineFlag(settings, 'verificatesti')) {
+    const clog = STAGED_CANDIDATE_LOG.get(best) || {}
+    const ask = async (f, valore, riga) => {
+      const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVALORE: ${valore}\nRIGA DEL DOCUMENTO: ${riga || '-'}\n\nRispondi SOLO con l'oggetto JSON.`
+      const raw = await callOllamaRolling(settings, TEXT_CHECK_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
+      let parsed = null
+      try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
+      return parsed && typeof parsed.corrisponde === 'boolean' ? parsed.corrisponde : null
+    }
+    for (const f of activeFields) {
+      const e = best[f.id]
+      if (!e || fieldValueKind(f) !== 'text' || isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
+      try {
+        const ok = await ask(f, e.valore, sourceLineOf(analyzed, e))
+        if (ok !== false) { if (ok === null) diag.push(`Verifica testo[${f.label}]: risposta illeggibile, valore invariato`); continue }
+        const vn = normForMatch(e.valore)
+        const alts = new Map()
+        for (const c of clog[f.id] || []) {
+          const n = normForMatch(c.valore)
+          if (!n || n === vn) continue
+          const cur = alts.get(n) || { c, votes: 0 }
+          cur.votes++
+          alts.set(n, cur)
+        }
+        const alt = [...alts.values()].sort((a, b) => b.votes - a.votes || (dateStrToTs(b.c.srcDate) ?? -Infinity) - (dateStrToTs(a.c.srcDate) ?? -Infinity))[0]
+        const clean = alt ? sanitizeFieldValue(f, alt.c.valore) : null
+        if (alt && clean && (await ask(f, clean, sourceLineOf(analyzed, alt.c))) === true) {
+          best[f.id] = { ...alt.c, valore: clean }
+          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${clean}" (candidato alternativo, ${alt.votes} voti)`)
+        } else {
+          delete best[f.id]
+          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → vuoto`)
+        }
+      } catch (err) {
+        diag.push(`Verifica testo[${f.label}]: controllo non eseguito (${err.message})`)
+      }
     }
   }
 
