@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -58,6 +58,8 @@ export const KNOWN_FLAGS = Object.freeze({
   primepagine: 'Domanda sulla polizza: il primo batch con le SOLE prime pagine dei documenti (la scheda non si perde tra le pagine del set informativo); le altre nei batch dopo',
   riepilogo: 'Dopo il merge: un importo che la descrizione lega alla «stessa riga o stesso riepilogo» di un altro campo si svuota se nessuna pagina del suo documento porta anche quel valore; diritti/interessi uguali alle imposte sono un numero copiato',
   rigagriglia: 'Dopo il merge, dalla GRIGLIA: un importo della copertura letto nella riga dei totali passa alla riga della copertura nella stessa colonna; i campi vuoti «sulla stessa riga» del premio prendono la cella sotto l\'intestazione che li nomina',
+  rigaparte: 'A.7: un testo che è un PEZZO dell\'etichetta della riga letto in una colonna di importi non è un dato («Rata Successiva» come Frazionamento dalla riga «PREMIO RATA SUCCESSIVA»); mai per scelte chiuse ed elenchi',
+  aliquota: 'Dopo la coerenza: nella riga che porta il lordo estratto, x seguito da un\'aliquota p% e da y = x·p% con x + y = lordo dà imponibile (x) e imposte (y) ai campi vuoti (Allianz «Tutela Giudiziaria 16,17 12,50% 2,02 18,19»)',
 })
 
 /** @returns {Set<string>} */

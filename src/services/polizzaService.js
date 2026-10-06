@@ -4235,6 +4235,73 @@ export function anchorByElimination(best, fields, docs) {
 }
 
 /**
+ * IMPONIBILE E IMPOSTE DALL'ALIQUOTA STAMPATA [flag aliquota], dopo la
+ * coerenza: nella riga della griglia che porta il valore estratto di un campo
+ * LORDO (la descrizione lo dice «comprensivo di» altre voci,
+ * includedComponentFields), un importo x seguito da una percentuale p e poi da
+ * un importo y con y = x·p/100 al centesimo e x + y = lordo è il premio netto
+ * con le sue imposte: y va alla voce compresa che l'intestazione della sua
+ * colonna nomina di più (headerLexOf), x al campo a cui la descrizione lega
+ * quella voce («sulla stessa riga … del Premio imponibile»,
+ * riepilogoAnchorField). Riempie solo campi VUOTI, mai contro un valore già
+ * estratto diverso, e solo con una lettura unica nelle pagine del documento
+ * del lordo. Allianz (P09, P14): «Tutela Giudiziaria 16,17 12,50% 2,02 18,19»
+ * sotto un'intestazione su due righe che la griglia fonde in una cella
+ * («prima rata (1) Imposta Importo Imposte SSN»): le colonne non distinguono
+ * imponibile e imposte, i numeri stampati sì. Niente calcolato: x e y sono
+ * celle della riga, l'aritmetica dice solo quale è quale.
+ * @returns {{field:object, valore:string, file:string, page:number, riga:string}[]}
+ */
+export function taxRateRow(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const PCT_RE = /(?<![\d.,])(\d{1,2}(?:,\d{1,3})?)\s?%/g
+  const out = []
+  for (const L of amount) {
+    const comps = includedComponentFields(L, fields)
+    const e = best?.[L.id]
+    if (!comps.length || !e || !e.file) continue
+    const nL = parsePureAmount(e.valore)
+    if (nL == null || nL <= 0) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    if (!d) continue
+    const props = []
+    gridPagesOf(d).forEach((text, pi) => {
+      const lines = String(text || '').split('\n')
+      lines.forEach((line, i) => {
+        if (line.includes('|')) return
+        const toks = gridAmountTokens(line)
+        if (!toks.some((t) => sameAmount(t.n, nL))) return
+        const pcts = [...line.matchAll(PCT_RE)].map((m) => ({ p: Number(m[1].replace(',', '.')), a: m.index }))
+        if (!pcts.length) return
+        for (const x of toks) {
+          for (const y of toks) {
+            if (y.a <= x.b || x.n <= 0 || y.n <= 0 || sameAmount(x.n, nL) || sameAmount(y.n, nL)) continue
+            if (!sameAmount(Math.round((x.n + y.n) * 100) / 100, nL)) continue
+            if (!pcts.some((q) => q.a > x.b && q.a < y.a && Math.abs((x.n * q.p) / 100 - y.n) <= 0.0105)) continue
+            const header = gridHeaderAbove(lines, i, y.a, y.b)
+            let c = null, lex = 0
+            for (const k of comps) { const l = headerLexOf(k, header); if (l > lex) { lex = l; c = k } }
+            const anchor = c ? riepilogoAnchorField(c, fields) : null
+            if (!c || !anchor || anchor.id === L.id || anchor.id === c.id) continue
+            props.push({ c, anchor, x, y, page: pi + 1, riga: gridRowLabel(line) })
+          }
+        }
+      })
+    })
+    if (!props.length || new Set(props.map((q) => `${q.c.id}:${q.x.n}:${q.y.n}`)).size !== 1) continue
+    const q = props[0]
+    const pairs = [[q.anchor, q.x], [q.c, q.y]]
+    // mai contro un valore già estratto diverso
+    if (pairs.some(([f, t]) => best?.[f.id] && !sameAmount(parsePureAmount(best[f.id].valore), t.n))) continue
+    for (const [f, t] of pairs) {
+      if (best?.[f.id] || !sanitizeFieldValue(f, t.text)) continue
+      out.push({ field: f, valore: t.text, file: d.name, page: q.page, riga: q.riga })
+    }
+  }
+  return out
+}
+
+/**
  * Le voci che la DESCRIZIONE dice COMPRESE nel campo («Premio lordo … comprensivo
  * di imposte, diritti e interessi»): per ogni voce il campo importo la cui testa
  * le somiglia di più (headerLexOf ≥ 0,5). [] se la descrizione non lo dice.
@@ -4432,6 +4499,32 @@ export function isRowLabelValue(value, rowHit, colonna) {
 }
 
 /**
+ * Stadio A.7 [flag rigaparte]: il valore proposto è un PEZZO dell'etichetta
+ * della riga letto come dato di una colonna di importi? Come isRowLabelValue,
+ * ma il testo è una parte contigua (a parole intere) dell'etichetta e il resto
+ * dell'etichetta non ha parole distintive della testa della descrizione del
+ * campo (`distinct`, distinctiveHeadTokens): «Rata Successiva» come
+ * Frazionamento dalla riga «PREMIO RATA SUCCESSIVA», colonna NETTO IMPONIBILE
+ * (24,88) — schede DAS Drive P03, P04, P12, dove «Annuale» sta sotto
+ * FRAZIONAMENTO nei dati contrattuali. Mai per i campi a SCELTA CHIUSA
+ * («Condominio» dalla riga «Difesa Condominio - ed.2019» è la categoria) né
+ * per gli ELENCHI (le garanzie sono le etichette delle righe).
+ */
+export function isRowLabelPart(value, rowHit, colonna, field, distinct = []) {
+  if (!rowHit || /\d/.test(String(value || ''))) return false
+  if (!field || fieldValueKind(field) !== 'text' || isListDescription(field.description) || enumeratedOptions(field.description).length) return false
+  const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const vw = words(value), lw = words(rowHit.row?.label || '')
+  if (!vw || !lw || vw === lw || !(` ${lw} `).includes(` ${vw} `)) return false
+  const own = new Set((distinct || []).map((t) => words(t)))
+  if ((` ${lw} `).replace(` ${vw} `, ' ').trim().split(/\s+/).some((w) => own.has(w))) return false
+  const cols = rowHit.row?.cols || []
+  const m = String(colonna || '').trim().match(/^col\s*(\d+)$/i)
+  const cited = m ? cols[Number(m[1]) - 1] : cols.find((c) => c.header && normForMatch(c.header) === normForMatch(colonna || ''))
+  return !!cited && /\d/.test(String(cited.value || '')) && /^[\d.,\s€%-]+$/.test(String(cited.value).trim())
+}
+
+/**
  * Stadio A.7: il valore proposto è l'INTESTAZIONE di una colonna e non un dato?
  * Vero se nessuna cella della riga citata contiene il valore e ogni sua voce
  * (divisa su virgola/punto e virgola) coincide, normalizzata, con
@@ -4490,20 +4583,56 @@ export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI t
 
 // [flag verificatesti] Un VALORE di testo confrontato con la DESCRIZIONE del suo
 // campo, dal modello, in una chiamata a sé: nessun prompt degli stadi cambia.
-export const TEXT_CHECK_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e il VALORE estratto da un documento per quel campo, con la riga del documento da cui viene. ' +
+export const TEXT_CHECK_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e il VALORE estratto da un documento per quel campo, con la riga del documento da cui viene e la riga sopra (spesso le intestazioni delle colonne). ' +
   'Il VALORE è il dato che la descrizione chiede, rispettando le sue esclusioni (le frasi "NON ...")? ' +
   'Rispondi false solo se il valore è chiaramente un altro dato: un\'etichetta o il nome di una riga, un dato di un altro tipo, un dato che la descrizione esclude. ' +
   'FORMATO: un oggetto JSON {"corrisponde": true} oppure {"corrisponde": false}.'
 
+/**
+ * [flag verificatesti] Candidati ALTERNATIVI di un campo dal registro del
+ * consenso, raggruppati per valore normalizzato (fuori quelli in `rejected`):
+ * dal più votato, poi il più affine alla descrizione, poi il più recente. Il
+ * rappresentante di un gruppo è il suo candidato più affine.
+ * @returns {{c:object, votes:number}[]}
+ */
+export function rankAlternativeCandidates(cands, rejected = new Set()) {
+  const aff = (c) => (typeof c?.affinity === 'number' ? c.affinity : -1)
+  const alts = new Map()
+  for (const c of cands || []) {
+    const n = normForMatch(c?.valore)
+    if (!n || rejected.has(n)) continue
+    const cur = alts.get(n) || { c, votes: 0 }
+    cur.votes++
+    if (aff(c) > aff(cur.c)) cur.c = c
+    alts.set(n, cur)
+  }
+  return [...alts.values()].sort((a, b) => b.votes - a.votes || aff(b.c) - aff(a.c) ||
+    (dateStrToTs(b.c.srcDate) ?? -Infinity) - (dateStrToTs(a.c.srcDate) ?? -Infinity))
+}
+
 /** Riga della pagina sorgente che contiene il valore (testo normalizzato), '' se non c'è. */
 export function sourceLineOf(docs, e) {
-  if (!e?.file || e.page === '' || e.page == null) return ''
+  return sourceContextOf(docs, e).line
+}
+
+/**
+ * Riga della pagina sorgente che contiene il valore e la riga non vuota sopra
+ * (le intestazioni di colonna: «SETTORE ATTIVITÀ   FORMA GIURIDICA» sopra
+ * «Servizi vari   S.r.l.»). Stringhe vuote se il valore non si ritrova.
+ */
+export function sourceContextOf(docs, e) {
+  const none = { above: '', line: '' }
+  if (!e?.file || e.page === '' || e.page == null) return none
   const d = (docs || []).find((x) => x && x.name === e.file)
   const vn = normForMatch(e.valore)
-  if (!d || !vn) return ''
-  const page = String(gridPagesOf(d)[Number(e.page) - 1] || '')
-  const line = page.split('\n').find((l) => normForMatch(l).includes(vn))
-  return line ? line.replace(/\s{2,}/g, '   ').trim().slice(0, 300) : ''
+  if (!d || !vn) return none
+  const lines = String(gridPagesOf(d)[Number(e.page) - 1] || '').split('\n')
+  const i = lines.findIndex((l) => normForMatch(l).includes(vn))
+  if (i < 0) return none
+  const tidy = (l) => String(l || '').replace(/\s{2,}/g, '   ').trim().slice(0, 300)
+  let above = ''
+  for (let k = i - 1; k >= 0 && k >= i - 3; k--) if (lines[k].trim()) { above = tidy(lines[k]); break }
+  return { above, line: tidy(lines[i]) }
 }
 
 /** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
@@ -6931,6 +7060,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è l'etichetta della riga, la colonna citata contiene un importo`)
               continue
             }
+            if (engineFlag(settings, 'rigaparte') && isRowLabelPart(cleaned, rowHit, valObj.colonna || (v && typeof v === 'object' ? v.colonna : ''), f, distinctHead.get(f.id))) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è un pezzo dell'etichetta della riga "${rowHit.row?.label || ''}", la colonna citata contiene un importo`)
+              continue
+            }
             // PAGINA reale: quella della riga che porta il valore, altrimenti la
             // prima tabella inviata che lo contiene (sempre di questo documento).
             const vnorm = normForMatch(cleaned)
@@ -8472,6 +8605,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
+  // ── [flag aliquota] IMPONIBILE E IMPOSTE dall'aliquota stampata ──────────
+  // Nella riga del lordo estratto: netto, aliquota e imposta (y = x·p%) con
+  // netto + imposta = lordo → i campi vuoti (taxRateRow).
+  if (engineFlag(settings, 'aliquota')) {
+    for (const s of taxRateRow(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Aliquota[${s.field.label}] = "${s.valore}" (riga "${s.riga}", ${s.file} p.${s.page}): netto, aliquota e imposta stampati nella riga del lordo`)
+    }
+  }
+
   // ── [flag riepilogo] Il campo LEGATO per esclusione (dopo la coerenza) ─────
   // L'imponibile vuoto prende l'unico importo libero della riga dove stanno i
   // campi legati a lui (imposte) e un altro valore estratto (lordo): Allianz
@@ -8484,9 +8627,11 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
 
   // ── [flag categoriaaltrui] Opzione chiusa di un ALTRO campo ──────────────
+  const categoryEmptied = new Map() // campo → valore tolto (per verificatesti)
   if (engineFlag(settings, 'categoriaaltrui')) {
     for (const s of foreignCategoryValues(best, activeFields)) {
       delete best[s.field.id]
+      categoryEmptied.set(s.field.id, s.valore)
       diag.push(s.fuoriScelta
         ? `Scelta chiusa[${s.field.label}]: "${s.valore}" non è una delle opzioni che la descrizione elenca («una tra …») → vuoto`
         : `Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
@@ -8501,33 +8646,52 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // non cambiano (una descrizione riscritta sposta tutti i campi).
   if (engineFlag(settings, 'verificatesti')) {
     const clog = STAGED_CANDIDATE_LOG.get(best) || {}
-    const ask = async (f, valore, riga) => {
-      const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVALORE: ${valore}\nRIGA DEL DOCUMENTO: ${riga || '-'}\n\nRispondi SOLO con l'oggetto JSON.`
+    const ask = async (f, valore, src) => {
+      const ctx = sourceContextOf(analyzed, { ...src, valore })
+      const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVALORE: ${valore}\n` +
+        (ctx.above ? `RIGA SOPRA (intestazioni o testo precedente): ${ctx.above}\n` : '') +
+        `RIGA DEL VALORE: ${ctx.line || '-'}\n\nRispondi SOLO con l'oggetto JSON.`
       const raw = await callOllamaRolling(settings, TEXT_CHECK_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
       let parsed = null
       try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
       return parsed && typeof parsed.corrisponde === 'boolean' ? parsed.corrisponde : null
     }
+    // Candidati ALTERNATIVI del campo (registro del consenso), dal più votato,
+    // poi il più affine alla descrizione, poi il più recente; mai il valore
+    // scartato né un'opzione chiusa di un altro campo (categoriaaltrui). Il
+    // primo che il modello dice conforme alla descrizione prende il posto.
+    const tryAlternatives = async (f, rejected) => {
+      let tried = 0
+      for (const alt of rankAlternativeCandidates(clog[f.id] || [], rejected)) {
+        if (tried >= 3) break
+        const clean = sanitizeFieldValue(f, alt.c.valore)
+        if (!clean) continue
+        if (engineFlag(settings, 'categoriaaltrui') && foreignCategoryValues({ [f.id]: { valore: clean } }, activeFields).length) continue
+        tried++
+        if ((await ask(f, clean, alt.c)) === true) return { c: alt.c, clean, votes: alt.votes }
+      }
+      return null
+    }
     for (const f of activeFields) {
+      if (fieldValueKind(f) !== 'text' || isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
       const e = best[f.id]
-      if (!e || fieldValueKind(f) !== 'text' || isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
       try {
-        const ok = await ask(f, e.valore, sourceLineOf(analyzed, e))
-        if (ok !== false) { if (ok === null) diag.push(`Verifica testo[${f.label}]: risposta illeggibile, valore invariato`); continue }
-        const vn = normForMatch(e.valore)
-        const alts = new Map()
-        for (const c of clog[f.id] || []) {
-          const n = normForMatch(c.valore)
-          if (!n || n === vn) continue
-          const cur = alts.get(n) || { c, votes: 0 }
-          cur.votes++
-          alts.set(n, cur)
+        if (!e) {
+          // svuotato dalla scelta chiusa di un altro campo: si cerca un candidato conforme
+          if (!categoryEmptied.has(f.id)) continue
+          const alt = await tryAlternatives(f, new Set([normForMatch(categoryEmptied.get(f.id))]))
+          if (alt) {
+            best[f.id] = { ...alt.c, valore: alt.clean }
+            diag.push(`Verifica testo[${f.label}]: dopo "${categoryEmptied.get(f.id)}" (scelta di un altro campo) → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
+          }
+          continue
         }
-        const alt = [...alts.values()].sort((a, b) => b.votes - a.votes || (dateStrToTs(b.c.srcDate) ?? -Infinity) - (dateStrToTs(a.c.srcDate) ?? -Infinity))[0]
-        const clean = alt ? sanitizeFieldValue(f, alt.c.valore) : null
-        if (alt && clean && (await ask(f, clean, sourceLineOf(analyzed, alt.c))) === true) {
-          best[f.id] = { ...alt.c, valore: clean }
-          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${clean}" (candidato alternativo, ${alt.votes} voti)`)
+        const ok = await ask(f, e.valore, e)
+        if (ok !== false) { if (ok === null) diag.push(`Verifica testo[${f.label}]: risposta illeggibile, valore invariato`); continue }
+        const alt = await tryAlternatives(f, new Set([normForMatch(e.valore)]))
+        if (alt) {
+          best[f.id] = { ...alt.c, valore: alt.clean }
+          diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
         } else {
           delete best[f.id]
           diag.push(`Verifica testo[${f.label}]: "${e.valore}" non corrisponde alla descrizione → vuoto`)

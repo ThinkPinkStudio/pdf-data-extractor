@@ -1336,6 +1336,35 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   cambiano: una descrizione riscritta sposta tutti i campi (v6, v7c), una
   verifica a parte no. Bersagli: Attività dei privati («IMPIEGATO»,
   «MOTOCICLO»), Parametro «Classe di merito», Compagnia = broker.
+  Versione 2 (06/10 pomeriggio, ancora spenta): al modello va anche la riga
+  SOPRA il valore (`sourceContextOf`: «SETTORE ATTIVITÀ   FORMA GIURIDICA»
+  sopra «Servizi vari   S.r.l.», P11 dava «SRL»); fino a TRE candidati
+  alternativi (`rankAlternativeCandidates`: voti, poi affinità, poi recency;
+  mai un'opzione chiusa di un altro campo); ripescati anche i campi svuotati
+  da `categoriaaltrui` (P06: «azienda» tolta, «Servizi vari» tra i candidati).
+- **Flag `aliquota` (06/10/2026, default)**: dopo la coerenza, nella riga
+  della griglia che porta il LORDO estratto (campo «comprensivo di» voci), un
+  importo x, poi una percentuale p, poi un importo y con y = x·p/100 al
+  centesimo (±1) e x + y = lordo: y va alla voce compresa che l'intestazione
+  della sua colonna nomina di più, x al campo a cui la descrizione lega quella
+  voce (`taxRateRow`). Solo campi VUOTI, mai contro un valore diverso, lettura
+  unica nelle pagine del documento del lordo. Allianz P09/P14: «Tutela
+  Giudiziaria 16,17 12,50% 2,02 18,19» sotto un'intestazione su due righe che
+  la griglia fonde in UNA cella («prima rata (1) Imposta Importo Imposte
+  SSN»): le colonne davano «Imposte» a tutte e due le celle, imponibile e
+  imposte restavano vuoti (A.7 leggeva il lordo come imponibile, la coerenza
+  lo svuotava). Replay sulle 45 copie A/B: 953 → 957, nessuna perdita.
+- **Flag `rigaparte` (06/10/2026, spento, da misurare)**: A.7, un TESTO che è
+  un PEZZO contiguo dell'etichetta della riga citata, letto in una colonna di
+  importi, e il resto dell'etichetta senza parole distintive della testa della
+  descrizione → scartato (`isRowLabelPart`, estensione di `isRowLabelValue`).
+  DAS Drive P03/P04/P12: Frazionamento «Rata Successiva» dalla riga «PREMIO
+  RATA SUCCESSIVA» (colonne NETTO IMPONIBILE / INTERESSE DI FRAZIONAMENTO):
+  «premio» della testa («Frazionamento del premio») dava evidenza
+  strutturale, il campo restava pieno e la cascata non chiedeva «Annuale»
+  (sotto FRAZIONAMENTO nei dati contrattuali). Mai per scelte chiuse
+  («Condominio» dalla riga «Difesa Condominio - ed.2019», 13 posizioni giuste)
+  né per elenchi.
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

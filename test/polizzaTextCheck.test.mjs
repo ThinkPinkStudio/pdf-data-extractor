@@ -77,8 +77,23 @@ test('verificatesti: l\'Attività «IMPIEGATO» non corrisponde alla descrizione
     const out = await run('verificatesti')
     assert.equal(out.data[att], undefined, out.diag.filter((l) => /Verifica testo/.test(l)).join('\n'))
     assert.ok(out.diag.some((l) => /Verifica testo\[Attività assicurata\]: "IMPIEGATO" non corrisponde/.test(l)))
-    assert.ok(checks.some((u) => u.includes('RIGA DEL DOCUMENTO: CONTRAENTE   VINCENZO PISAPIA   PROFESSIONE   IMPIEGATO')), 'la riga sorgente va al modello')
+    assert.ok(checks.some((u) => u.includes('RIGA DEL VALORE: CONTRAENTE   VINCENZO PISAPIA   PROFESSIONE   IMPIEGATO') && u.includes('RIGA SOPRA (intestazioni o testo precedente): POLIZZA N. 555412062   Allianz S.p.A.')), 'la riga sorgente e quella sopra vanno al modello')
     const contr = TL.find((f) => /contraente/i.test(String(f.description || '').split(':')[0]))
     if (contr && base.data[contr.id]) assert.equal(out.data[contr.id], base.data[contr.id], 'un testo che corrisponde resta')
   })
+})
+
+test('rankAlternativeCandidates: più voti, poi più affine, poi più recente; mai il valore scartato', async () => {
+  const { rankAlternativeCandidates } = await import('../src/services/polizzaService.js')
+  const cands = [
+    { valore: 'azienda', affinity: 0.68 }, { valore: 'Azienda', affinity: 0.6 }, { valore: 'azienda', affinity: 0.68 },
+    { valore: 'Tutela legale penale', affinity: 0.43, srcDate: '01/01/2025' },
+    { valore: 'Servizi vari', affinity: 0.46, srcDate: '01/01/2025' },
+    { valore: 'imprese e strutture alberghiere', affinity: 0.46, srcDate: '01/01/2024' },
+  ]
+  const out = rankAlternativeCandidates(cands, new Set(['azienda']))
+  assert.deepEqual(out.map((x) => [x.c.valore, x.votes]), [['Servizi vari', 1], ['imprese e strutture alberghiere', 1], ['Tutela legale penale', 1]])
+  // il rappresentante di un gruppo è il candidato più affine
+  const all = rankAlternativeCandidates(cands)
+  assert.deepEqual([all[0].c.valore, all[0].votes, all[0].c.affinity], ['azienda', 3, 0.68])
 })
