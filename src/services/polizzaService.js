@@ -6555,11 +6555,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               // primo documento dove è eleggibile e l'arbitro decide (come nei gruppi).
               ...(engineFlag(settings, 'a78') ? { preStage: true } : {}),
             }
-            // [flag a78] Né l'etichetta di riga né l'intestazione di colonna hanno
-            // una parola della testa della descrizione (riga «Categoria» per il
-            // Frazionamento): non chiude il campo, resta solo come RIPIEGO se il
-            // modello lo lascia vuoto (come i seed di Stadio A).
-            if (engineFlag(settings, 'a78') && !(structLex > 0)) {
+            // [flag a78 / a7ripiego] Né l'etichetta di riga né l'intestazione di
+            // colonna hanno una parola della testa della descrizione (riga
+            // «Categoria» per l'Attività, «Quietanza Di Rinnovo» per il
+            // Frazionamento, «Somma Assicurata» della sezione acqua condotta per
+            // il massimale): non chiude il campo, resta solo come RIPIEGO se il
+            // modello lo lascia vuoto (come i seed di Stadio A). `a7ripiego` è
+            // questa sola regola, senza il resto di a78.
+            if ((engineFlag(settings, 'a78') || engineFlag(settings, 'a7ripiego')) && !(structLex > 0)) {
               if (!seedBest[f.id]) seedBest[f.id] = cand
               diag.push(`Tabella-focus[${f.label}] = "${cleaned}" (${d.name} p.${page}) — riga/colonna non nominano il campo: solo ripiego`)
               continue

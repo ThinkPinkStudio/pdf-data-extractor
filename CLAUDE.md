@@ -1242,6 +1242,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   della quietanza. Solo la prima riga: la «franchigia di € 200,00» delle
   clausole in fondo alla sezione (P39) non conta. Replay complessivo del
   06/10 (P19, P01, P39, P41, P44, P45): 887 → 896, nessuna perdita.
+- **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
+  `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
+  (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo
+  chiede. Censimento delle proposte di testo di A.7 sulle 43 posizioni: le
+  sbagliate vengono da righe che non nominano il campo («Categoria» →
+  Attività «Veicoli conducibili con patente A-B e Rimorchi» invece di
+  «Servizi vari» in P03/P10/P12; «Quietanza Di Rinnovo», «GARANZIE»,
+  «Difesa Condominio - ed.2019» → Frazionamento in P26/P29/P35), ma da righe
+  così vengono anche Tipologie giuste («Condominio»): decide la misura. Una
+  verifica col modello delle proposte («corrisponde alla descrizione?») è
+  stata provata solo col 7B (il 32B non è raggiungibile dal Mac): 30/40, accetta
+  «Rata Successiva» e scarta Tipologie giuste — non usata.
 - **Flag `coppiecopertura` (06/10/2026, spento, da misurare)**: P16 e P18
   (RUZZA, DAS OneClick Circolazione Stradale) restano «Da verificare»: nella
   griglia pdf.js l'intestazione della scheda (carattere 4,8 pt) «TUTELA LEGALE

@@ -70,6 +70,7 @@ const BUILD_FEATURES = [
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
+  'flag-a7ripiego', // Flag «a7ripiego» (spento): una proposta di A.7 la cui riga e colonna non nominano il campo («Categoria» per l'Attività) è solo ripiego e il campo si chiede alla cascata
   'sezione-copertura', // Flag «altresezioni»: l'importo della prima riga della «SEZIONE <copertura>» sotto l'etichetta che nomina il campo («Imponibile annuo € 343,86» di Vittoria P44/P45) prima del riepilogo (replay del 06/10: +3)
   'oltre-il-lordo', // Flag «riepilogo»: una voce che la descrizione del lordo dice compresa (imposte, diritti, interessi) e che lo supera si svuota (Unipol P01: imposte 108,51 del contratto contro lordo 21,37 della tutela legale)
   'altre-sezioni', // Flag «altresezioni» acceso: in un documento con una «SEZIONE <copertura>» un importo dei campi della copertura che compare solo in altre sezioni si svuota (Vittoria P39/P41: «Franchigia 300» dell'acqua condotta; replay del 06/10 +2 −0)
