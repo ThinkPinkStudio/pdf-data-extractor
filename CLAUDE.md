@@ -1276,6 +1276,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   resta se ne nomina già una. DAS CIRO MENOTTI P27: «Difesa Condominio»
   invece dei paragrafi delle condizioni. Replay +1 −0 (P30/P43 cambiano
   «Tutela Legale» in «Difesa Condominio - ed.2019», giusti entrambi).
+- **Flag `categoriaaltrui` (06/10/2026, default)**: dopo il merge, un campo
+  di TESTO (non elenco) il cui valore è esattamente una delle opzioni che la
+  descrizione di un ALTRO campo elenca come scelta chiusa («una tra Azienda,
+  Professionista/Studio professionale, Auto/Circolazione, …»,
+  `enumeratedOptions`) e che la sua descrizione non nomina, ha ricevuto la
+  categoria dell'altro campo e si svuota (`foreignCategoryValues`). Polizze
+  auto di privati P07/P14: Attività «Auto/Circolazione» (verità vuota);
+  «Condominio» resta perché anche la descrizione dell'Attività la nomina.
+  Replay +2 −0.
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

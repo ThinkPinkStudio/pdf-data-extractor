@@ -524,3 +524,20 @@ test('annualFromCoverColumn: la rata iniziale di 14 mesi non è l\'annualità; l
   // già l'annualità: niente
   assert.equal(annualFromCoverColumn({ ...best, [F('Premio imponibile tutela legale').id]: entry('196,28', file) }, TL, docs, COVER).length, 0)
 })
+
+test('foreignCategoryValues: Attività = «Auto/Circolazione», opzione chiusa della Tipologia che la descrizione dell\'Attività non nomina → vuota', async () => {
+  const { foreignCategoryValues, enumeratedOptions } = await import('../src/services/polizzaService.js')
+  const DESCR = {
+    'Attività assicurata': "Attività assicurata: il settore o tipo di attività del contraente/assicurato che è oggetto della copertura (es. Servizi vari, Professionista/Studio associato, Condominio, Difesa Condominio). È un TESTO che descrive l'attività, non un importo né una data.",
+    'Tipologia tutela legale': "Tipologia della copertura di tutela legale: la categoria prevalente del soggetto o del rischio coperto, una tra Azienda, Professionista/Studio professionale, Auto/Circolazione, Condominio, Altra tipologia (es. Condominio per la tutela legale di un condominio).",
+  }
+  const FL = PROFILES.find((p) => p.name === 'Tutela Legale 3').fields.map((f) => (DESCR[String(f.label).trim()] ? { ...f, description: DESCR[String(f.label).trim()] } : f))
+  const H = (label) => FL.find((f) => String(f.label).trim() === label)
+  assert.deepEqual(enumeratedOptions(DESCR['Tipologia tutela legale']), ['Azienda', 'Professionista/Studio professionale', 'Auto/Circolazione', 'Condominio', 'Altra tipologia'])
+  const auto = { [H('Attività assicurata').id]: entry('Auto/Circolazione', 'p.pdf'), [H('Tipologia tutela legale').id]: entry('Auto/Circolazione', 'p.pdf') }
+  assert.deepEqual(foreignCategoryValues(auto, FL).map((s) => [s.field.label.trim(), s.valore]), [['Attività assicurata', 'Auto/Circolazione']])
+  // «Condominio» è anche negli esempi dell'Attività: resta
+  assert.equal(foreignCategoryValues({ [H('Attività assicurata').id]: entry('CONDOMINIO', 'p.pdf') }, FL).length, 0)
+  // solo l'uguaglianza esatta: «Azienda industriale» resta
+  assert.equal(foreignCategoryValues({ [H('Attività assicurata').id]: entry('Azienda industriale', 'p.pdf') }, FL).length, 0)
+})

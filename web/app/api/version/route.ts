@@ -70,6 +70,7 @@ const BUILD_FEATURES = [
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
+  'categoria-altrui', // Flag «categoriaaltrui» acceso: un campo di testo con un'opzione chiusa di un altro campo che la sua descrizione non nomina si svuota (Attività = «Auto/Circolazione» della Tipologia, P07/P14; replay +2 −0)
   'premio-annuo-colonna', // Flag «riepilogo»: imponibile diverso dal premio annuo della colonna della copertura (stesso documento) → la riga coerente con l'annualità (GORINI P31: rata iniziale di 14 mesi → rata successiva 196,28 / 42,24 / 241,00)
   'garanzie-colonna', // Flag «garanziecolonna» acceso: l'elenco delle garanzie scelte della copertura dalle righe con premio nella colonna della copertura, se il valore estratto non ne nomina nessuna (P27 «Difesa Condominio»; replay +1 −0)
   'riga-coerente', // Flag «riepilogo»: le voci comprese nel lordo dalla riga dove imponibile + voci = lordo (LAMBRATE P32: imposte 47,32 della rata successiva, non 46,79 della riga della garanzia)

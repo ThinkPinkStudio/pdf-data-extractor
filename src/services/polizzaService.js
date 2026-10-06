@@ -4047,6 +4047,43 @@ export function annualFromCoverColumn(best, fields, docs, coverNames) {
 }
 
 /**
+ * Le opzioni che una descrizione ENUMERA come risposte chiuse («una tra
+ * Azienda, Professionista/Studio professionale, Auto/Circolazione, …»), senza
+ * la coda degli esempi: [] se la descrizione non elenca una scelta.
+ */
+export function enumeratedOptions(description) {
+  const m = positiveDescriptionText(String(description || '')).match(/\buna\s+tra\s+([^(.;:]+)/i)
+  if (!m) return []
+  return m[1].split(/,|\s+o\s+/).map((x) => x.trim()).filter((x) => x && x.split(/\s+/).length <= 4)
+}
+
+/**
+ * CATEGORIA DI UN ALTRO CAMPO, dopo il merge: un campo di TESTO il cui valore è
+ * esattamente una delle opzioni che la descrizione di un ALTRO campo elenca come
+ * scelta chiusa («una tra …»), mentre la sua descrizione non la nomina mai, ha
+ * ricevuto la categoria dell'altro campo: si svuota. Polizze auto di privati
+ * (P07, P14): Attività assicurata = «Auto/Circolazione», l'opzione della
+ * Tipologia; l'attività di un privato non c'è. «Condominio» resta: anche la
+ * descrizione dell'Attività la nomina.
+ * @returns {{field:object, valore:string, altro:object}[]}
+ */
+export function foreignCategoryValues(best, fields) {
+  const text = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'text' && !isListDescription(f.description))
+  const out = []
+  for (const a of text) {
+    const v = normForMatch(best?.[a.id]?.valore || '')
+    if (!v) continue
+    const own = normForMatch(String(a.description || ''))
+    for (const b of text) {
+      if (b.id === a.id) continue
+      const opt = enumeratedOptions(b.description).find((o) => normForMatch(o) === v)
+      if (opt && !own.includes(normForMatch(opt))) { out.push({ field: a, valore: best[a.id].valore, altro: b }); break }
+    }
+  }
+  return out
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -8297,6 +8334,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of anchorByElimination(best, activeFields, analyzed)) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Riepilogo per esclusione[${s.field.label}] = "${s.valore}" (riga "${s.riga}", ${s.file} p.${s.page}): l'unico importo della riga non preso da altri campi`)
+    }
+  }
+
+  // ── [flag categoriaaltrui] Opzione chiusa di un ALTRO campo ──────────────
+  if (engineFlag(settings, 'categoriaaltrui')) {
+    for (const s of foreignCategoryValues(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(`Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
     }
   }
 

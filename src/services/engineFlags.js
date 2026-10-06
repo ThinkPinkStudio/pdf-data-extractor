@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -44,6 +44,7 @@ export const KNOWN_FLAGS = Object.freeze({
   a7ripiego: 'A.7: una proposta la cui riga e colonna non nominano il campo (riga «Categoria» per l\'Attività) è solo ripiego: il campo resta da chiedere alla cascata (la sola regola di a78)',
   altresezioni: 'Dopo il merge: in un documento con una «SEZIONE <copertura>», un importo dei campi della copertura che compare solo dentro ALTRE sezioni si svuota (Vittoria: «Franchigia 300» della sezione acqua condotta)',
   garanziecolonna: 'Dopo il merge: l\'elenco delle garanzie scelte della copertura dalle righe con un premio nella colonna intestata alla copertura, se il valore estratto non ne nomina nessuna (DAS: «Difesa Condominio»)',
+  categoriaaltrui: 'Dopo il merge: un campo di testo il cui valore è un\'opzione che la descrizione di un ALTRO campo elenca («una tra …») e che la sua descrizione non nomina si svuota (Attività = «Auto/Circolazione» della Tipologia)',
   coppiecopertura: 'Pertinenza: nelle coppie etichetta→valore anche le celle col premio sotto la colonna intestata alla copertura (scheda DAS OneClick: «TUTELA LEGALE» → 24,00)',
   datagriglia: 'Datazione: un documento che il markdown lascia senza data si data dalla griglia dei prompt (solo righe di periodo o date ripetute) — quietanze «sandwich» del ramo Docling',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
