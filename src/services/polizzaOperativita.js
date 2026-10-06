@@ -955,7 +955,7 @@ export function parseOperativitaAnswer(raw) {
  * @returns {{found:boolean, names:boolean|null, structural:boolean|null, proofIsCoverageRow?:boolean, formPage?:boolean, ord:number|null, page:number|null, where:'citata'|'altra pagina'|null, reason:string}}
  */
 
-export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {}) {
+export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [], lineQuote = false } = {}) {
   const ev = String(answer?.evidenza || '').trim()
   const ne = normForMatch(ev)
   // La prova NOMINA la copertura? (null = nessuna parola distintiva: non giudicabile)
@@ -975,6 +975,15 @@ export function verifyOperativitaEvidence(answer, blocks, { lexTokens = [] } = {
     if (norm.includes(ne)) return true
     // Citazione riscritta: tutti i token (≥4 lettere, almeno 4 di essi, o 3 con
     // cifre) e tutte le cifre nella stessa pagina. Tre parole comuni non bastano.
+    // [flag citazioneriga] Riga del premio citata saltando parole in mezzo
+    // («Tutela Legale - 24,88 3,12 28,00» per «Tutela Legale DAS DRIVE - 24,88
+    // 3,12 28,00»): bastano due parole e due importi se stanno, nello stesso
+    // ordine, su UNA riga del testo inviato.
+    if (lineQuote && tokens.length >= 2 && digitRuns.length >= 2) {
+      const parts = [...tokens, ...digitRuns]
+      const inOrder = (nl) => { let at = 0; for (const x of parts) { const k = nl.indexOf(x, at); if (k < 0) return false; at = k + x.length } return true }
+      if (String(b.text || '').split('\n').some((l) => inOrder(normForMatch(l)))) return true
+    }
     if (tokens.length < 3 || (tokens.length < 4 && !digitRuns.length)) return false
     return tokens.every((t) => norm.includes(t)) && digitRuns.every((d) => norm.includes(d))
   }

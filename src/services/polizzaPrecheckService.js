@@ -457,7 +457,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
         numCtx: ctxCap(settings), timeoutMs: 180000, numPredict: 400, format: operativitaSchema(), fields: [], shape: 'staged', diag,
       })
       let answer = parseOperativitaAnswer(raw)
-      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens }) : null
+      const evidence = answer ? verifyOperativitaEvidence(answer, blocks, { lexTokens, lineQuote: engineFlag(settings, 'citazioneriga') }) : null
       if (answer?.esito === 'operante' && evidence?.found && pre.has(evidence.ord)) {
         answer = { ...answer, esito: 'non determinabile', motivo: `la prova di «operante» sta nel Documento ${evidence.ord}, che si dichiara «${pre.get(evidence.ord)}» e non ha un numero di polizza: un preventivo o una proposta non provano l'acquisto${answer.motivo ? ` (${answer.motivo})` : ''}` }
       }

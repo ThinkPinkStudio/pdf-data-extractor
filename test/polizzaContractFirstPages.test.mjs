@@ -33,3 +33,18 @@ test('flag primepagine: acceso di default (prova del 06/10), spegnibile', () => 
   assert.equal(engineFlag({}, 'primepagine'), true)
   assert.equal(engineFlag({ polizzaEngineFlags: '-primepagine' }, 'primepagine'), false)
 })
+
+test('[flag citazioneriga] prova che salta parole in mezzo alla riga del premio: trovata solo col flag', async () => {
+  const { verifyOperativitaEvidence } = await import('../src/services/polizzaOperativita.js')
+  const page = [
+    '      DESCRIZIONE GARANZIE          INFORMAZIONI AGGIUNTIVE                                  PREMIO NETTO  IMPOSTE PREMIO LORDO',
+    '      Tutela Legale DAS DRIVE       -                                                            24,88       3,12      28,00',
+  ].join('\n')
+  const ans = { esito: 'operante', documento: 3, pagina: 1, evidenza: 'Tutela Legale   -   24,88   3,12   28,00' }
+  const lex = [['tutela', 'legale'], ['tutela', 'giudiziaria']]
+  assert.equal(verifyOperativitaEvidence(ans, [{ ord: 3, page: 1, text: page }], { lexTokens: lex }).found, false)
+  assert.equal(verifyOperativitaEvidence(ans, [{ ord: 3, page: 1, text: page }], { lexTokens: lex, lineQuote: true }).found, true)
+  // parole e importi su righe diverse, o in un altro ordine: non basta
+  const sparse = 'Tutela Legale DAS DRIVE\n   24,88   3,12   28,00'
+  assert.equal(verifyOperativitaEvidence(ans, [{ ord: 3, page: 1, text: sparse }], { lexTokens: lex, lineQuote: true }).found, false)
+})

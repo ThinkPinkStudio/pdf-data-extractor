@@ -42,6 +42,7 @@ export const KNOWN_FLAGS = Object.freeze({
   righe: 'A.7: tra più righe la riga che corrisponde a ciò che chiede la DESCRIZIONE del campo, senza istruzioni fisse né esempi (al posto del «TOTALE dell\'intero periodo»)',
   date8: 'A.8: le DATE del frontespizio sono provvisorie: la cascata le chiede anche ai documenti più recenti (quietanza di rinnovo) e decide l\'arbitro',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
+  citazioneriga: 'Pertinenza: la prova citata vale anche se salta parole in mezzo, quando due sue parole e due importi stanno nello stesso ordine su una riga del testo inviato',
   coppietesto: 'Pertinenza e domanda sulla polizza: le coppie etichetta→valore del layout comprendono anche i TESTI sotto l\'intestazione di colonna («Indicizzazione → ESCLUSA»)',
   fuocopolizza: 'Fascicolo con documenti di PIÙ polizze: l\'estrazione legge solo i documenti della polizza provata dalla pertinenza (esclusi quelli con soli numeri di polizza diversi; quelli senza numero restano)',
   primepagine: 'Domanda sulla polizza: il primo batch con le SOLE prime pagine dei documenti (la scheda non si perde tra le pagine del set informativo); le altre nei batch dopo',
