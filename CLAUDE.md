@@ -1212,7 +1212,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   interessi 35,80 = «Contributo SSN» della RCA; poi (4) dà all'imponibile il
   32,89. Mai uno zero (0,00 sotto le intestazioni fuse col nome del prodotto
   delle schede DAS Drive è un dato), mai se il valore sta anche in una riga
-  fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita.
+  fuori tabella. Replay: 887 → 890 (P19 18 → 21), nessuna perdita. (6)
+  `componentsOverGross` (06/10, dopo (2)): una voce che la descrizione del
+  lordo dice compresa («comprensivo di imposte, diritti e interessi») e che
+  SUPERA il lordo viene da un altro riepilogo e si svuota (il lordo resta):
+  Unipol KM&SERVIZI P01, imposte 108,51 della rata alla firma dell'intero
+  contratto contro il lordo 21,37 della tutela legale. Nel corpus 2 casi
+  (P01, P14), in entrambi voce sbagliata e lordo giusto: replay +1 −0.
 - **Flag `altresezioni` (06/10/2026, default)**: dopo il merge (dopo il
   riepilogo), in un documento che ha una riga «SEZIONE <copertura>» (il nome
   da «Come riconoscerla»; la parola «sezione» la usano il riconoscimento e le

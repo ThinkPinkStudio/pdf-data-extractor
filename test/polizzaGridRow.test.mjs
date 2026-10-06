@@ -375,3 +375,17 @@ test('otherSectionAmounts: la franchigia della SEZIONE DANNI DA ACQUA CONDOTTA n
   const both = [{ name: file, spatialPages: [VITTORIA + '\n            Franchigia                               300'] }]
   assert.equal(otherSectionAmounts({ [F('Franchigia generica o minima').id]: entry('300', file) }, TL, both, COVER).length, 0)
 })
+
+test('componentsOverGross: imposte del contratto oltre il lordo della tutela legale che le comprende → vuote (Unipol P01)', async () => {
+  const { componentsOverGross } = await import('../src/services/polizzaService.js')
+  const best = {
+    [F('Premio lordo totale tutela legale').id]: entry('21,37', 'POLIZZA.pdf', 4),
+    [F('Imposte').id]: entry('108,51', 'POLIZZA.pdf', 7),
+    [F('Diritti').id]: entry('2,48', 'POLIZZA.pdf', 7),
+  }
+  assert.deepEqual(componentsOverGross(best, TL).map((s) => [s.field.label.trim(), s.valore, s.lordoValore]), [['Imposte', '108,51', '21,37']])
+  // imposte sotto il lordo: niente
+  assert.equal(componentsOverGross({ ...best, [F('Imposte').id]: entry('3,81', 'POLIZZA.pdf', 4) }, TL).length, 0)
+  // senza lordo: niente
+  assert.equal(componentsOverGross({ [F('Imposte').id]: entry('108,51', 'POLIZZA.pdf', 7) }, TL).length, 0)
+})

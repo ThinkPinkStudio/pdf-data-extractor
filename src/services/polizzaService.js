@@ -3816,6 +3816,28 @@ export function includedComponentFields(field, fields) {
 }
 
 /**
+ * VOCE OLTRE IL LORDO CHE LA COMPRENDE, dopo il merge: un importo che la
+ * descrizione del lordo dice compreso («comprensivo di imposte, diritti e
+ * interessi», includedComponentFields) non può superare il lordo: viene da un
+ * altro riepilogo (le imposte dell'intero contratto). Unipol KM&SERVIZI (P01):
+ * lordo della tutela legale 21,37, imposte 108,51 della rata alla firma di
+ * tutta la polizza. Si svuota la voce, il lordo resta.
+ * @returns {{field:object, valore:string, lordo:object, lordoValore:string}[]}
+ */
+export function componentsOverGross(best, fields) {
+  const out = []
+  for (const g of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
+    const L = parsePureAmount(best?.[g.id]?.valore)
+    if (L == null || L <= 0) continue
+    for (const c of includedComponentFields(g, fields)) {
+      const v = parsePureAmount(best?.[c.id]?.valore)
+      if (v != null && v > L + 0.005) out.push({ field: c, valore: best[c.id].valore, lordo: g, lordoValore: best[g.id].valore })
+    }
+  }
+  return out
+}
+
+/**
  * RIGA CHE COMPRENDE LE COMPONENTI, dopo il merge: un campo che la descrizione
  * dice «comprensivo di» altre voci (il lordo: imposte, diritti, interessi),
  * letto in una tabella che non ha la colonna di una componente estratta NON
@@ -7873,6 +7895,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of riepilogoMismatches(best, activeFields, analyzed)) {
       delete best[s.field.id]
       diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" (${s.file}) non sta mai con ${s.anchor.label} "${s.anchorValore}" (${s.anchorFile}), a cui la descrizione lo lega → vuoto`)
+    }
+    for (const s of componentsOverGross(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(`Riepilogo[${s.field.label}]: "${s.valore}" supera ${s.lordo.label} "${s.lordoValore}", che per descrizione la comprende → vuoto`)
     }
   }
 
