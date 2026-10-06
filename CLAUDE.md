@@ -1331,29 +1331,20 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   e l'imponibile) è stampato altrove (GOLDONI: imposte della quietanza 2026,
   imponibile della scheda); `detailedRiepilogo` rimette la fonte delle voci
   già estratte sulla riga del riepilogo dettagliato.
-- **Flag `verificatesti` (06/10/2026, spento, da misurare)**: dopo il merge,
-  ogni valore di TESTO (non elenco, non verifica Sì/No) va al modello in una
-  chiamata a sé con la sola descrizione del campo, il valore e la riga del
-  documento da cui viene (`sourceLineOf`, `TEXT_CHECK_SYSTEM`): «non
-  corrisponde» → il valore cade e si prova il candidato alternativo più
-  votato con la stessa domanda; nessuno → vuoto. I prompt degli stadi non
-  cambiano: una descrizione riscritta sposta tutti i campi (v6, v7c), una
-  verifica a parte no. Bersagli: Attività dei privati («IMPIEGATO»,
-  «MOTOCICLO»), Parametro «Classe di merito», Compagnia = broker.
-  Versione 2 (06/10 pomeriggio, ancora spenta): al modello va anche la riga
-  SOPRA il valore (`sourceContextOf`: «SETTORE ATTIVITÀ   FORMA GIURIDICA»
-  sopra «Servizi vari   S.r.l.», P11 dava «SRL»); fino a TRE candidati
-  alternativi (`rankAlternativeCandidates`: voti, poi affinità, poi recency;
-  mai un'opzione chiusa di un altro campo); ripescati anche i campi svuotati
-  da `categoriaaltrui` (P06: «azienda» tolta, «Servizi vari» tra i candidati).
-- **Flag `verificaimporti` (06/10/2026, spento, da misurare)**: la stessa
-  verifica di `verificatesti` per gli IMPORTI letti dal modello; non per
-  quelli provati dalla struttura (`gridRow`, `tableRow` con evidenza di riga o
-  colonna, `deterministic`). Bersagli: P35 lordo «TOTALE FABBRICATO
-  6.367,26» (contratto intero), P08 franchigia «inferiore a 500,00 euro» (una
-  soglia del Set Informativo), P41 tasso «4/1000 della somma assicurata»,
-  P39 massimale annuo «€ 3.000 per anno» della SEZIONE DANNI DA ACQUA
-  CONDOTTA. Diagnostica «Verifica importo[…]».
+- **Verifiche col modello dopo il merge BOCCIATE (06/10/2026 sera, codice
+  tolto)**: `verificatesti` (ogni valore di TESTO al modello in una chiamata a
+  sé con la descrizione, la riga del valore e la riga sopra; «non
+  corrisponde» → candidato alternativo o vuoto) e `verificaimporti` (lo stesso
+  per gli importi letti in prosa). Prova A/B su 45 copie contro la
+  produzione (`catalog/ab-verificatesti_verificaimporti_rigaparte.json`,
+  attribuzione per regola con `scratchpad/ab-attrib.mjs`): testi ▲5 ▼8,
+  importi ▲3 ▼11. Il 32B scarta valori giusti: Compagnia «Unipol
+  Assicurazioni S.p.A.», N° polizza «0146905087», Attività e Tipologia
+  «Condominio», premi 24,00/140,20, diritti 0,00/2,48, massimali
+  25.000/20.000 (anche col «Rispondi false solo se…»). Corregge «SRL» →
+  «Servizi vari», «Classe di merito» → vuoto, franchigie-soglia, «1°» →
+  «ANNUALE». Un giudice sì/no sul singolo valore NON va riprovato; se mai,
+  una scelta tra candidati con regole deterministiche a monte.
 - **Flag `aliquota` (06/10/2026, default)**: dopo la coerenza, nella riga
   della griglia che porta il LORDO estratto (campo «comprensivo di» voci), un
   importo x, poi una percentuale p, poi un importo y con y = x·p/100 al
@@ -1379,17 +1370,24 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
   Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
   solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
-- **Flag `rigaparte` (06/10/2026, spento, da misurare)**: A.7, un TESTO che è
-  un PEZZO contiguo dell'etichetta della riga citata, letto in una colonna di
-  importi, e il resto dell'etichetta senza parole distintive della testa della
-  descrizione → scartato (`isRowLabelPart`, estensione di `isRowLabelValue`).
-  DAS Drive P03/P04/P12: Frazionamento «Rata Successiva» dalla riga «PREMIO
-  RATA SUCCESSIVA» (colonne NETTO IMPONIBILE / INTERESSE DI FRAZIONAMENTO):
-  «premio» della testa («Frazionamento del premio») dava evidenza
-  strutturale, il campo restava pieno e la cascata non chiedeva «Annuale»
-  (sotto FRAZIONAMENTO nei dati contrattuali). Mai per scelte chiuse
-  («Condominio» dalla riga «Difesa Condominio - ed.2019», 13 posizioni giuste)
-  né per elenchi.
+- **Flag `etichettariga` (06/10/2026 sera, default)**: dopo il merge, un
+  campo di TESTO (non elenco, non scelta chiusa) il cui valore nella sua
+  pagina sta SOLO come pezzo della PRIMA cella di righe di tabella con ≥2
+  importi (non dopo i due punti di un'etichetta), e il resto della cella non
+  ha parole distintive della testa della descrizione, prende il testo che la
+  griglia mette sotto un'intestazione breve che nomina il campo (parole della
+  TESTA, non le citazioni della coda: «"Annuale"» è un valore) o, se
+  l'intestazione finisce coi due punti, la cella dopo sulla riga
+  (`rowPieceLayoutValue`). DAS Drive P03/P04/P12: «Rata Successiva» dalla riga
+  «PREMIO RATA SUCCESSIVA» → «Annuale» sotto FRAZIONAMENTO; schede DAS
+  condominio: «Difesa Condominio» → «ANNUALE». Senza intestazione il valore
+  resta. Replay: +3 sui valori finali di produzione, +2/+7 su altre serie di
+  copie, nessuna perdita (prime versioni scartate: «Annuale» del Set
+  Informativo come intestazione → P20; «Periodicità di pagamento: Annuale …
+  602,00» come riga di premi → P19). Prima tentata dentro lo Stadio A.7 come
+  flag `rigaparte` (scartare la proposta e lasciare il campo alla cascata):
+  +2 sul Frazionamento ma la cascata cambiava domande e spostava altri campi
+  (P04 decorrenza e scadenza, P12 tipologia), netto −1: tolta.
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

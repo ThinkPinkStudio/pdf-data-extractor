@@ -4561,29 +4561,85 @@ export function isRowLabelValue(value, rowHit, colonna) {
 }
 
 /**
- * Stadio A.7 [flag rigaparte]: il valore proposto è un PEZZO dell'etichetta
- * della riga letto come dato di una colonna di importi? Come isRowLabelValue,
- * ma il testo è una parte contigua (a parole intere) dell'etichetta e il resto
- * dell'etichetta non ha parole distintive della testa della descrizione del
- * campo (`distinct`, distinctiveHeadTokens): «Rata Successiva» come
- * Frazionamento dalla riga «PREMIO RATA SUCCESSIVA», colonna NETTO IMPONIBILE
- * (24,88) — schede DAS Drive P03, P04, P12, dove «Annuale» sta sotto
- * FRAZIONAMENTO nei dati contrattuali. Mai per i campi a SCELTA CHIUSA
- * («Condominio» dalla riga «Difesa Condominio - ed.2019» è la categoria) né
- * per gli ELENCHI (le garanzie sono le etichette delle righe).
+ * PEZZO DELL'ETICHETTA DI UNA RIGA DI PREMI → VALORE DEL LAYOUT [flag
+ * etichettariga], dopo il merge: un campo di TESTO (non elenco, non scelta
+ * chiusa «una tra …») il cui valore, nella sua pagina, sta SOLO come pezzo (a
+ * parole intere) dell'etichetta di righe con importi, e il resto
+ * dell'etichetta non ha parole distintive della testa della sua descrizione
+ * (`distinct`, distinctiveHeadTokens), non è un dato: è «PREMIO RATA
+ * SUCCESSIVA» letta come Frazionamento (schede DAS Drive P03, P04, P12). Se
+ * nella griglia un'intestazione breve che nomina il campo («FRAZIONAMENTO»)
+ * ha subito sotto, nella stessa colonna, un testo breve senza cifre
+ * («Annuale»), quel testo prende il posto del valore: prima nel documento
+ * della fonte, poi negli altri; mai con letture diverse; senza intestazione
+ * il valore resta. Dopo il merge, perché le domande al modello non cambino: la
+ * stessa regola nello Stadio A.7 lasciava il campo alla cascata e la cascata
+ * spostava altri campi (P04 decorrenza e scadenza, P12 tipologia).
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, etichetta:string}[]}
  */
-export function isRowLabelPart(value, rowHit, colonna, field, distinct = []) {
-  if (!rowHit || /\d/.test(String(value || ''))) return false
-  if (!field || fieldValueKind(field) !== 'text' || isListDescription(field.description) || enumeratedOptions(field.description).length) return false
-  const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
-  const vw = words(value), lw = words(rowHit.row?.label || '')
-  if (!vw || !lw || vw === lw || !(` ${lw} `).includes(` ${vw} `)) return false
-  const own = new Set((distinct || []).map((t) => words(t)))
-  if ((` ${lw} `).replace(` ${vw} `, ' ').trim().split(/\s+/).some((w) => own.has(w))) return false
-  const cols = rowHit.row?.cols || []
-  const m = String(colonna || '').trim().match(/^col\s*(\d+)$/i)
-  const cited = m ? cols[Number(m[1]) - 1] : cols.find((c) => c.header && normForMatch(c.header) === normForMatch(colonna || ''))
-  return !!cited && /\d/.test(String(cited.value || '')) && /^[\d.,\s€%-]+$/.test(String(cited.value).trim())
+export function rowPieceLayoutValue(best, fields, docs, distinct) {
+  const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'text' && !isListDescription(x.description) && !enumeratedOptions(x.description).length)) {
+    const e = best?.[f.id]
+    if (!e || !e.file || e.page === '' || e.page == null) continue
+    const vw = words(e.valore)
+    if (!vw || /\d/.test(vw)) continue
+    // solo le parole distintive della TESTA (non le citazioni della coda: per
+    // il Frazionamento «"Annuale", non "Annua"» sono valori, non etichette)
+    const head = ` ${words(String(f.description || '').split(':')[0])} `
+    const own = new Set((distinct?.get?.(f.id) || []).map(words).filter((w) => w && head.includes(` ${w} `)))
+    if (!own.size) continue
+    const src = (docs || []).find((x) => x && x.name === e.file)
+    if (!src) continue
+    // riga di TABELLA (almeno due importi) la cui PRIMA cella contiene il valore
+    // come pezzo, non dopo i due punti di un'etichetta («Periodicità di
+    // pagamento: Annuale … 602,00» è una coppia etichetta: valore)
+    let piece = false, elsewhere = false
+    for (const line of String(gridPagesOf(src)[Number(e.page) - 1] || '').split('\n')) {
+      if (!(` ${words(line)} `).includes(` ${vw} `)) continue
+      const first = gridCells(line)[0]?.text || ''
+      const label = words(first)
+      const isPiece = gridAmountTokens(line).length >= 2 && !first.includes(':') && label !== vw && (` ${label} `).includes(` ${vw} `)
+        && !(` ${label} `).replace(` ${vw} `, ' ').trim().split(/\s+/).some((w) => own.has(w))
+      if (isPiece) piece = true
+      else elsewhere = true
+    }
+    if (!piece || elsewhere) continue
+    // intestazione breve che nomina il campo e, sotto nella stessa colonna, un testo breve
+    const found = new Map()
+    for (const d of [src, ...(docs || []).filter((x) => x && x !== src)]) {
+      gridPagesOf(d).forEach((text, pi) => {
+        const lines = String(text || '').split('\n')
+        lines.forEach((line, i) => {
+          const cells = gridCells(line)
+          cells.forEach((c, ci) => {
+            const cw = words(c.text).split(' ')
+            if (/\d/.test(c.text) || cw.length > 4 || !cw.some((w) => own.has(w))) return
+            // «Frazionamento del premio:   Annuale» → la cella dopo, sulla riga;
+            // un'intestazione di colonna («FRAZIONAMENTO») → la cella sotto
+            let cell = null
+            if (c.text.trim().endsWith(':')) cell = cells[ci + 1] || null
+            else {
+              let k = i + 1
+              while (k < lines.length && k <= i + 2 && !lines[k].trim()) k++
+              if (k < lines.length && k <= i + 2) cell = gridCellOver(gridCells(lines[k]), c.a, c.b)
+            }
+            if (!cell || /\d/.test(cell.text) || cell.text.includes(':') || cell.text.split(/\s+/).length > 3) return
+            if (words(cell.text).split(' ').some((w) => own.has(w))) return
+            const clean = sanitizeFieldValue(f, cell.text)
+            if (!clean || words(clean) === vw) return
+            const key = normForMatch(clean)
+            if (!found.has(key)) found.set(key, { valore: clean, file: d.name, page: pi + 1, etichetta: c.text })
+          })
+        })
+      })
+      if (found.size) break
+    }
+    if (found.size !== 1) continue
+    out.push({ field: f, prima: e.valore, ...[...found.values()][0] })
+  }
+  return out
 }
 
 /**
@@ -4642,60 +4698,6 @@ export const A7_SYSTEM_PROMPT = 'Estrai i valori richiesti dalle TABELLE qui sot
 export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI trovate nei documenti per quel campo. ' +
   'Tieni SOLO le voci che la descrizione ammette, rispettando le sue esclusioni (le frasi "NON ..."). Non aggiungere voci, non riscriverle. ' +
   'FORMATO: un oggetto JSON {"tenere": [indici delle voci da tenere]}; {"tenere": []} se nessuna voce corrisponde alla descrizione.'
-
-// [flag verificatesti] Un VALORE di testo confrontato con la DESCRIZIONE del suo
-// campo, dal modello, in una chiamata a sé: nessun prompt degli stadi cambia.
-export const TEXT_CHECK_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e il VALORE estratto da un documento per quel campo, con la riga del documento da cui viene e la riga sopra (spesso le intestazioni delle colonne). ' +
-  'Il VALORE è il dato che la descrizione chiede, rispettando le sue esclusioni (le frasi "NON ...")? ' +
-  'Rispondi false solo se il valore è chiaramente un altro dato: un\'etichetta o il nome di una riga, un dato di un altro tipo, un dato che la descrizione esclude. ' +
-  'FORMATO: un oggetto JSON {"corrisponde": true} oppure {"corrisponde": false}.'
-
-/**
- * [flag verificatesti] Candidati ALTERNATIVI di un campo dal registro del
- * consenso, raggruppati per valore normalizzato (fuori quelli in `rejected`):
- * dal più votato, poi il più affine alla descrizione, poi il più recente. Il
- * rappresentante di un gruppo è il suo candidato più affine.
- * @returns {{c:object, votes:number}[]}
- */
-export function rankAlternativeCandidates(cands, rejected = new Set()) {
-  const aff = (c) => (typeof c?.affinity === 'number' ? c.affinity : -1)
-  const alts = new Map()
-  for (const c of cands || []) {
-    const n = normForMatch(c?.valore)
-    if (!n || rejected.has(n)) continue
-    const cur = alts.get(n) || { c, votes: 0 }
-    cur.votes++
-    if (aff(c) > aff(cur.c)) cur.c = c
-    alts.set(n, cur)
-  }
-  return [...alts.values()].sort((a, b) => b.votes - a.votes || aff(b.c) - aff(a.c) ||
-    (dateStrToTs(b.c.srcDate) ?? -Infinity) - (dateStrToTs(a.c.srcDate) ?? -Infinity))
-}
-
-/** Riga della pagina sorgente che contiene il valore (testo normalizzato), '' se non c'è. */
-export function sourceLineOf(docs, e) {
-  return sourceContextOf(docs, e).line
-}
-
-/**
- * Riga della pagina sorgente che contiene il valore e la riga non vuota sopra
- * (le intestazioni di colonna: «SETTORE ATTIVITÀ   FORMA GIURIDICA» sopra
- * «Servizi vari   S.r.l.»). Stringhe vuote se il valore non si ritrova.
- */
-export function sourceContextOf(docs, e) {
-  const none = { above: '', line: '' }
-  if (!e?.file || e.page === '' || e.page == null) return none
-  const d = (docs || []).find((x) => x && x.name === e.file)
-  const vn = normForMatch(e.valore)
-  if (!d || !vn) return none
-  const lines = String(gridPagesOf(d)[Number(e.page) - 1] || '').split('\n')
-  const i = lines.findIndex((l) => normForMatch(l).includes(vn))
-  if (i < 0) return none
-  const tidy = (l) => String(l || '').replace(/\s{2,}/g, '   ').trim().slice(0, 300)
-  let above = ''
-  for (let k = i - 1; k >= 0 && k >= i - 3; k--) if (lines[k].trim()) { above = tidy(lines[k]); break }
-  return { above, line: tidy(lines[i]) }
-}
 
 /** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
 export function isListDescription(description) {
@@ -7122,10 +7124,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è l'etichetta della riga, la colonna citata contiene un importo`)
               continue
             }
-            if (engineFlag(settings, 'rigaparte') && isRowLabelPart(cleaned, rowHit, valObj.colonna || (v && typeof v === 'object' ? v.colonna : ''), f, distinctHead.get(f.id))) {
-              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — è un pezzo dell'etichetta della riga "${rowHit.row?.label || ''}", la colonna citata contiene un importo`)
-              continue
-            }
             // PAGINA reale: quella della riga che porta il valore, altrimenti la
             // prima tabella inviata che lo contiene (sempre di questo documento).
             const vnorm = normForMatch(cleaned)
@@ -8696,91 +8694,21 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── [flag categoriaaltrui] Opzione chiusa di un ALTRO campo ──────────────
-  const categoryEmptied = new Map() // campo → valore tolto (per verificatesti)
-  if (engineFlag(settings, 'categoriaaltrui')) {
-    for (const s of foreignCategoryValues(best, activeFields)) {
-      delete best[s.field.id]
-      categoryEmptied.set(s.field.id, s.valore)
-      diag.push(s.fuoriScelta
-        ? `Scelta chiusa[${s.field.label}]: "${s.valore}" non è una delle opzioni che la descrizione elenca («una tra …») → vuoto`
-        : `Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
+  // ── [flag etichettariga] Pezzo dell'etichetta di una riga di premi ───────
+  if (engineFlag(settings, 'etichettariga')) {
+    for (const s of rowPieceLayoutValue(best, activeFields, analyzed, distinctHead)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Etichetta della riga[${s.field.label}]: "${s.prima}" è un pezzo dell'etichetta di una riga di premi → "${s.valore}" (sotto «${s.etichetta}», ${s.file} p.${s.page})`)
     }
   }
 
-  // ── [flag verificatesti] Valori di TESTO confrontati con la descrizione ──
-  // Una chiamata per campo di testo (non elenco, non verifica Sì/No): la sola
-  // descrizione, il valore e la riga da cui viene. «Non corrisponde» → il
-  // valore cade e si prova il candidato alternativo più votato (stessa
-  // domanda); nessun candidato che corrisponda → vuoto. I prompt degli stadi
-  // non cambiano (una descrizione riscritta sposta tutti i campi).
-  // [flag verificaimporti] La stessa verifica per gli IMPORTI letti dal
-  // modello (non quelli provati dalla struttura: riga della griglia, riga di
-  // tabella che nomina il campo, regole deterministiche): «TOTALE FABBRICATO
-  // 6.367,26» come lordo della tutela legale, «inferiore a 500,00 euro» come
-  // franchigia, «4/1000 della somma assicurata» come tasso di regolazione.
-  const checkTexts = engineFlag(settings, 'verificatesti')
-  const checkAmounts = engineFlag(settings, 'verificaimporti')
-  if (checkTexts || checkAmounts) {
-    const clog = STAGED_CANDIDATE_LOG.get(best) || {}
-    const ask = async (f, valore, src) => {
-      const ctx = sourceContextOf(analyzed, { ...src, valore })
-      const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVALORE: ${valore}\n` +
-        (ctx.above ? `RIGA SOPRA (intestazioni o testo precedente): ${ctx.above}\n` : '') +
-        `RIGA DEL VALORE: ${ctx.line || '-'}\n\nRispondi SOLO con l'oggetto JSON.`
-      const raw = await callOllamaRolling(settings, TEXT_CHECK_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
-      let parsed = null
-      try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
-      return parsed && typeof parsed.corrisponde === 'boolean' ? parsed.corrisponde : null
-    }
-    // Candidati ALTERNATIVI del campo (registro del consenso), dal più votato,
-    // poi il più affine alla descrizione, poi il più recente; mai il valore
-    // scartato né un'opzione chiusa di un altro campo (categoriaaltrui). Il
-    // primo che il modello dice conforme alla descrizione prende il posto.
-    const tryAlternatives = async (f, rejected) => {
-      let tried = 0
-      for (const alt of rankAlternativeCandidates(clog[f.id] || [], rejected)) {
-        if (tried >= 3) break
-        const clean = sanitizeFieldValue(f, alt.c.valore)
-        if (!clean) continue
-        if (engineFlag(settings, 'categoriaaltrui') && foreignCategoryValues({ [f.id]: { valore: clean } }, activeFields).length) continue
-        tried++
-        if ((await ask(f, clean, alt.c)) === true) return { c: alt.c, clean, votes: alt.votes }
-      }
-      return null
-    }
-    for (const f of activeFields) {
-      const kind = fieldValueKind(f)
-      if (isListDescription(f.description) || descriptionAsksVerification(f.description)) continue
-      if (!((checkTexts && kind === 'text') || (checkAmounts && kind === 'amount'))) continue
-      const e = best[f.id]
-      if (kind === 'amount' && e && (e.gridRow === true || e.tableRow === true || e.deterministic === true)) continue
-      const what = kind === 'amount' ? 'Verifica importo' : 'Verifica testo'
-      try {
-        if (!e) {
-          if (kind !== 'text') continue
-          // svuotato dalla scelta chiusa di un altro campo: si cerca un candidato conforme
-          if (!categoryEmptied.has(f.id)) continue
-          const alt = await tryAlternatives(f, new Set([normForMatch(categoryEmptied.get(f.id))]))
-          if (alt) {
-            best[f.id] = { ...alt.c, valore: alt.clean }
-            diag.push(`${what}[${f.label}]: dopo "${categoryEmptied.get(f.id)}" (scelta di un altro campo) → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
-          }
-          continue
-        }
-        const ok = await ask(f, e.valore, e)
-        if (ok !== false) { if (ok === null) diag.push(`${what}[${f.label}]: risposta illeggibile, valore invariato`); continue }
-        const alt = await tryAlternatives(f, new Set([normForMatch(e.valore)]))
-        if (alt) {
-          best[f.id] = { ...alt.c, valore: alt.clean }
-          diag.push(`${what}[${f.label}]: "${e.valore}" non corrisponde alla descrizione → "${alt.clean}" (candidato alternativo, ${alt.votes} voti)`)
-        } else {
-          delete best[f.id]
-          diag.push(`${what}[${f.label}]: "${e.valore}" non corrisponde alla descrizione → vuoto`)
-        }
-      } catch (err) {
-        diag.push(`${what}[${f.label}]: controllo non eseguito (${err.message})`)
-      }
+  // ── [flag categoriaaltrui] Opzione chiusa di un ALTRO campo ──────────────
+  if (engineFlag(settings, 'categoriaaltrui')) {
+    for (const s of foreignCategoryValues(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(s.fuoriScelta
+        ? `Scelta chiusa[${s.field.label}]: "${s.valore}" non è una delle opzioni che la descrizione elenca («una tra …») → vuoto`
+        : `Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
     }
   }
 
