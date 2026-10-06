@@ -4302,6 +4302,68 @@ export function taxRateRow(best, fields, docs) {
 }
 
 /**
+ * COPIA DEL CAMPO GEMELLO [flag gemelli], dopo la coerenza: due campi importo
+ * le cui TESTE di descrizione cominciano con la stessa parola e differiscono
+ * per le altre («Massimale per sinistro» / «Massimale per anno») hanno lo
+ * stesso valore; se ogni occorrenza del valore nei documenti delle due fonti
+ * (riga del valore e, se è un'etichetta senza importi, la riga sopra) nomina
+ * la parola distintiva di uno solo dei
+ * due («per sinistro», mai «anno»), l'altro è una copia e si svuota. Le parole
+ * si confrontano senza le vocali finali («anno» = «annuo» = «annui»). Allianz
+ * P14: «Massimale euro 15.000,00 per sinistro» come massimale annuo; P15: il
+ * massimale R.C.A. «in caso di sinistro» copiato sull'annuo. Una riga «per
+ * sinistro e per anno» li tiene tutti e due.
+ * @returns {{field:object, valore:string, gemello:object}[]}
+ */
+export function twinCopyAmounts(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const stem = (w) => w.replace(/[aeiou]+$/, '')
+  const toks = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 4)
+  const headOf = (f) => toks(String(f.description || '').split(':')[0])
+  const numsOf = (l) => [...String(l || '').matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(?![\d.,]\d)/g)]
+    .map((m) => Number(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : '')))
+  const out = []
+  const dropped = new Set()
+  for (let i = 0; i < amount.length; i++) {
+    for (let j = i + 1; j < amount.length; j++) {
+      const a = amount[i], b = amount[j]
+      const ha = headOf(a), hb = headOf(b)
+      if (!ha.length || !hb.length || ha[0] !== hb[0]) continue
+      const da = [...new Set(ha.filter((w) => !hb.includes(w)).map(stem))].filter((w) => w.length >= 3)
+      const db = [...new Set(hb.filter((w) => !ha.includes(w)).map(stem))].filter((w) => w.length >= 3)
+      if (!da.length || !db.length) continue
+      const ea = best?.[a.id], eb = best?.[b.id]
+      if (!ea || !eb || dropped.has(a.id) || dropped.has(b.id)) continue
+      const n = parsePureAmount(ea.valore)
+      if (n == null || n <= 0 || !sameAmount(n, parsePureAmount(eb.valore))) continue
+      let occ = 0, aNamed = false, bNamed = false
+      for (const name of new Set([ea.file, eb.file].filter(Boolean))) {
+        const d = (docs || []).find((x) => x && x.name === name)
+        for (const text of gridPagesOf(d)) {
+          const lines = String(text || '').split('\n')
+          lines.forEach((line, k) => {
+            if (!numsOf(line).some((x) => sameAmount(x, n))) return
+            occ++
+            // la riga sopra conta solo se è un'ETICHETTA (senza importi): «in caso
+            // di sinistro:» sopra «limite di: 10.000.000,00»; «TUTELA LEGALE
+            // Imponibile annuo € 397,09» sopra «Somma Assicurata € 20.000,00» no
+            const above = k > 0 && !numsOf(lines[k - 1]).some((x) => x >= 1) ? lines[k - 1] : ''
+            const ws = new Set(toks(`${above} ${line}`).map(stem))
+            if (da.some((w) => ws.has(w))) aNamed = true
+            if (db.some((w) => ws.has(w))) bNamed = true
+          })
+        }
+      }
+      if (!occ || aNamed === bNamed) continue
+      const [copy, twin] = aNamed ? [b, a] : [a, b]
+      dropped.add(copy.id)
+      out.push({ field: copy, valore: best[copy.id].valore, gemello: twin })
+    }
+  }
+  return out
+}
+
+/**
  * Le voci che la DESCRIZIONE dice COMPRESE nel campo («Premio lordo … comprensivo
  * di imposte, diritti e interessi»): per ogni voce il campo importo la cui testa
  * le somiglia di più (headerLexOf ≥ 0,5). [] se la descrizione non lo dice.
@@ -8602,6 +8664,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const top = [...groups.values()].sort((x, y) => y.n - x.n || (typeof y.rep.affinity === 'number' ? y.rep.affinity : -1) - (typeof x.rep.affinity === 'number' ? x.rep.affinity : -1))[0]
       best[a.id] = top.rep
       diag.push(`Coerenza massimali: annuo ripreso dai candidati coerenti (≥ sinistro ${best[s0.id].valore}): "${top.rep.valore}" (${top.n} voti)`)
+    }
+  }
+
+  // ── [flag gemelli] COPIA DEL CAMPO GEMELLO (massimale annuo = per sinistro) ──
+  if (engineFlag(settings, 'gemelli')) {
+    for (const s of twinCopyAmounts(best, activeFields, analyzed)) {
+      delete best[s.field.id]
+      diag.push(`Campo gemello[${s.field.label}]: "${s.valore}" è lo stesso valore di ${s.gemello.label}, e nei documenti sta solo accanto alle parole di quel campo → vuoto`)
     }
   }
 

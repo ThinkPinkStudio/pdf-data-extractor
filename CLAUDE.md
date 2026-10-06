@@ -1354,6 +1354,19 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   SSN»): le colonne davano «Imposte» a tutte e due le celle, imponibile e
   imposte restavano vuoti (A.7 leggeva il lordo come imponibile, la coerenza
   lo svuotava). Replay sulle 45 copie A/B: 953 → 957, nessuna perdita.
+- **Flag `gemelli` (06/10/2026, default)**: dopo la coerenza, due campi
+  importo con la TESTA della descrizione che comincia con la stessa parola
+  («Massimale per sinistro» / «Massimale per anno») e lo stesso valore: se
+  ogni occorrenza del valore nei documenti delle due fonti nomina (sulla sua
+  riga, o sulla riga sopra se è un'etichetta senza importi) la parola
+  distintiva di UNO solo dei due, l'altro è una copia e si svuota
+  (`twinCopyAmounts`; parole senza vocali finali: «anno» = «annuo»). Allianz
+  P14 «Massimale euro 15.000,00 per sinistro» e P15 massimale R.C.A. «in caso
+  di sinistro» copiati sull'annuo. Nelle verità dei 45 fascicoli TL l'annuo
+  non è mai uguale al per sinistro. La prima versione guardava sempre la riga
+  sopra e su P39 «TUTELA LEGALE Imponibile annuo € 397,09» sopra «Somma
+  Assicurata € 20.000,00» svuotava il per sinistro giusto: la riga sopra conta
+  solo se non porta importi. Replay su 8 serie di copie: +3, nessuna perdita.
 - **Flag `rigaparte` (06/10/2026, spento, da misurare)**: A.7, un TESTO che è
   un PEZZO contiguo dell'etichetta della riga citata, letto in una colonna di
   importi, e il resto dell'etichetta senza parole distintive della testa della
