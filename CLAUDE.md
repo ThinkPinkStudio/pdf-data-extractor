@@ -1284,7 +1284,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   categoria dell'altro campo e si svuota (`foreignCategoryValues`). Polizze
   auto di privati P07/P14: Attività «Auto/Circolazione» (verità vuota);
   «Condominio» resta perché anche la descrizione dell'Attività la nomina.
-  Replay +2 −0.
+  Replay +2 −0. Stesso flag: se la descrizione del campo stesso elenca una
+  scelta chiusa, un valore che non è un'opzione (né una sua parte separata da
+  «/») si svuota — oggi solo la Tipologia, neutro sui dati. Per il
+  Frazionamento («Rata Successiva», «OPZIONALI», «Difesa Condominio» da
+  righe di tabella) basterebbe che la descrizione dicesse «una tra Annuale,
+  Semestrale, …»: decisione dell'utente (si toccano solo le descrizioni).
 - **Flag `a7ripiego` (06/10/2026, spento, da misurare)**: la sola regola di
   `a78` sulle proposte di A.7 la cui riga e colonna non nominano il campo
   (structLex 0): non chiudono il campo, restano RIPIEGO e la cascata lo

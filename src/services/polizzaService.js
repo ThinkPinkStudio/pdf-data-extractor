@@ -4074,6 +4074,14 @@ export function foreignCategoryValues(best, fields) {
     const v = normForMatch(best?.[a.id]?.valore || '')
     if (!v) continue
     const own = normForMatch(String(a.description || ''))
+    // scelta CHIUSA della propria descrizione («una tra …»): un valore fuori
+    // dall'elenco (né un'opzione né una sua parte «Auto» di «Auto/Circolazione»)
+    // non è una risposta del campo
+    const mine = enumeratedOptions(a.description)
+    if (mine.length && !mine.some((o) => normForMatch(o) === v || o.split('/').some((part) => normForMatch(part) === v))) {
+      out.push({ field: a, valore: best[a.id].valore, altro: a, fuoriScelta: true })
+      continue
+    }
     for (const b of text) {
       if (b.id === a.id) continue
       const opt = enumeratedOptions(b.description).find((o) => normForMatch(o) === v)
@@ -8341,7 +8349,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (engineFlag(settings, 'categoriaaltrui')) {
     for (const s of foreignCategoryValues(best, activeFields)) {
       delete best[s.field.id]
-      diag.push(`Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
+      diag.push(s.fuoriScelta
+        ? `Scelta chiusa[${s.field.label}]: "${s.valore}" non è una delle opzioni che la descrizione elenca («una tra …») → vuoto`
+        : `Categoria di un altro campo[${s.field.label}]: "${s.valore}" è un'opzione di «${s.altro.label}» che la descrizione di questo campo non nomina → vuoto`)
     }
   }
 

@@ -540,4 +540,8 @@ test('foreignCategoryValues: Attività = «Auto/Circolazione», opzione chiusa d
   assert.equal(foreignCategoryValues({ [H('Attività assicurata').id]: entry('CONDOMINIO', 'p.pdf') }, FL).length, 0)
   // solo l'uguaglianza esatta: «Azienda industriale» resta
   assert.equal(foreignCategoryValues({ [H('Attività assicurata').id]: entry('Azienda industriale', 'p.pdf') }, FL).length, 0)
+  // scelta chiusa della propria descrizione: la Tipologia «Difesa Condominio» non è un'opzione → vuota; «Auto» è parte di «Auto/Circolazione» → resta
+  assert.deepEqual(foreignCategoryValues({ [H('Tipologia tutela legale').id]: entry('Difesa Condominio', 'p.pdf') }, FL).map((s) => [s.field.label.trim(), s.fuoriScelta]), [['Tipologia tutela legale', true]])
+  assert.equal(foreignCategoryValues({ [H('Tipologia tutela legale').id]: entry('Auto', 'p.pdf') }, FL).length, 0)
+  assert.equal(foreignCategoryValues({ [H('Tipologia tutela legale').id]: entry('CONDOMINIO', 'p.pdf') }, FL).length, 0)
 })
