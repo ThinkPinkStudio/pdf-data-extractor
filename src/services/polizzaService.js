@@ -3707,6 +3707,11 @@ export function unprintedRowItems(best, fields, docs) {
         const lexOf = (h) => headerLexOf(f, h)
         const ownsStrict = (h) => { const l = lexOf(h); return l > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, h) < l) }
         const ownsTie = (h) => { const l = lexOf(h); return l > 0 && amount.every((g) => g.id === f.id || headerLexOf(g, h) <= l) }
+        // Senza un'intestazione sopra la cella non si può dire che la tabella
+        // non nomini la voce: l'OCR visivo mette intestazioni e importi sulla
+        // STESSA riga («… IMPOSTE PREMIO LORDO 219,21 0,00 0,00 46,58 265,79»,
+        // BIANCA MARIA P24 e ARENA P22: imposte giuste svuotate).
+        if (!header.trim()) { hits.push({ named: true, riga: label, colonna: header }); continue }
         hits.push({ named: ownsTie(header) || ownsStrict(label), riga: label, colonna: header })
       }
     })

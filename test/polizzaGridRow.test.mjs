@@ -603,3 +603,10 @@ test('titledTableList: le garanzie scelte dalla tabella «GARANZIE SCELTE», fin
   // un titolo fatto solo del nome della copertura («TUTELA LEGALE») non apre la tabella
   assert.equal(titledTableList({}, LIST, [{ name: 'x.pdf', spatialPages: [AZ.replace('GARANZIE SCELTE', 'TUTELA LEGALE')] }], COVER).length, 0)
 })
+
+test('unprintedRowItems: riga senza intestazione sopra (OCR visivo, intestazioni e importi sulla stessa riga) → non si giudica', async () => {
+  const { unprintedRowItems } = await import('../src/services/polizzaService.js')
+  const VIS = 'TUTELA LEGALE    PERDITE PECUNIARIE    ASSISTENZA    IMPOSTE    PREMIO LORDO 219,21   0,00   0,00   46,58   265,79'
+  const docs = [{ name: 'BIANCA MARIA.pdf', spatialPages: [VIS] }]
+  assert.equal(unprintedRowItems({ [F('Imposte').id]: entry('46,58', 'BIANCA MARIA.pdf') }, TL, docs).length, 0)
+})
