@@ -443,3 +443,30 @@ test('detailedRiepilogo: il «Premio netto» della quietanza comprende i diritti
   // imponibile già quello della scheda: niente
   assert.equal(detailedRiepilogo({ ...best, [F('Premio imponibile tutela legale').id]: entry('159,99', 'scheda.pdf') }, TL, docs).length, 0)
 })
+
+test('coherentPremiumRow: le imposte della riga dove imponibile + voci = lordo, non della riga della garanzia (LAMBRATE P32)', async () => {
+  const { coherentPremiumRow } = await import('../src/services/polizzaService.js')
+  const SCH = [
+    '                                                                                       TUTELA      PERDITE     ASSISTENZA    IMPOSTE     PREMIO',
+    '                                                                                       LEGALE     PECUNIARIE                              LORDO',
+    '     Difesa Condominio - ed.2019                                                         220,20                                  46,79      266,99',
+    '            Segue Elenco Rischi                                    PREMIO ANNUO          220,20         0,00         0,00        46,79      266,99',
+    '   PREMIO TOTALE                                 FRAZIONAMENTO   NETTO IMPONIBILE     RIMBORSO          DIRITTO        IMPOSTE       PREMIO LORDO',
+    '   PREMIO RATA INIZIALE                                     0,00           148,64             0,00            2,48           32,12          183,24',
+    '   PREMIO RATA SUCCESSIVA                                   0,00           220,20                             2,48           47,32          270,00',
+  ].join('\n')
+  const file = 'LAMBRATE 24 CONDOMINIO.pdf'
+  const docs = [{ name: file, spatialPages: [SCH] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('220,20', file),
+    [F('Imposte').id]: entry('46,79', file),
+    [F('Diritti').id]: entry('2,48', file),
+    [F('Premio lordo totale tutela legale').id]: entry('270,00', file),
+  }
+  assert.deepEqual(coherentPremiumRow(best, TL, docs).map((s) => [s.field.label.trim(), s.prima, s.valore, s.riga]), [['Imposte', '46,79', '47,32', 'PREMIO RATA SUCCESSIVA']])
+  // le voci vuote non si riempiono qui
+  const { [F('Diritti').id]: _d, ...noDiritti } = best
+  assert.ok(!coherentPremiumRow(noDiritti, TL, docs).some((s) => s.field.label.trim() === 'Diritti'))
+  // lordo della riga della garanzia (266,99): la riga coerente è quella, imposte 46,79 invariate
+  assert.equal(coherentPremiumRow({ ...best, [F('Premio lordo totale tutela legale').id]: entry('266,99', file) }, TL, docs).length, 0)
+})

@@ -70,6 +70,7 @@ const BUILD_FEATURES = [
   'flag-citazioneriga', // Flag «citazioneriga»: pertinenza, prova che salta parole in mezzo alla riga del premio (due parole e due importi in ordine su una riga)
   'fuoco-default', // Flag «fuocopolizza» acceso: estrazione sui soli documenti della polizza provata dalla pertinenza (P03 15 → 21 su 23, prova del 06/10)
   'flag-fuocopolizza', // Flag «fuocopolizza»: estrazione sui soli documenti della polizza provata dalla pertinenza
+  'riga-coerente', // Flag «riepilogo»: le voci comprese nel lordo dalla riga dove imponibile + voci = lordo (LAMBRATE P32: imposte 47,32 della rata successiva, non 46,79 della riga della garanzia)
   'riepilogo-dettagliato', // Flag «riepilogo»: lo stesso premio (stesse imposte e lordo) stampato altrove con le voci separate: se imponibile + diritti/interessi della riga = imponibile estratto, si prendono dalla riga (GOLDONI P30: 162,47 = 159,99 + 2,48)
   'flag-a7ripiego', // Flag «a7ripiego» (spento): una proposta di A.7 la cui riga e colonna non nominano il campo («Categoria» per l'Attività) è solo ripiego e il campo si chiede alla cascata
   'sezione-copertura', // Flag «altresezioni»: l'importo della prima riga della «SEZIONE <copertura>» sotto l'etichetta che nomina il campo («Imponibile annuo € 343,86» di Vittoria P44/P45) prima del riepilogo (replay del 06/10: +3)

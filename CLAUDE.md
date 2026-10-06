@@ -1227,7 +1227,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   l'estratto le comprendeva: imponibile e voci si prendono dalla riga, tutti
   stampati. GOLDONI P30: quietanza 2026 «Premio netto 162,47 Imposte 34,53
   Premio lordo 197,00», scheda «PREMIO RATA SUCCESSIVA 0,00 159,99 2,48
-  34,53 197,00» → 159,99 / 2,48 / 0,00 (la verità). Replay +3 −0.
+  34,53 197,00» → 159,99 / 2,48 / 0,00 (la verità). Replay +3 −0. (8)
+  `coherentPremiumRow` (06/10, dopo (7)): la riga che porta imponibile e lordo
+  estratti e in cui imponibile + voci comprese nel lordo = lordo, cella per
+  cella, è il riepilogo del premio: una voce GIÀ estratta da un'altra riga
+  con un valore diverso si prende da lì (mai riempimenti). LAMBRATE P32:
+  imposte 46,79 della riga della garanzia (senza diritti) → 47,32 della «RATA
+  SUCCESSIVA» (220,20 + 0,00 + 2,48 + 47,32 = 270,00). Le verità di P29, P34,
+  P36, P42 accettano entrambe le imposte: replay +1 −0.
 - **Flag `altresezioni` (06/10/2026, default)**: dopo il merge (dopo il
   riepilogo), in un documento che ha una riga «SEZIONE <copertura>» (il nome
   da «Come riconoscerla»; la parola «sezione» la usano il riconoscimento e le

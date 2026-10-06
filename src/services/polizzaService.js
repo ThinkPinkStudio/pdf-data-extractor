@@ -3868,6 +3868,64 @@ export function detailedRiepilogo(best, fields, docs) {
 }
 
 /**
+ * RIGA COERENTE DEL PREMIO, dopo il riepilogo: una riga che porta l'imponibile
+ * e il lordo estratti e in cui imponibile + voci comprese nel lordo (la sua
+ * descrizione: «comprensivo di imposte, diritti e interessi») = lordo, cella
+ * per cella, è il riepilogo del premio: una voce estratta da un'altra riga che
+ * qui ha un valore diverso si prende da qui. Scheda DAS LAMBRATE (P32):
+ * «PREMIO RATA SUCCESSIVA 0,00 220,20 2,48 47,32 270,00» (220,20 + 0,00 +
+ * 2,48 + 47,32 = 270,00) contro le imposte 46,79 della riga della garanzia,
+ * che non ha i diritti (266,99). Solo sostituzioni di voci già estratte.
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, riga:string, colonna:string}[]}
+ */
+export function coherentPremiumRow(best, fields, docs) {
+  const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
+  const owner = (header) => {
+    let top = null, lex = 0, tie = false
+    for (const g of amount) { const l = headerLexOf(g, header); if (l > lex) { lex = l; top = g; tie = false } else if (l === lex && l > 0) tie = true }
+    return tie ? null : top
+  }
+  const out = []
+  for (const g of amount) {
+    const comps = includedComponentFields(g, fields)
+    const L = parsePureAmount(best?.[g.id]?.valore)
+    if (!comps.length || L == null || L <= 0) continue
+    const a = comps.map((c) => riepilogoAnchorField(c, fields)).find(Boolean)
+    const I = a ? parsePureAmount(best?.[a.id]?.valore) : null
+    if (!a || I == null || I <= 0) continue
+    const rows = []
+    for (const d of docs || []) {
+      gridPagesOf(d).forEach((page, pi) => {
+        const lines = String(page || '').split('\n')
+        lines.forEach((line, i) => {
+          if (line.includes('|')) return
+          const toks = gridAmountTokens(line)
+          if (!toks.some((t) => sameAmount(t.n, I)) || !toks.some((t) => sameAmount(t.n, L))) return
+          const cells = toks.map((t) => { const header = gridHeaderAbove(lines, i, t.a, t.b) || ''; return { t, header, f: owner(header) } })
+          const parts = cells.filter((c) => c.f && comps.includes(c.f))
+          if (!parts.length || new Set(parts.map((c) => c.f.id)).size !== parts.length) return
+          if (!cells.some((c) => c.f?.id === a.id && sameAmount(c.t.n, I)) || !cells.some((c) => c.f?.id === g.id && sameAmount(c.t.n, L))) return
+          if (!sameAmount(I + parts.reduce((acc, c) => acc + c.t.n, 0), L)) return
+          rows.push({ parts, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
+        })
+      })
+    }
+    // righe coerenti con valori diversi per la stessa voce: non si decide
+    for (const c of comps) {
+      const vals = new Set(rows.flatMap((r) => r.parts.filter((p) => p.f.id === c.id).map((p) => p.t.n)))
+      if (vals.size !== 1) continue
+      const r = rows.find((x) => x.parts.some((p) => p.f.id === c.id))
+      const p = r.parts.find((x) => x.f.id === c.id)
+      const cur = best?.[c.id]
+      if (!cur || sameAmount(parsePureAmount(cur.valore), p.t.n)) continue
+      if (!sanitizeFieldValue(c, p.t.text)) continue
+      out.push({ field: c, prima: cur.valore, valore: p.t.text, file: r.file, page: r.page, riga: r.riga, colonna: p.header })
+    }
+  }
+  return out
+}
+
+/**
  * IL CAMPO LEGATO PER ESCLUSIONE, dopo la coerenza: un campo importo VUOTO a
  * cui la descrizione di altri campi lega la propria riga («imposte … sulla
  * stessa riga o nello stesso riepilogo del Premio imponibile annuo») prende
@@ -8038,6 +8096,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of detailedRiepilogo(best, activeFields, analyzed)) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Riepilogo dettagliato[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): lo stesso premio con le voci separate`)
+    }
+    for (const s of coherentPremiumRow(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Riga coerente[${s.field.label}]: "${s.prima}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): imponibile + voci = lordo nella riga del premio`)
     }
   }
 
