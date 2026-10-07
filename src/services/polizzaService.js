@@ -4175,6 +4175,70 @@ export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {})
 }
 
 /**
+ * [flag periodopremi] PREMI DI UN PERIODO SUPERATO. Le descrizioni chiedono
+ * date e premi del periodo PIÙ RECENTE («la data da cui inizia la copertura
+ * del periodo PIÙ RECENTE»; «con più periodi, quello del periodo più
+ * recente»). Se la decorrenza estratta viene da un documento e il lordo da un
+ * ALTRO documento il cui periodo è già finito a quella decorrenza (la sua data
+ * più recente non la supera), il lordo è di un'annualità superata quando la
+ * riga della decorrenza, nel suo documento, porta un solo importo diverso dal
+ * lordo e quel documento il lordo estratto non lo stampa mai: è il premio del
+ * periodo nuovo. Il lordo prende quell'importo; le voci del riepilogo
+ * (imponibile, imposte, diritti, interessi) lette nello stesso periodo
+ * superato e non stampate nel documento nuovo si svuotano (non calcolate).
+ * Nessun tipo di documento: decide la data. CASORETTO P26: rinnovo «30/04/2026
+ * 214,00» del 2026 contro il riepilogo 147,62 / 2,48 / 31,90 / 182,00 della
+ * scheda 2020. Stesso premio stampato anche nel documento nuovo (GOLDONI P30,
+ * RUZZA P16): niente; riga della decorrenza senza importi (sospensione P17):
+ * niente.
+ * @returns {{field:object, prima:string, valore:string|null, file?:string, page?:number, riga?:string}[]}
+ */
+export function supersededPeriodPremiums(best, fields, docs) {
+  const active = (fields || []).filter((f) => f && f.enabled !== false)
+  const pos = (f) => positiveDescriptionText(String(f.description || ''))
+  const starts = active.filter((f) => fieldValueKind(f) === 'date' && /\binizi/i.test(pos(f)) && /pi[uù]\s+recente/i.test(pos(f)))
+  if (starts.length !== 1) return []
+  const e = best?.[starts[0].id]
+  const T = dateStrToTs(e?.valore || '')
+  if (T == null || !e.file) return []
+  const docOf = (name) => (docs || []).find((d) => d && d.name === name)
+  const docTs = (d) => (d?.ts != null ? d.ts : dateStrToTs(latestDateExcludingEmission((d?.pages?.length ? d.pages : gridPagesOf(d)).join('\n'), { ocr: !!d?.ocr }) || ''))
+  const dd = docOf(e.file)
+  if (!dd) return []
+  const ddLines = gridPagesOf(dd).flatMap((page, pi) => { const ls = String(page || '').split('\n'); return ls.map((line, i) => ({ line, page: pi + 1, near: ls.slice(Math.max(0, i - 2), i + 3).join(' ') })) })
+  const printedInNew = (v) => { const n = parsePureAmount(v); return n != null && ddLines.some((l) => gridAmountTokens(l.line).some((t) => sameAmount(t.n, n))) }
+  const superseded = (entry) => { if (!entry?.file || entry.file === e.file) return false; const t = docTs(docOf(entry.file)); return t != null && t <= T }
+  // la riga della decorrenza nel suo documento, con un solo importo non nullo
+  const rows = ddLines.filter((l) => [...l.line.matchAll(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/g)].some((m) => normalizeDateValue(m[0]) === e.valore))
+    .map((l) => ({ ...l, amounts: gridAmountTokens(l.line).filter((t) => t.n > 0) }))
+    .filter((l) => l.amounts.length === 1)
+  // più polizze con la stessa data (elenco delle rate in scadenza): la riga
+  // vicina (±2 righe, celle su più righe) al numero di polizza estratto
+  const numField = active.find((f) => descriptionAsksDocumentNumber(f.description))
+  const num = String(best?.[numField?.id]?.valore || '').replace(/\D/g, '')
+  const pick = new Set(rows.map((l) => l.amounts[0].n)).size > 1 && num.length >= 6
+    ? rows.filter((l) => l.near.replace(/\D/g, '').includes(num))
+    : rows
+  if (!pick.length || new Set(pick.map((l) => l.amounts[0].n)).size !== 1) return []
+  const r = pick[0], A = r.amounts[0]
+  const out = []
+  for (const g of active.filter((f) => fieldValueKind(f) === 'amount' && includedComponentFields(f, active).length && /pi[uù]\s+recente/i.test(pos(f)))) {
+    const eg = best?.[g.id]
+    if (!eg?.valore || !superseded(eg) || sameAmount(parsePureAmount(eg.valore), A.n) || printedInNew(eg.valore)) continue
+    if (!sanitizeFieldValue(g, A.text)) continue
+    out.push({ field: g, prima: eg.valore, valore: A.text, file: dd.name, page: r.page, riga: gridRowLabel(r.line) })
+    const comps = includedComponentFields(g, active)
+    const group = [...new Set([...comps, ...comps.map((c) => riepilogoAnchorField(c, active)).filter(Boolean)])].filter((c) => c.id !== g.id)
+    for (const c of group) {
+      const ec = best?.[c.id]
+      if (!ec?.valore || !superseded(ec) || printedInNew(ec.valore)) continue
+      out.push({ field: c, prima: ec.valore, valore: null })
+    }
+  }
+  return out
+}
+
+/**
  * Le opzioni che una descrizione ENUMERA come risposte chiuse («una tra
  * Azienda, Professionista/Studio professionale, Auto/Circolazione, …»), senza
  * la coda degli esempi: [] se la descrizione non elenca una scelta.
@@ -8918,6 +8982,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of otherSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
       delete best[s.field.id]
       diag.push(`Altra sezione[${s.field.label}]: "${s.valore}" sta solo in «${s.sezione}», non nella sezione della copertura → vuoto`)
+    }
+  }
+
+  // ── [flag periodopremi] Premi di un periodo superato dalla decorrenza ──
+  if (engineFlag(settings, 'periodopremi')) {
+    for (const s of supersededPeriodPremiums(best, activeFields, analyzed)) {
+      if (s.valore == null) {
+        delete best[s.field.id]
+        diag.push(`Periodo dei premi[${s.field.label}]: "${s.prima}" viene da un periodo già finito alla decorrenza estratta e il documento del periodo nuovo non lo stampa → vuoto`)
+      } else {
+        best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+        diag.push(`Periodo dei premi[${s.field.label}]: "${s.prima}" (periodo già finito alla decorrenza estratta) → "${s.valore}" (riga "${s.riga}" della decorrenza, ${s.file} p.${s.page})`)
+      }
     }
   }
 
