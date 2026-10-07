@@ -83,3 +83,13 @@ test('esplicita: una franchigia mai accanto alla parola «franchigia» si svuota
   // valore che non si ritrova nel testo: resta
   assert.deepEqual(explicitLabelValues({ fr: { valore: '777,00', file: 'x.pdf', page: 1 } }, [F], [setInf]), [])
 })
+
+test('tassobase: un tasso «applicato al parametro di regolazione» senza importo preventivo si svuota (P41), con l\'importo resta', async () => {
+  const { baselessRates } = await import('../src/services/polizzaService.js')
+  const T = { id: 't', label: 'Tasso regolazione ‰', enabled: true, description: 'Tasso di regolazione: il tasso espresso per mille (‰) applicato al parametro di regolazione (es. 0,245, 44,16). È un numero, tipicamente con virgola decimale. Se la polizza non riporta un tasso di regolazione, lascia il campo vuoto.' }
+  const I = { id: 'i', label: 'Importo preventivo parametro regolazione', enabled: true, description: "Importo preventivo annuo del parametro di regolazione: l'importo (in euro) dichiarato come base per la regolazione del premio, accanto al nome del parametro nella tabella RISCHI ASSICURATI (es. 'Fatturato 60.000,00' → 60.000,00; 240.000.000,00; 1.800.000). NON è il premio, NON il massimale, NON il tasso; vuoto se la polizza non prevede regolazione." }
+  const P = { id: 'p', label: 'Parametro regolazione', enabled: true, description: 'Parametro su cui si calcola o si regola il premio: il NOME del parametro dichiarato in polizza, come TESTO (es. Retribuzioni, Fatturato, N° addetti, Unità immobiliari).' }
+  const F = [P, I, T]
+  assert.deepEqual(baselessRates({ t: { valore: '4' } }, F).map((s) => [s.field.id, s.base.map((b) => b.id)]), [['t', ['i']]])
+  assert.deepEqual(baselessRates({ t: { valore: '0,245' }, i: { valore: '1.800.000' } }, F), [])
+})

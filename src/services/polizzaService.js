@@ -4175,6 +4175,35 @@ export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {})
 }
 
 /**
+ * [flag tassobase] TASSO SENZA LA SUA BASE. Un campo la cui descrizione (parte
+ * positiva) dice a cosa si APPLICA («il tasso … applicato al parametro di
+ * regolazione») non ha senso senza quella base: se tutti i campi la cui TESTA
+ * di descrizione nomina la base («Importo preventivo annuo del parametro di
+ * regolazione») sono vuoti, il valore non è un tasso di regolazione e si
+ * svuota. P22 «aumentato del 3%» del frazionamento, P41 «4 / 1.000 della somma
+ * assicurata» della sezione acqua condotta. Su 12 serie di valori i tassi
+ * senza base sono 3, tutti sbagliati.
+ * @returns {{field:object, valore:string, base:object[]}[]}
+ */
+export function baselessRates(best, fields) {
+  const active = (fields || []).filter((f) => f && f.enabled !== false)
+  const words = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 4)
+  const headOf = (f) => positiveDescriptionText(String(f.description || '')).split(':')[0]
+  const out = []
+  for (const f of active) {
+    const m = positiveDescriptionText(String(f.description || '')).match(/\bapplicat[oa]\s+(?:al|alla|ai|agli|alle|all['’])\s*([^.,;:()]+)/i)
+    const e = best?.[f.id]
+    if (!m || !e?.valore) continue
+    const need = words(m[1])
+    if (!need.length) continue
+    const bases = active.filter((g) => g.id !== f.id && need.every((w) => words(headOf(g)).includes(w)))
+    if (!bases.length || bases.some((g) => best?.[g.id]?.valore)) continue
+    out.push({ field: f, valore: e.valore, base: bases })
+  }
+  return out
+}
+
+/**
  * [flag esplicita] VALORE «INDICATO ESPLICITAMENTE COME» UNA PAROLA. Se la
  * descrizione (parte positiva) chiede un importo «indicato esplicitamente come
  * franchigia», un valore che in NESSUNA sua occorrenza nei documenti sta
@@ -9039,6 +9068,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Periodo dei premi[${s.field.label}]: "${s.prima}" (periodo già finito alla decorrenza estratta) → "${s.valore}" (riga "${s.riga}" della decorrenza, ${s.file} p.${s.page})`)
       }
+    }
+  }
+
+  // ── [flag tassobase] Valore «applicato a» una base che non c'è ──
+  if (engineFlag(settings, 'tassobase')) {
+    for (const s of baselessRates(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(`Senza base[${s.field.label}]: "${s.valore}" si applica a ${s.base.map((b) => b.label).join(', ')}, vuoto → vuoto`)
     }
   }
 
