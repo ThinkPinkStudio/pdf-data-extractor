@@ -2027,6 +2027,17 @@ export function visionOcrEngine(settings) {
   return e && e.toLowerCase() !== 'tesseract' ? e : null
 }
 
+// [flag ocrtabelle] Variante del motore visivo: le TABELLE trascritte con le
+// celle separate da «|», una cella per colonna anche quando è vuota, poi
+// incolonnate (`alignPipeTables`) come la griglia di una pagina digitale. Il
+// suffisso sta nel nome del motore (`<modello>#tabelle`), quindi anche nella
+// chiave della cache OCR: le due trascrizioni non si mescolano mai.
+export const OCR_TABLES_SUFFIX = '#tabelle'
+/** Nome del modello Ollama di un motore OCR visivo (senza la variante). */
+export function visionOcrModel(engine) {
+  return String(engine || '').split('#')[0].trim()
+}
+
 /**
  * [flag ocrsoloscansioni] Motore OCR del FASCICOLO: il modello visivo di
  * `polizzaOcrEngine` solo se NESSUN file ha testo digitale; altrimenti
@@ -2039,8 +2050,9 @@ export function visionOcrEngine(settings) {
  */
 export function dossierOcrEngine(settings, digitalByFile) {
   const e = String(settings?.polizzaOcrEngine || '').trim()
-  if (!visionOcrEngine(settings) || !engineFlag(settings, 'ocrsoloscansioni')) return e
-  return (digitalByFile || []).some(Boolean) ? '' : e
+  if (!visionOcrEngine(settings)) return e
+  if (engineFlag(settings, 'ocrsoloscansioni') && (digitalByFile || []).some(Boolean)) return ''
+  return engineFlag(settings, 'ocrtabelle') && !e.includes('#') ? e + OCR_TABLES_SUFFIX : e
 }
 const VISION_OCR_PROMPT =
   'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
@@ -2051,14 +2063,66 @@ const VISION_OCR_PROMPT =
   '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
   '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
   '- Non tradurre, non riassumere, non commentare, niente markdown: solo il testo della pagina.'
+// [flag ocrtabelle] Stesso prompt, ma le tabelle con le celle esplicite: il
+// testo del modello visivo separa le celle con spazi senza incolonnarle e
+// SALTA le celle vuote, così «€ 18,67  € 2,33  € 21,00» sotto cinque
+// intestazioni (TUTELA LEGALE, PERDITE PECUNIARIE, ASSISTENZA, IMPOSTE,
+// PREMIO LORDO) non dice di quale colonna è ogni importo (DAS OneClick P07:
+// premi letti dalla riga del totale).
+const VISION_OCR_TABLES_PROMPT =
+  'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
+  '- Ordine di lettura, riga per riga, dall\'alto in basso.\n' +
+  '- TABELLE (righe e colonne, anche senza bordi): ogni riga della tabella su una riga, con le celle separate da « | », cominciando dalla riga di intestazione. Ogni riga ha UNA cella per OGNI colonna, nello stesso ordine dell\'intestazione: una cella vuota si scrive vuota tra due separatori (« |  | »), MAI saltata. La colonna delle etichette o dei codici di riga è una colonna anche se sopra non ha intestazione. Un\'intestazione scritta su più righe diventa UNA riga, una cella per colonna.\n' +
+  '- Moduli fuori dalle tabelle: ogni etichetta accanto al suo valore, separati da almeno due spazi.\n' +
+  '- Caselle di spunta: [X] se barrata/spuntata/annerita, [ ] se vuota, prima del testo della casella.\n' +
+  '- Cifre, importi, simboli (€, %, ‰), date, codici e numeri di polizza ESATTAMENTE come stampati: non correggere, non completare.\n' +
+  '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
+  '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
+  '- Non tradurre, non riassumere, non commentare; niente altro markdown oltre al separatore « | » delle tabelle: solo il testo della pagina.'
+
+// Riempitivi tra etichetta e valore («Premio Netto-----562,50») → due spazi.
+const fillToSpaces = (t) => String(t).replace(/[-_.·]{4,}/g, '  ')
+/**
+ * [flag ocrtabelle] Le righe con le celle separate da «|» (due o più righe di
+ * fila) diventano colonne allineate come la griglia di una pagina digitale:
+ * ogni colonna larga quanto la sua cella più lunga, tre spazi tra le colonne,
+ * le celle vuote restano spazi. Così le regole che leggono la cella SOTTO
+ * l'intestazione (riga della copertura, voci del riepilogo) valgono anche per
+ * le scansioni. Le righe di soli trattini («|---|---|») si tolgono; il resto del
+ * testo non cambia.
+ * @param {string} text
+ * @returns {string}
+ */
+export function alignPipeTables(text) {
+  const lines = String(text || '').split('\n')
+  const isPipe = (l) => l.includes('|')
+  const isRule = (l) => /^[\s|:+-]+$/.test(l) && /-{3,}/.test(l)
+  const out = []
+  for (let i = 0; i < lines.length;) {
+    if (!isPipe(lines[i])) { out.push(lines[i]); i++; continue }
+    let j = i
+    while (j < lines.length && isPipe(lines[j])) j++
+    const block = lines.slice(i, j).filter((l) => !isRule(l))
+    if (j - i < 2) { out.push(lines[i].replace(/\s*\|\s*/g, '   ').trim()); i = j; continue }
+    const rows = block.map((l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => fillToSpaces(c).trim()))
+    const n = Math.max(...rows.map((r) => r.length))
+    const width = Array.from({ length: n }, (_, k) => Math.max(0, ...rows.map((r) => (r[k] || '').length)))
+    for (const r of rows) out.push(width.map((w, k) => (r[k] || '').padEnd(w)).join('   ').trimEnd())
+    i = j
+  }
+  return out.join('\n')
+}
+
 export async function visionOcrPageText(imageDataUrl, settings = {}) {
-  const model = visionOcrEngine(settings)
-  if (!model) return ocrPageText(imageDataUrl, settings)
+  const engine = visionOcrEngine(settings)
+  if (!engine) return ocrPageText(imageDataUrl, settings)
+  const model = visionOcrModel(engine)
+  const tables = engine.endsWith(OCR_TABLES_SUFFIX)
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   const b64 = String(imageDataUrl || '').replace(/^data:image\/[a-z]+;base64,/i, '')
   const payload = {
     model,
-    messages: [{ role: 'user', content: VISION_OCR_PROMPT, images: [b64] }],
+    messages: [{ role: 'user', content: tables ? VISION_OCR_TABLES_PROMPT : VISION_OCR_PROMPT, images: [b64] }],
     ...(isThinkingModel(model) ? { think: false } : {}),
     // repeat_penalty 1.1: senza, sulla riga tratteggiata della tabella premi il
     // modello ripeteva «-» fino al limite di token e la pagina restava TRONCATA
@@ -2074,7 +2138,8 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
   // Trattini/puntini di riempimento tra etichetta e valore («Premio Netto-----562,50»)
   // → due spazi, come le colonne della griglia digitale. Mai dentro i numeri
   // (servono 4+ caratteri consecutivi: «1.000.000» ha punti singoli).
-  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').replace(/[-_.·]{4,}/g, '  ').trim()
+  const raw = String(content || '').replace(/^```[a-z]*\n?|```$/gim, '')
+  return fillToSpaces(tables ? alignPipeTables(raw) : raw).trim()
 }
 
 // Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un

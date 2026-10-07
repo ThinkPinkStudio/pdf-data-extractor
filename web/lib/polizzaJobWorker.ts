@@ -355,7 +355,10 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     for (const f of files) digital.push(!!(await textLayerInfo(Buffer.from(f.pdf_base64, 'base64'), settings)).pages)
     const eng = m.dossierOcrEngine(settings, digital)
     if (eng !== String(settings.polizzaOcrEngine || '').trim()) {
-      await appendLog(job, `OCR: Tesseract per questo fascicolo (${digital.filter(Boolean).length} file su ${files.length} con testo digitale); il modello visivo ${settings.polizzaOcrEngine} solo per i fascicoli di sole scansioni`, logs)
+      // [flag ocrtabelle] stesso modello visivo, variante con le tabelle a celle esplicite
+      await appendLog(job, eng
+        ? `OCR: modello visivo ${eng} (tabelle con le celle separate e incolonnate)`
+        : `OCR: Tesseract per questo fascicolo (${digital.filter(Boolean).length} file su ${files.length} con testo digitale); il modello visivo ${settings.polizzaOcrEngine} solo per i fascicoli di sole scansioni`, logs)
       settings = { ...settings, polizzaOcrEngine: eng }
     }
   } catch { /* la scelta del motore non blocca mai il job */ }

@@ -74,6 +74,8 @@ const BUILD_FEATURES = [
   'elenco-titolo', // Flag «elencotitolo» acceso: un campo elenco dalla tabella sotto un titolo fatto di parole della descrizione («GARANZIE SCELTE»), fino alla riga di totale (P04, P06, P13; replay +3 −0); riepilogo: lo stesso premio stampato in un altro documento tiene le voci
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
+  'flag-ocrtabelle', // Flag «ocrtabelle» (spento, da misurare): OCR visivo con le tabelle a celle separate da «|», anche vuote, poi incolonnate come la griglia digitale (motore «<modello>#tabelle», cache a parte)
+  'job-text-engine', // GET /api/polizza/job/[id]/text?engine=…: il testo del motore scelto (tesseract per i fascicoli misti, la variante #tabelle)
   'flag-pivapiede', // Flag «pivapiede» acceso: un identificativo che nella griglia sta solo nelle righe societarie dell'assicuratore si svuota (P34: P.IVA DAS 01333550323; 6 casi su 7 serie, tutti sbagliati)
   'flag-rigaaltrove', // Flag «rigaaltrove» acceso: secondo completamento della riga del premio anche dalle righe di ALTRI documenti con ≥3 valori estratti non nulli (RUZZA P18: diritti 0,00 dall'appendice)
   'flag-elenconegato', // Flag «elenconegato» acceso: un elenco con la testa negativa («garanzie … NON operanti») che contiene una voce esclusa dalla descrizione tra parentesi si svuota (P05; 10 casi su 7 serie, tutti sbagliati)

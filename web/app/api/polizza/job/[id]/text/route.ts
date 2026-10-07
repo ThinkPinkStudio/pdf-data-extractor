@@ -11,12 +11,16 @@ export const runtime = 'nodejs'
 // (Tesseract o modello visivo) non esiste fuori dal server. Per ogni file la
 // prima voce trovata tra: motore visivo con pagine «sandwich», motore visivo,
 // sandwich, testo semplice (le chiavi di ocrCacheKey). Lavoro condiviso: stesso
-// accesso della route che serve il PDF originale.
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+// accesso della route che serve il PDF originale. `?engine=` sceglie il motore
+// (un fascicolo misto legge con Tesseract: `?engine=tesseract`; la variante
+// delle tabelle: `?engine=qwen3-vl:32b%23tabelle`), altrimenti quello delle
+// Impostazioni.
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const settings: any = await getSettings().catch(() => ({}))
-  const engine = String(settings?.polizzaOcrEngine || '').trim()
+  const asked = req.nextUrl.searchParams.get('engine')
+  const engine = String(asked ?? settings?.polizzaOcrEngine ?? '').trim()
   const files = await getJobFiles(params.id)
   const out = []
   for (const f of files) {
