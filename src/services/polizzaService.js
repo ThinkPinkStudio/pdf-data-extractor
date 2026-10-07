@@ -4175,6 +4175,50 @@ export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {})
 }
 
 /**
+ * [flag esplicita] VALORE «INDICATO ESPLICITAMENTE COME» UNA PAROLA. Se la
+ * descrizione (parte positiva) chiede un importo «indicato esplicitamente come
+ * franchigia», un valore che in NESSUNA sua occorrenza nei documenti sta
+ * accanto a quella parola (stessa riga, le due righe sopra, l'intestazione
+ * della sua colonna) non è indicato come tale e si svuota. DAS P08: «… se il
+ * valore economico della controversia è inferiore a 500,00 euro» del Set
+ * Informativo (un limite, non una franchigia). Su 6 serie di valori 9 valori
+ * mai accanto alla parola, tutti sbagliati; i giusti (P37 250, P44 1500) ci
+ * stanno sempre. Un valore che non si ritrova nel testo resta.
+ * @returns {{field:object, valore:string, occorrenze:number}[]}
+ */
+export function explicitLabelValues(best, fields, docs) {
+  const NUM_RE = /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?(?![\d]|[.,]\d)/g
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'amount')) {
+    const m = positiveDescriptionText(String(f.description || '')).match(/esplicitamente\s+come\s+(\p{L}{4,})/iu)
+    const e = best?.[f.id]
+    if (!m || !e?.valore) continue
+    const n = parsePureAmount(e.valore)
+    if (n == null) continue
+    const stem = new RegExp(m[1].toLowerCase().replace(/[aeiou]+$/, ''), 'i')
+    let occ = 0, near = false
+    for (const d of docs || []) {
+      for (const page of gridPagesOf(d)) {
+        const lines = String(page || '').split('\n')
+        lines.forEach((line, i) => {
+          if (near) return
+          for (const t of line.matchAll(NUM_RE)) {
+            if (!sameAmount(parsePureAmount(t[0]), n)) continue
+            occ++
+            const header = gridHeaderAbove(lines, i, t.index, t.index + t[0].length) || ''
+            if (stem.test([lines[i - 2] || '', lines[i - 1] || '', line, header].join(' '))) { near = true; return }
+          }
+        })
+        if (near) break
+      }
+      if (near) break
+    }
+    if (occ && !near) out.push({ field: f, valore: e.valore, occorrenze: occ })
+  }
+  return out
+}
+
+/**
  * [flag periodopremi] PREMI DI UN PERIODO SUPERATO. Le descrizioni chiedono
  * date e premi del periodo PIÙ RECENTE («la data da cui inizia la copertura
  * del periodo PIÙ RECENTE»; «con più periodi, quello del periodo più
@@ -8995,6 +9039,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Periodo dei premi[${s.field.label}]: "${s.prima}" (periodo già finito alla decorrenza estratta) → "${s.valore}" (riga "${s.riga}" della decorrenza, ${s.file} p.${s.page})`)
       }
+    }
+  }
+
+  // ── [flag esplicita] Valore che la descrizione vuole «indicato esplicitamente come …» ──
+  if (engineFlag(settings, 'esplicita')) {
+    for (const s of explicitLabelValues(best, activeFields, analyzed)) {
+      delete best[s.field.id]
+      diag.push(`Indicato esplicitamente[${s.field.label}]: "${s.valore}" in nessuna delle sue ${s.occorrenze} occorrenze sta accanto alla parola che la descrizione chiede → vuoto`)
     }
   }
 
