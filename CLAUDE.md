@@ -1566,8 +1566,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Sul suo campo l'Attività funziona (+5 −2: P06/P11 «Servizi vari», vuote
   IMPIEGATO/MOTOCICLO/AUTOVETTURA), la Tipologia no (il modello resta su
   «Azienda» per le DAS Drive di aziende, −1 P12); il resto è perturbazione
-  (P04 date e massimale −4, P20/P30 −2, ma P26 +4, P22 +3). In prova la sola
-  Attività (v9b, `catalog/ab-profile-v9b.json`).
+  (P04 date e massimale −4, P20/P30 −2, ma P26 +4, P22 +3). La sola Attività
+  (v9b, `catalog/ab-profile-v9b.json`): 980 → 972, stesso +5 −2 sul campo e
+  −11 di perturbazione. Con qwen2.5:32b ogni ritocco alle descrizioni sposta
+  più campi di quanti ne corregge (v6 −7, v7c −6, v9 −6, v9b −8): le
+  descrizioni del profilo restano quelle; i guadagni vengono dalle regole
+  deterministiche dopo il merge. Copie di prova non attive lasciate nei
+  profili (v9 db8d0425, v9b a4f35bdd).
 - **Prove del 05/10 bocciate (non riprovare senza un'idea nuova)**: qwen3:32b
   think off −14 su 18 posizioni (meglio sui testi, peggio sugli importi; in
   pertinenza blocca di più); descrizioni chiarite di attività, parametro,
