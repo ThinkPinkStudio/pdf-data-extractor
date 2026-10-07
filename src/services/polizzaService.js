@@ -8990,14 +8990,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── [flag tassobase] Valore «applicato a» una base che non c'è ──
-  if (engineFlag(settings, 'tassobase')) {
-    for (const s of baselessRates(best, activeFields)) {
-      delete best[s.field.id]
-      diag.push(`Senza base[${s.field.label}]: "${s.valore}" si applica a ${s.base.map((b) => b.label).join(', ')}, vuoto → vuoto`)
-    }
-  }
-
   // ── [flag esplicita] Valore che la descrizione vuole «indicato esplicitamente come …» ──
   if (engineFlag(settings, 'esplicita')) {
     for (const s of explicitLabelValues(best, activeFields, analyzed)) {
@@ -9192,6 +9184,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       } catch (err) {
         diag.push(`Elenco[${f.label}]: controllo non eseguito (${err.message})`)
       }
+    }
+  }
+
+  // ── [flag tassobase] Valore «applicato a» una base che non c'è ──
+  // Per ultimo: la base (importo preventivo) può essere svuotata da una guardia
+  // DOPO le regole del riepilogo (P22: 207,82 del premio proposto come importo
+  // preventivo, tolto più avanti; il tasso 3,00 restava).
+  if (engineFlag(settings, 'tassobase')) {
+    for (const s of baselessRates(best, activeFields)) {
+      delete best[s.field.id]
+      diag.push(`Senza base[${s.field.label}]: "${s.valore}" si applica a ${s.base.map((b) => b.label).join(', ')}, vuoto → vuoto`)
     }
   }
 

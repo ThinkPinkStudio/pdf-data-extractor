@@ -1398,6 +1398,41 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «RATE SUCCESSIVE 24,00 0,00 3,00 27,00» con l'intestazione DIRITTO
   nell'appendice → diritti 0,00. Replay su 12 serie: +1 (P18) in due, nessun
   altro cambiamento.
+- **Flag `periodopremi` (08/10/2026, default)**: dopo il merge (dopo il
+  riepilogo), date e premi dello STESSO periodo, quello più recente che le
+  descrizioni chiedono. Campo della decorrenza = data la cui descrizione dice
+  «inizi…» e «periodo più recente»; lordo = importo «comprensivo di» voci con
+  «periodo più recente». Se il lordo viene da un documento il cui periodo è
+  già finito alla decorrenza estratta (la sua data più recente non la supera)
+  e la riga della decorrenza, nel documento della decorrenza, porta un solo
+  importo non nullo diverso dal lordo — con più righe con la stessa data
+  (elenco delle rate in scadenza di più polizze) quella a ±2 righe dal numero
+  di polizza estratto — e il documento nuovo il lordo estratto non lo stampa
+  mai: il lordo prende quell'importo, le voci del riepilogo lette nel periodo
+  superato e non stampate nel documento nuovo si svuotano
+  (`supersededPeriodPremiums`). P26: 214,00 del rinnovo 30/04/2026 invece del
+  riepilogo 147,62 / 0,00 / 2,48 / 31,90 / 182,00 della scheda 2020. Niente
+  quando il documento nuovo stampa lo stesso lordo (GOLDONI P30, RUZZA P16,
+  DAS Drive P03/P04) o la riga della decorrenza non ha importi (sospensione
+  P17). Replay: 982 → 987, solo P26 in 6 serie.
+- **Flag `esplicita` (08/10/2026, default)**: un importo che la descrizione
+  vuole «indicato esplicitamente come <parola>» (la franchigia) e che in
+  nessuna sua occorrenza sta accanto a quella parola (stessa riga, due righe
+  sopra, intestazione della colonna) si svuota (`explicitLabelValues`). P08:
+  500,00 di «controversia inferiore a 500,00 euro» del Set Informativo. Su 6
+  serie 9 valori mai accanto a «franchigia», tutti sbagliati (P03, P05, P08,
+  P14, P19, P21, P35, P41); i giusti (P37 250, P44 1500) ci stanno sempre.
+- **Flag `tassobase` (08/10/2026, default)**: un valore che la descrizione
+  dice «applicato al <base>» (il tasso «applicato al parametro di
+  regolazione») si svuota se tutti i campi la cui TESTA nomina la base
+  («Importo preventivo annuo del parametro di regolazione») sono vuoti
+  (`baselessRates`). P22 «aumentato del 3%» del frazionamento, P41 «4 / 1.000
+  della somma assicurata» dell'acqua condotta; nel corpus i 3 tassi senza
+  base sono tutti sbagliati. Gira PER ULTIMA, subito prima dell'uscita: su
+  P22 il modello proponeva 207,82 (il premio) come importo preventivo, svuotato
+  da una guardia più avanti, e il tasso restava.
+  Copie A/B dei tre flag (`catalog/ab-periodopremi_esplicita_tassobase.json`):
+  P08 22 → 23, P22 17 → 18, P26 17 → 22, P41 21 → 22 (+8).
 - **Flag `elenconegato` (07/10/2026, default)**: dopo il merge, un campo
   ELENCO con la testa di descrizione NEGATIVA («Elenco dei nomi delle
   garanzie di tutela legale NON attivate/operanti») il cui valore contiene una
