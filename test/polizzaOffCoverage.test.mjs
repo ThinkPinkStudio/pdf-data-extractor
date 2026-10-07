@@ -76,9 +76,9 @@ test('esplicita: una franchigia mai accanto alla parola «franchigia» si svuota
     id: 'fr', label: 'Franchigia generica o minima', enabled: true,
     description: "Franchigia della tutela legale: l'importo (in euro) che resta a carico dell'assicurato per ogni sinistro di tutela legale, indicato esplicitamente come franchigia nella scheda o nella sezione tutela legale della polizza (es. 200,00, 1.000,00). NON sono franchigie della tutela legale quelle di altre garanzie o sezioni della polizza (incendio, eventi atmosferici, acqua condotta, kasko, furto, cristalli), NON i limiti tipo anticipo spese penale doloso, NON i massimali né i premi. Se la tutela legale non ha una franchigia indicata, lascia il campo vuoto.",
   }
-  const setInf = { name: 'Set Informativo.pdf', spatialPages: ['3.1.1 La garanzia non vale:', 'a) se il valore economico della controversia è inferiore a 500,00 euro;'] }
+  const setInf = { name: 'Set Informativo.pdf', spatialPages: ['3.1.1 La garanzia non vale:\na) se il valore economico della controversia è inferiore a 500,00 euro;'] }
   assert.deepEqual(explicitLabelValues({ fr: { valore: '500,00', file: 'Set Informativo.pdf', page: 1 } }, [F], [setInf]).map((s) => s.valore), ['500,00'])
-  const table = { name: 'pestalozza.pdf', spatialPages: ['Garanzia                    Massimale       Franchigia', 'Tutela Legale               30.000,00       250', 'Ricorso terzi               1.000.000,00'] }
+  const table = { name: 'pestalozza.pdf', spatialPages: ['Garanzia                    Massimale       Franchigia\nTutela Legale               30.000,00       250\nRicorso terzi               1.000.000,00'] }
   assert.deepEqual(explicitLabelValues({ fr: { valore: '250', file: 'pestalozza.pdf', page: 1 } }, [F], [table]), [])
   // valore che non si ritrova nel testo: resta
   assert.deepEqual(explicitLabelValues({ fr: { valore: '777,00', file: 'x.pdf', page: 1 } }, [F], [setInf]), [])
