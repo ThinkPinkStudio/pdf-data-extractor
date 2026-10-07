@@ -1558,6 +1558,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   fascicolo senza polizza è «incompleta» col numero come stampato; altrimenti
   decide il modello (che sull'appendice DAS di CAVALLO diceva no: non nomina
   la tutela legale).
+- **Descrizioni v9 (07/10/2026 notte, copia di prova del profilo, BOCCIATA)**:
+  Tipologia = «categoria del RISCHIO … Auto/Circolazione … anche se il
+  contraente è un'azienda» e Attività = «NON la professione di una persona
+  privata, NON il tipo, l'uso o la categoria del veicolo, NON la forma
+  giuridica, NON il nome di una garanzia». Copie sulle 45 posizioni: 980 → 974.
+  Sul suo campo l'Attività funziona (+5 −2: P06/P11 «Servizi vari», vuote
+  IMPIEGATO/MOTOCICLO/AUTOVETTURA), la Tipologia no (il modello resta su
+  «Azienda» per le DAS Drive di aziende, −1 P12); il resto è perturbazione
+  (P04 date e massimale −4, P20/P30 −2, ma P26 +4, P22 +3). In prova la sola
+  Attività (v9b, `catalog/ab-profile-v9b.json`).
 - **Prove del 05/10 bocciate (non riprovare senza un'idea nuova)**: qwen3:32b
   think off −14 su 18 posizioni (meglio sui testi, peggio sugli importi; in
   pertinenza blocca di più); descrizioni chiarite di attività, parametro,
