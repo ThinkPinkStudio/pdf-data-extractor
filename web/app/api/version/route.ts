@@ -77,8 +77,6 @@ const BUILD_FEATURES = [
   'flag-tassobase', // Flag «tassobase» (spento, da misurare): un tasso «applicato al parametro di regolazione» senza importo preventivo si svuota (P22 «3%», P41 «4 / 1.000»)
   'flag-esplicita', // Flag «esplicita» (spento, da misurare): un importo «indicato esplicitamente come franchigia» mai accanto a quella parola si svuota (P08: 500,00 di una frase del Set Informativo)
   'flag-periodopremi', // Flag «periodopremi» (spento, da misurare): lordo e voci del riepilogo di un periodo già finito alla decorrenza estratta → lordo dalla riga della decorrenza del periodo nuovo, voci non stampate vuote (P26: 214,00)
-  'flag-ancoracolonna', // Flag «ancoracolonna» (spento, da misurare): il premio annuo dalla colonna della copertura parte anche dalla cella sotto «TUTELA LEGALE» (P07: 18,67 + 2,33 = 21,00 invece del totale del contratto)
-  'flag-ocrtabelle', // Flag «ocrtabelle» (spento, da misurare): OCR visivo con le tabelle a celle separate da «|», anche vuote, poi incolonnate come la griglia digitale (motore «<modello>#tabelle», cache a parte)
   'job-text-engine', // GET /api/polizza/job/[id]/text?engine=…: il testo del motore scelto (tesseract per i fascicoli misti, la variante #tabelle)
   'flag-pivapiede', // Flag «pivapiede» acceso: un identificativo che nella griglia sta solo nelle righe societarie dell'assicuratore si svuota (P34: P.IVA DAS 01333550323; 6 casi su 7 serie, tutti sbagliati)
   'flag-rigaaltrove', // Flag «rigaaltrove» acceso: secondo completamento della riga del premio anche dalle righe di ALTRI documenti con ≥3 valori estratti non nulli (RUZZA P18: diritti 0,00 dall'appendice)

@@ -2027,17 +2027,6 @@ export function visionOcrEngine(settings) {
   return e && e.toLowerCase() !== 'tesseract' ? e : null
 }
 
-// [flag ocrtabelle] Variante del motore visivo: le TABELLE trascritte con le
-// celle separate da «|», una cella per colonna anche quando è vuota, poi
-// incolonnate (`alignPipeTables`) come la griglia di una pagina digitale. Il
-// suffisso sta nel nome del motore (`<modello>#tabelle`), quindi anche nella
-// chiave della cache OCR: le due trascrizioni non si mescolano mai.
-export const OCR_TABLES_SUFFIX = '#tabelle'
-/** Nome del modello Ollama di un motore OCR visivo (senza la variante). */
-export function visionOcrModel(engine) {
-  return String(engine || '').split('#')[0].trim()
-}
-
 /**
  * [flag ocrsoloscansioni] Motore OCR del FASCICOLO: il modello visivo di
  * `polizzaOcrEngine` solo se NESSUN file ha testo digitale; altrimenti
@@ -2050,9 +2039,8 @@ export function visionOcrModel(engine) {
  */
 export function dossierOcrEngine(settings, digitalByFile) {
   const e = String(settings?.polizzaOcrEngine || '').trim()
-  if (!visionOcrEngine(settings)) return e
-  if (engineFlag(settings, 'ocrsoloscansioni') && (digitalByFile || []).some(Boolean)) return ''
-  return engineFlag(settings, 'ocrtabelle') && !e.includes('#') ? e + OCR_TABLES_SUFFIX : e
+  if (!visionOcrEngine(settings) || !engineFlag(settings, 'ocrsoloscansioni')) return e
+  return (digitalByFile || []).some(Boolean) ? '' : e
 }
 const VISION_OCR_PROMPT =
   'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
@@ -2063,66 +2051,14 @@ const VISION_OCR_PROMPT =
   '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
   '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
   '- Non tradurre, non riassumere, non commentare, niente markdown: solo il testo della pagina.'
-// [flag ocrtabelle] Stesso prompt, ma le tabelle con le celle esplicite: il
-// testo del modello visivo separa le celle con spazi senza incolonnarle e
-// SALTA le celle vuote, così «€ 18,67  € 2,33  € 21,00» sotto cinque
-// intestazioni (TUTELA LEGALE, PERDITE PECUNIARIE, ASSISTENZA, IMPOSTE,
-// PREMIO LORDO) non dice di quale colonna è ogni importo (DAS OneClick P07:
-// premi letti dalla riga del totale).
-const VISION_OCR_TABLES_PROMPT =
-  'Trascrivi FEDELMENTE tutto il testo visibile in questa pagina di un documento assicurativo italiano.\n' +
-  '- Ordine di lettura, riga per riga, dall\'alto in basso.\n' +
-  '- TABELLE (righe e colonne, anche senza bordi): ogni riga della tabella su una riga, con le celle separate da « | », cominciando dalla riga di intestazione. Ogni riga ha UNA cella per OGNI colonna, nello stesso ordine dell\'intestazione: una cella vuota si scrive vuota tra due separatori (« |  | »), MAI saltata. La colonna delle etichette o dei codici di riga è una colonna anche se sopra non ha intestazione. Un\'intestazione scritta su più righe diventa UNA riga, una cella per colonna.\n' +
-  '- Moduli fuori dalle tabelle: ogni etichetta accanto al suo valore, separati da almeno due spazi.\n' +
-  '- Caselle di spunta: [X] se barrata/spuntata/annerita, [ ] se vuota, prima del testo della casella.\n' +
-  '- Cifre, importi, simboli (€, %, ‰), date, codici e numeri di polizza ESATTAMENTE come stampati: non correggere, non completare.\n' +
-  '- Linee tratteggiate o punteggiate, bordi e righe di separazione NON sono testo: non trascriverle.\n' +
-  '- Testo scritto a mano o timbri: trascrivili se leggibili, altrimenti [illeggibile].\n' +
-  '- Non tradurre, non riassumere, non commentare; niente altro markdown oltre al separatore « | » delle tabelle: solo il testo della pagina.'
-
-// Riempitivi tra etichetta e valore («Premio Netto-----562,50») → due spazi.
-const fillToSpaces = (t) => String(t).replace(/[-_.·]{4,}/g, '  ')
-/**
- * [flag ocrtabelle] Le righe con le celle separate da «|» (due o più righe di
- * fila) diventano colonne allineate come la griglia di una pagina digitale:
- * ogni colonna larga quanto la sua cella più lunga, tre spazi tra le colonne,
- * le celle vuote restano spazi. Così le regole che leggono la cella SOTTO
- * l'intestazione (riga della copertura, voci del riepilogo) valgono anche per
- * le scansioni. Le righe di soli trattini («|---|---|») si tolgono; il resto del
- * testo non cambia.
- * @param {string} text
- * @returns {string}
- */
-export function alignPipeTables(text) {
-  const lines = String(text || '').split('\n')
-  const isPipe = (l) => l.includes('|')
-  const isRule = (l) => /^[\s|:+-]+$/.test(l) && /-{3,}/.test(l)
-  const out = []
-  for (let i = 0; i < lines.length;) {
-    if (!isPipe(lines[i])) { out.push(lines[i]); i++; continue }
-    let j = i
-    while (j < lines.length && isPipe(lines[j])) j++
-    const block = lines.slice(i, j).filter((l) => !isRule(l))
-    if (j - i < 2) { out.push(lines[i].replace(/\s*\|\s*/g, '   ').trim()); i = j; continue }
-    const rows = block.map((l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => fillToSpaces(c).trim()))
-    const n = Math.max(...rows.map((r) => r.length))
-    const width = Array.from({ length: n }, (_, k) => Math.max(0, ...rows.map((r) => (r[k] || '').length)))
-    for (const r of rows) out.push(width.map((w, k) => (r[k] || '').padEnd(w)).join('   ').trimEnd())
-    i = j
-  }
-  return out.join('\n')
-}
-
 export async function visionOcrPageText(imageDataUrl, settings = {}) {
-  const engine = visionOcrEngine(settings)
-  if (!engine) return ocrPageText(imageDataUrl, settings)
-  const model = visionOcrModel(engine)
-  const tables = engine.endsWith(OCR_TABLES_SUFFIX)
+  const model = visionOcrEngine(settings)
+  if (!model) return ocrPageText(imageDataUrl, settings)
   const url = settings.ollamaUrl || 'http://127.0.0.1:11434'
   const b64 = String(imageDataUrl || '').replace(/^data:image\/[a-z]+;base64,/i, '')
   const payload = {
     model,
-    messages: [{ role: 'user', content: tables ? VISION_OCR_TABLES_PROMPT : VISION_OCR_PROMPT, images: [b64] }],
+    messages: [{ role: 'user', content: VISION_OCR_PROMPT, images: [b64] }],
     ...(isThinkingModel(model) ? { think: false } : {}),
     // repeat_penalty 1.1: senza, sulla riga tratteggiata della tabella premi il
     // modello ripeteva «-» fino al limite di token e la pagina restava TRONCATA
@@ -2138,8 +2074,7 @@ export async function visionOcrPageText(imageDataUrl, settings = {}) {
   // Trattini/puntini di riempimento tra etichetta e valore («Premio Netto-----562,50»)
   // → due spazi, come le colonne della griglia digitale. Mai dentro i numeri
   // (servono 4+ caratteri consecutivi: «1.000.000» ha punti singoli).
-  const raw = String(content || '').replace(/^```[a-z]*\n?|```$/gim, '')
-  return fillToSpaces(tables ? alignPipeTables(raw) : raw).trim()
+  return String(content || '').replace(/^```[a-z]*\n?|```$/gim, '').replace(/[-_.·]{4,}/g, '  ').trim()
 }
 
 // Trappole note su cui i modelli piccoli inciampano ripetutamente sul campo: un
@@ -4093,16 +4028,9 @@ export function coverColumnGuarantees(best, fields, docs, coverNames) {
  * rata successiva (la colonna TUTELA LEGALE dice 196,28). Senza una riga
  * coerente non si tocca nulla, né se la colonna non sta nel documento da cui
  * viene l'imponibile estratto (una quietanza di rinnovo più recente vince).
- * [flag ancoracolonna, `opts.coverAnchor`] La riga coerente può partire anche
- * dalla cella della COLONNA DELLA COPERTURA: in un prodotto con più garanzie
- * (DAS OneClick: «TUTELA LEGALE | PERDITE PECUNIARIE | … | IMPOSTE | PREMIO
- * LORDO») la riga del prodotto di tutela legale porta il suo netto sotto
- * «TUTELA LEGALE», non sotto un'intestazione che nomina l'imponibile (P07:
- * 18,67 + 2,33 = 21,00 invece del PREMIO TOTALE 26,60 / 3,40 / 30,00 di tutto
- * il contratto).
  * @returns {{field:object, prima:string, valore:string, file:string, page:number, riga:string, colonna:string}[]}
  */
-export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {}) {
+export function annualFromCoverColumn(best, fields, docs, coverNames) {
   if (!Array.isArray(coverNames) || !coverNames.length) return []
   const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
   const owner = (header) => {
@@ -4140,23 +4068,14 @@ export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {})
     for (const d of docs || []) {
       gridPagesOf(d).forEach((page, pi) => {
         const lines = String(page || '').split('\n')
-        // [flag ancoracolonna] la cella della riga nella colonna della copertura
-        // («TUTELA LEGALE» sopra «€ 18,67» della riga del prodotto) è il premio
-        // netto della copertura anche se l'intestazione non nomina l'imponibile
-        const coverCell = new Map(opts.coverAnchor ? coverColumnPairs(String(page || ''), coverNames).map((p) => [p.row - 1, parsePureAmount(p.value)]) : [])
         lines.forEach((line, i) => {
           if (line.includes('|')) return
           const toks = gridAmountTokens(line)
           const cells = toks.map((t) => { const header = gridHeaderAbove(lines, i, t.a, t.b) || ''; return { t, header, f: owner(header) } })
-          let anc = cells.find((c) => c.f?.id === a.id && sameAmount(c.t.n, A))
-          if (!anc && coverCell.has(i) && sameAmount(coverCell.get(i), A)) {
-            const c = cells.find((x) => sameAmount(x.t.n, A))
-            if (c) anc = { ...c, f: a, cover: c }
-          }
-          const others = cells.filter((c) => c !== anc?.cover)
-          const gross = others.find((c) => c.f?.id === g.id)
+          const anc = cells.find((c) => c.f?.id === a.id && sameAmount(c.t.n, A))
+          const gross = cells.find((c) => c.f?.id === g.id)
           if (!anc || !gross) return
-          const parts = others.filter((c) => c.f && comps.includes(c.f))
+          const parts = cells.filter((c) => c.f && comps.includes(c.f))
           if (!parts.length || new Set(parts.map((c) => c.f.id)).size !== parts.length) return
           if (!sameAmount(A + parts.reduce((acc, c) => acc + c.t.n, 0), gross.t.n)) return
           rows.push({ anc, gross, parts, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
@@ -9010,7 +8929,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
       const me = jobProfileFor(settings, activeFields)
       const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
-      for (const s of annualFromCoverColumn(best, activeFields, analyzed, names, { coverAnchor: engineFlag(settings, 'ancoracolonna') })) {
+      for (const s of annualFromCoverColumn(best, activeFields, analyzed, names)) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Premio annuo[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): la colonna della copertura stampa l'annualità`)
       }

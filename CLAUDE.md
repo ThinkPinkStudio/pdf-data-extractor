@@ -1552,6 +1552,25 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   il giorno stesso, prima che un job del cliente lo usasse. Se si riprova:
   insieme a una lettura dei premi che non dipenda dalle colonne allineate
   (il testo del modello visivo separa le celle con spazi ma non le allinea).
+- **OCR visivo con le tabelle a celle esplicite: BOCCIATO (08/10/2026, flag
+  `ocrtabelle` + `ancoracolonna`, codice tolto)**: il prompt chiedeva a
+  qwen3-vl:32b le righe delle tabelle con le celle separate da «|» (anche le
+  vuote), poi incolonnate come la griglia digitale; `ancoracolonna` faceva
+  partire la riga coerente del premio dalla cella sotto «TUTELA LEGALE» (in
+  simulazione P07 20 → 23). Sulle copie vere il modello SBAGLIA la struttura:
+  salta la cella vuota in testa all'intestazione (P07: «TUTELA LEGALE» sopra
+  le etichette, 18,67 sotto «PERDITE PECUNIARIE») o mette l'etichetta di riga
+  dentro l'intestazione («Difesa Condominio   TUTELA LEGALE …» con i valori
+  spostati di una colonna, P24: 0,00 sotto TUTELA LEGALE). Il testo incolonnato
+  male è più convincente di quello libero: P07 e P24 bloccate «Da verificare»
+  in pertinenza (P24: «Tutela Legale con un premio di 0,00»; P07: «riguarda
+  specificamente la circolazione stradale»). Costo: ~3 minuti a pagina per
+  rifare l'OCR. Resta `?engine=` nella route del testo (fascicoli misti:
+  `tesseract`). Nota: la pertinenza di P07 è fragile anche col testo di
+  produzione (stesso modello, «operante» o «non operante» a seconda delle
+  pagine del batch 1); la contraddizione «non operante» con la riga della
+  copertura e il suo premio compare in 2 job dei batch del cliente, entrambi
+  estratti e giusti per il catalogo.
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il
@@ -1573,6 +1592,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   descrizioni del profilo restano quelle; i guadagni vengono dalle regole
   deterministiche dopo il merge. Copie di prova non attive lasciate nei
   profili (v9 db8d0425, v9b a4f35bdd).
+- **Verità senza tipo di documento (08/10/2026, correzione dell'utente)**:
+  «cosa me ne frega se NON è una quietanza di rinnovo? Da quando ti ho detto
+  di cercare i dati in una tipologia precisa di documento?». La verità di P26
+  CASORETTO scartava la decorrenza 30/04/2026 perché stava in una lettera del
+  broker («elenco polizze in scadenza», rata del rinnovo DAS 0146905087 a
+  214,00) e non in una quietanza; il lordo 214,00 invece veniva dalla stessa
+  lettera. Ora decorrenza 30/04/2026 e scadenza vuota (la fine del periodo
+  2026-27 non è stampata; il 30/04/2026 è la scadenza della RATA, che la
+  descrizione esclude). «DOCUMENTI TUTTI UGUALI» vale anche per chi scrive i
+  golden: nessuna motivazione «non è una quietanza/polizza/contratto».
+  Punteggio di produzione con la verità corretta: 982/1035
+  (`catalog/score-client-0810-p26.json`); backup `goldens/P26.json.bak-0810`.
 - **Prove del 05/10 bocciate (non riprovare senza un'idea nuova)**: qwen3:32b
   think off −14 su 18 posizioni (meglio sui testi, peggio sugli importi; in
   pertinenza blocca di più); descrizioni chiarite di attività, parametro,
