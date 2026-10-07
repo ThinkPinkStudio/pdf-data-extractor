@@ -56,3 +56,39 @@ test('dossierOcrEngine: la variante delle tabelle solo col flag e solo per il mo
   assert.equal(visionOcrModel('qwen3-vl:32b#tabelle'), 'qwen3-vl:32b')
   assert.equal(visionOcrModel('qwen2.5vl:32b'), 'qwen2.5vl:32b')
 })
+
+test('ancoracolonna: con la scheda incolonnata la riga della tutela legale dà netto, imposte e lordo (P07)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { annualFromCoverColumn } = await import('../src/services/polizzaService.js')
+  const PROFILES = JSON.parse(readFileSync(new URL('../polizze_test/profili-polizza-riconoscimento.json', import.meta.url), 'utf8'))
+  const PROD = {
+    Imposte: "Imposte sul premio annuo della tutela legale: l'importo (in euro) delle imposte sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale (es. 19,30, 44,69, 110,11). È un importo con due decimali.",
+    Diritti: "Diritti della tutela legale: l'importo (in euro) dei diritti (di emissione, di quietanza) sul premio annuo della tutela legale, sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale (es. 0,00, 2,48, 19,30). È un importo con due decimali.",
+    'Interessi di frazionamento': "Interessi di frazionamento della tutela legale: l'importo (in euro) aggiunto al premio annuo della tutela legale se il pagamento è rateizzato (es. 0,00, 2,48, 3,01), sulla stessa riga o nello stesso riepilogo del Premio imponibile annuo della tutela legale.",
+    'Premio imponibile tutela legale': "Premio imponibile (netto) ANNUO della tutela legale: la base imponibile del premio della tutela legale per un'annualità, al netto di imposte, diritti e interessi, come stampata nel documento. È un importo con due decimali (es. 207,83, 501,30, 757,82).",
+    'Premio lordo totale tutela legale': "Premio lordo ANNUO della tutela legale: l'importo (in euro) comprensivo di imposte, diritti e interessi che il contraente paga per un'annualità di tutela legale, come stampato nel documento (es. 255,00, 611,41, 918,86).",
+  }
+  const TL = PROFILES.find((p) => p.name === 'Tutela Legale 3').fields.map((f) => (PROD[String(f.label).trim()] ? { ...f, description: PROD[String(f.label).trim()] } : f))
+  const byLabel = (label) => TL.find((f) => String(f.label).trim() === label)
+  const page = alignPipeTables([
+    'GARANZIE PRESCELTE',
+    '|  |  | TUTELA LEGALE | PERDITE PECUNIARIE | ASSISTENZA | IMPOSTE | PREMIO LORDO |',
+    '| PROD-000423 | Tutela legale circolazione stradale base | € 18,67 |  |  | € 2,33 | € 21,00 |',
+    '| PROD-000423 | Indennità e rimborsi + patente a punti |  | € 7,93 |  | € 1,07 | € 9,00 |',
+    '| PREMIO ANNUO |  | € 18,67 | € 7,93 |  | € 3,40 | € 30,00 |',
+    'PREMIO TOTALE',
+    '|  | FRAZIONAMENTO | NETTO IMPONIBILE | DIRITTO | RIMBORSO | IMPOSTE | PREMIO LORDO |',
+    '| PREMIO RATA INIZIALE |  | € 26,60 |  |  | € 3,40 | € 30,00 |',
+    '| PREMIO RATE SUCCESSIVE |  | € 26,60 |  |  | € 3,40 | € 30,00 |',
+  ].join('\n'))
+  const FILE = 'BESA ING.SANTANGELO SPA/INF. CONDUCENTE EH 448 TD/POLIZZA.pdf'
+  const docs = [{ name: FILE, spatialPages: [page] }]
+  const imp = byLabel('Premio imponibile tutela legale'), tax = byLabel('Imposte'), gross = byLabel('Premio lordo totale tutela legale')
+  const best = { [imp.id]: { valore: '26,60', file: FILE, page: 1 }, [tax.id]: { valore: '3,40', file: FILE, page: 1 }, [gross.id]: { valore: '30,00', file: FILE, page: 1 } }
+  const COVER = [['tutela', 'legale'], ['tutela', 'giudiziaria']]
+  assert.deepEqual(annualFromCoverColumn(best, TL, docs, COVER), [])
+  const out = annualFromCoverColumn(best, TL, docs, COVER, { coverAnchor: true })
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.valore]).sort(), [
+    ['Imposte', '2,33'], ['Premio imponibile tutela legale', '18,67'], ['Premio lordo totale tutela legale', '21,00'],
+  ])
+})

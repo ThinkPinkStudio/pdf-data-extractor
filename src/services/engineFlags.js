@@ -51,6 +51,7 @@ export const KNOWN_FLAGS = Object.freeze({
   datagriglia: 'Datazione: un documento che il markdown lascia senza data si data dalla griglia dei prompt (solo righe di periodo o date ripetute) — quietanze «sandwich» del ramo Docling',
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
   ocrsoloscansioni: 'OCR col modello visivo (polizzaOcrEngine) solo nei fascicoli di sole scansioni; dove c\'è testo digitale Tesseract',
+  ancoracolonna: 'Premio annuo dalla colonna della copertura: la riga coerente (netto + voci = lordo) può partire dalla cella sotto l\'intestazione della copertura («TUTELA LEGALE» 18,67 + IMPOSTE 2,33 = PREMIO LORDO 21,00 della riga del prodotto, DAS OneClick), non solo da un\'intestazione che nomina l\'imponibile',
   ocrtabelle: 'OCR col modello visivo: le tabelle trascritte con le celle separate da «|» (anche le vuote) e poi incolonnate come la griglia digitale; cache OCR a parte (motore «<modello>#tabelle»)',
   citazioneriga: 'Pertinenza: la prova citata vale anche se salta parole in mezzo, quando due sue parole e due importi stanno nello stesso ordine su una riga del testo inviato',
   coppietesto: 'Pertinenza e domanda sulla polizza: le coppie etichetta→valore del layout comprendono anche i TESTI sotto l\'intestazione di colonna («Indicizzazione → ESCLUSA»)',

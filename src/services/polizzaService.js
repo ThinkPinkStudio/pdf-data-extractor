@@ -4093,9 +4093,16 @@ export function coverColumnGuarantees(best, fields, docs, coverNames) {
  * rata successiva (la colonna TUTELA LEGALE dice 196,28). Senza una riga
  * coerente non si tocca nulla, né se la colonna non sta nel documento da cui
  * viene l'imponibile estratto (una quietanza di rinnovo più recente vince).
+ * [flag ancoracolonna, `opts.coverAnchor`] La riga coerente può partire anche
+ * dalla cella della COLONNA DELLA COPERTURA: in un prodotto con più garanzie
+ * (DAS OneClick: «TUTELA LEGALE | PERDITE PECUNIARIE | … | IMPOSTE | PREMIO
+ * LORDO») la riga del prodotto di tutela legale porta il suo netto sotto
+ * «TUTELA LEGALE», non sotto un'intestazione che nomina l'imponibile (P07:
+ * 18,67 + 2,33 = 21,00 invece del PREMIO TOTALE 26,60 / 3,40 / 30,00 di tutto
+ * il contratto).
  * @returns {{field:object, prima:string, valore:string, file:string, page:number, riga:string, colonna:string}[]}
  */
-export function annualFromCoverColumn(best, fields, docs, coverNames) {
+export function annualFromCoverColumn(best, fields, docs, coverNames, opts = {}) {
   if (!Array.isArray(coverNames) || !coverNames.length) return []
   const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
   const owner = (header) => {
@@ -4133,14 +4140,23 @@ export function annualFromCoverColumn(best, fields, docs, coverNames) {
     for (const d of docs || []) {
       gridPagesOf(d).forEach((page, pi) => {
         const lines = String(page || '').split('\n')
+        // [flag ancoracolonna] la cella della riga nella colonna della copertura
+        // («TUTELA LEGALE» sopra «€ 18,67» della riga del prodotto) è il premio
+        // netto della copertura anche se l'intestazione non nomina l'imponibile
+        const coverCell = new Map(opts.coverAnchor ? coverColumnPairs(String(page || ''), coverNames).map((p) => [p.row - 1, parsePureAmount(p.value)]) : [])
         lines.forEach((line, i) => {
           if (line.includes('|')) return
           const toks = gridAmountTokens(line)
           const cells = toks.map((t) => { const header = gridHeaderAbove(lines, i, t.a, t.b) || ''; return { t, header, f: owner(header) } })
-          const anc = cells.find((c) => c.f?.id === a.id && sameAmount(c.t.n, A))
-          const gross = cells.find((c) => c.f?.id === g.id)
+          let anc = cells.find((c) => c.f?.id === a.id && sameAmount(c.t.n, A))
+          if (!anc && coverCell.has(i) && sameAmount(coverCell.get(i), A)) {
+            const c = cells.find((x) => sameAmount(x.t.n, A))
+            if (c) anc = { ...c, f: a, cover: c }
+          }
+          const others = cells.filter((c) => c !== anc?.cover)
+          const gross = others.find((c) => c.f?.id === g.id)
           if (!anc || !gross) return
-          const parts = cells.filter((c) => c.f && comps.includes(c.f))
+          const parts = others.filter((c) => c.f && comps.includes(c.f))
           if (!parts.length || new Set(parts.map((c) => c.f.id)).size !== parts.length) return
           if (!sameAmount(A + parts.reduce((acc, c) => acc + c.t.n, 0), gross.t.n)) return
           rows.push({ anc, gross, parts, file: d.name, page: pi + 1, riga: gridRowLabel(line) })
@@ -8857,7 +8873,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
       const me = jobProfileFor(settings, activeFields)
       const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
-      for (const s of annualFromCoverColumn(best, activeFields, analyzed, names)) {
+      for (const s of annualFromCoverColumn(best, activeFields, analyzed, names, { coverAnchor: engineFlag(settings, 'ancoracolonna') })) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Premio annuo[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): la colonna della copertura stampa l'annualità`)
       }
