@@ -9180,13 +9180,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     }
   }
 
-  // ── [flag etichettamodulo] Campo di testo vuoto dall'etichetta di un modulo ──
-  if (engineFlag(settings, 'etichettamodulo')) {
-    for (const s of formLabelFill(best, activeFields, analyzed)) {
-      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
-      diag.push(`Etichetta del modulo[${s.field.label}] = "${s.valore}" (sotto «${s.etichetta}», ${s.voti} volte, ${s.file} p.${s.page})`)
-    }
-  }
 
   // ── [flag elenconegato] Elenco negativo con voci che la descrizione esclude ──
   if (engineFlag(settings, 'elenconegato')) {
@@ -9260,6 +9253,16 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       } catch (err) {
         diag.push(`Elenco[${f.label}]: controllo non eseguito (${err.message})`)
       }
+    }
+  }
+
+  // ── [flag etichettamodulo] Campo di testo vuoto dall'etichetta di un modulo ──
+  // In fondo: le regole prima possono svuotare il campo (categoriaaltrui: P06
+  // «azienda», opzione della Tipologia, svuotata DOPO il punto di prima).
+  if (engineFlag(settings, 'etichettamodulo')) {
+    for (const s of formLabelFill(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Etichetta del modulo[${s.field.label}] = "${s.valore}" (sotto «${s.etichetta}», ${s.voti} volte, ${s.file} p.${s.page})`)
     }
   }
 

@@ -74,6 +74,7 @@ const BUILD_FEATURES = [
   'elenco-titolo', // Flag «elencotitolo» acceso: un campo elenco dalla tabella sotto un titolo fatto di parole della descrizione («GARANZIE SCELTE»), fino alla riga di totale (P04, P06, P13; replay +3 −0); riepilogo: lo stesso premio stampato in un altro documento tiene le voci
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
+  'etichettamodulo-fondo', // etichettamodulo gira in fondo, dopo le regole che svuotano i campi
   'flag-etichettamodulo', // Flag «etichettamodulo» di default: campo di testo vuoto dal valore sotto l'etichetta di un modulo con una parola distintiva della testa (P06)
   'tabelleocr-default', // tabelleocr acceso di default; Impostazioni tecniche: server Ollama e modello per le tabelle (default http://192.168.37.10:11434, glm-ocr)
   'paginecopertura-esempi', // paginecopertura: una pagina che nomina un esempio di polizza del profilo («es. DAS, ARAG») conta come pagina della copertura (quietanza DAS di P20)
