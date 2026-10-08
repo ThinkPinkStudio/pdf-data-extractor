@@ -1426,7 +1426,9 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sigla espansa nessun raggruppamento: «Allianz S.p.A.» e «Allianz Viva
   S.p.A.» restano due compagnie. Copie su 12 posizioni (P22, P24 e dieci DAS
   e scansioni, `catalog/ab-acronimi.json`): 260 → 261, l'unico cambio
-  dovuto al flag è P22.
+  dovuto al flag è P22. Riestratto il job del cliente P22 col codice
+  92c784f: **produzione 999/1035 = 96,52%**
+  (`catalog/score-client-0810-acronimi.json`).
 - **Flag `etichettadata` (08/10/2026 sera, default)**: dopo il merge, prima
   della coerenza, un campo DATA il cui valore nella sua pagina sta solo sotto
   etichette (la cella prima della data sulla riga) che nominano il campo MENO
