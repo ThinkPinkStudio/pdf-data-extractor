@@ -1640,6 +1640,17 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   totale tabella per tabella (`coverColumnPairs` dà `head`) e
   `coverRowFromGrid` non sposta un valore letto in una riga che nomina la
   copertura («Totale premio Sezione Tutela Legale»).
+  **Misura** (copie del 08/10 contro la produzione, `catalog/ab-tabelleocr*.json`):
+  P07 20 → 23 (18,67 / 2,33 / 21,00 dalla riga della tutela legale, pertinenza
+  al primo batch), P22 19 → 20 (decorrenza 31/10/2022 letta da GLM-OCR invece
+  di «31/09», garanzie complete; nuovo errore: interessi 3,03 della rata
+  semestrale), P24 20 → 21 (interessi 0,00), P37 21 = 21, P20 = 20 (pagine
+  Tesseract: nessuna tabella). Totale +5. Resta SPENTO finché l'utente non dà
+  il via (impostazione `polizzaTableOcrUrl` in produzione + flag di default).
+  Nello stesso giro `paginecopertura` conta come pagina della copertura anche
+  quella che nomina un ESEMPIO di polizza del profilo («es. DAS, ARAG»): la
+  quietanza DAS di P20 non scrive «tutela legale» e la regola svuotava
+  140,20 / 29,80 giusti (P20 era 20 solo perché estratto prima della regola).
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il
