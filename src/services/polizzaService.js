@@ -4982,6 +4982,55 @@ export function negativeListWithExcluded(best, fields) {
 }
 
 /**
+ * [flag etichettadata] DATA SOTTO UN'ETICHETTA CHE NOMINA MENO IL CAMPO, dopo il
+ * merge. Per un campo DATA (tipo dalla testa della descrizione) le date della
+ * pagina da cui viene il valore, ognuna con la sua etichetta di layout (il testo
+ * della cella prima della data, sulla stessa riga): se il valore sta solo sotto
+ * etichette che nominano il campo MENO di un'altra data della pagina, e l'altra
+ * ha un'etichetta fatta solo di parole della testa della descrizione
+ * (headerLexOf = 1), il valore è l'altra data. Unipol, atto di sospensione
+ * (P17): «Scadenza Sospensione 11/08/2026» e sotto «Scadenza Polizza
+ * 20/03/2027» → la scadenza «della polizza» è la seconda. Mai se il valore non
+ * ha un'etichetta sulla pagina (si ignora da dove l'ha letto il modello), mai
+ * verso una data che il calendario non ha (31/09) né tra due alternative pari.
+ * @returns {{field:object, prima:string, valore:string, file:string, page:number, etichetta:string, etichettaPrima:string}[]}
+ */
+export function betterLabelledDates(best, fields, docs) {
+  const DATE = /(?<!\d)(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})(?!\d)/g
+  const labelled = (page) => {
+    const out = []
+    for (const line of String(page || '').split('\n')) {
+      for (const m of line.matchAll(DATE)) {
+        const v = normalizeDateValue(m[0])
+        if (!v) continue
+        // etichetta = la cella prima della data (dall'ultimo stacco di colonna)
+        const before = line.slice(0, m.index)
+        const cut = before.search(/\S+(?: \S+)*\s*$/)
+        let lab = cut >= 0 ? before.slice(cut).trim() : ''
+        if (/\d/.test(lab)) lab = lab.replace(/.*\d\S*\s*/, '')
+        if (lab && /\p{L}/u.test(lab)) out.push({ v, lab })
+      }
+    }
+    return out
+  }
+  const out = []
+  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'date')) {
+    const e = best?.[f.id]
+    const cur = normalizeDateValue(String(e?.valore || ''))
+    if (!cur || !e.file || e.page === '' || e.page == null) continue
+    const d = (docs || []).find((x) => x && x.name === e.file)
+    const L = labelled(gridPagesOf(d)[Number(e.page) - 1])
+    const mine = L.filter((x) => x.v === cur)
+    if (!mine.length) continue
+    const myLex = Math.max(...mine.map((x) => headerLexOf(f, x.lab)))
+    const others = L.filter((x) => x.v !== cur).map((x) => ({ ...x, lex: headerLexOf(f, x.lab) })).filter((x) => x.lex >= 0.999 && x.lex > myLex)
+    if (!others.length || new Set(others.map((x) => x.v)).size !== 1) continue
+    out.push({ field: f, prima: e.valore, valore: others[0].v, file: e.file, page: Number(e.page), etichetta: others[0].lab, etichettaPrima: mine.map((x) => x.lab).join(' / ') })
+  }
+  return out
+}
+
+/**
  * [flag etichettamodulo] CAMPO DI TESTO VUOTO DALL'ETICHETTA DI UN MODULO. Nei
  * moduli una riga fatta SOLO di etichette in maiuscolo («SETTORE ATTIVITÀ
  * FORMA GIURIDICA», nessuna cifra, ≤5 parole per cella) ha i valori nella riga
@@ -9113,6 +9162,15 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         delete best[s.field.id]
         diag.push(`Fuori dalla copertura[${s.field.label}]: "${s.prima}" non sta in nessuna pagina che nomina la copertura → vuoto`)
       }
+    }
+  }
+
+  // ── [flag etichettadata] Data sotto un'etichetta che nomina meno il campo ──
+  // Prima della coerenza: decorrenza < scadenza si controlla sulle date scelte.
+  if (engineFlag(settings, 'etichettadata')) {
+    for (const s of betterLabelledDates(best, activeFields, analyzed)) {
+      best[s.field.id] = { ...best[s.field.id], valore: s.valore, file: s.file, page: s.page }
+      diag.push(`Etichetta della data[${s.field.label}]: "${s.prima}" (sotto «${s.etichettaPrima}») → "${s.valore}" (sotto «${s.etichetta}», stessa pagina, ${s.file} p.${s.page})`)
     }
   }
 
