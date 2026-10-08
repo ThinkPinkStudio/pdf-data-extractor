@@ -1398,6 +1398,23 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «RATE SUCCESSIVE 24,00 0,00 3,00 27,00» con l'intestazione DIRITTO
   nell'appendice → diritti 0,00. Replay su 12 serie: +1 (P18) in due, nessun
   altro cambiamento.
+- **Flag `etichettamodulo` (08/10/2026, default)**: un campo di TESTO VUOTO
+  (non elenco, non scelta chiusa, non verifica) prende il valore stampato
+  sotto l'etichetta di un MODULO — riga fatta solo di celle-etichetta in
+  maiuscolo, senza cifre, ≤5 parole; valore nella riga subito sotto, cella
+  sovrapposta — se l'etichetta contiene una parola DISTINTIVA della testa
+  della descrizione (`distinctiveHeadTokens`) e il valore più frequente è uno
+  solo (`formLabelFill`). Gira IN FONDO (prima di `tassobase`): su P06
+  l'Attività «azienda» veniva svuotata da `categoriaaltrui` dopo. P06 Attività
+  «Servizi vari» (sotto «SETTORE ATTIVITÀ»), produzione 997/1035 = 96,33%
+  (`catalog/score-client-0810-modulo.json`). Provate e SCARTATE nello stesso
+  giro: sostituire un valore PIENO con quello dell'etichetta del modulo (41
+  cambi, saldo −28: «COMUNE», «ANNOTAZIONI INTERNE» prese come etichette di
+  contraente/indirizzo); coppie etichetta→valore di `detectLabelValuePairs`
+  per tutti i campi di testo (117 cambi, saldo −97: frasi delle condizioni come
+  etichette); riga del premio che porta il solo valore del campo a cui la
+  descrizione lega (P24 diritti 0,43): sulle scansioni la trascrizione
+  disallineata dà «266,31» sotto DIRITTO e la regola si contraddice.
 - **Flag `periodopremi` (08/10/2026, default)**: dopo il merge (dopo il
   riepilogo), date e premi dello STESSO periodo, quello più recente che le
   descrizioni chiedono. Campo della decorrenza = data la cui descrizione dice
