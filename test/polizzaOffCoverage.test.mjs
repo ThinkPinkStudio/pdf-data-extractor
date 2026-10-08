@@ -93,3 +93,16 @@ test('tassobase: un tasso «applicato al parametro di regolazione» senza import
   assert.deepEqual(baselessRates({ t: { valore: '4' } }, F).map((s) => [s.field.id, s.base.map((b) => b.id)]), [['t', ['i']]])
   assert.deepEqual(baselessRates({ t: { valore: '0,245' }, i: { valore: '1.800.000' } }, F), [])
 })
+
+test('paginecopertura: una pagina che nomina un esempio di polizza del profilo («es. DAS, ARAG») è una pagina della copertura (quietanza DAS di P20)', async () => {
+  const { offCoverageAmounts } = await import('../src/services/polizzaService.js')
+  const F = { id: 'imp', label: 'Premio imponibile tutela legale', enabled: true, description: "Premio imponibile (netto) ANNUO della tutela legale: la base imponibile del premio della tutela legale per un'annualità, al netto di imposte, diritti e interessi, come stampata nel documento (es. 207,83, 501,30)." }
+  const docs = [
+    { name: 'QUIETANZA 04.2026.pdf', spatialPages: ['D.A.S. Difesa Automobilistica Sinistri S.p.A.\nQuietanza   Polizza 0616600017   Premio netto   140,20   Imposte   29,80   Totale   170,00'] },
+    { name: 'abetone bis.pdf', spatialPages: ['GARANZIE PRESCELTE   Tutela legale del condominio   139,78'] },
+  ]
+  const best = { imp: { valore: '140,20', file: 'QUIETANZA 04.2026.pdf', page: 1 } }
+  const COVER = [['tutela', 'legale']]
+  assert.deepEqual(offCoverageAmounts(best, [F], docs, COVER, {}).map((s) => s.prima), ['140,20'])
+  assert.deepEqual(offCoverageAmounts(best, [F], docs, COVER, {}, ['DAS', 'ARAG']), [])
+})

@@ -74,6 +74,7 @@ const BUILD_FEATURES = [
   'elenco-titolo', // Flag «elencotitolo» acceso: un campo elenco dalla tabella sotto un titolo fatto di parole della descrizione («GARANZIE SCELTE»), fino alla riga di totale (P04, P06, P13; replay +3 −0); riepilogo: lo stesso premio stampato in un altro documento tiene le voci
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
+  'paginecopertura-esempi', // paginecopertura: una pagina che nomina un esempio di polizza del profilo («es. DAS, ARAG») conta come pagina della copertura (quietanza DAS di P20)
   'tabelleocr-2', // tabelleocr solo sulle pagine del modello visivo; totale della colonna della copertura tabella per tabella; la riga della copertura non sposta un valore letto in una riga che nomina la copertura
   'flag-tabelleocr', // Flag «tabelleocr» (spento, da misurare): tabelle delle pagine scansionate da layout (Docling /layout, PP-DocLayoutV2) + GLM-OCR in HTML, incolonnate e aggiunte al testo della pagina
   'ocr-try', // POST /api/polizza/job/[id]/ocr-try: diagnostica, un modello visivo con un prompt su una pagina vera (risposta grezza, niente cache)

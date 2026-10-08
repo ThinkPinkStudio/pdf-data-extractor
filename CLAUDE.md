@@ -1609,6 +1609,37 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   pagine del batch 1); la contraddizione «non operante» con la riga della
   copertura e il suo premio compare in 2 job dei batch del cliente, entrambi
   estratti e giusti per il catalogo.
+- **TABELLE DELLE SCANSIONI: rilevatore di layout + modello per tabelle
+  (08/10/2026, flag `tabelleocr`)**. Dopo la bocciatura di `ocrtabelle` (un
+  modello generico che «scrive» la struttura la sbaglia) si usa la soluzione
+  di chi fa parsing di documenti: un RILEVATORE DI LAYOUT trova i riquadri delle
+  tabelle e un modello addestrato sulle tabelle ricostruisce ogni ritaglio in
+  HTML con le celle esplicite. (1) Servizio Docling, endpoint `POST /layout`
+  (`services/docling/main.py`): PP-DocLayoutV2 di RapidLayout in ONNX su CPU,
+  ~0,4 s a pagina, riquadri delle tabelle 0-1 (il layout di Docling, heron ed
+  egret, sulle schede DAS scansionate non vede la tabella delle garanzie;
+  PP-DocLayoutV3 non vede le tabelle di BIANCA MARIA). La risorsa Coolify è
+  «python service» (uuid in `.goldens-out/work/deploy-docling.out`), si
+  aggiorna via API come l'app. (2) `web/lib/scanTables.ts`: per le sole pagine
+  SCANSIONATE lette dal MODELLO VISIVO (Tesseract ha già le colonne per
+  posizione: su P20 il doppione rovesciava la pertinenza) la pagina si rende a
+  1800 px, ogni riquadro si ritaglia (+6 px) e va a GLM-OCR («Table
+  Recognition:», 0,9B, MIT, ~3 s a tabella) sull'Ollama di
+  `polizzaTableOcrUrl`; `htmlTableToGrid` (`src/services/tableHtml.js`)
+  incolonna l'HTML (celle unite sopra le colonne che coprono) e la tabella si
+  aggiunge in fondo al testo della pagina. Cache a parte
+  `<chiave OCR>:tab1:glm-ocr`: l'OCR di qwen3-vl non si rifà. (3) GLM-OCR sta
+  sul VECCHIO Ollama di Coolify (http://192.168.37.10:11434, GPU 8 GB, ha
+  Internet): il server dei 32B (192.168.100.72) non raggiunge Internet e i
+  `pull` falliscono (registry.ollama.ai, hf.co). Provati e scartati per le
+  tabelle: GLM-OCR sulla pagina INTERA (una tabella sola, intestazioni perse),
+  granite-docling in Ollama (perde gli importi e va in loop), qwen2.5vl:32b
+  «QwenVL HTML» (righe sfasate, poi loop, 4 minuti a pagina). Strumenti:
+  `POST /api/polizza/job/[id]/ocr-try` (un modello su una pagina),
+  `POST/GET /api/polizza/models/pull`. Insieme: `garanziecolonna` conta il
+  totale tabella per tabella (`coverColumnPairs` dà `head`) e
+  `coverRowFromGrid` non sposta un valore letto in una riga che nomina la
+  copertura («Totale premio Sezione Tutela Legale»).
 - **«Pertinente ma incompleta» senza modello** (06/10/2026): se una pagina
   nomina un ESEMPIO che la definizione del profilo dà del tipo di polizza
   («es. DAS, ARAG», solo voci di una parola della parte positiva) il

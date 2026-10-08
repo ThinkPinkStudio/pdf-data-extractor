@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
-import { namesCoverage, recognitionCoverName, coverColumnPairs, verticalCoverColumns, coverColumnRows } from './polizzaOperativita.js'
+import { namesCoverage, recognitionCoverName, coverColumnPairs, verticalCoverColumns, coverColumnRows, recognitionNamedExamples, textNamesAny } from './polizzaOperativita.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -4850,13 +4850,16 @@ export function letterlessTextValues(best, fields, candLog) {
  * segnalati, nessuno giusto.
  * @returns {{field:object, prima:string, valore:string|null, voti:number, cand:object|null}[]}
  */
-export function offCoverageAmounts(best, fields, docs, coverNames, candLog) {
+export function offCoverageAmounts(best, fields, docs, coverNames, candLog, examples = []) {
   if (!Array.isArray(coverNames) || !coverNames.length) return []
   const numsOf = (l) => [...String(l || '').matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(?![\d.,]\d)/g)]
     .map((m) => Number(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : '')))
   const named = new Map()
   const namedOf = (d) => {
-    if (!named.has(d)) named.set(d, gridPagesOf(d).map((p) => { const t = String(p || ''); return !!namesCoverage(t, coverNames) || verticalCoverColumns(t, coverNames).length > 0 || coverColumnRows(t, coverNames).length > 0 }))
+    // la pagina nomina la copertura: col suo nome (anche come intestazione di
+    // colonna spezzata) o con un ESEMPIO di polizza del profilo («es. DAS,
+    // ARAG», `examples`): la quietanza DAS di P20 non scrive «tutela legale»
+    if (!named.has(d)) named.set(d, gridPagesOf(d).map((p) => { const t = String(p || ''); return !!namesCoverage(t, coverNames) || verticalCoverColumns(t, coverNames).length > 0 || coverColumnRows(t, coverNames).length > 0 || (examples.length > 0 && textNamesAny(t, examples)) }))
     return named.get(d)
   }
   const where = (n) => {
@@ -9010,7 +9013,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
     const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
-    for (const s of offCoverageAmounts(best, activeFields, analyzed, names, STAGED_CANDIDATE_LOG.get(best) || {})) {
+    for (const s of offCoverageAmounts(best, activeFields, analyzed, names, STAGED_CANDIDATE_LOG.get(best) || {}, recognitionNamedExamples(me?.recognition || ''))) {
       if (s.valore) {
         best[s.field.id] = { ...s.cand, valore: s.valore }
         diag.push(`Fuori dalla copertura[${s.field.label}]: "${s.prima}" non sta in nessuna pagina che nomina la copertura → "${s.valore}" (candidato in una pagina della copertura, ${s.voti} voti)`)
