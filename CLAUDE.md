@@ -1437,7 +1437,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   Assicurazione:» giusti; contraente fuori dai documenti del numero di
   polizza (P04 FIDITALIA, intestatario al PRA) — perfetto sul contraente ma
   colpisce tre compagnie giuste, e limitarlo al contraente vorrebbe dire
-  nominare il campo. **mistral-small3.2:24b** come modello d'estrazione:
+  nominare il campo. **Pulizia del ragionamento di qwen3-vl RIPROVATA con le
+  tabelle delle scansioni e RIBOCCIATA** (flag `pulisciocr`, codice tolto con
+  un revert): sulle 14 posizioni con OCR visivo nessuna verità usciva dal
+  testo ripulito, ma le copie delle 8 posizioni lette dal modello visivo danno
+  171 → 160. Corregge la compagnia (P22 DAS invece di «COMPAGNIA 10173 -
+  HELVETIA VITA» ripetuto nei ripassi, P24 DAS invece del broker Panizza) e i
+  diritti di P24 (21 → 23), ma i premi peggiorano: P07 prende la riga dei
+  totali 26,60 / 30,00 invece della tutela legale 18,67 / 21,00 (la bozza del
+  ragionamento ripeteva la riga giusta sette volte), P22 la rata semestrale
+  131,38, P37 e P44 scambiano imponibile e lordo (P37 21 → 16). Non riprovare
+  la pulizia da sola: il ragionamento aiuta i premi e danneggia l'identità.
+  **mistral-small3.2:24b** come modello d'estrazione:
   copie su P01–P03 −4 senza un guadagno (P01 il numero di polizza come
   contraente), fermato.
 - **Flag `periodopremi` (08/10/2026, default)**: dopo il merge (dopo il

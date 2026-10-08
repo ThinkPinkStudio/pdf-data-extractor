@@ -25,28 +25,8 @@ interface PolizzaSvc {
   extractPolizzaFromDocs: (docs: { name: string; pages: string[] }[], fullText: string, settings: any, onProgress?: (p: { batch?: number; batchTotal?: number; field?: number; fieldTotal?: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
   probeOcr: (settings: any) => Promise<{ available: boolean; reason?: string }>
   dossierOcrEngine: (settings: any, digitalByFile: boolean[]) => string
-  stripModelReasoning: (text: string) => string
 }
 const svc = () => importSharedService<PolizzaSvc>('polizzaService.js')
-
-// [flag pulisciocr] Pagine dell'OCR visivo senza il RAGIONAMENTO che qwen3-vl
-// scrive nella risposta («<think>», paragrafi in inglese, ripassi): resta la
-// trascrizione, con le tabelle delle scansioni in fondo. Alla lettura: la cache
-// conserva la risposta del modello. Mai bloccante.
-async function cleanVisionPages(pages: string[], settings: any, docName: string, log: (line: string) => Promise<void> | void): Promise<string[]> {
-  if (!pages.some((p) => /^\s*<think>/i.test(String(p ?? '')))) return pages
-  try {
-    const flags = await importSharedService<{ engineFlag: (s: any, n: string) => boolean }>('engineFlags.js')
-    if (!flags.engineFlag(settings, 'pulisciocr')) return pages
-    const m = await svc()
-    const out = pages.map((p) => m.stripModelReasoning(String(p ?? '')))
-    const n = pages.filter((p, i) => p !== out[i]).length
-    await log(`OCR visivo: ragionamento del modello tolto da ${n} pagine di "${docName}" (${out.filter((p, i) => pages[i] && !p.trim()).length} restano bianche)`)
-    return out
-  } catch {
-    return pages
-  }
-}
 
 // Evita doppia esecuzione dello stesso job nello stesso processo.
 const running = new Set<string>()
@@ -478,7 +458,6 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
           buf, docName, pages: cachedPages, baseKey: docCacheKey, settings, log: (line) => appendLog(job, line, logs),
           scanned: layerOfCached ? layerOfCached.map((t, i) => (!t || !t.trim() ? i : -1)).filter((i) => i >= 0) : cachedPages.map((_, i) => i),
         })
-        cachedPages = await cleanVisionPages(cachedPages, settings, docName, (line) => appendLog(job, line, logs))
         const docText = cachedPages.filter(Boolean).join('\n')
         totalPagesProcessed += cachedPages.length
         pagesWithText += cachedPages.filter((t) => t && t.trim()).length
@@ -537,7 +516,6 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
           sw = read?.pages || null
           if (sw && sw.some((t) => t && t.trim())) { try { await putOcrCache(swKey, docName, sw) } catch { /* non fatale */ } }
         }
-        if (sw && sw.length) sw = await cleanVisionPages(sw, settings, docName, (line) => appendLog(job, line, logs))
         if (sw && sw.length) spatial = sw.map((t, i) => (spatial && spatial[i] && spatial[i].trim() ? spatial[i] : (t || '')))
       } else if (spatial) {
         if (!cacheIsGrid) {
@@ -588,7 +566,6 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         scanned: layerProbe ? layerProbe.map((t, i) => (!t || !t.trim() ? i : -1)).filter((i) => i >= 0) : docPages.map((_, i) => i),
       })
     }
-    docPages = await cleanVisionPages(docPages, settings, docName, (line) => appendLog(job, line, logs))
     const docText = docPages.filter((t) => t && t.trim()).map((t) => '\n' + t).join('')
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ocr: (read.ocrPages || 0) > 0 })
