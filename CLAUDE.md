@@ -1432,7 +1432,10 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   P22 il modello proponeva 207,82 (il premio) come importo preventivo, svuotato
   da una guardia più avanti, e il tasso restava.
   Copie A/B dei tre flag (`catalog/ab-periodopremi_esplicita_tassobase.json`):
-  P08 22 → 23, P22 17 → 18, P26 17 → 22, P41 21 → 22 (+8).
+  P08 22 → 23, P22 17 → 18, P26 17 → 22, P41 21 → 22 (+8). Riestrazione dei
+  quattro job del cliente col codice c563fe9: **produzione 991/1035 = 95,75%**
+  (`catalog/score-client-0810-default.json`; P22 17 → 19 col tasso e il
+  parametro di `titolovoce`), nessuna posizione peggiorata.
 - **Flag `elenconegato` (07/10/2026, default)**: dopo il merge, un campo
   ELENCO con la testa di descrizione NEGATIVA («Elenco dei nomi delle
   garanzie di tutela legale NON attivate/operanti») il cui valore contiene una
