@@ -1645,8 +1645,14 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   al primo batch), P22 19 → 20 (decorrenza 31/10/2022 letta da GLM-OCR invece
   di «31/09», garanzie complete; nuovo errore: interessi 3,03 della rata
   semestrale), P24 20 → 21 (interessi 0,00), P37 21 = 21, P20 = 20 (pagine
-  Tesseract: nessuna tabella). Totale +5. Resta SPENTO finché l'utente non dà
-  il via (impostazione `polizzaTableOcrUrl` in produzione + flag di default).
+  Tesseract: nessuna tabella). Totale +5. **Via libera dell'utente l'08/10:
+  flag di default** e impostazioni in Impostazioni tecniche: «Server Ollama per
+  le tabelle delle scansioni» `polizzaTableOcrUrl` (default
+  http://192.168.37.10:11434, il vecchio Ollama: il .72 per ora non esce su
+  Internet, l'utente lo chiede al sysadmin; quando avrà GLM-OCR basta cambiare
+  l'IP lì) e «Modello per le tabelle» `polizzaTableOcrModel` (glm-ocr). Dopo la
+  riestrazione dei 4 job scansionati **produzione 996/1035 = 96,23%**
+  (`catalog/score-client-0810-tabelle.json`).
   Nello stesso giro `paginecopertura` conta come pagina della copertura anche
   quella che nomina un ESEMPIO di polizza del profilo («es. DAS, ARAG»): la
   quietanza DAS di P20 non scrive «tutela legale» e la regola svuotava
