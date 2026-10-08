@@ -4948,6 +4948,64 @@ export function negativeListWithExcluded(best, fields) {
 }
 
 /**
+ * [flag etichettamodulo] CAMPO DI TESTO VUOTO DALL'ETICHETTA DI UN MODULO. Nei
+ * moduli una riga fatta SOLO di etichette in maiuscolo («SETTORE ATTIVITÀ
+ * FORMA GIURIDICA», nessuna cifra, ≤5 parole per cella) ha i valori nella riga
+ * subito sotto, cella per cella. Un campo di testo vuoto (non elenco, non
+ * scelta chiusa, non verifica) prende il valore sotto l'etichetta che contiene
+ * una parola DISTINTIVA della testa della sua descrizione (frequenza inversa
+ * sulle teste del profilo: cambiano le descrizioni, cambiano le parole), se il
+ * valore più frequente è uno solo. DAS Tutela Aziende P06: Attività vuota →
+ * «Servizi vari» (2 volte sotto «SETTORE ATTIVITÀ» e «PROFESSIONE / SETTORE
+ * ATTIVITA'»). Solo campi VUOTI: sostituire un valore con l'etichetta del modulo
+ * (provato) cambiava 41 valori con saldo −28 (comune, annotazioni interne).
+ * @returns {{field:object, valore:string, file:string, page:number, etichetta:string, voti:number}[]}
+ */
+export function formLabelFill(best, fields, docs) {
+  const active = (fields || []).filter((f) => f && f.enabled !== false)
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const cellsOf = (line) => [...String(line || '').matchAll(/\S+(?: \S+)*/g)].map((m) => ({ a: m.index, b: m.index + m[0].length, t: m[0] }))
+  const isUpLabel = (t) => !/\d/.test(t) && t.split(/\s+/).length <= 5 && /[A-ZÀ-Ú]/.test(t) && t === t.toUpperCase()
+  const pairs = []
+  for (const d of docs || []) {
+    gridPagesOf(d).forEach((page, pi) => {
+      const L = String(page || '').split('\n')
+      L.forEach((line, i) => {
+        const cs = cellsOf(line)
+        if (cs.length < 2 || !cs.every((c) => isUpLabel(c.t))) return
+        const k = L.slice(i + 1).findIndex((l) => l.trim())
+        if (k < 0 || k > 1) return
+        const vcs = cellsOf(L[i + 1 + k])
+        if (vcs.every((c) => isUpLabel(c.t))) return
+        for (const c of cs) {
+          const below = vcs.filter((v) => v.a < c.b + 2 && v.b > c.a - 2)
+          if (below.length === 1 && /\p{L}/u.test(below[0].t) && below[0].t.split(/\s+/).length <= 5) pairs.push({ label: c.t, value: below[0].t, file: d.name, page: pi + 1 })
+        }
+      })
+    })
+  }
+  if (!pairs.length) return []
+  const dist = distinctiveHeadTokens(active)
+  const out = []
+  for (const f of active) {
+    if (best?.[f.id]?.valore || fieldValueKind(f) !== 'text' || isListDescription(f.description) || enumeratedOptions(f.description).length || descriptionAsksVerification(f.description)) continue
+    const toks = (dist.get(f.id) || []).map(norm).filter(Boolean)
+    if (!toks.length) continue
+    const V = pairs.filter((p) => { const w = ` ${norm(p.label)} `; return toks.some((t) => w.includes(` ${t} `)) })
+    if (!V.length) continue
+    const count = new Map()
+    for (const p of V) { const k = norm(p.value); const c = count.get(k) || { n: 0, p }; c.n++; count.set(k, c) }
+    const ranked = [...count.values()].sort((a, b) => b.n - a.n)
+    if (ranked.length > 1 && ranked[0].n === ranked[1].n) continue
+    const top = ranked[0]
+    const valore = sanitizeFieldValue(f, top.p.value)
+    if (!valore) continue
+    out.push({ field: f, valore, file: top.p.file, page: top.p.page, etichetta: top.p.label, voti: top.n })
+  }
+  return out
+}
+
+/**
  * VOCE SOTTO UN TITOLO DELLA DESCRIZIONE [flag titolovoce], dopo il merge: un
  * campo di TESTO vuoto (non elenco, non scelta chiusa) la cui descrizione
  * (parte positiva) nomina i titoli delle tabelle da cui viene («la voce della
@@ -9119,6 +9177,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     for (const s of titledItemValue(best, activeFields, analyzed)) {
       best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Voce sotto il titolo «${s.titolo}»[${s.field.label}] = "${s.valore}" (${s.file} p.${s.page})`)
+    }
+  }
+
+  // ── [flag etichettamodulo] Campo di testo vuoto dall'etichetta di un modulo ──
+  if (engineFlag(settings, 'etichettamodulo')) {
+    for (const s of formLabelFill(best, activeFields, analyzed)) {
+      best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
+      diag.push(`Etichetta del modulo[${s.field.label}] = "${s.valore}" (sotto «${s.etichetta}», ${s.voti} volte, ${s.file} p.${s.page})`)
     }
   }
 

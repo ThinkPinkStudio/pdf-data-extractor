@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede', 'titolovoce', 'periodopremi', 'esplicita', 'tassobase', 'tabelleocr'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede', 'titolovoce', 'periodopremi', 'esplicita', 'tassobase', 'tabelleocr', 'etichettamodulo'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in
@@ -52,6 +52,7 @@ export const KNOWN_FLAGS = Object.freeze({
   filtroelenchi: 'Campi che la descrizione definisce ELENCO: se il modello dice che NESSUNA voce trovata corrisponde alla descrizione, il campo resta vuoto (le scelte parziali non cambiano nulla)',
   ocrsoloscansioni: 'OCR col modello visivo (polizzaOcrEngine) solo nei fascicoli di sole scansioni; dove c\'è testo digitale Tesseract',
   tassobase: 'Dopo il merge: un campo che la descrizione dice «applicato al <base>» (il tasso di regolazione al parametro) si svuota se tutti i campi la cui testa nomina la base (importo preventivo del parametro di regolazione) sono vuoti (P22 «3%», P41 «4 / 1.000»)',
+  etichettamodulo: 'Dopo il merge: un campo di testo VUOTO prende il valore stampato sotto l\'etichetta di un modulo (riga di sole etichette in maiuscolo) che contiene una parola distintiva della testa della sua descrizione (P06: Attività «Servizi vari» sotto «SETTORE ATTIVITÀ»)',
   tabelleocr: 'Pagine scansionate: le tabelle trovate dal rilevatore di layout (servizio Docling /layout) e lette da un modello per tabelle (GLM-OCR su polizzaTableOcrUrl) in HTML con le celle esplicite, incolonnate e aggiunte al testo della pagina',
   esplicita: 'Dopo il merge: un importo che la descrizione vuole «indicato esplicitamente come franchigia» e che in nessuna occorrenza sta accanto a quella parola (stessa riga, due righe sopra, intestazione della colonna) si svuota (P08: «controversia inferiore a 500,00 euro» del Set Informativo)',
   periodopremi: 'Dopo il merge: lordo e voci del riepilogo letti in un documento il cui periodo è già finito alla decorrenza estratta, mentre la riga della decorrenza (del documento del periodo nuovo) porta un solo importo diverso: il lordo prende quell\'importo e le voci non stampate nel periodo nuovo si svuotano (CASORETTO P26: 214,00 del rinnovo 2026 invece del riepilogo 2020)',

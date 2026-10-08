@@ -79,3 +79,25 @@ test('titolovoce: Parametro vuoto → la voce sotto «PARAMETRI TARIFFA ATTIVATI
   const cond = 'polizza                            polizza\nse indicati in 12 mesi'
   assert.deepEqual(titledItemValue({}, fields, [{ name: 'C.pdf', spatialPages: [cond] }]), [])
 })
+
+test('etichettamodulo: campo di testo vuoto dal valore sotto l\'etichetta di modulo con una parola distintiva della testa (P06)', async () => {
+  const { formLabelFill } = await import('../src/services/polizzaService.js')
+  const F = [
+    { id: 'att', label: 'Attività assicurata', enabled: true, description: "Attività assicurata: il settore o tipo di attività del contraente/assicurato che è oggetto della copertura (es. Servizi vari, Condominio). È un TESTO che descrive l'attività, non un importo né una data." },
+    { id: 'con', label: 'Contraente', enabled: true, description: 'Nome o ragione sociale del contraente: il soggetto che stipula la polizza.' },
+    { id: 'ind', label: 'Indirizzo', enabled: true, description: 'Indirizzo completo di domicilio o sede legale del contraente: via, numero civico, CAP, città.' },
+  ]
+  const page = [
+    'COGNOME, NOME, RAGIONE SOCIALE                          CODICE FISCALE / PARTITA IVA',
+    'BESA ING SANTANGELO S.P.A.                              13251900158',
+    'SETTORE ATTIVITÀ                     FORMA GIURIDICA',
+    'Servizi vari                         S.p.A.',
+  ].join('\n')
+  const docs = [{ name: 'Polizza.pdf', spatialPages: [page] }]
+  assert.deepEqual(formLabelFill({}, F, docs).map((s) => [s.field.id, s.valore, s.etichetta]), [
+    ['att', 'Servizi vari', 'SETTORE ATTIVITÀ'],
+    ['con', 'BESA ING SANTANGELO S.P.A.', 'COGNOME, NOME, RAGIONE SOCIALE'],
+  ])
+  // campo già pieno: non si tocca
+  assert.deepEqual(formLabelFill({ att: { valore: 'Condominio' }, con: { valore: 'BESA' } }, F, docs), [])
+})
