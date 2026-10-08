@@ -1425,7 +1425,9 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   un'etichetta del valore sulla pagina (P22: decorrenza giusta senza
   etichetta, alternativa «10. DECORRENZA 31/09/2022» della bozza del
   ragionamento OCR), mai verso date impossibili né tra alternative pari.
-  Replay 997 → 998, nessun cambio su altre due serie di copie. Provati e
+  Replay 997 → 998, nessun cambio su altre due serie di copie; riestratto il
+  job del cliente P17 col codice 903f680: **produzione 998/1035 = 96,43%**
+  (`catalog/score-client-0810-etichettadata.json`). Provati e
   SCARTATI nello stesso giro (censimenti offline sulle 45 posizioni):
   sezioni altrui per i campi la cui descrizione POSITIVA nomina la copertura
   (massimali: −2, le condizioni Allianz non intitolano «SEZIONE» la Tutela
