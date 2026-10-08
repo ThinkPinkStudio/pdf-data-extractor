@@ -34,6 +34,8 @@ interface Settings {
   polizzaPrecheckMode?: 'off' | 'keywords' | 'semantic' | 'llm'
   polizzaThink?: 'off' | 'abbinamento' | 'estrazione' | 'tutto'
   polizzaOcrEngine?: string
+  polizzaTableOcrUrl?: string
+  polizzaTableOcrModel?: string
   // Voci del menu PDF Extractor nascoste nella sidebar (href).
   navHiddenExtractor?: string[]
 }
@@ -274,6 +276,15 @@ export default function SettingsTechnicalPage() {
               <input value={s.polizzaOcrEngine ?? ''} onChange={(e) => up('polizzaOcrEngine', e.target.value)} placeholder="tesseract" style={{ fontFamily: 'var(--font-mono)' }} />
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.ocrEngineHint')}</p>
             </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.tableOcrUrl')}</label>
+              <input value={s.polizzaTableOcrUrl ?? ''} onChange={(e) => up('polizzaTableOcrUrl', e.target.value)} placeholder="http://192.168.37.10:11434" style={{ fontFamily: 'var(--font-mono)' }} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="label">{t('set.tableOcrModel')}</label>
+              <input value={s.polizzaTableOcrModel ?? ''} onChange={(e) => up('polizzaTableOcrModel', e.target.value)} placeholder="glm-ocr" style={{ fontFamily: 'var(--font-mono)' }} />
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: 0, gridColumn: '1 / -1' }}>{t('set.tableOcrHint')}</p>
           </div>
         </div>
 

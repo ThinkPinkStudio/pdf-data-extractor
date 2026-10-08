@@ -114,6 +114,10 @@ export interface WebSettings {
   // OCR delle pagine scansionate: '' / 'tesseract' (default) o il nome di un
   // modello visivo Ollama che TRASCRIVE la pagina (qwen2.5vl:7b, gemma3:27b…).
   polizzaOcrEngine?: string
+  // TABELLE DELLE SCANSIONI (flag tabelleocr, 08/10/2026): Ollama che ospita il
+  // modello per tabelle (GLM-OCR) e nome del modello. '' = tabelle spente.
+  polizzaTableOcrUrl?: string
+  polizzaTableOcrModel?: string
   // Flag del motore per le correzioni da misurare (engineFlags.js): '' = default.
   polizzaEngineFlags?: string
   // Voci del menu PDF Extractor NASCOSTE nella sidebar (href). Vedi lib/navExtractor.ts.
@@ -277,6 +281,10 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaThink: (['off', 'abbinamento', 'estrazione', 'tutto'].includes(map.polizzaThink) ? map.polizzaThink : 'off') as WebSettings['polizzaThink'],
     polizzaOcrEngine: String(map.polizzaOcrEngine || '').trim(),
+    // Default: il vecchio Ollama di Coolify, l'unico con GLM-OCR (il server dei
+    // 32B per ora non scarica modelli). Un valore salvato, anche vuoto, vince.
+    polizzaTableOcrUrl: String(map.polizzaTableOcrUrl ?? 'http://192.168.37.10:11434').trim(),
+    polizzaTableOcrModel: String(map.polizzaTableOcrModel || 'glm-ocr').trim(),
     polizzaEngineFlags: String(map.polizzaEngineFlags || '').trim(),
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
