@@ -1415,6 +1415,31 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   etichette); riga del premio che porta il solo valore del campo a cui la
   descrizione lega (P24 diritti 0,43): sulle scansioni la trascrizione
   disallineata dà «266,31» sotto DIRITTO e la regola si contraddice.
+- **Flag `etichettadata` (08/10/2026 sera, default)**: dopo il merge, prima
+  della coerenza, un campo DATA il cui valore nella sua pagina sta solo sotto
+  etichette (la cella prima della data sulla riga) che nominano il campo MENO
+  di un'altra data della stessa pagina, con l'etichetta fatta solo di parole
+  della testa della descrizione (`headerLexOf` = 1), prende l'altra data
+  (`betterLabelledDates`). Unipol, atto di sospensione P17: «Scadenza
+  Sospensione 11/08/2026» → «Scadenza Polizza 20/03/2027». Mai senza
+  un'etichetta del valore sulla pagina (P22: decorrenza giusta senza
+  etichetta, alternativa «10. DECORRENZA 31/09/2022» della bozza del
+  ragionamento OCR), mai verso date impossibili né tra alternative pari.
+  Replay 997 → 998, nessun cambio su altre due serie di copie. Provati e
+  SCARTATI nello stesso giro (censimenti offline sulle 45 posizioni):
+  sezioni altrui per i campi la cui descrizione POSITIVA nomina la copertura
+  (massimali: −2, le condizioni Allianz non intitolano «SEZIONE» la Tutela
+  Giudiziaria e l'ultima sezione sopra è l'Assistenza); opzione della scelta
+  chiusa nominata dai valori degli altri campi (Tipologia: scatta solo dove è
+  già giusta, su P05 «Azienda industriale» romperebbe la Tipologia);
+  etichetta di layout che non nomina il campo (Attività «Professione:
+  IMPIEGATO») — colpirebbe «Intestata a:», «Residenza:», «Impresa di
+  Assicurazione:» giusti; contraente fuori dai documenti del numero di
+  polizza (P04 FIDITALIA, intestatario al PRA) — perfetto sul contraente ma
+  colpisce tre compagnie giuste, e limitarlo al contraente vorrebbe dire
+  nominare il campo. **mistral-small3.2:24b** come modello d'estrazione:
+  copie su P01–P03 −4 senza un guadagno (P01 il numero di polizza come
+  contraente), fermato.
 - **Flag `periodopremi` (08/10/2026, default)**: dopo il merge (dopo il
   riepilogo), date e premi dello STESSO periodo, quello più recente che le
   descrizioni chiedono. Campo della decorrenza = data la cui descrizione dice
