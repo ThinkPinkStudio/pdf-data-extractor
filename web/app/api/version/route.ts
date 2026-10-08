@@ -74,6 +74,7 @@ const BUILD_FEATURES = [
   'elenco-titolo', // Flag «elencotitolo» acceso: un campo elenco dalla tabella sotto un titolo fatto di parole della descrizione («GARANZIE SCELTE»), fino alla riga di totale (P04, P06, P13; replay +3 −0); riepilogo: lo stesso premio stampato in un altro documento tiene le voci
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
+  'flag-tabelleocr', // Flag «tabelleocr» (spento, da misurare): tabelle delle pagine scansionate da layout (Docling /layout, PP-DocLayoutV2) + GLM-OCR in HTML, incolonnate e aggiunte al testo della pagina
   'ocr-try', // POST /api/polizza/job/[id]/ocr-try: diagnostica, un modello visivo con un prompt su una pagina vera (risposta grezza, niente cache)
   'models-pull', // POST/GET /api/polizza/models/pull: scarica un modello sul server Ollama in background (prove dei modelli per documenti)
   'default-0810', // periodopremi, esplicita e tassobase accesi di default (copie A/B +8); tassobase per ultima

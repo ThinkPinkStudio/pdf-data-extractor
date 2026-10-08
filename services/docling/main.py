@@ -6,6 +6,11 @@ Espone:
                 -> {"markdown": str, "pages": [str, ...], "num_pages": int}
                    pages = markdown PER PAGINA (allineato alle pagine del PDF),
                    markdown = documento intero
+  POST /layout  body json {"content_base64": str, "pages": [int]?, "long_side": int?, "threshold": float?}
+                -> {"pages": [{"page": n, "boxes": [{"label", "score", "l", "t", "r", "b"}]}]}
+                   riquadri delle TABELLE per pagina (coordinate 0-1, origine in alto a
+                   sinistra) da PP-DocLayoutV2 (RapidLayout, onnxruntime): per le pagine
+                   SCANSIONATE, che il worker ritaglia e manda a un modello per tabelle
   GET  /health  -> {"ok": true, "docling": "2.126+"}
 
 Avvio:  uvicorn main:app --host 0.0.0.0 --port 8101 --workers 1
@@ -76,7 +81,69 @@ class ParseResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "docling": "2.126+"}
+    return {"ok": True, "docling": "2.126+", "layout": True}
+
+
+# ── Riquadri delle tabelle (flag «tabelleocr» del worker, 08/10/2026) ─────────
+# Sulle pagine SCANSIONATE il modello visivo trascrive il testo ma non
+# incolonna le tabelle. Il rilevatore di layout trova i riquadri delle tabelle;
+# il worker ritaglia la sua immagine della pagina e li manda a GLM-OCR («Table
+# Recognition:»), che restituisce le celle esplicite. PP-DocLayoutV2 (ONNX, CPU,
+# ~0,4 s a pagina): sulle schede DAS scansionate trova le tabelle dei premi
+# anche dove il layout di Docling (heron) non le vede.
+_layout = {}
+
+
+def get_layout(model: str):
+    if model not in _layout:
+        from rapid_layout import RapidLayout, RapidLayoutInput, ModelType  # noqa: E402
+        _layout[model] = RapidLayout(cfg=RapidLayoutInput(model_type=ModelType(model), conf_thresh=0.5))
+    return _layout[model]
+
+
+class LayoutRequest(BaseModel):
+    content_base64: str
+    pages: list[int] | None = None
+    long_side: int = 1800
+    threshold: float = 0.5
+    model: str = "pp_doc_layoutv2"
+
+
+@app.post("/layout")
+def layout(req: LayoutRequest):
+    t0 = time.time()
+    try:
+        raw = base64.b64decode(req.content_base64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"base64 non valido: {e}") from e
+    try:
+        import numpy as np  # noqa: E402
+        import pypdfium2 as pdfium  # noqa: E402
+        eng = get_layout(req.model)
+        doc = pdfium.PdfDocument(raw)
+        n = len(doc)
+        sel = [p for p in (req.pages or range(1, n + 1)) if 1 <= p <= n]
+        out = []
+        for p in sel:
+            page = doc[p - 1]
+            w, h = page.get_size()
+            img = page.render(scale=max(0.1, req.long_side / max(w, h))).to_pil().convert("RGB")
+            res = eng(np.array(img)[:, :, ::-1])
+            W, H = img.size
+            boxes = []
+            for b, lab, sc in zip(res.boxes, res.class_names, res.scores):
+                if lab != "table" or float(sc) < req.threshold:
+                    continue
+                x0, y0, x1, y1 = [float(v) for v in b]
+                boxes.append({"label": lab, "score": round(float(sc), 3),
+                              "l": round(x0 / W, 4), "t": round(y0 / H, 4), "r": round(x1 / W, 4), "b": round(y1 / H, 4)})
+            out.append({"page": p, "boxes": boxes})
+        return {"pages": out, "seconds": round(time.time() - t0, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"layout fallito: {e}") from e
 
 
 @app.post("/parse", response_model=ParseResponse)

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Il job sorgente è ancora in esecuzione o in coda' }, { status: 409 })
   }
 
-  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number; ocr?: string; flags?: string } = {}
+  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number; ocr?: string; flags?: string; tableOcrUrl?: string } = {}
   try { body = await req.json() } catch { /* body vuoto = tutti i default */ }
 
   const settings = await getSettings()
@@ -56,6 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (typeof body.ocr === 'string' && body.ocr.trim()) settingsOverride.polizzaOcrEngine = body.ocr.trim()
   // Flag del motore (engineFlags.js): correzioni accese solo in questa run.
   if (typeof body.flags === 'string' && body.flags.trim()) settingsOverride.polizzaEngineFlags = body.flags.trim()
+  // [flag tabelleocr] Ollama col modello per tabelle (GLM-OCR) da usare in questa run.
+  if (typeof body.tableOcrUrl === 'string' && /^https?:\/\/[\w.:-]+\/?$/.test(body.tableOcrUrl.trim())) settingsOverride.polizzaTableOcrUrl = body.tableOcrUrl.trim()
 
   const engineBit = typeof body.perField === 'boolean'
     ? (body.perField ? ' · per-campo' : (body.stagedCascade ? ' · cascata' : ' · gruppi'))

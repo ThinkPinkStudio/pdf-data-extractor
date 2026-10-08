@@ -4,3 +4,7 @@ uvicorn[standard]
 # (~4 GB di download) che non servono — il parsing PDF non fa inference GPU.
 # onnxruntime = OCR backend leggero (nessun easyocr/torch).
 docling[onnxruntime]>=2.106
+# Riquadri delle tabelle sulle scansioni (endpoint /layout, flag «tabelleocr»):
+# PP-DocLayoutV2 in ONNX, CPU.
+rapid-layout>=1.2,<2
+onnxruntime

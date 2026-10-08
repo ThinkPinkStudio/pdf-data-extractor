@@ -8,6 +8,7 @@
 import { getSettings } from './settingsStore'
 import { importSharedService } from './sharedServices'
 import { loadPdfServer } from './pdfRenderServer'
+import { withScanTables } from './scanTables'
 import { buildSources } from './polizzaRolling'
 import { withGlobalLock } from './llmSemaphore'
 import {
@@ -254,7 +255,7 @@ async function runJob(jobId: string): Promise<void> {
   // DOPO i globali con WHITELIST rigida (mai far entrare chiavi arbitrarie dal
   // DB nei settings in memoria) — stesso pattern di field_defs qui sopra.
   if (job.settings_override && typeof job.settings_override === 'object') {
-    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaThink', 'polizzaBatchContext', 'polizzaOcrEngine', 'polizzaEngineFlags'] as const
+    const ALLOWED = ['ollamaModel', 'polizzaWholeDossierModel', 'polizzaStagedCascade', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaThink', 'polizzaBatchContext', 'polizzaOcrEngine', 'polizzaEngineFlags', 'polizzaTableOcrUrl'] as const
     for (const k of ALLOWED) {
       if (job.settings_override[k] !== undefined) (settings as any)[k] = job.settings_override[k]
     }
@@ -452,6 +453,11 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
         const layerOfCached = layerProbe
         // Numeri spezzati ricomposti sulle sole pagine digitali ([] = nessuna: scansione intera).
         cachedPages = await rejoinCachedGrid(cachedPages, layerOfCached || [])
+        // [flag tabelleocr] tabelle delle pagine scansionate, ricostruite a parte
+        cachedPages = await withScanTables({
+          buf, docName, pages: cachedPages, baseKey: docCacheKey, settings, log: (line) => appendLog(job, line, logs),
+          scanned: layerOfCached ? layerOfCached.map((t, i) => (!t || !t.trim() ? i : -1)).filter((i) => i >= 0) : cachedPages.map((_, i) => i),
+        })
         const docText = cachedPages.filter(Boolean).join('\n')
         totalPagesProcessed += cachedPages.length
         pagesWithText += cachedPages.filter((t) => t && t.trim()).length
@@ -545,14 +551,22 @@ async function runWholeDossier(job: JobRow, files: { file_name: string; pdf_base
     })
     if (!read) continue
     if (read.canceled) return
-    const docPages = read.pages
-    const docText = docPages.filter((t) => t && t.trim()).map((t) => '\n' + t).join('')
+    let docPages = read.pages
     pagesWithText += docPages.filter((t) => t && t.trim()).length
     // In cache solo se il documento ha prodotto ALMENO una pagina di testo: un
     // fallimento transitorio (render/OCR) non deve restare congelato per sempre.
     if (docPages.some((t) => t && t.trim())) {
       try { await putOcrCache((read.ocrPages || 0) > 0 ? ocrCacheKey(fileHash, settings, (read.sandwich || 0) > 0) : fileHash, docName, docPages) } catch { /* non fatale */ }
     }
+    // [flag tabelleocr] tabelle delle pagine scansionate, ricostruite a parte
+    // (dopo la cache dell'OCR, che resta il testo di sempre)
+    if ((read.ocrPages || 0) > 0) {
+      docPages = await withScanTables({
+        buf, docName, pages: docPages, baseKey: ocrCacheKey(fileHash, settings, (read.sandwich || 0) > 0), settings, log: (line) => appendLog(job, line, logs),
+        scanned: layerProbe ? layerProbe.map((t, i) => (!t || !t.trim() ? i : -1)).filter((i) => i >= 0) : docPages.map((_, i) => i),
+      })
+    }
+    const docText = docPages.filter((t) => t && t.trim()).map((t) => '\n' + t).join('')
     parts.push(`\n===== DOCUMENTO: ${docName} =====\n${docText.trim()}`)
     docsForIndex.push({ name: docName, pages: docPages, hash: fileHash, ocr: (read.ocrPages || 0) > 0 })
     docsFlat.push({ name: docName, pages: docPages.map(toFlat) })

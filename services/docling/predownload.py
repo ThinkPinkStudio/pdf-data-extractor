@@ -43,3 +43,11 @@ res = conv.convert(DocumentStream(name="predownload.pdf", stream=io.BytesIO(_PDF
 md = res.document.export_to_markdown()
 assert md.strip(), "conversione di prova vuota: modelli non caricati?"
 print(f"Modelli Docling pre-scaricati e verificati con una conversione reale ({len(md)} char di markdown)")
+
+# Rilevatore di layout dell'endpoint /layout (PP-DocLayoutV2, ONNX): il modello
+# si scarica alla prima costruzione, qui dentro l'immagine.
+import numpy as np  # noqa: E402
+from main import get_layout  # noqa: E402
+
+get_layout("pp_doc_layoutv2")(np.full((256, 256, 3), 255, dtype=np.uint8))
+print("predownload: layout PP-DocLayoutV2 pronto")
