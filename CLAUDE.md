@@ -1452,7 +1452,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   la pulizia da sola: il ragionamento aiuta i premi e danneggia l'identità.
   **mistral-small3.2:24b** come modello d'estrazione:
   copie su P01–P03 −4 senza un guadagno (P01 il numero di polizza come
-  contraente), fermato.
+  contraente), fermato. **gemma3:27b**: copie su P01–P19 351 → 315 (−36)
+  senza un guadagno, e in pertinenza P04 «Da verificare», P10/P12 scartate;
+  attività «AUTOVETTURA», indirizzi presi da importi («568,73»), premi
+  dell'intero contratto. Fermato. Il 32B qwen2.5 resta il modello migliore
+  dei quattro provati (qwen3:32b −14 il 05/10).
 - **Flag `periodopremi` (08/10/2026, default)**: dopo il merge (dopo il
   riepilogo), date e premi dello STESSO periodo, quello più recente che le
   descrizioni chiedono. Campo della decorrenza = data la cui descrizione dice
