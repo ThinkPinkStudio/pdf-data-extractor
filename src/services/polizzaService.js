@@ -7081,7 +7081,18 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     if (!embeddingsOk) return
     const missing = activeFields.filter((f) => !descVecCache.has(f.id))
     if (!missing.length) return
-    const vecs = await embedTexts(settings, missing.map(fieldQueryText))
+    // [flag negazioni] Il vettore della descrizione (affinità con le pagine,
+    // scelta dei documenti del gruppo, arbitro) è fatto della sola parte
+    // POSITIVA: una clausola «NON è il veicolo, la professione…» non deve
+    // avvicinare il campo alle pagine del veicolo. Con la descrizione intera
+    // ogni divieto aggiunto spostava i documenti focalizzati di tutto il gruppo.
+    const negOn = engineFlag(settings, 'negazioni')
+    const queryOf = (f) => {
+      if (!negOn) return fieldQueryText(f)
+      const pos = positiveDescriptionText(fieldQueryText(f)).replace(/\s+/g, ' ').trim()
+      return pos.length >= 10 ? pos : fieldQueryText(f)
+    }
+    const vecs = await embedTexts(settings, missing.map(queryOf))
     missing.forEach((f, i) => descVecCache.set(f.id, vecs[i]))
   }
   // Bootstrap una volta sola: pagine + descrizioni. Su errore → lessicale.

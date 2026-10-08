@@ -23,3 +23,17 @@ test('acronimi: senza una sigla espansa nessun raggruppamento (Allianz / Allianz
   const r = pickConsensusCandidate(cur, cands, { tierBlind: true, acronyms: true })
   assert.equal(r.changed, false)
 })
+
+// Parole distintive (08/10/2026): le citazioni dentro una clausola NEGATA sono
+// etichette di ciò che il campo NON è, non parole del campo.
+import { distinctiveHeadTokens } from '../src/services/polizzaValidation.js'
+test('distinctiveHeadTokens: le citazioni negate non diventano parole distintive', () => {
+  const fields = [
+    { id: 'a', description: "Attività assicurata: il settore di attività dell'impresa. NON è il valore accanto a 'Professione', 'Veicolo'." },
+    { id: 'd', description: "Data di decorrenza della polizza: la data accanto a 'DECORRENZA', oppure il 'Dal' della quietanza." },
+    { id: 'x', description: 'Premio lordo: importo.' },
+  ]
+  const d = distinctiveHeadTokens(fields)
+  assert.ok(!d.get('a').includes('professione') && !d.get('a').includes('veicolo'))
+  assert.ok(d.get('d').includes('decorrenza') && d.get('d').includes('dal'))
+})

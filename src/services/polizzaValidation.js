@@ -394,11 +394,14 @@ export function descriptionNamesQuestionnaire(field) {
  * e seguita da spazio/virgola/punto/parentesi): gli apostrofi di "l'indirizzo"
  * e "dell'intermediario" non sono citazioni.
  */
+// Clausola NEGATA di una descrizione («NON è …», «NON sono …», «non
+// confondere …»), fino al punto: la stessa di negatedQuotedLabels.
+const NEGATED_CLAUSE_RE = /(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|prender\w*|copiar\w*)[^.;!?]*/g
 export function negatedQuotedLabels(description) {
   const out = []
   const seen = new Set()
   const d = String(description || '')
-  for (const clause of d.matchAll(/(?:^|[.;:!?]\s*|\(|,\s*)\s*(?:NON|non)\s+(?:è|e'|e\b|sono|confonder\w*|considerar\w*|prender\w*|copiar\w*)[^.;!?]*/g)) {
+  for (const clause of d.matchAll(NEGATED_CLAUSE_RE)) {
     for (const m of clause[0].matchAll(/(?<=[\s(,])['"«]([^'"«»]{2,40}?)['"»](?=[\s,.;)]|$)/g)) {
       const k = normForMatch(m[1])
       if (k.length < 3 || seen.has(k)) continue
@@ -1539,8 +1542,11 @@ export function distinctiveHeadTokens(fields, tokenize) {
     // 'DECORRENZA'", "il 'Dal' della quietanza", "'al'"): sono le parole che il
     // documento usa come etichetta — valgono anche se corte ("al") e anche se
     // stanno nella coda della descrizione. Decide la descrizione.
+    // Le citazioni dentro una clausola NEGATA («NON è il valore accanto a
+    // 'Professione'», «NON è 'NATO IL', 'COMUNE'») sono etichette di ciò che il
+    // campo NON è (negatedQuotedLabels): non diventano parole del campo.
     const f = (fields || []).find((x) => x.id === id)
-    const quoted = [...String(f?.description || '').matchAll(/['‘’"«]([^'‘’"»]{2,40})['‘’"»]/g)]
+    const quoted = [...String(f?.description || '').replace(NEGATED_CLAUSE_RE, ' ').matchAll(/['‘’"«]([^'‘’"»]{2,40})['‘’"»]/g)]
       .map((m) => norm(m[1]).replace(/[^a-z0-9 ]+/g, ' ').trim())
       .filter((q) => q && q.split(' ').length <= 3 && !/^\d/.test(q))
       .map((q) => q.split(' ')[0])
