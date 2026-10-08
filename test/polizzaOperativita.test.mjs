@@ -958,8 +958,8 @@ test('[flag coppiecopertura] coverColumnPairs: «TUTELA LEGALE» → 24,00 della
     '                                                                                PREMIO ANNUO  24,00     0,00     0,00     3,00     27,00',
   ].join('\n')
   assert.deepEqual(coverColumnPairs(one, TL), [
-    { row: 4, label: 'TUTELA LEGALE', value: '24,00', riga: 'Circolazione Stradale Standard - AB' },
-    { row: 5, label: 'TUTELA LEGALE', value: '24,00', riga: 'PREMIO ANNUO' },
+    { row: 4, label: 'TUTELA LEGALE', value: '24,00', riga: 'Circolazione Stradale Standard - AB', head: 2 },
+    { row: 5, label: 'TUTELA LEGALE', value: '24,00', riga: 'PREMIO ANNUO', head: 2 },
   ])
   assert.deepEqual([...coverColumnRows(one, TL)], [3, 4], 'stesse righe di coverColumnRows')
   // colonna spezzata su due righe (DAS condominio): l'intestazione intera

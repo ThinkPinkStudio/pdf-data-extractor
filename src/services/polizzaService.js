@@ -3995,10 +3995,14 @@ export function coverColumnGuarantees(best, fields, docs, coverNames) {
       gridPagesOf(d).forEach((page, pi) => {
         if (hit) return
         const names = []
-        let acc = 0
+        let acc = 0, head = null
         for (const p of coverColumnPairs(String(page || ''), coverNames)) {
           const n = parsePureAmount(p.value)
           if (n == null) continue
+          // il totale si conta tabella per tabella (la pagina di una scansione ha
+          // la trascrizione E la tabella ricostruita: P24 «Difesa Condominio»
+          // scambiata per il totale della riga senza etichetta della trascrizione)
+          if (p.head !== head) { head = p.head; acc = 0 }
           if (acc > 0 && sameAmount(n, acc)) { acc = 0; continue } // riga di totale
           acc += n
           if (p.riga && !names.includes(p.riga)) names.push(p.riga)
@@ -4658,7 +4662,10 @@ export function coverRowFromGrid(best, fields, docs, coverNames) {
           return false
         }
         lines.forEach((line, i) => {
-          if (line.includes('|') || isCoverRow(gridRowLabel(line)) || inCoverSection(i)) return
+          // una riga che NOMINA la copertura («Totale premio Sezione Tutela
+          // Legale 294,92») porta già il suo premio: non si sposta sulla sola
+          // garanzia base della sezione (P37 con le tabelle delle scansioni)
+          if (line.includes('|') || isCoverRow(gridRowLabel(line)) || namesCoverage(gridRowLabel(line), coverNames) || inCoverSection(i)) return
           for (const t of gridAmountTokens(line)) {
             if (!sameAmount(t.n, n)) continue
             const col = []

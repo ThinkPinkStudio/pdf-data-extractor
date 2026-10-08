@@ -69,6 +69,11 @@ export async function withScanTables(opts: {
   try {
     const flags = await importSharedService<{ engineFlag: (s: any, n: string) => boolean }>('engineFlags.js')
     if (!flags.engineFlag(settings, 'tabelleocr') || !scanned.length) return pages
+    // Solo le pagine lette dal MODELLO VISIVO: il testo di Tesseract ha già le
+    // colonne per posizione (ocrLayout) e la tabella sarebbe un doppione; nel
+    // fascicolo misto P20 ha rovesciato la pertinenza.
+    const engine = String(settings?.polizzaOcrEngine || '').trim().toLowerCase()
+    if (!engine || engine === 'tesseract') return pages
     const url = String(settings?.polizzaTableOcrUrl || '').trim()
     const model = String(settings?.polizzaTableOcrModel || 'glm-ocr').trim()
     const layoutUrl = String(settings?.polizzaLayoutUrl || settings?.doclingUrl || '').trim().replace(/\/+$/, '')

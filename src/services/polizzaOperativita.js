@@ -327,7 +327,9 @@ export function coverColumnRows(text, names) {
  * OneClick di RUZZA FABIO: «TUTELA LEGALE» → 24,00 (riga «Circolazione
  * Stradale Standard - AB»); nella griglia l'intestazione è una cella unica con
  * le altre colonne e la coppia non si vede.
- * @returns {{row:number, label:string, value:string, riga:string}[]} row 1-based
+ * `head`: riga (1-based) dell'intestazione della colonna, cioè la TABELLA della
+ * coppia (una pagina può averne più d'una: trascrizione e tabelle ricostruite).
+ * @returns {{row:number, label:string, value:string, riga:string, head:number}[]} row 1-based
  */
 export function coverColumnPairs(text, names) {
   const out = []
@@ -369,7 +371,7 @@ export function coverColumnPairs(text, names) {
       seen.add(j)
       const first = cells[j][0]
       const riga = first && first.start < hit.index ? lines[j].slice(first.start, first.end).trim() : ''
-      out.push({ row: j + 1, label, value: hit.text.trim(), riga })
+      out.push({ row: j + 1, label, value: hit.text.trim(), riga, head: col.line + 1 })
     }
   }
   return out.sort((a, b) => a.row - b.row)
