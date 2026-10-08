@@ -1415,6 +1415,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   etichette); riga del premio che porta il solo valore del campo a cui la
   descrizione lega (P24 diritti 0,43): sulle scansioni la trascrizione
   disallineata dà «266,31» sotto DIRITTO e la regola si contraddice.
+- **Flag `acronimi` (08/10/2026 sera, default)**: nel consenso
+  (`pickConsensusCandidate`, opzione `acronyms`) le varianti dello stesso nome
+  in cui una parola del più corto è la SIGLA (iniziali) di parole in fila del
+  più lungo, e ogni altra sua parola sta nel più lungo, sommano i voti come il
+  testo contenuto: «DAS S.p.A.» e «D.A.S. Difesa Automobilistica Sinistri
+  S.p.A.» (punti delle sigle tolti: «S.p.A.» = «spa»). P22 ARENA: un voto
+  ciascuno, vinceva «HELVETIA VITA» (riga «COMPAGNIA 10173 - HELVETIA VITA»
+  dell'estratto conto del broker) col suo voto; insieme 2 contro 1. Senza una
+  sigla espansa nessun raggruppamento: «Allianz S.p.A.» e «Allianz Viva
+  S.p.A.» restano due compagnie. Copie su 12 posizioni (P22, P24 e dieci DAS
+  e scansioni, `catalog/ab-acronimi.json`): 260 → 261, l'unico cambio
+  dovuto al flag è P22.
 - **Flag `etichettadata` (08/10/2026 sera, default)**: dopo il merge, prima
   della coerenza, un campo DATA il cui valore nella sua pagina sta solo sotto
   etichette (la cella prima della data sulla riga) che nominano il campo MENO
