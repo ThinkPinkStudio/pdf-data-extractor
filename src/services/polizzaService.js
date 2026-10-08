@@ -5915,7 +5915,7 @@ export function tableRowStructCmp(a, b) {
  * vincente si tiene quello con affinità più alta. Puro e deterministico.
  * @returns {{ changed: boolean, cand?: object, votes?: number, prevVotes?: number }}
  */
-export function pickConsensusCandidate(current, cands, { minVotes = 2, tierBlind = false } = {}) {
+export function pickConsensusCandidate(current, cands, { minVotes = 2, tierBlind = false, acronyms = false } = {}) {
   // Livello di recency = data del DOCUMENTO sorgente (srcDate), non del valore:
   // per i campi data effDate È il valore, e ogni candidato finiva in un livello
   // a sé (consenso mai applicato alle date). Senza candidato corrente (campo
@@ -5985,6 +5985,48 @@ export function pickConsensusCandidate(current, cands, { minVotes = 2, tierBlind
       if (b.maxAff > a.maxAff) a.maxAff = b.maxAff
       groups.delete(longK)
       for (const [k, v] of keyOf) if (v === longK) keyOf.set(k, shortK)
+    }
+  }
+  // [flag acronimi] VARIANTI CON LA SIGLA: «DAS S.p.A.» e «D.A.S. Difesa
+  // Automobilistica Sinistri S.p.A.» sono lo stesso nome — una parola del più
+  // corto è la sigla (iniziali) di parole in fila del più lungo, e ogni altra
+  // sua parola sta nel più lungo. I voti si sommano come per il testo
+  // contenuto (P22: 1 + 1 voti DAS divisi, vinceva «HELVETIA VITA» con 1).
+  // Senza una sigla espansa nessun raggruppamento: «Allianz S.p.A.» e «Allianz
+  // Viva S.p.A.» restano due compagnie.
+  if (acronyms) {
+    const toks = (v) => String(v || '').replace(/\b(?:\p{L}\.){2,}\p{L}?\.?/gu, (m) => m.replace(/\./g, ''))
+      .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
+    const expands = (acr, long) => {
+      if (acr.length < 2 || /\d/.test(acr)) return false
+      for (let i = 0; i + acr.length <= long.length; i++) {
+        const run = long.slice(i, i + acr.length)
+        if (run.every((w) => w.length >= 2 && !/\d/.test(w)) && run.map((w) => w[0]).join('') === acr) return true
+      }
+      return false
+    }
+    const keys = [...groups.keys()].filter((k) => /[a-z]/.test(k))
+    const T = new Map(keys.map((k) => [k, toks(groups.get(k).rep?.valore)]))
+    const order = keys.sort((a, b) => T.get(a).length - T.get(b).length)
+    for (let i = 0; i < order.length; i++) {
+      const shortK = order[i]
+      if (!groups.has(shortK) || keyOf.get(shortK) !== shortK) continue
+      const ts = T.get(shortK)
+      for (let j = i + 1; j < order.length; j++) {
+        const longK = order[j]
+        if (!groups.has(longK) || keyOf.get(longK) !== longK) continue
+        const tl = T.get(longK)
+        const set = new Set(tl)
+        const expanded = ts.filter((w) => expands(w, tl))
+        if (!expanded.length || !ts.every((w) => set.has(w) || expanded.includes(w))) continue
+        const a = groups.get(shortK); const b = groups.get(longK)
+        a.n += b.n
+        for (const f of b.files) a.files.add(f)
+        for (const [vk, vn] of b.variants) a.variants.set(vk, (a.variants.get(vk) || 0) + vn)
+        if (b.maxAff > a.maxAff) a.maxAff = b.maxAff
+        groups.delete(longK)
+        for (const [k, v] of keyOf) if (v === longK) keyOf.set(k, shortK)
+      }
     }
   }
   for (const g of groups.values()) {
@@ -8444,6 +8486,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // centesimi di affinità. Sul GUFFANTI: P.IVA giusta 7 volte contro 2, scartata
   // per affinità 0.45 vs 0.53. Type-blind: conta solo quante volte il modello
   // ha letto lo stesso valore dallo stesso periodo.
+  const acronimiOn = engineFlag(settings, 'acronimi')
   {
     const log = STAGED_CANDIDATE_LOG.get(best) || {}
     const notes = []
@@ -8460,7 +8503,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       // recency resta sovrana (SPALLINO TL: 2 voti "16/12/2024" dalla polizza
       // vecchia battevano la quietanza di rinnovo "16/12/2025" col voto cieco).
       const identity = !isStructuralField(fld) && !isPeriodicEconomicField(fld) && fieldValueKind(fld) !== 'date'
-      const r = pickConsensusCandidate(best[id], cands, { tierBlind: identity })
+      const r = pickConsensusCandidate(best[id], cands, { tierBlind: identity, acronyms: acronimiOn })
       if (r.changed) {
         const prev = best[id]?.valore
         best[id] = r.cand
@@ -8538,7 +8581,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         let next = null
         for (const c of remaining) next = pickSemanticCandidate(next, c, isStructuralField(fld) ? 'strutturali' : 'anagrafica')
         const identity = !isStructuralField(fld) && !isPeriodicEconomicField(fld) && fieldValueKind(fld) !== 'date'
-        const r = pickConsensusCandidate(next, remaining, { tierBlind: identity })
+        const r = pickConsensusCandidate(next, remaining, { tierBlind: identity, acronyms: acronimiOn })
         best[id] = r.changed ? r.cand : next
         ownerNotes.push(`${fld.label || id}="${String(cur.valore).slice(0, 30)}" è il dato di «${ownerLabel}» → ora "${String(best[id].valore).slice(0, 30)}"`)
       }
@@ -8562,7 +8605,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
         let next = null
         for (const c of cands) next = pickSemanticCandidate(next, c, isStructuralField(fld) ? 'strutturali' : 'anagrafica')
         const identity = !isStructuralField(fld) && !isPeriodicEconomicField(fld) && fieldValueKind(fld) !== 'date'
-        const r = pickConsensusCandidate(next, cands, { tierBlind: identity })
+        const r = pickConsensusCandidate(next, cands, { tierBlind: identity, acronyms: acronimiOn })
         best[id] = r.changed ? r.cand : next
         tNotes.push(`${fld.label || id}="${String(cur.valore).slice(0, 30)}" (stesso valore visto accanto a un'etichetta negata) → ora "${String(best[id].valore).slice(0, 30)}"`)
       }
