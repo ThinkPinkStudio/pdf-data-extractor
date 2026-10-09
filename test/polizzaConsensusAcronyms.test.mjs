@@ -37,3 +37,16 @@ test('distinctiveHeadTokens: le citazioni negate non diventano parole distintive
   assert.ok(!d.get('a').includes('professione') && !d.get('a').includes('veicolo'))
   assert.ok(d.get('d').includes('decorrenza') && d.get('d').includes('dal'))
 })
+
+// [flag negatestadi] negatedLabelHit: la stessa regola dei batch, riusabile
+// dagli stadi A.7 e A.8 (09/10/2026).
+import { negatedLabelHit } from '../src/services/polizzaService.js'
+test('negatedLabelHit: citazione negata di più parole nella finestra, di una parola solo coi due punti, frase negata come etichetta', () => {
+  const f = { description: "Ragione sociale del contraente (es. ROSSI SRL; NON è il valore accanto a 'Intestatario al PRA', 'Professione'.)" }
+  assert.equal(negatedLabelHit(f, 'FIDITALIA SPA', { winsShort: ['Intestatario al P.R.A. FIDITALIA SPA 08437820155'] }, ''), 'Intestatario al PRA')
+  assert.equal(negatedLabelHit(f, 'IMPIEGATO', { winsShort: ['Professione: IMPIEGATO'] }, ''), 'Professione')
+  assert.equal(negatedLabelHit(f, 'MARIO', { winsShort: ['PROFESSIONE / SETTORE MARIO'] }, ''), null)
+  const g = { description: 'Premio lordo ANNUO della tutela legale (es. 255,00; NON è il totale netto annuo di polizza.)' }
+  assert.equal(negatedLabelHit(g, '6.367,26', null, 'TOTALE NETTO ANNUO DI POLIZZA       6.367,26'), 'totale netto annuo di polizza')
+  assert.equal(negatedLabelHit(g, '317,24', null, 'TUTELA LEGALE  30.000,00  317,24'), null)
+})

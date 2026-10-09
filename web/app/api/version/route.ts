@@ -75,6 +75,7 @@ const BUILD_FEATURES = [
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
   'etichettamodulo-fondo', // etichettamodulo gira in fondo, dopo le regole che svuotano i campi
+  'flag-negatestadi', // Flag «negatestadi» (spento, da misurare): etichette negate dalla descrizione anche sulle proposte di A.7 e A.8
   'flag-acronimi', // Flag «acronimi» di default: nel consenso la sigla e il nome esteso sommano i voti (P22 DAS invece di HELVETIA VITA)
   'flag-etichettadata', // Flag «etichettadata» di default: data sotto un'etichetta che nomina meno il campo → la data della stessa pagina con l'etichetta fatta di parole della testa (P17 «Scadenza Polizza»)
   'flag-etichettamodulo', // Flag «etichettamodulo» di default: campo di testo vuoto dal valore sotto l'etichetta di un modulo con una parola distintiva della testa (P06)

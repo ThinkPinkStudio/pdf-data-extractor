@@ -6152,6 +6152,38 @@ function reportEvidenceTail(r) {
   return r.ev && r.outcome !== 'ok' && r.outcome !== 'vuoto/null' ? ` «${r.ev}»` : ''
 }
 
+// [flag negatestadi] Marca il valore di un campo come visto accanto a
+// un'etichetta negata dalla descrizione (come nei batch): dopo il merge il
+// valore marcato cede ai candidati non marcati, o il campo si svuota.
+function markNegatedValue(best, fieldId, value) {
+  let tainted = STAGED_TAINTED.get(best)
+  if (!tainted) { tainted = {}; STAGED_TAINTED.set(best, tainted) }
+  if (!tainted[fieldId]) tainted[fieldId] = new Set()
+  tainted[fieldId].add(valueKey(value))
+}
+
+/**
+ * ETICHETTA o FRASE NEGATA dalla descrizione accanto al valore: la citazione di
+ * una clausola «NON è …» (negatedQuotedLabels) in una delle finestre attorno
+ * alle occorrenze del valore (`affPair.winsShort`, ±80 caratteri), oppure una
+ * frase negata (negatedPhrases) che fa da etichetta del valore nel testo. Una
+ * citazione di UNA parola ('Sinistro') conta solo seguita dai due punti
+ * («Sinistro:»): la parola nuda sta ovunque (Sinistri: la definizione di
+ * 'Sinistro' svuotava le risposte vere del questionario, SPALLINO v8).
+ * @returns {string|null} l'etichetta o la frase trovata
+ */
+export function negatedLabelHit(field, cleaned, affPair, text) {
+  const negLabels = negatedQuotedLabels(field?.description)
+  const phrases = negatedPhrases(field?.description)
+  const wins = affPair && typeof affPair === 'object' && Array.isArray(affPair.winsShort) ? affPair.winsShort : []
+  if (!(negLabels.length && wins.length) && !phrases.length) return null
+  const hitIn = (win) => { const nw = normForMatch(win); return negLabels.find((l) => /\s/.test(l.trim())
+    ? nw.includes(normForMatch(l))
+    : new RegExp(`(?<![\\p{L}])${l.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'iu').test(win)) }
+  for (const w of wins) { const h = hitIn(w); if (h) return h }
+  return phrases.length ? negatedPhraseLabelling(String(text || ''), cleaned, phrases) : null
+}
+
 export async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null, verificationObjects = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // Il prompt può rispondere con chiavi di INDICE `c{N}` (allineate all'ordine
@@ -6391,24 +6423,8 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     // contraente): è ciò che il campo NON è. Etichette lette dalla descrizione,
     // finestra attorno al valore nel documento (o nel contesto della chiamata).
     {
-      const negLabels = negatedQuotedLabels(field.description)
-      const wins = affPair && typeof affPair === 'object' && Array.isArray(affPair.winsShort) ? affPair.winsShort : []
-      if ((negLabels.length && wins.length) || negatedPhrases(field.description).length) {
-        // Etichetta di UNA parola ('Sinistro'): conta solo se nel testo è
-        // davvero un'etichetta, cioè seguita dai due punti ("Sinistro:"); la
-        // parola nuda sta ovunque (Sinistri: la definizione di 'Sinistro'
-        // svuotava le risposte vere del questionario, SPALLINO v8).
-        const hitIn = (win) => { const nw = normForMatch(win); return negLabels.find((l) => /\s/.test(l.trim())
-          ? nw.includes(normForMatch(l))
-          : new RegExp(`(?<![\\p{L}])${l.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'iu').test(win)) }
-        let hit = null
-        for (const w of wins) { hit = hitIn(w); if (hit) break }
-        // FRASE NEGATA senza virgolette che fa da ETICHETTA del valore
-        // («Anticipo spese penale doloso 5.000 euro» per la franchigia).
-        if (!hit) {
-          const phrases = negatedPhrases(field.description)
-          if (phrases.length) hit = negatedPhraseLabelling(String(srcDoc?.text || rawCtx || ''), cleaned, phrases)
-        }
+      const hit = negatedLabelHit(field, cleaned, affPair, String(srcDoc?.text || rawCtx || ''))
+      {
         if (hit) {
           let tainted = STAGED_TAINTED.get(best)
           if (!tainted) { tainted = {}; STAGED_TAINTED.set(best, tainted) }
@@ -7245,6 +7261,8 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // evidenza strutturale come una riga di tabella (tableRow), e non lo battono
   // quattro voti per la data di firma del profilo cliente.
   const distinctHead = distinctiveHeadTokens(activeFields, lexTokenize)
+  // [flag negatestadi] etichette negate anche sulle proposte di A.7 e A.8
+  const negateStages = engineFlag(settings, 'negatestadi')
   const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
     if (!srcDoc?.text) return null
     let win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
@@ -7542,6 +7560,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // GUFFANTI). Il documento è quello della chiamata.
             let affPair = null
             try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), d) } catch { affPair = null }
+            if (negateStages) {
+              const negHit = negatedLabelHit(f, cleaned, affPair, String(d.text || ''))
+              if (negHit) {
+                markNegatedValue(best, f.id, cleaned)
+                diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — accanto a «${negHit}», che la descrizione esclude`)
+                continue
+              }
+            }
             // RIGA DI TABELLA la cui ETICHETTA contiene parole della DESCRIZIONE del
             // campo ("5. Massimale" → massimale, "2. Indirizzo del Contraente" →
             // indirizzo/contraente): è l'evidenza più forte che il documento offre,
@@ -7802,6 +7828,14 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           const origin = { page: Math.max(1, ((srcDoc?.pages || []).findIndex((pg) => vnorm && normForMatch(pg).includes(vnorm)) + 1) || 1) }
           let affPair = null
           try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), srcDoc) } catch { affPair = null }
+          if (negateStages) {
+            const negHit = negatedLabelHit(f, cleaned, affPair, String(srcDoc?.text || ''))
+            if (negHit) {
+              markNegatedValue(best, f.id, cleaned)
+              diag.push(`Frontespizio-focus[${f.label}]: "${cleaned}" scartato — accanto a «${negHit}», che la descrizione esclude`)
+              continue
+            }
+          }
           const cand = {
             valore: cleaned, effDate: srcDoc?.dateStr, srcDate: srcDoc?.dateStr ?? null, docType: srcDoc?.type,
             appendixOrd: srcDoc?.appendixOrd, docPos: srcDoc?.pos,
