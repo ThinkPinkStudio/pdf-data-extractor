@@ -4239,6 +4239,27 @@ export function supersededPeriodPremiums(best, fields, docs) {
  * Azienda, Professionista/Studio professionale, Auto/Circolazione, …»), senza
  * la coda degli esempi: [] se la descrizione non elenca una scelta.
  */
+/**
+ * [flag opzioni] PROVA DI UN'OPZIONE di una scelta CHIUSA («una tra Azienda,
+ * Professionista/Studio professionale, Auto/Circolazione, Condominio, Altra
+ * tipologia»): il valore è una CATEGORIA della descrizione, non una parola del
+ * documento, e la prova letterale lo penalizzava — «Azienda» e «Condominio»
+ * stanno come parole nei documenti, «Auto/Circolazione» con la barra quasi
+ * mai (DAS Drive P02/P03: lo Stadio A.7 proponeva Auto/Circolazione, scartato
+ * «senza evidenza»; restava l'Azienda del contraente). Vale se l'opzione, o una
+ * sua parte separata da «/», sta come parola nel testo; «Altra tipologia» resta
+ * letterale. Solo valori che SONO un'opzione della descrizione del campo.
+ */
+export function optionHasEvidence(field, value, text) {
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const v = norm(value)
+  if (!v) return false
+  const opt = enumeratedOptions(field?.description).find((o) => norm(o) === v)
+  if (!opt) return false
+  const hay = ` ${norm(text)} `
+  return [opt, ...opt.split('/')].map(norm).filter((x) => x.length >= 4).some((x) => hay.includes(` ${x} `))
+}
+
 export function enumeratedOptions(description) {
   const m = positiveDescriptionText(String(description || '')).match(/\buna\s+tra\s+([^(.;:]+)/i)
   if (!m) return []
@@ -5730,6 +5751,9 @@ const STAGED_CANDIDATE_LOG = new WeakMap()
 // piè di pagina); se anche UNA occorrenza sta accanto a un'etichetta che la
 // descrizione nega, il VALORE è quello della compagnia ovunque appaia.
 const STAGED_TAINTED = new WeakMap()
+// Flag del motore letti da absorbStagedEntries (che non riceve le impostazioni),
+// per run: chiave = il `best` della run.
+const STAGED_FLAGS = new WeakMap()
 // Opzioni del motore per l'oggetto `best` (flag del motore letti una volta):
 // absorbStagedEntries non riceve le impostazioni.
 const STAGED_OPTS = new WeakMap()
@@ -6232,7 +6256,7 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     const cleaned = sanitizeFieldValue(field, val)
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
     const evQuote = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
-    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx)) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx) && !(STAGED_FLAGS.get(best)?.opzioni && optionHasEvidence(field, cleaned, rawCtx || ''))) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
     // ECO della descrizione di un ALTRO campo della chiamata, assente dal testo
     // ("Non operante" delle Condizioni finito nelle Esclusioni, RCP SAPORITI).
     {
@@ -6503,6 +6527,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const diag = []
   const best = {}   // id → candidato vincente { valore, effDate, docType, file, page, … }
+  STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni') })
   STAGED_OPTS.set(best, { lists: engineFlag(settings, 'elenchi') })
 
   const ollamaModel = resolveOllamaModel(settings)
@@ -7544,8 +7569,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
               continue
             }
             if (!passesStagedEvidence(f, cleaned, valObj, a7NormCtx, a7RawCtx)) {
-              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — non compare nelle tabelle inviate (senza evidenza)`)
-              continue
+              if (engineFlag(settings, 'opzioni') && optionHasEvidence(f, cleaned, d.text || '')) {
+                diag.push(`Tabella-focus[${f.label}]: "${cleaned}" è un'opzione della descrizione, nominata nel documento: accettato`)
+              } else {
+                diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — non compare nelle tabelle inviate (senza evidenza)`)
+                continue
+              }
             }
             // Stesso veto dei batch: un importo che nel fascicolo esiste SOLO in un
             // documento-questionario/opzioni (tabella "polizze precedenti":

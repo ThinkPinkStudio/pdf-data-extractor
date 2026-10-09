@@ -50,3 +50,13 @@ test('negatedLabelHit: citazione negata di più parole nella finestra, di una pa
   assert.equal(negatedLabelHit(g, '6.367,26', null, 'TOTALE NETTO ANNUO DI POLIZZA       6.367,26'), 'totale netto annuo di polizza')
   assert.equal(negatedLabelHit(g, '317,24', null, 'TUTELA LEGALE  30.000,00  317,24'), null)
 })
+
+// [flag opzioni] prova di un'opzione di una scelta chiusa (09/10/2026)
+import { optionHasEvidence } from '../src/services/polizzaService.js'
+test('optionHasEvidence: opzione o sua parte come parola nel testo; «Altra tipologia» letterale; non opzioni mai', () => {
+  const f = { description: 'Tipologia della copertura: la categoria, una tra Azienda, Professionista/Studio professionale, Auto/Circolazione, Condominio, Altra tipologia. Si ricava dal prodotto.' }
+  assert.equal(optionHasEvidence(f, 'Auto/Circolazione', 'PROFILO CLIENTE  X Tutela della mobilità / circolazione'), true)
+  assert.equal(optionHasEvidence(f, 'Auto/Circolazione', 'autoveicolo e autostrada'), false)
+  assert.equal(optionHasEvidence(f, 'Altra tipologia', 'tipologia del rischio'), false)
+  assert.equal(optionHasEvidence(f, 'Veicolo', 'veicolo'), false)
+})
