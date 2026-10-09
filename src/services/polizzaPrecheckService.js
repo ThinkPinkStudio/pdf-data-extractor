@@ -207,6 +207,26 @@ export function buildPageCandidates(docs, spatialDocs, { capped = true, partChar
  * numero di polizza): ordinale (1-based, come «Documento N») → dichiarazione.
  * Sulla griglia se c'è, altrimenti sul testo piatto (OCR).
  */
+/**
+ * [flag evitatitolo] Le parole da evitare del profilo che stanno nel TITOLO del
+ * documento della prova di «operante» (testa della sua prima pagina con testo,
+ * griglia se c'è): solo queste contraddicono l'operatività. Senza prova
+ * localizzata nessuna. `evidence.ord` = posizione del documento (1 = primo).
+ */
+export function excludeWordsInProofTitle(excludeMatched, evidence, docs, spatialDocs) {
+  if (!excludeMatched?.length || !evidence?.found || !evidence.ord) return []
+  const i = evidence.ord - 1
+  const grid = spatialDocs?.[i]?.pages || []
+  const pages = grid.some((p) => String(p || '').trim()) ? grid : (docs?.[i]?.pages || [])
+  // TITOLO = una CELLA della testa della pagina (primi 120 caratteri, celle
+  // separate da ≥2 spazi) che COMINCIA con la parola: la stessa convenzione di
+  // isQuestionnairePageTitle. «PROPOSTA DI ASSICURAZIONE …» sì, «La proposta di
+  // assicurazione costituisce…» nel testo no.
+  const cells = pageHead(pages.find((p) => String(p || '').trim()) || '', 120)
+    .split('\n').flatMap((l) => l.split(/\s{2,}/)).map((c) => ` ${normalizeForPrecheck(c)} `).filter((c) => c.trim())
+  return excludeMatched.filter((w) => { const n = normalizeForPrecheck(w); return n && cells.some((c) => c.startsWith(` ${n} `)) })
+}
+
 export function preContractDocs(docs, spatialDocs) {
   const out = new Map()
   ;(docs || []).forEach((d, i) => {
@@ -456,6 +476,16 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
     // una prova di «operante» presa da lì non prova un ACQUISTO (vale per il
     // preventivo, non per il contratto) e conta come «non determinabile».
     const pre = preContractDocs(docs, spatialDocs)
+    // [flag evitatitolo] Le PAROLE DA EVITARE del profilo («proposta, bozza,
+    // quotazione, preventivo») contraddicono un «operante» solo se stanno nel
+    // TITOLO del documento da cui viene la prova (testa della sua prima pagina
+    // con testo, pageHead): la copertura «provata» da una proposta o da un
+    // preventivo non è un acquisto. Con la parola ovunque nel fascicolo ogni
+    // polizza RC finiva «Da verificare»: il questionario o le condizioni
+    // («la proposta di assicurazione…») stanno in quasi ogni cartella (golden
+    // del 09/10: 9 casi RC su 9 fermati, 0 campi).
+    const titleOnly = engineFlag(settings, 'evitatitolo')
+    const excludeFor = (evidence) => (titleOnly ? excludeWordsInProofTitle(excludeMatched, evidence, docs, spatialDocs) : excludeMatched)
     // Una domanda su un batch: risposta, prova verificata, decisione.
     const askBatch = async (blocks) => {
       const { system, user } = buildOperativitaPrompt({ recognition, contentKeywords, contentExcludeKeywords, blocks })
@@ -467,7 +497,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       if (answer?.esito === 'operante' && evidence?.found && pre.has(evidence.ord)) {
         answer = { ...answer, esito: 'non determinabile', motivo: `la prova di «operante» sta nel Documento ${evidence.ord}, che si dichiara «${pre.get(evidence.ord)}» e non ha un numero di polizza: un preventivo o una proposta non provano l'acquisto${answer.motivo ? ` (${answer.motivo})` : ''}` }
       }
-      const decision = decideOperativita({ answer, evidence, excludeMatched, requireStructural: recognitionAllowsSection(recognition) })
+      const decision = decideOperativita({ answer, evidence, excludeMatched: excludeFor(evidence), requireStructural: recognitionAllowsSection(recognition) })
       return { answer, evidence, decision }
     }
     for (let b = 0; b < maxBatches && remaining.length; b++) {
@@ -507,7 +537,7 @@ export async function runOperativita({ docs, spatialDocs, profile, profiles = []
       // batch PRIMA, quelli dopo non contano. La polizza è già decisa.
       if (decision.verdict === 'ok') break
       // Operante + parola da evitare = contraddizione già certa: inutile leggere oltre.
-      if (decision.verdict === 'review' && answer?.esito === 'operante' && excludeMatched.length) break
+      if (decision.verdict === 'review' && answer?.esito === 'operante' && (titleOnly ? /parola da evitare/.test(decision.reason || '') : excludeMatched.length)) break
     }
     // Pagine rimaste che NOMINANO la copertura (pageNamesCoverage: la STESSA
     // regola dell'ordine dei batch e di «mai nominata»): con una di queste non

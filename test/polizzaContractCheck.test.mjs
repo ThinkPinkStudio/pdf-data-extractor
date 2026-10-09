@@ -531,3 +531,17 @@ test('«pertinente ma incompleta» anche dal pre-controllo vero (runPrecheck): l
   assert.equal(m.calls.incompleta, 0) // «DAS» è un esempio della definizione: nessuna chiamata
   assert.equal(m.calls.op, 0)
 })
+
+// [flag evitatitolo] parole da evitare solo nel titolo del documento della prova (10/10/2026)
+import { excludeWordsInProofTitle } from '../src/services/polizzaPrecheckService.js'
+test('excludeWordsInProofTitle: la parola conta solo nella testa del documento della prova', () => {
+  const docs = [
+    { pages: ['POLIZZA RC PROFESSIONALE N. 123\nContraente ROSSI\nLa proposta di assicurazione costituisce parte…'] },
+    { pages: ['', 'PROPOSTA DI ASSICURAZIONE RC PROFESSIONALE\nMassimale 1.000.000'] },
+  ]
+  const kw = ['proposta', 'preventivo']
+  assert.deepEqual(excludeWordsInProofTitle(kw, { found: true, ord: 1 }, docs, null), [])
+  assert.deepEqual(excludeWordsInProofTitle(kw, { found: true, ord: 2 }, docs, null), ['proposta'])
+  assert.deepEqual(excludeWordsInProofTitle(kw, { found: false }, docs, null), [])
+  assert.deepEqual(excludeWordsInProofTitle([], { found: true, ord: 2 }, docs, null), [])
+})
