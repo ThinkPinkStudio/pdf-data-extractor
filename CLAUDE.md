@@ -1462,6 +1462,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   della base), e la run di test partiva solo da una base `done` (un flag di
   pertinenza non si poteva misurare). Ora OVERRIDE comprende FLAGS e la run di
   test parte anche da una base ferma (review/mismatch/matched); `--from` riusa
+  le basi di una misura precedente. **Misura con `evitatitolo`** (run di
+  test sulle basi ferme): gli 8 casi RC tornano estratti, 0 → 236/309 (LUCCA
+  resta review per la prova generica, problema noto) → **promosso di default**.
+  Ma rispetto al 26/09 gli stessi 8 casi fanno 236 contro 253 (−17): regole
+  promosse per TL3 nelle due settimane dopo pesano sull'RC, da trovare.
   le basi di una misura precedente. In produzione l'URL di Ollama letto da
   golden-prod è ora http://192.168.37.20:11434 (cambiato da fuori).
 - **Descrizioni TL3 v12 APPLICATE (09/10/2026, «applica, testa, se non
