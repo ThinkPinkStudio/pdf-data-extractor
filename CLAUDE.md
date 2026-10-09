@@ -1415,6 +1415,34 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   etichette); riga del premio che porta il solo valore del campo a cui la
   descrizione lega (P24 diritti 0,43): sulle scansioni la trascrizione
   disallineata dà «266,31» sotto DIRITTO e la regola si contraddice.
+- **Descrizioni TL3 v10/v11 e flag `negazioni` (09/10/2026 notte)**. Tre
+  cose del motore scoperte prima di toccare le descrizioni: (1) tutto ciò che
+  sta in «(es. …)» NON arriva al modello (`stripFieldExamples` lo toglie dal
+  prompt e dal vettore): la guida della Tipologia v9 «Auto/Circolazione …
+  anche se il contraente è un'azienda» era dentro l'esempio e il modello non
+  l'ha mai letta; la guida va scritta in frasi normali. (2) I 13 campi
+  STRUTTURALI (Attività, Tipologia, massimali, franchigia, garanzie, premi)
+  stanno in UN prompt: allungare una descrizione cambia il budget del testo e
+  le pagine di ogni batch di tutti e 13. (3) `distinctiveHeadTokens` prendeva
+  come parole del campo anche le citazioni dentro una clausola NON («NON è il
+  valore accanto a 'Professione'» → «professione») e gli apostrofi in coppia
+  («dell'attività di un'impresa» → «attivita»): CORRETTO per le clausole
+  negate (`NEGATED_CLAUSE_RE`, la stessa di `negatedQuotedLabels`); oggi
+  cambiano solo P.IVA e Indirizzo, replay di etichettariga invariato. Le
+  citazioni in coppia di apostrofi restano: evitarle nelle descrizioni.
+  Flag `negazioni` (vettore della descrizione dalla sola parte positiva):
+  controllo con le descrizioni di produzione 999 → 994 (−5), BOCCIATO e
+  tolto. v10 (Attività, Tipologia, massimali, parametro, compagnia,
+  contraente, `catalog/new-descriptions-v10.json`) + negazioni: 999 → 973.
+  Per campo (`catalog/field-attrib.mjs`): Attività +5 −0 (P11 «Servizi
+  vari», P15/P16/P17/P19 vuote), massimali +3 −1, Tipologia +1 −1 (il modello
+  resta su «Azienda» per le DAS Drive di società anche con la frase esplicita),
+  Compagnia −3 (nominare l'agenzia la fa scegliere: «COLOGNO MONZESE 212»),
+  Parametro −7 e Importo preventivo −11 per la frase «NON è … un altro dato
+  della tariffa RCA» (il modello va alla tabella «PARAMETRI TARIFFA ATTIVATI»:
+  «numero degli addetti e/o del fatturato annuo», il numero delle unità come
+  importo). Mai nominare nella descrizione ciò che il modello non deve prendere
+  se è una parola del documento: lo rende saliente.
 - **Flag `acronimi` (08/10/2026 sera, default)**: nel consenso
   (`pickConsensusCandidate`, opzione `acronyms`) le varianti dello stesso nome
   in cui una parola del più corto è la SIGLA (iniziali) di parole in fila del
