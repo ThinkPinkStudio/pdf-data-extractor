@@ -6176,16 +6176,6 @@ function reportEvidenceTail(r) {
   return r.ev && r.outcome !== 'ok' && r.outcome !== 'vuoto/null' ? ` «${r.ev}»` : ''
 }
 
-// [flag negatestadi] Marca il valore di un campo come visto accanto a
-// un'etichetta negata dalla descrizione (come nei batch): dopo il merge il
-// valore marcato cede ai candidati non marcati, o il campo si svuota.
-function markNegatedValue(best, fieldId, value) {
-  let tainted = STAGED_TAINTED.get(best)
-  if (!tainted) { tainted = {}; STAGED_TAINTED.set(best, tainted) }
-  if (!tainted[fieldId]) tainted[fieldId] = new Set()
-  tainted[fieldId].add(valueKey(value))
-}
-
 /**
  * ETICHETTA o FRASE NEGATA dalla descrizione accanto al valore: la citazione di
  * una clausola «NON è …» (negatedQuotedLabels) in una delle finestre attorno
@@ -7286,8 +7276,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // evidenza strutturale come una riga di tabella (tableRow), e non lo battono
   // quattro voti per la data di firma del profilo cliente.
   const distinctHead = distinctiveHeadTokens(activeFields, lexTokenize)
-  // [flag negatestadi] etichette negate anche sulle proposte di A.7 e A.8
-  const negateStages = engineFlag(settings, 'negatestadi')
   const candidateAffinity = async (field, cleaned, evidenza, srcDoc) => {
     if (!srcDoc?.text) return null
     let win = findValueWindow(normIndexOf(srcDoc), cleaned, evidenza)
@@ -7589,14 +7577,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             // GUFFANTI). Il documento è quello della chiamata.
             let affPair = null
             try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), d) } catch { affPair = null }
-            if (negateStages) {
-              const negHit = negatedLabelHit(f, cleaned, affPair, String(d.text || ''))
-              if (negHit) {
-                markNegatedValue(best, f.id, cleaned)
-                diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — accanto a «${negHit}», che la descrizione esclude`)
-                continue
-              }
-            }
             // RIGA DI TABELLA la cui ETICHETTA contiene parole della DESCRIZIONE del
             // campo ("5. Massimale" → massimale, "2. Indirizzo del Contraente" →
             // indirizzo/contraente): è l'evidenza più forte che il documento offre,
@@ -7857,14 +7837,6 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           const origin = { page: Math.max(1, ((srcDoc?.pages || []).findIndex((pg) => vnorm && normForMatch(pg).includes(vnorm)) + 1) || 1) }
           let affPair = null
           try { affPair = await candidateAffinity(f, cleaned, String(valObj.riga || ''), srcDoc) } catch { affPair = null }
-          if (negateStages) {
-            const negHit = negatedLabelHit(f, cleaned, affPair, String(srcDoc?.text || ''))
-            if (negHit) {
-              markNegatedValue(best, f.id, cleaned)
-              diag.push(`Frontespizio-focus[${f.label}]: "${cleaned}" scartato — accanto a «${negHit}», che la descrizione esclude`)
-              continue
-            }
-          }
           const cand = {
             valore: cleaned, effDate: srcDoc?.dateStr, srcDate: srcDoc?.dateStr ?? null, docType: srcDoc?.type,
             appendixOrd: srcDoc?.appendixOrd, docPos: srcDoc?.pos,

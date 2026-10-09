@@ -1443,6 +1443,32 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «numero degli addetti e/o del fatturato annuo», il numero delle unità come
   importo). Mai nominare nella descrizione ciò che il modello non deve prendere
   se è una parola del documento: lo rende saliente.
+- **Descrizioni TL3 v12 APPLICATE (09/10/2026, «applica, testa, se non
+  funziona lo togli»)**: i vincoli nuovi stanno DENTRO le parentesi «(es. …)»,
+  che `stripFieldExamples` toglie dal prompt e dal vettore: il modello legge
+  esattamente il testo di prima (niente perturbazione degli altri campi, che
+  aveva affondato v9/v10/v11), le regole deterministiche li leggono. Quattro
+  aggiunte: Attività «NON è il valore accanto a 'Professione', 'Veicolo',
+  'Tipo veicolo'.» (P15 IMPIEGATO, P17 MOTOCICLO, P19 AUTOVETTURA), Parametro
+  «NON è 'Classe di merito'.» (P14, P19), Contraente «… 'Intestatario al PRA',
+  'Ente vincolante'.», Lordo «NON è il totale netto annuo di polizza.». La
+  clausola va CHIUSA col punto prima della parentesi (altrimenti la clausola
+  negata continua nel testo positivo dopo «)») e mai nella testa della
+  descrizione (prima dei due punti: entra nelle parole distintive). Ogni
+  etichetta negata si controlla prima sul corpus (`work/replay/check-neglabels.mjs`:
+  non deve stare a ±80 caratteri da un valore GIUSTO; «Veicolo assicurato»
+  toccava l'Attività giusta di P09, «Ragione sociale» tutti i «Condominio»).
+  Copie su 10 posizioni (`catalog/ab-profile-v12.json`): +5, nessuna perdita.
+  Applicato con `catalog/profile-import.mjs` (backup in
+  `backup-profili-prod-2026-10-09T17-46-27-128Z.json`), riestratti P14, P15,
+  P17, P19. **Flag `negatestadi` BOCCIATO e tolto** (etichette negate anche
+  sulle proposte di A.7/A.8): +1 (P04 FIDITALIA accanto a «Ente vincolante»)
+  ma l'etichetta «'NATO IL'» dell'Indirizzo, pensata come «non la scritta
+  NATO IL», scartava sul frontespizio DAS OneClick l'indirizzo giusto che le
+  sta accanto (P16, P18). Resta `negatedLabelHit` (la regola dei batch in una
+  funzione). Nelle copie compaiono sempre le stesse differenze dal codice di
+  oggi rispetto ai valori di produzione (P05 scadenza, P42 «SVEGO», P44
+  imponibile/lordo): non vengono dalle prove.
 - **Flag `acronimi` (08/10/2026 sera, default)**: nel consenso
   (`pickConsensusCandidate`, opzione `acronyms`) le varianti dello stesso nome
   in cui una parola del più corto è la SIGLA (iniziali) di parole in fila del
