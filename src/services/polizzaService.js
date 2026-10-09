@@ -19,7 +19,7 @@ let app
 try { app = require('electron').app } catch { /* non-Electron (web) */ }
 import { resilientFetch, ollamaThinkOpts, isThinkingModel, thinkEnabled } from './netFetch.js'
 import { engineFlag, engineFlagsLabel } from './engineFlags.js'
-import { namesCoverage, recognitionCoverName, coverColumnPairs, verticalCoverColumns, coverColumnRows, recognitionNamedExamples, textNamesAny } from './polizzaOperativita.js'
+import { namesCoverage, recognitionCoverName, coverColumnPairs, verticalCoverColumns, coverColumnRows, recognitionNamedExamples, textNamesAny, recognitionAllowsSection } from './polizzaOperativita.js'
 import { postJsonStream } from './httpStream.js'
 import { ollamaFormatFor, fieldValueKind, amountPatternKey, VALUE_PATTERNS } from './gbnfSchema.js'
 import { embedTexts, chunkText, classifyDocType, detectDocYear, searchVector } from './vectorIndexService.js'
@@ -3669,6 +3669,24 @@ export function riepilogoMismatches(best, fields, docs) {
  * TL3): il primo profilo che ne aveva uno era RCTOP, senza nome della
  * copertura, e la riga della copertura non scattava mai (05/10/2026).
  */
+/**
+ * Nome della copertura del profilo del job per le regole «riga / pagina /
+ * sezione / colonna della copertura» dopo il merge (rigagriglia, altresezioni,
+ * riepilogo, garanziecolonna, elencotitolo, paginecopertura). [flag
+ * coperturasezione] Solo se «Come riconoscerla» AMMETTE una SEZIONE
+ * (recognitionAllowsSection: TL3 «Polizza o sezione di…»): lì gli importi di
+ * altre sezioni vanno esclusi. Quando la copertura è la polizza intera («Polizza
+ * di RESPONSABILITÀ CIVILE PROFESSIONALE…») ogni pagina della polizza è la
+ * copertura: col nome «professionale» paginecopertura svuotava massimali e
+ * franchigie delle schede RC che non scrivono la parola (golden RC del 10/10:
+ * PILATO, SAPORITI, CRESTA, SPALLINO −11 campi). Senza flag: sempre il nome.
+ */
+export function jobSectionCoverNames(settings, me, profs) {
+  if (!me) return []
+  if (engineFlag(settings, 'coperturasezione') && !recognitionAllowsSection(me.recognition || '')) return []
+  return recognitionCoverName((profs || []).filter((p) => p.enabled !== false || p.id === me.id), me.id)
+}
+
 export function jobProfileFor(settings, fields) {
   const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
   const byId = profs.find((p) => p.id === settings?.polizzaJobProfileId)
@@ -9064,7 +9082,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (engineFlag(settings, 'rigagriglia')) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
-    const coverNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    const coverNames = jobSectionCoverNames(settings, me, profs)
     for (const s of coverRowFromGrid(best, activeFields, analyzed, coverNames)) {
       best[s.field.id] = { ...best[s.field.id], valore: s.valore, file: s.file, page: s.page, gridRow: true }
       diag.push(`Riga della copertura[${s.field.label}]: "${s.prima}" (riga "${s.da}") → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page})`)
@@ -9083,7 +9101,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const sectionCoverNames = altreSezioni ? (() => {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
-    return me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    return jobSectionCoverNames(settings, me, profs)
   })() : []
   if (altreSezioni) {
     for (const s of coverSectionAmounts(best, activeFields, analyzed, sectionCoverNames)) {
@@ -9123,7 +9141,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
     {
       const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
       const me = jobProfileFor(settings, activeFields)
-      const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+      const names = jobSectionCoverNames(settings, me, profs)
       for (const s of annualFromCoverColumn(best, activeFields, analyzed, names)) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Premio annuo[${s.field.label}]: "${s.prima || '∅'}" → "${s.valore}" (riga "${s.riga}", colonna "${s.colonna}", ${s.file} p.${s.page}): la colonna della copertura stampa l'annualità`)
@@ -9153,9 +9171,12 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (engineFlag(settings, 'garanziecolonna') || engineFlag(settings, 'elencotitolo')) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
-    const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    const names = jobSectionCoverNames(settings, me, profs)
     if (engineFlag(settings, 'elencotitolo')) {
-      for (const s of titledTableList(best, activeFields, analyzed, names)) {
+      // il nome qui ESCLUDE (titoli fatti solo del nome della copertura): resta
+      // quello pieno anche per i profili senza sezione
+      const allNames = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+      for (const s of titledTableList(best, activeFields, analyzed, allNames)) {
         best[s.field.id] = { valore: s.valore, file: s.file, page: s.page, gridRow: true }
         diag.push(`Elenco dalla tabella «${s.titolo}»[${s.field.label}]: "${String(s.prima || '∅').slice(0, 60)}" → "${s.valore}" (${s.file} p.${s.page})`)
       }
@@ -9197,7 +9218,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   if (engineFlag(settings, 'paginecopertura')) {
     const profs = (Array.isArray(settings?.polizzaProfiles) ? settings.polizzaProfiles : []).filter((p) => p && p.id)
     const me = jobProfileFor(settings, activeFields)
-    const names = me ? recognitionCoverName(profs.filter((p) => p.enabled !== false || p.id === me.id), me.id) : []
+    const names = jobSectionCoverNames(settings, me, profs)
     for (const s of offCoverageAmounts(best, activeFields, analyzed, names, STAGED_CANDIDATE_LOG.get(best) || {}, recognitionNamedExamples(me?.recognition || ''))) {
       if (s.valore) {
         best[s.field.id] = { ...s.cand, valore: s.valore }
