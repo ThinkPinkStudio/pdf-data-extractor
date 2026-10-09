@@ -96,7 +96,7 @@ import {
 } from './polizzaGrounding.js'
 import {
   fieldKind, descriptionAsksVerification, canonicalVerificationAnswer, verificationAnswers, verificationObjectPhrases, evidenceNamesObject,
-  positiveDescriptionText, positiveDescriptionHead, descriptionAsksDocumentNumber, descriptionPercentExample,
+  positiveDescriptionText, positiveDescriptionHead, descriptionAsksDocumentNumber, descriptionPercentExample, descriptionHeadText,
 } from './polizzaFieldKind.js'
 import {
   isSpecificCoverageField, hasDocumentedTutelaEvidence,
@@ -4339,7 +4339,11 @@ export function titledTableList(best, fields, docs, coverNames) {
   const coverWords = new Set((coverNames || []).flat().map((w) => norm(w).slice(0, 6)))
   const out = []
   for (const f of (fields || []).filter((x) => x && x.enabled !== false && isListDescription(x.description))) {
-    const head = String(f.description || '').split(':')[0]
+    // TESTA senza esempi e senza fermarsi ai due punti DENTRO le parentesi: con
+    // split(':') l'esempio «(es. 'Garanzie Opzionali operanti: C', …)» delle
+    // Estensioni RC entrava nella testa e la tabella «Garanzie Opzionali
+    // operanti» dava «Premio convenuto» (golden BOLCHINI RC del 10/10)
+    const head = descriptionHeadText(f.description).replace(/\(\s*es\.[^)]*\)/gi, ' ')
     if (/\bnon\b/i.test(head)) continue
     const headW = new Set(words(head).map((w) => w.slice(0, 6)))
     let hit = null
@@ -5019,16 +5023,27 @@ export function betterLabelledDates(best, fields, docs) {
     return out
   }
   const out = []
-  for (const f of (fields || []).filter((x) => x && x.enabled !== false && fieldValueKind(x) === 'date')) {
+  const active = (fields || []).filter((x) => x && x.enabled !== false)
+  const dist = distinctiveHeadTokens(active)
+  const words = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean)
+  for (const f of active.filter((x) => fieldValueKind(x) === 'date')) {
     const e = best?.[f.id]
     const cur = normalizeDateValue(String(e?.valore || ''))
     if (!cur || !e.file || e.page === '' || e.page == null) continue
     const d = (docs || []).find((x) => x && x.name === e.file)
     const L = labelled(gridPagesOf(d)[Number(e.page) - 1])
-    const mine = L.filter((x) => x.v === cur)
+    // l'etichetta del valore deve avere parole di contenuto: «al» di «periodo
+    // dal 31/03/2026 al 31/03/2027» non ne ha e varrebbe zero contro qualunque
+    // etichetta (SPALLINO RC: la scadenza diventava la decorrenza)
+    const mine = L.filter((x) => x.v === cur && lexTokenizeStaged(x.lab).length > 0)
     if (!mine.length) continue
     const myLex = Math.max(...mine.map((x) => headerLexOf(f, x.lab)))
-    const others = L.filter((x) => x.v !== cur).map((x) => ({ ...x, lex: headerLexOf(f, x.lab) })).filter((x) => x.lex >= 0.999 && x.lex > myLex)
+    // l'altra etichetta deve contenere una parola DISTINTIVA del campo
+    // («scadenza»), non una parola che la testa condivide con altri campi data
+    // («periodo» sta anche nella decorrenza)
+    const own = new Set((dist.get(f.id) || []).map((t) => words(t).join(' ')).filter(Boolean))
+    const others = L.filter((x) => x.v !== cur).map((x) => ({ ...x, lex: headerLexOf(f, x.lab) }))
+      .filter((x) => x.lex >= 0.999 && x.lex > myLex && words(x.lab).some((w) => own.has(w)))
     if (!others.length || new Set(others.map((x) => x.v)).size !== 1) continue
     out.push({ field: f, prima: e.valore, valore: others[0].v, file: e.file, page: Number(e.page), etichetta: others[0].lab, etichettaPrima: mine.map((x) => x.lab).join(' / ') })
   }

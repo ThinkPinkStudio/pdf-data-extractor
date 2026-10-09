@@ -36,3 +36,11 @@ test('etichettadata: mai verso una data impossibile né tra due alternative pari
   const p3 = ['Decorrenza 01/01/2025', 'Decorrenza 01/02/2025', 'Effetto 05/05/2025'].join('\n')
   assert.equal(betterLabelledDates({ d: { valore: '05/05/2025', file: 'b.pdf', page: 1 } }, [DEC], [{ name: 'b.pdf', spatialPages: [p3] }]).length, 0)
 })
+
+test('etichettadata: «periodo dal X al Y» non sposta la scadenza sulla decorrenza (etichetta «al» senza parole, «periodo» non distintiva)', () => {
+  const S2 = { id: 's', label: 'X', description: 'Data di scadenza della polizza: la data in cui termina il periodo di copertura PIÙ RECENTE.' }
+  const D2 = { id: 'd', label: 'Y', description: 'Data di decorrenza della polizza: la data da cui inizia il periodo di copertura.' }
+  const pg = ['Appendice di rinnovo', 'Si conviene di prorogare la polizza per il periodo dal 31/03/2026 al 31/03/2027'].join('\n')
+  const out = betterLabelledDates({ s: { valore: '31/03/2027', file: 'r.pdf', page: 1 } }, [S2, D2], [{ name: 'r.pdf', spatialPages: [pg] }])
+  assert.equal(out.length, 0)
+})
