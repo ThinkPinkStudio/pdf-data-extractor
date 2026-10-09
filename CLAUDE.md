@@ -1443,6 +1443,27 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «numero degli addetti e/o del fatturato annuo», il numero delle unità come
   importo). Mai nominare nella descrizione ciò che il modello non deve prendere
   se è una parola del documento: lo rende saliente.
+- **PROVA SUGLI ALTRI PROFILI (10/10/2026 notte, golden-prod su tutti i 13
+  casi)**: Tutela legale sana (GUFFANTI 22/23, BOLCHINI 21/23, SPALLINO 22/23,
+  ALZAIA Non valido giusto), ma **TUTTI i 9 casi RC/RCP/RCPM fermi alla
+  pertinenza con 0 campi** (il 26/09 estraevano 28-33/35): «elementi
+  contraddittori: parola da evitare «proposta» nel testo, ma copertura
+  operante». NON è una regressione del codice: dopo il 26/09 TUTTI i profili RC
+  di produzione (RCTOP, RCP, RCT RCO, CSA, Rc Professionale V3, RC PROF MED V2)
+  hanno avuto `contentExcludeKeywords` «proposta, bozza, quotazione,
+  preventivo» (TL3 no), e la regola «operante + parola da evitare nel
+  fascicolo = Da verificare» la trova in quasi ogni cartella (questionario,
+  «la proposta di assicurazione» delle condizioni). Flag `evitatitolo`: la
+  parola contraddice l'operatività solo se comincia una CELLA della testa
+  (120 caratteri) della prima pagina del documento della PROVA
+  (`excludeWordsInProofTitle`, convenzione di isQuestionnairePageTitle).
+  **golden-prod aveva due difetti, corretti**: `--flags` da solo non creava
+  la run di test (OVERRIDE senza FLAGS: la «misura coi flag» era una copia
+  della base), e la run di test partiva solo da una base `done` (un flag di
+  pertinenza non si poteva misurare). Ora OVERRIDE comprende FLAGS e la run di
+  test parte anche da una base ferma (review/mismatch/matched); `--from` riusa
+  le basi di una misura precedente. In produzione l'URL di Ollama letto da
+  golden-prod è ora http://192.168.37.20:11434 (cambiato da fuori).
 - **Descrizioni TL3 v12 APPLICATE (09/10/2026, «applica, testa, se non
   funziona lo togli»)**: i vincoli nuovi stanno DENTRO le parentesi «(es. …)»,
   che `stripFieldExamples` toglie dal prompt e dal vettore: il modello legge

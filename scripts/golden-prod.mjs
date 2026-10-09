@@ -62,7 +62,9 @@ const CTX = arg('ctx') ? Number(arg('ctx')) : null
 const OCR = arg('ocr')
 // Flag del motore (src/services/engineFlags.js): correzioni accese solo nelle run di test.
 const FLAGS = arg('flags')
-const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR
+// --flags è un override come gli altri: senza, la run di test coi flag non partiva
+// mai e la misura «coi flag» era una copia della base (09/10/2026).
+const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR || FLAGS
 const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}${FLAGS ? `-flag-${FLAGS.replace(/[^a-z0-9]+/gi, '-')}` : ''}`))
 // Mai forzare di default (vedi intestazione). --no-proceed resta accettato (è il default).
 const FORCE = process.argv.includes('--forza-pertinenza')
@@ -87,7 +89,7 @@ if (existsSync(join(root, '.goldens-out', 'SKIP_QUEUED')) && !process.argv.inclu
   }
   if (told) console.log(`Pausa finita — ${new Date().toLocaleTimeString('it-IT')}`)
 }
-if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think o --ctx'); process.exit(2) }
+if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think, --ctx, --ocr o --flags'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // certificato interno
@@ -202,7 +204,10 @@ for (const c of FULL_CASES) {
       job = await api(`/api/polizza/job/${baseId}`)
       console.log(`   job di base ${baseId} (da ${FROM})`)
     }
-    if (OVERRIDE && job.status === 'done') {
+    // Anche dalla base FERMATA dalla pertinenza: un override che tocca la
+    // pertinenza (modello, flag) va misurato proprio lì; la run di test rifà
+    // il controllo con l'override.
+    if (OVERRIDE && (job.status === 'done' || ['review', 'mismatch', 'matched'].includes(job.status))) {
       const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}), ...(FLAGS ? { flags: FLAGS } : {}) }
       const t = await api(`/api/polizza/job/${jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
