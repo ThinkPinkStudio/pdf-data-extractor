@@ -109,13 +109,14 @@ test('paginecopertura: una pagina che nomina un esempio di polizza del profilo (
 
 // [flag coperturasezione] nome della copertura solo per i profili che ammettono una sezione (10/10/2026)
 import { jobSectionCoverNames } from '../src/services/polizzaService.js'
-test('jobSectionCoverNames: col flag, niente nome per la polizza intera (RC); TL con sezione invariato', () => {
+test('jobSectionCoverNames: col flag (default), niente nome per la polizza intera (RC); TL con sezione invariato', () => {
   const tl = { id: 'tl', recognition: 'Polizza o sezione di TUTELA LEGALE effettivamente acquistata' }
   const rc = { id: 'rc', recognition: 'Polizza di RESPONSABILITÀ CIVILE PROFESSIONALE effettivamente acquistata' }
   const profs = [tl, rc]
-  const on = { polizzaEngineFlags: 'coperturasezione' }
-  assert.ok(jobSectionCoverNames({}, rc, profs).length > 0)
+  const on = {}
+  const off = { polizzaEngineFlags: '-coperturasezione' }
+  assert.ok(jobSectionCoverNames(off, rc, profs).length > 0)
   assert.deepEqual(jobSectionCoverNames(on, rc, profs), [])
-  assert.deepEqual(jobSectionCoverNames(on, tl, profs), jobSectionCoverNames({}, tl, profs))
+  assert.deepEqual(jobSectionCoverNames(on, tl, profs), jobSectionCoverNames(off, tl, profs))
   assert.deepEqual(jobSectionCoverNames(on, null, profs), [])
 })

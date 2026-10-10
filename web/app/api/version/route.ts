@@ -75,7 +75,8 @@ const BUILD_FEATURES = [
   'job-text', // GET /api/polizza/job/[id]/text: diagnostica in sola lettura, il testo dei documenti del job come sta nella cache OCR (Tesseract o modello visivo), per rigiocare offline le posizioni scansionate
   'flag-titolovoce', // Flag «titolovoce» acceso: un campo di testo vuoto prende la voce con un numero sotto una riga-titolo fatta di parole della sua descrizione in fila (P27 «PARAMETRI TARIFFA ATTIVATI / X Unità Immobiliari : 52»)
   'etichettamodulo-fondo', // etichettamodulo gira in fondo, dopo le regole che svuotano i campi
-  'flag-coperturasezione', // Flag «coperturasezione» (spento, da misurare): regole della copertura solo per i profili che ammettono una sezione
+  'flag-coperturasezione-default', // Flag «coperturasezione» DI DEFAULT (golden RC 236 → 246): regole della copertura solo per i profili che ammettono una sezione
+  'fix-rc-etichettadata-elencotitolo', // etichettadata con etichette di contenuto e parola distintiva; testa di elencotitolo senza esempi
   'flag-evitatitolo-default', // Flag «evitatitolo» DI DEFAULT (golden RC 0 → 236/309): parole da evitare del profilo solo nel titolo del documento della prova di operatività
   'flag-opzioni', // Flag «opzioni» (spento, da misurare): prova di un'opzione di una scelta chiusa dalle sue parti nel documento
   'flag-acronimi', // Flag «acronimi» di default: nel consenso la sigla e il nome esteso sommano i voti (P22 DAS invece di HELVETIA VITA)

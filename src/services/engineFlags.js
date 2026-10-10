@@ -12,7 +12,7 @@
  */
 
 /** Flag accesi in produzione (misurati). */
-export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede', 'titolovoce', 'periodopremi', 'esplicita', 'tassobase', 'tabelleocr', 'etichettamodulo', 'etichettadata', 'acronimi', 'evitatitolo'])
+export const DEFAULT_FLAGS = Object.freeze(['filtroelenchi', 'rigagriglia', 'riepilogo', 'primepagine', 'coppietesto', 'fuocopolizza', 'ocrsoloscansioni', 'altresezioni', 'garanziecolonna', 'categoriaaltrui', 'elencotitolo', 'date8', 'datagriglia', 'coppiecopertura', 'a7ripiegotesti', 'aliquota', 'gemelli', 'etichettariga', 'testolettere', 'paginecopertura', 'elenconegato', 'rigaaltrove', 'pivapiede', 'titolovoce', 'periodopremi', 'esplicita', 'tassobase', 'tabelleocr', 'etichettamodulo', 'etichettadata', 'acronimi', 'evitatitolo', 'coperturasezione'])
 
 /**
  * Flag conosciuti, col perché (nomi in MINUSCOLO: l'override si confronta in

@@ -1466,7 +1466,24 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   test sulle basi ferme): gli 8 casi RC tornano estratti, 0 → 236/309 (LUCCA
   resta review per la prova generica, problema noto) → **promosso di default**.
   Ma rispetto al 26/09 gli stessi 8 casi fanno 236 contro 253 (−17): regole
-  promosse per TL3 nelle due settimane dopo pesano sull'RC, da trovare.
+  promosse per TL3 nelle due settimane dopo pesano sull'RC. Trovate sui log
+  dei golden RC: (1) `paginecopertura` svuotava massimali e franchigie («non
+  sta in nessuna pagina che nomina la copertura»: il nome per l'RC è
+  «professionale») → **flag `coperturasezione` di default**: le regole
+  riga/pagina/sezione/colonna della copertura (rigagriglia, altresezioni,
+  riepilogo, garanziecolonna, paginecopertura) usano il nome solo se «Come
+  riconoscerla» ammette una SEZIONE (`jobSectionCoverNames`,
+  recognitionAllowsSection: TL3 sì, tutti i profili RC no); golden RC 236 →
+  246 (PILATO 31, CRESTA 31, SAPORITI 30, SPALLINO 30), TL3 invariato per
+  costruzione; `elencotitolo` tiene il nome pieno (lì esclude); (2)
+  `etichettadata` portava la scadenza di SPALLINO sulla decorrenza («periodo
+  dal 31/03/2026 al 31/03/2027»: «al» senza parole valeva 0) → l'etichetta del
+  valore deve avere parole di contenuto e l'altra una parola DISTINTIVA del
+  campo; (3) `elencotitolo` prendeva la testa con split(':') e l'esempio
+  «(es. 'Garanzie Opzionali operanti: C')» delle Estensioni RC dava «Premio
+  convenuto» → `descriptionHeadText` senza esempi (teste TL3 identiche);
+  (4) `filtroelenchi` svuota su BOLCHINI RC 2026 «Mondo intero escluso USA e
+  Canada» giusto, negli altri due casi una lista già sbagliata: da seguire.
   le basi di una misura precedente. In produzione l'URL di Ollama letto da
   golden-prod è ora http://192.168.37.20:11434 (cambiato da fuori).
 - **Descrizioni TL3 v12 APPLICATE (09/10/2026, «applica, testa, se non
