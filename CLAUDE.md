@@ -1503,8 +1503,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   toccava l'Attività giusta di P09, «Ragione sociale» tutti i «Condominio»).
   Copie su 10 posizioni (`catalog/ab-profile-v12.json`): +5, nessuna perdita.
   Applicato con `catalog/profile-import.mjs` (backup in
-  `backup-profili-prod-2026-10-09T17-46-27-128Z.json`), riestratti P14, P15,
-  P17, P19. **Flag `negatestadi` BOCCIATO e tolto** (etichette negate anche
+  `backup-profili-prod-2026-10-09T17-46-27-128Z.json`). **«Rielabora»
+  (`/retry`) NON applica descrizioni nuove**: il job tiene i `field_defs`
+  congelati all'upload (P14/P15/P17/P19 rielaborati restavano 22/21/21/21).
+  Per dare a un job le descrizioni nuove del profilo serve `/reprofile`
+  (`profileId`: sostituisce i field_defs e lo rimette in coda); lo stesso vale
+  per OGNI job del cliente già estratto quando cambia un profilo. **Flag `negatestadi` BOCCIATO e tolto** (etichette negate anche
   sulle proposte di A.7/A.8): +1 (P04 FIDITALIA accanto a «Ente vincolante»)
   ma l'etichetta «'NATO IL'» dell'Indirizzo, pensata come «non la scritta
   NATO IL», scartava sul frontespizio DAS OneClick l'indirizzo giusto che le
