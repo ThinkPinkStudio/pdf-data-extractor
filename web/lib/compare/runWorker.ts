@@ -8,6 +8,7 @@ type Req =
   | { kind: 'search'; dataA: Row[]; dataB: Row[]; conditions: Condition[] }
   | { kind: 'both'; dataA: Row[]; dataB: Row[]; matchConds: Condition[]; filterConds: Condition[] }
   | { kind: 'compare'; dataA: Row[]; dataB: Row[]; keys: MatchKey[]; fuzzy: FuzzyOpts }
+  | { kind: 'equal'; dataA: Row[]; dataB: Row[]; keys: MatchKey[]; fuzzy: FuzzyOpts }
 
 export function runInWorker<T>(req: Req): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -19,6 +20,7 @@ export function runInWorker<T>(req: Req): Promise<T> {
       import('./engine').then((eng) => {
         if (req.kind === 'search') resolve(eng.runInclusionSearch(req.dataA, req.dataB, req.conditions) as unknown as T)
         else if (req.kind === 'both') resolve(eng.runBothByRow(req.dataA, req.dataB, req.matchConds, req.filterConds) as unknown as T)
+        else if (req.kind === 'equal') resolve(eng.runEqualByKeys(req.dataA, req.dataB, req.keys, req.fuzzy) as unknown as T)
         else resolve(eng.compare(req.dataA, req.dataB, req.keys, req.fuzzy) as unknown as T)
       }).catch(reject)
       void e

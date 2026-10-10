@@ -176,10 +176,15 @@ export async function wholeDossier(fullText: string) {
 }
 
 // ─── Excel: nuovo file ───────────────────────────────────────────────────────
-export async function exportNewExcel(data: Record<string, string>): Promise<Buffer> {
+// `fields`: definizioni dei campi del JOB (job.field_defs). Senza, si usava
+// sempre il profilo ATTIVO nelle Impostazioni: un dossier RC esportato mentre
+// era attivo un profilo Tutela Legale usciva con 23 righe tutte vuote (le chiavi
+// dei valori sono gli id dei campi del job, non di quel profilo).
+export async function exportNewExcel(data: Record<string, string>, fields?: PolizzaFieldDef[] | null): Promise<Buffer> {
   const stored = await getSettings()
   const m = await svc()
-  const fieldsConfig = (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields || null
+  const fieldsConfig = (Array.isArray(fields) && fields.length ? fields : null)
+    || (stored as { polizzaFields?: PolizzaFieldDef[] }).polizzaFields || null
   const out = join(tmpdir(), `polizza-new-${randomUUID()}.xlsx`)
   try {
     await m.exportToNewExcel(out, data, fieldsConfig)

@@ -1,0 +1,177 @@
+{
+  "id": "bolchini-rc-2026",
+  "label": "BOLCHINI MARGHERITA — RC professionale AIG IPD0017417, rinnovo 19/04/2026-19/04/2027 (App. 2)",
+  "fields": {
+    "N° Polizza": {
+      "value": "IPD0017417",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AIG",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "BOLCHINI",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "mode": "anyof",
+      "values": [
+        "10576980154",
+        "BLCMGH62H43F205O"
+      ],
+      "note": "il documento riporta «C.F. BLCMGH62H43F205O / P.I. 10576980154» del contraente; la descrizione accetta «partita IVA o codice fiscale» [corretto 25/09/2026 dall'analisi degli errori in produzione]"
+    },
+    "Indirizzo": {
+      "value": "MUGELLO",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "PANIZZA",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "19/04/2026",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "19/04/2027",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "137,67",
+      "mode": "amount",
+      "note": "descrizione = imposte"
+    },
+    "Premio lordo": {
+      "value": "756,42",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "618,75",
+      "mode": "amount",
+      "note": "descrizione = premio imponibile"
+    },
+    "Professione dichiarata": {
+      "value": "ARCHITETTO",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": "54.383,00",
+      "mode": "amount",
+      "note": "questionario 2026, 5.a fatturato consuntivo ultimo esercizio: 54.383,00 euro"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": "Sì",
+      "mode": "yes",
+      "note": "Questionario 2026, Sezione 6 SCHEDA SINISTRO: sinistro del 12 ottobre 2025"
+    },
+    "Massimale per sinistro": {
+      "value": "1.000.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "1.000.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "1.000,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sottolimiti": {
+      "mode": "anyof",
+      "values": [
+        "250.000",
+        "20.000",
+        "500.000"
+      ]
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Estensioni operative": {
+      "mode": "anyof",
+      "values": [
+        "opzional",
+        "come in corso"
+      ],
+      "note": "App.2: 'Garanzie Opzionali operanti: C; Condizioni Speciali operanti: se presenti, tutte come in corso'"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "USA",
+        "Canada"
+      ],
+      "note": "App.2: 'Estensione territoriale: Mondo intero escluso USA e Canada' (unica esclusione nel fascicolo)"
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "come in corso",
+        "IngArch",
+        "Appendice",
+        "claims made"
+      ],
+      "note": "App.2: condizioni speciali 'se presenti, tutte come in corso'; Mod. PI AA IngArch 11.20 / 10.23; Allegato 1 claims made"
+    },
+    "Visto leggero": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "nessuna menzione nel fascicolo (condizioni generali assenti)"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Progettazione / DL": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "nessuna clausola nel fascicolo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "CTU citata solo nella scheda sinistro del questionario"
+    },
+    "Incarichi giudiziari": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Custodia documenti / valori": {
+      "value": null,
+      "mode": "emptyOrNo"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Frontespizio = Appendice n.2 di rinnovo (emessa 15/05/2026). Premio: netto 562,50 + addizionali 56,25 = imponibile 618,75, imposta 137,67, lordo 756,42. Data di continuità 19/04/2024 NON è la decorrenza."
+}

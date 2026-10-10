@@ -1,0 +1,61 @@
+{
+  "_doc": "Verità di PERTINENZA Pizzamiglio (verifica manuale del 21/09/2026, stessa di pertinenza-expected.json) nel formato di scripts/bulk-prod.mjs: `match` = ultima cartella del dossier. 'non valido' = nessuna polizza tra i documenti, sole quietanze (regola dell'utente 26/09: «SENZA UNA POLIZZA È SEMPRE NON VALIDO», non forzabile; sostituisce 'accantonata' del 22/09).",
+  "profile": "Tutela Legale 3",
+  "root": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO",
+  "cases": [
+    {
+      "id": "pizzamiglio-das-alzaia",
+      "match": "ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS",
+      "expected": "non valido",
+      "note": "DAS: sola quietanza di rinnovo, nessuna polizza (la tutela legale c'è, 'ESCLUSA' = indicizzazione, ma senza il contratto non si estrae): NON VALIDO, non forzabile (regola dell'utente 26/09)"
+    },
+    {
+      "id": "pizzamiglio-boiardo",
+      "match": "COND. BOIARDO",
+      "expected": "operante",
+      "note": "Vittoria condominio: sezione tutela legale operante (massimale 30.000)"
+    },
+    {
+      "id": "pizzamiglio-alzaia-fabbricato",
+      "match": "COND. ALZAIA 104 -POLIZZA 01.2024",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Vittoria: tutela legale solo nelle condizioni generali"
+    },
+    {
+      "id": "pizzamiglio-bertolazzi",
+      "match": "BERTOLAZZI 26 CONDOMINIO PIZZAMIGLIO",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Allianz Viva"
+    },
+    {
+      "id": "pizzamiglio-campestre",
+      "match": "CAMPESTRE 34-36-38 COND",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Allianz Viva"
+    },
+    {
+      "id": "pizzamiglio-smenp",
+      "match": "SMENP  CONDOMINIO",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Zurich"
+    },
+    {
+      "id": "pizzamiglio-campestre-rinnovo",
+      "match": "CAMPESTRE RINNOVO DAL 30.09.2023 SEMESTRALE",
+      "expected": "non operante",
+      "note": "Rinnovo semestrale fabbricato"
+    },
+    {
+      "id": "pizzamiglio-infortuni",
+      "match": "PIZZAMIGLIO GUIA-INFORTUNI",
+      "expected": "non operante",
+      "note": "Infortuni Helvetia (già correttamente esclusa)"
+    },
+    {
+      "id": "pizzamiglio-campestre-rate",
+      "match": "RATE ANNUALI",
+      "expected": "non valido",
+      "note": "Sola QUIETANZA DI PAGAMENTO Allianz Next (fabbricato, rata semestrale), nessuna polizza e la tutela legale mai nominata: NON VALIDO, non forzabile (regola dell'utente 26/09; prima 'non operante')"
+    }
+  ]
+}

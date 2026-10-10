@@ -1,0 +1,185 @@
+{
+  "id": "guffanti-rc-2026",
+  "label": "GUFFANTI GROUP — RC professionale area tecnica, Lloyd's A46S513704A-LB, 30/06/2026-30/06/2027",
+  "fields": {
+    "N° Polizza": {
+      "value": "A46S513704A-LB",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "Lloyd",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "GUFFANTI GROUP",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "06457990965",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "Caterina da Forl",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "30/06/2026",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "30/06/2027",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "3.276,07",
+      "mode": "amount",
+      "note": "descrizione = imposte"
+    },
+    "Premio lordo": {
+      "value": "18.000,00",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "14.723,93",
+      "mode": "amount",
+      "note": "descrizione = imponibile"
+    },
+    "Massimale per sinistro": {
+      "value": "5.000.000",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "5.000.000",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "10.000",
+      "mode": "amount"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "questionario 2025: nessuna richiesta di risarcimento"
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Agenzia": {
+      "mode": "anyof",
+      "values": [
+        "Simple Italia",
+        "CSA",
+        "Consulenze e Soluzioni"
+      ],
+      "note": "scheda p.6 INTERMEDIARI: corrispondente +Simple Italia Agency Srl; intermediario CSA BROKER"
+    },
+    "Professione dichiarata": {
+      "mode": "anyof",
+      "values": [
+        "ARCHITETT"
+      ],
+      "note": "scheda p.6: Attività professionale ARCHITETTI"
+    },
+    "Fatturato dichiarato": {
+      "mode": "anyof",
+      "values": [
+        "3.000.000",
+        "1.500.000"
+      ],
+      "note": "scheda p.6: 3.000.000,00 esercizio precedente / 1.500.000,00 stima"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount",
+      "note": "solo franchigia fissa 10.000; nessuno scoperto %"
+    },
+    "Sottolimiti": {
+      "mode": "anyof",
+      "values": [
+        "50%",
+        "2.500.000",
+        "500.000",
+        "quarto"
+      ]
+    },
+    "Estensioni operative": {
+      "mode": "anyof",
+      "values": [
+        "nessun"
+      ],
+      "note": "Condizioni Speciali Art. 1-6 tutte NO; la descrizione prescrive 'Nessuna' [corretto 25/09/2026 dall'analisi degli errori in produzione]"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "superbonus",
+        "50/2016",
+        "USA",
+        "cyber",
+        "amianto",
+        "inquinament",
+        "subappalt",
+        "dolo"
+      ]
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "non operante",
+        "nessuna"
+      ],
+      "note": "scheda p.6: «CONDIZIONI PARTICOLARI … Non operante.»; la descrizione dice «Se la scheda dice 'Non operante' riportalo» (come il golden 2025) [corretto 25/09/2026 dall'analisi degli errori in produzione]"
+    },
+    "Visto leggero": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Progettazione / DL": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Legge Merloni / Appalti": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Incarichi giudiziari": {
+      "value": "Sì",
+      "mode": "yes"
+    },
+    "Custodia documenti / valori": {
+      "value": "Sì",
+      "mode": "yes"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Scheda p.3: massimo indennizzo 5000000, franchigia 10000; premi p.4 (netto 13.385,39 + accessori 1.338,54 = imponibile 14.723,93; imposte 3.276,07; lordo 18.000,00), ripartizione ANNUALE. Broker/corrispondente sulla scheda (LUM NES, cod. 101469) non verificato come 'agenzia'."
+}

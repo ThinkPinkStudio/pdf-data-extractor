@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   buildFactsRegistry, isFactPlausible, vetoMergeCandidate,
   LARGE_AMOUNT_THRESHOLD,
+  classifyCheckboxState, detectCheckedValues, descriptionAsksCheckbox,
 } from '../src/services/polizzaFactsRegistry.js'
 
 const MASSIMALE = { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro' }
@@ -284,4 +285,47 @@ test('vetoForeignNatureMassimale: senza registro, o per importo piccolo, nessun 
   assert.equal(vetoForeignNatureMassimale(reg, f, '20.000,00'), false)
   // nessun registro → non si giudica (mai veto per assenza di dati)
   assert.equal(vetoForeignNatureMassimale(null, f, '7.500.000,00'), false)
+})
+
+// ── CHECKBOX / SELEZIONI ─────────────────────────────────────────────────────
+
+test('classifyCheckboxState: glifi checked/unchecked/none', () => {
+  assert.equal(classifyCheckboxState('[x] Azienda'), 'checked')
+  assert.equal(classifyCheckboxState('[X] Azienda'), 'checked')
+  assert.equal(classifyCheckboxState('☒ Azienda'), 'checked')
+  assert.equal(classifyCheckboxState('[ ] Azienda'), 'unchecked')
+  assert.equal(classifyCheckboxState('☐ Azienda'), 'unchecked')
+  assert.equal(classifyCheckboxState('Azienda'), 'none')
+  assert.equal(classifyCheckboxState(''), 'none')
+  assert.equal(classifyCheckboxState(null), 'none')
+})
+
+test('detectCheckedValues: valori spuntati, anche multipli nella stessa riga e multi-riga', () => {
+  const page = [
+    'Tipologia tutela legale:',
+    '[x] Azienda           [ ] Professionista',
+    '[ ] Auto              [x] Condominio',
+  ]
+  const vals = detectCheckedValues(page)
+  assert.deepEqual(vals.map((v) => v.value), ['Azienda', 'Condominio'])
+})
+
+test('detectCheckedValues: pagina con singola opzione spuntata (anche ☒)', () => {
+  assert.deepEqual(detectCheckedValues(['☒ Studi Professionali']).map((v) => v.value), ['Studi Professionali'])
+  assert.deepEqual(detectCheckedValues(['[ ] Non spuntata']), [])
+})
+
+test('descriptionAsksCheckbox: rileva la description di un campo a selezione', () => {
+  assert.equal(descriptionAsksCheckbox('Identifica la tipologia spuntando la casella corretta tra: Azienda, Professionista…'), true)
+  assert.equal(descriptionAsksCheckbox('Numero di polizza'), false)
+  assert.equal(descriptionAsksCheckbox(null), false)
+})
+test('isQuestionnaireTitle / hasOptionAmountLine: questionario dal TITOLO, opzione dalla casella con importo sulla riga', async () => {
+  const { isQuestionnaireTitle, hasOptionAmountLine } = await import('../src/services/polizzaFactsRegistry.js')
+  assert.equal(isQuestionnaireTitle('QUESTIONARIO DI RINNOVO LLOYD’S RC PROFESSIONALE DELLE PROFESSIONI TECNICHE\nAVVISO IMPORTANTE'), true)
+  assert.equal(isQuestionnaireTitle('## Questionario /Proposta di Assicurazione Rc Professionale Avvocato'), true)
+  assert.equal(isQuestionnaireTitle('Lloyd’s Insurance Company S.A. Certificato\nL’assicuratore del presente contratto… Si conviene che le informazioni contenute nel Questionario costituiscono la base'), false, 'la parola nel corpo non fa un questionario')
+  assert.equal(hasOptionAmountLine('Massimale richiesto: ☐ 1.000.000,00 ☐ 2.500.000,00'), true)
+  assert.equal(hasOptionAmountLine('- [ ] · sinistro chiuso con liquidazione fino ad € 20.000,00'), true)
+  assert.equal(hasOptionAmountLine('LIMITE DI INDENNIZZO € 5.000.000\nArt. 1 – ESCLUSIONE SI ❑ NO'), false, 'casella senza importo sulla riga: non è un’opzione di importo')
 })

@@ -1,0 +1,66 @@
+{
+  "_doc": "Verità di PERTINENZA NEGATIVE per i profili la cui copertura È il prodotto (RC Professionale V3, RC PROF MED V2): fascicoli di ALTRO ramo che nominano parole vicine al nome della copertura (medico, sanitario, professionali, professione) e che il pre-controllo deve FERMARE (mismatch o review, mai ok). Nascono dalla revisione del 26/09/2026: con il nome «in qualsiasi forma» (radice a 6 caratteri) PRINA tl, «Malattie professionali X» e «AMTRUST TUTELA MEDICI» passavano da scartati a abbinati, e nessuna fixture lo vedeva (golden = solo positivi, Pizzamiglio e BESA = solo tutela legale). Profilo PER CASO (testa null). Misura: node scripts/pertinenza-eval.mjs --cases test/fixtures/pertinenza-negativi-expected.json --ollama http://192.168.100.72:11434 --model <modello> --mode llm --ctx 32768 (una run alla volta).",
+  "profile": null,
+  "cases": [
+    {
+      "id": "med-su-prina-tl",
+      "profile": "RC PROF MED V2",
+      "dir": "polizze_test/rcpm rc professionale medica",
+      "files": ["PRINA FEDERICA MARIA tl.pdf"],
+      "expected": "non operante",
+      "note": "MyLegalProtection «Giovane Medico»: TUTELA LEGALE per medici, non RC sanitaria. Con la radice a 6 caratteri su tutte le pagine diventava abbinabile"
+    },
+    {
+      "id": "med-su-besa-infortuni",
+      "profile": "RC PROF MED V2",
+      "dir": "polizze_test/BESA ING SANTANGELO GRUPPO/BESA ING.SANTANGELO SPA/BESA infortuni 46211795 SIGG. RUZZA E SANTANGELO",
+      "expected": "non operante",
+      "note": "Infortuni: «medico»/«sanitarie» nelle condizioni (certificato medico, spese sanitarie)"
+    },
+    {
+      "id": "med-su-pizzamiglio-infortuni",
+      "profile": "RC PROF MED V2",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/PIZZAMIGLIO GUIA-INFORTUNI",
+      "expected": "non operante",
+      "note": "Infortuni Helvetia dell'amministratrice"
+    },
+    {
+      "id": "med-su-guffanti-tl",
+      "profile": "RC PROF MED V2",
+      "dir": "polizze_test/guffanti",
+      "expected": "non operante",
+      "note": "DAS tutela legale: il frontespizio del Set Informativo cita le «controversie … in ambito medico-sanitario» (forma flessa sul frontespizio: decide il modello)"
+    },
+    {
+      "id": "rc-su-besa-rct-rco",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BESA ING SANTANGELO GRUPPO/BESA ING.SANTANGELO SPA/BESA SPA RC PRODOTTI RCT E RCO BS000576 dal   31.12.2024",
+      "recursive": true,
+      "expected": "non operante",
+      "note": "RCT/RCO + RC prodotti Zurich: «Lett. F) Malattie professionali X» a pag. 4, questionari RCTO"
+    },
+    {
+      "id": "rc-su-bolchini-tl",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BOLCHINI MARGHERITA/In vigore/TUT. LEGALE PROF",
+      "recursive": true,
+      "expected": "non operante",
+      "note": "DAS Professionista (tutela legale del professionista): «professionale» ovunque, ma non è una RC"
+    },
+    {
+      "id": "rc-su-metlife",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BESA ING SANTANGELO GRUPPO/BESA ING.SANTANGELO SPA/BESA Indennità di Preavviso METLIFE",
+      "recursive": true,
+      "expected": "non operante",
+      "note": "MetLife vita/TCM dirigenti"
+    },
+    {
+      "id": "rc-su-besa-infortuni",
+      "profile": "Rc Professionale V3",
+      "dir": "polizze_test/BESA ING SANTANGELO GRUPPO/BESA ING.SANTANGELO SPA/BESA infortuni 46211795 SIGG. RUZZA E SANTANGELO",
+      "expected": "non operante",
+      "note": "Infortuni: «INFORTUNI PROFESSIONALI ED EXTRAPROFESSIONALI», «Attività professionale svolta diversa da quella dichiarata»"
+    }
+  ]
+}
