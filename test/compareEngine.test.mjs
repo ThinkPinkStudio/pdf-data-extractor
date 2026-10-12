@@ -17,6 +17,11 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 
 test('compare engine (casi in processo figlio)', () => {
-  const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--test', join(here, 'compareEngine.cases.mjs')], { encoding: 'utf8' })
+  // Senza NODE_TEST_CONTEXT: sotto `node --test` il figlio lo eredita
+  // ('child-v8'), riporta i risultati al padre ed esce SEMPRE 0 — il test
+  // passava anche con casi falliti (come in uiJobState.test.mjs).
+  const env = { ...process.env }
+  delete env.NODE_TEST_CONTEXT
+  const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--test', join(here, 'compareEngine.cases.mjs')], { encoding: 'utf8', env })
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`)
 })
