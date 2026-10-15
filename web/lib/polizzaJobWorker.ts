@@ -149,6 +149,11 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   log?: (line: string) => Promise<void>
   isCanceled?: () => Promise<boolean>
   onPage?: (page: number, total: number) => Promise<void>
+  // Solo queste pagine (1-based) passano per l'OCR; le altre restano il solo
+  // text layer (o vuote). Serve alla rilettura MIRATA di UNA pagina col modello
+  // visivo (fallback degli illeggibili in polizzaReconcile), senza ri-OCR di
+  // tutto il documento. Assente = tutte le pagine, come prima.
+  onlyPages?: number[]
 } = {}): Promise<{ pages: string[]; canceled?: boolean; ocrPages?: number; sandwich?: number } | null> {
   const log = hooks.log || (async () => {})
   const { pages: textLayer, sandwich } = await textLayerInfo(buf, settings)
@@ -171,13 +176,15 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   // Motore di lettura delle scansioni: Tesseract o un modello visivo (polizzaOcrEngine).
   const vision = m ? m.visionOcrEngine(settings) : null
   // needOcr è null per una scansione INTERA (nessun text layer): allora tutte le pagine.
-  const toOcr = needOcr ? needOcr.length : totalPagesForLog(textLayer, doc)
+  const toOcr = hooks.onlyPages ? Math.min(hooks.onlyPages.length, totalPages) : (needOcr ? needOcr.length : totalPagesForLog(textLayer, doc))
   if (vision && toOcr) await log(`OCR con modello visivo ${vision} per "${docName}" (${toOcr} pagine)`)
   let ocrPages = 0
   try {
     for (let p = 1; p <= totalPages; p++) {
       if (hooks.isCanceled && await hooks.isCanceled()) return { pages, canceled: true, ocrPages, sandwich }
       if (hooks.onPage) await hooks.onPage(p, totalPages)
+      // Pagine fuori dal sottoinsieme richiesto: nessun OCR, resta il text layer se c'è.
+      if (hooks.onlyPages && !hooks.onlyPages.includes(p)) { pages.push(textLayer ? (textLayer[p - 1] || '') : ''); continue }
       const layer = textLayer ? textLayer[p - 1] : ''
       if (layer && layer.trim()) { pages.push(layer); continue }
       if (!doc || !m) { pages.push(''); continue }

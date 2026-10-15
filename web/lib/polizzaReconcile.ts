@@ -19,7 +19,7 @@ import { importSharedService } from './sharedServices'
 import { readPdfPagesWithOcr } from './polizzaJobWorker'
 import {
   listQueuedBatchDossiers, getJobFileBase64, getOcrCache, putOcrCache, hashPdfBase64,
-  applyReconcilePlan, markBatchReconciled, updateJob, getJob, ocrCacheKey,
+  applyReconcilePlan, markBatchReconciled, updateJob, getJob, getJobStatus, ocrCacheKey,
   type ReconcileMerge, type ReconcileSplit,
 } from './polizzaJobStore'
 
@@ -34,7 +34,21 @@ interface ReconcileSvc {
     read: { id: string; numbers: string[]; notes: string[] }[]
   }
   pageRanges: (segs: Segment[]) => string
+  // Numeri di polizza etichettati nelle PRIME 5 pagine (stessa lettura della
+  // riconciliazione) e numeri del batch CITATI nel testo di un documento senza
+  // numero proprio: servono al fallback visivo per capire chi è «illeggibile».
+  extractPolicyNumbersFromPages: (pages: string[]) => string[]
+  knownNumbersInPages: (pages: string[], known: string[]) => string[]
 }
+
+// Solo il minimo che serve al fallback visivo (stesse funzioni del worker).
+interface VisionSvc {
+  visionOcrEngine: (settings: any) => string | null
+}
+const visionSvc = () => importSharedService<VisionSvc>('polizzaService.js')
+
+type ReconcileFile = { idx: number; name: string; pages: string[]; digital: boolean[] }
+type ReconcileDossier = { id: string; path: string; files: ReconcileFile[] }
 
 async function spatialPagesOf(buf: Buffer, settings?: any): Promise<{ pages: string[] | null; sandwich: number }> {
   try {
@@ -56,6 +70,18 @@ function cacheKeyOf(hash: string, probe: { pages: string[] | null; sandwich: num
   return (!probe.pages || probe.pages.some((t) => !t || !t.trim())) ? ocrCacheKey(hash, settings, probe.sandwich > 0) : hash
 }
 
+// Una riga di log sul job, con lo stesso formato del worker. Mai bloccante:
+// se il DB non risponde il log si perde, la lettura continua.
+async function appendReconcileLog(jobId: string, line: string): Promise<void> {
+  try {
+    const job = await getJob(jobId)
+    if (!job) return
+    const logs = Array.isArray(job.logs) ? [...job.logs] : []
+    logs.push(`[${new Date().toTimeString().slice(0, 8)}] ${line}`)
+    await updateJob(jobId, { logs })
+  } catch { /* il log non deve mai interrompere la lettura preliminare */ }
+}
+
 /** Le pagine indicate di un PDF in un PDF nuovo (base64), o null se il PDF non si lascia dividere. */
 async function pdfWithPages(buf: Buffer, segs: Segment[]): Promise<string | null> {
   try {
@@ -68,6 +94,94 @@ async function pdfWithPages(buf: Buffer, segs: Segment[]): Promise<string | null
   } catch { return null }
 }
 
+/**
+ * [B] FALLBACK VISIVO PER I SOLI ILLEGGIBILI. Dopo la lettura Tesseract di TUTTO
+ * il batch, le scansioni da cui NON esce nessun numero di polizza (né etichettato
+ * nelle prime pagine, né citato nel testo fra i numeri del batch) vengono rilette
+ * col modello visivo — la SOLA prima pagina, che è ciò che costa (una pagina, non
+ * il documento) — perché è lì che il numero sta quando Tesseract lo sbaglia o non
+ * lo vede. Su una prima pagina DIGITALE non si tenta: il text layer è già la
+ * verità e il visivo non aggiunge nulla. Il testo letto sostituisce la prima
+ * pagina SOLO se da esso esce davvero un numero (altrimenti non si peggiora quel
+ * che c'era). Doppio tetto per batch perché un batch patologico non torni a durare
+ * ore: sul NUMERO di riletture (RECONCILE_VISION_RETRY_MAX, default 25) e sul
+ * TEMPO speso (RECONCILE_VISION_RETRY_BUDGET_MS, default 15 min). «Annulla» resta
+ * ascoltato: il flag chiude la connessione a Ollama, che cancella la generazione.
+ * @returns true se il job è stato annullato (il batch NON va marcato riconciliato)
+ */
+async function retryIllegiblesWithVision(
+  input: ReconcileDossier[],
+  svc: ReconcileSvc,
+  visionModel: string,
+  settings: any,
+  isCanceled: (jobId: string) => Promise<boolean>,
+): Promise<boolean> {
+  const NP = 5
+  const labelled = (f: ReconcileFile) => svc.extractPolicyNumbersFromPages((f.pages || []).slice(0, NP))
+  // Numeri del batch dalla PRIMA passata: chi ne cita uno non è illeggibile, è un documento di contorno.
+  const known = [...new Set(input.flatMap((d) => d.files.flatMap((f) => labelled(f))))]
+  const target = (f: ReconcileFile) => !labelled(f).length
+    && !svc.knownNumbersInPages(f.pages || [], known).length
+    && f.digital.length > 0 && f.digital[0] === false
+  const rawCap = Number(process.env.RECONCILE_VISION_RETRY_MAX)
+  const cap = Number.isFinite(rawCap) && rawCap >= 0 ? rawCap : 25
+  // Secondo tetto, sul TEMPO: un modello visivo lento (una pagina può costare
+  // minuti) non deve riportare il batch a durare ore. Superato il budget le
+  // retries si fermano e il resto resta col solo Tesseract.
+  const rawBudget = Number(process.env.RECONCILE_VISION_RETRY_BUDGET_MS)
+  const budgetMs = Number.isFinite(rawBudget) && rawBudget >= 0 ? rawBudget : 900000
+  let spentMs = 0
+  const flag = { canceled: false }
+  let curJob = ''
+  // Stesso patto del worker: «Annulla» nel DB marca il flag, che lo stream Ollama
+  // legge e chiude la connessione → il server cancella la generazione all'istante.
+  const poll = setInterval(() => { const id = curJob; if (id) isCanceled(id).then((c) => { if (c) flag.canceled = true }).catch(() => {}) }, 3000)
+  let retries = 0
+  try {
+    for (const d of input) {
+      for (const f of d.files) {
+        if (flag.canceled) return true
+        if (!target(f)) continue
+        if (retries >= cap) {
+          if (cap > 0) await appendReconcileLog(d.id, `Lettura preliminare: ${cap} riletture col modello visivo raggiunte — le scansioni restanti restano col solo OCR Tesseract`)
+          return false
+        }
+        if (spentMs >= budgetMs) {
+          if (budgetMs > 0) await appendReconcileLog(d.id, `Lettura preliminare: ${Math.round(budgetMs / 60000)} minuti di riletture col modello visivo raggiunti — le scansioni restanti restano col solo OCR Tesseract`)
+          return false
+        }
+        retries++
+        curJob = d.id
+        flag.canceled = false
+        const b64 = await getJobFileBase64(d.id, f.idx).catch(() => null)
+        const buf = b64 ? Buffer.from(b64, 'base64') : null
+        if (!buf) continue
+        await appendReconcileLog(d.id, `Lettura preliminare: nessun numero di polizza da "${f.name}" (scansione) → prima pagina riletta col modello visivo ${visionModel}`)
+        const tRetry = Date.now()
+        const r = await readPdfPagesWithOcr(buf, f.name, { ...settings, __cancelFlag: flag }, {
+          log: (line) => appendReconcileLog(d.id, line),
+          isCanceled: async () => flag.canceled || (await isCanceled(d.id)),
+          onlyPages: [1],
+        })
+        spentMs += Date.now() - tRetry
+        if (r?.canceled || flag.canceled) return true
+        const text = r?.pages?.[0] || ''
+        const found = text ? svc.extractPolicyNumbersFromPages([text]) : []
+        if (found.length) {
+          f.pages[0] = text
+          await appendReconcileLog(d.id, `Lettura preliminare: "${f.name}" recuperato col modello visivo — numeri: ${found.join(', ')}`)
+        } else {
+          await appendReconcileLog(d.id, `Lettura preliminare: "${f.name}" illeggibile anche col modello visivo`)
+        }
+      }
+    }
+  } catch (err) {
+    // Mai fatale: senza visivo i fascicoli restano come letti da Tesseract.
+    console.error(`riconciliazione: fallback visivo non eseguito (non fatale):`, (err as Error)?.message)
+  } finally { clearInterval(poll) }
+  return false
+}
+
 export async function reconcileBatch(batchId: string): Promise<void> {
   const tag = `[batch:${batchId}] riconciliazione`
   try {
@@ -76,23 +190,37 @@ export async function reconcileBatch(batchId: string): Promise<void> {
     const dossiers = await listQueuedBatchDossiers(batchId)
     if (dossiers.length < 2) { await markBatchReconciled(batchId); return }
     // 1. Lettura di TUTTI i file, ogni pagina (text layer + OCR delle scansioni).
-    const input: { id: string; path: string; files: { idx: number; name: string; pages: string[]; digital: boolean[] }[] }[] = []
-    const engSvc = await importSharedService<{ dossierOcrEngine: (s: any, d: boolean[]) => string }>('polizzaService.js')
+    const input: ReconcileDossier[] = []
     for (const d of dossiers) {
-      const files: { idx: number; name: string; pages: string[]; digital: boolean[] }[] = []
-      // [flag ocrsoloscansioni] Motore OCR del fascicolo, come nel worker: il
-      // modello visivo solo se nessun file ha testo digitale (stessa chiave di cache).
+      const files: ReconcileFile[] = []
+      // [RICONCILIAZIONE = SOLO TESSERACT] La lettura preliminare ha UN solo
+      // scopo: leggere NUMERI DI POLIZZA (anche sporchi) per unire/dividere i
+      // fascicoli. Il matching è già tollerante all'OCR (ocrNorm, oneIndel,
+      // knownNumbersInPages in policyReconcile.js), quindi NON serve il modello
+      // visivo: coi fascicoli di sole scansioni `dossierOcrEngine` sceglieva
+      // qwen3-vl:32b e la lettura passava da millisecondi a MINUTI per pagina
+      // (batch fermo per ore, interfaccia congelata). La chiave di cache qui è
+      // quella «tesseract» (hash nudo), mai la `:vis:<modello>` del worker,
+      // quindi la cache dell'estrazione (che usa il motore configurato) non si
+      // avvelena. Un mancato abbinamento NON è un errore: le regole della
+      // riconciliazione sono una possibilità, i fascicoli restano com'erano.
+      const dSettings = { ...settings, polizzaOcrEngine: 'tesseract' }
       const loaded: { b64: string | null; buf: Buffer | null; probeInfo: { pages: string[] | null; sandwich: number } }[] = []
       for (const f of d.files) {
         const b64 = await getJobFileBase64(d.id, f.idx)
         const buf = b64 ? Buffer.from(b64, 'base64') : null
         loaded.push({ b64, buf, probeInfo: buf ? await spatialPagesOf(buf, settings) : { pages: null, sandwich: 0 } })
       }
-      const eng = engSvc.dossierOcrEngine(settings, loaded.map((x) => !!x.probeInfo.pages))
-      const dSettings = eng === String(settings.polizzaOcrEngine || '').trim() ? settings : { ...settings, polizzaOcrEngine: eng }
+      let canceled = false
       for (let i = 0; i < d.files.length; i++) {
         const f = d.files[i]
-        await updateJob(d.id, { progress: { docIndex: i, docTotal: d.files.length, pageIndex: 0, pageTotal: 0, docName: `Lettura preliminare: ${f.file_name}`, totalPagesProcessed: 0, receivedAt: Date.now() } })
+        // Battito (receivedAt) e contatore PAGINE: senza, questa fase sembrava
+        // ferma per minuti (l'OCR visivo tace mentre il modello macina le pagine).
+        const prog = (pageIndex: number, pageTotal: number) => ({
+          docIndex: i, docTotal: d.files.length, pageIndex, pageTotal,
+          docName: `Lettura preliminare: ${f.file_name}`, totalPagesProcessed: 0, receivedAt: Date.now(),
+        })
+        await updateJob(d.id, { progress: prog(0, 0) })
         let pages: string[] | null = null
         const { b64, buf, probeInfo } = loaded[i]
         const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
@@ -102,7 +230,15 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
         if (pages && probe) pages = await freshDigitalPages(pages, probe)
         if (!pages && buf) {
-          const r = await readPdfPagesWithOcr(buf, f.file_name, dSettings)
+          // OCR con VISIBILITÀ: log riga per riga, battito a ogni pagina, e
+          // «Annulla» ascoltato (prima: nessun log, progresso congelato e cancel
+          // ignorato → il job sembrava morto mentre Ollama lavorava).
+          const r = await readPdfPagesWithOcr(buf, f.file_name, dSettings, {
+            log: (line) => appendReconcileLog(d.id, line),
+            isCanceled: async () => (await getJobStatus(d.id)) === 'canceled',
+            onPage: async (p, total) => { await updateJob(d.id, { progress: prog(p, total) }) },
+          })
+          if (r?.canceled) { canceled = true; break }
           pages = r?.pages || null
           // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
           if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
@@ -110,8 +246,17 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         const list = pages || []
         files.push({ idx: f.idx, name: f.file_name, pages: list, digital: list.map((_, k) => !!(probe && probe[k] && probe[k].trim())) })
       }
+      if (canceled) return // annullato dall'utente: non si marca il batch come riconciliato
       await updateJob(d.id, { progress: {} })
       input.push({ id: d.id, path: d.dossier_name || d.id, files })
+    }
+    // 1b. [B] Le scansioni da cui Tesseract non ha tratto ALCUN numero di polizza
+    // si rileggono col modello visivo (solo la prima pagina): il resto del batch
+    // resta veloce com'è. Senza motore visivo configurato non c'è nulla da tentare.
+    const visionModel = await visionSvc().then((v) => v.visionOcrEngine(settings)).catch(() => null)
+    if (visionModel) {
+      const canceledByVision = await retryIllegiblesWithVision(input, svc, visionModel, settings, (id) => getJobStatus(id).then((s) => s === 'canceled').catch(() => false))
+      if (canceledByVision) return // annullato durante il fallback: non si marca il batch come riconciliato
     }
     const pathOf: Record<string, string> = Object.fromEntries(input.map((d) => [d.id, d.path]))
     // 2. Piano dal contenuto (numeri in tutto il documento, PDF con più polizze divisi
