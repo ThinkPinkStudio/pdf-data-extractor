@@ -89,6 +89,7 @@ export default function DiagnosticsPage() {
                 {data.services.embeddings && <Row label="Embeddings" status={data.services.embeddings.status} detail={data.services.embeddings.detail} />}
                 {data.services.qdrant && <Row label="Qdrant" status={data.services.qdrant.status} detail={data.services.qdrant.detail} />}
                 {data.services.email && <Row label="Email" status={data.services.email.status} detail={data.services.email.detail} />}
+                {data.services.docling && <Row label="Docling" status={data.services.docling.status} detail={data.services.docling.detail} />}
               </div>
             )}
 

@@ -1,0 +1,62 @@
+// [flag acronimi] Consenso: varianti dello stesso nome con la SIGLA espansa
+// (08/10/2026, P22 ARENA: «D.A.S. Difesa Automobilistica Sinistri» e «DAS
+// S.p.A.» un voto ciascuno, vinceva «HELVETIA VITA» col suo voto).
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { pickConsensusCandidate } from '../src/services/polizzaService.js'
+
+const c = (valore, affinity = 0.45) => ({ valore, affinity, srcDate: '01/01/2025', file: 'a.pdf' })
+
+test('acronimi: la sigla e il nome esteso sommano i voti e battono il corrente', () => {
+  const cur = c('HELVETIA VITA', 0.48)
+  const cands = [cur, c('D.A.S. Difesa Automobilistica Sinistri S.p.A.', 0.46), c('DAS S.p.A.', 0.44)]
+  assert.equal(pickConsensusCandidate(cur, cands, { tierBlind: true }).changed, false)
+  const r = pickConsensusCandidate(cur, cands, { tierBlind: true, acronyms: true })
+  assert.equal(r.changed, true)
+  assert.match(r.cand.valore, /D\.?A\.?S/)
+  assert.equal(r.votes, 2)
+})
+
+test('acronimi: senza una sigla espansa nessun raggruppamento (Allianz / Allianz Viva)', () => {
+  const cur = c('Allianz Viva S.p.A.', 0.5)
+  const cands = [cur, c('Allianz S.p.A.'), c('Allianz Next S.p.A.')]
+  const r = pickConsensusCandidate(cur, cands, { tierBlind: true, acronyms: true })
+  assert.equal(r.changed, false)
+})
+
+// Parole distintive (08/10/2026): le citazioni dentro una clausola NEGATA sono
+// etichette di ciò che il campo NON è, non parole del campo.
+import { distinctiveHeadTokens } from '../src/services/polizzaValidation.js'
+test('distinctiveHeadTokens: le citazioni negate non diventano parole distintive', () => {
+  const fields = [
+    { id: 'a', description: "Attività assicurata: il settore di attività dell'impresa. NON è il valore accanto a 'Professione', 'Veicolo'." },
+    { id: 'd', description: "Data di decorrenza della polizza: la data accanto a 'DECORRENZA', oppure il 'Dal' della quietanza." },
+    { id: 'x', description: 'Premio lordo: importo.' },
+  ]
+  const d = distinctiveHeadTokens(fields)
+  assert.ok(!d.get('a').includes('professione') && !d.get('a').includes('veicolo'))
+  assert.ok(d.get('d').includes('decorrenza') && d.get('d').includes('dal'))
+})
+
+// [flag negatestadi] negatedLabelHit: la stessa regola dei batch, riusabile
+// dagli stadi A.7 e A.8 (09/10/2026).
+import { negatedLabelHit } from '../src/services/polizzaService.js'
+test('negatedLabelHit: citazione negata di più parole nella finestra, di una parola solo coi due punti, frase negata come etichetta', () => {
+  const f = { description: "Ragione sociale del contraente (es. ROSSI SRL; NON è il valore accanto a 'Intestatario al PRA', 'Professione'.)" }
+  assert.equal(negatedLabelHit(f, 'FIDITALIA SPA', { winsShort: ['Intestatario al P.R.A. FIDITALIA SPA 08437820155'] }, ''), 'Intestatario al PRA')
+  assert.equal(negatedLabelHit(f, 'IMPIEGATO', { winsShort: ['Professione: IMPIEGATO'] }, ''), 'Professione')
+  assert.equal(negatedLabelHit(f, 'MARIO', { winsShort: ['PROFESSIONE / SETTORE MARIO'] }, ''), null)
+  const g = { description: 'Premio lordo ANNUO della tutela legale (es. 255,00; NON è il totale netto annuo di polizza.)' }
+  assert.equal(negatedLabelHit(g, '6.367,26', null, 'TOTALE NETTO ANNUO DI POLIZZA       6.367,26'), 'totale netto annuo di polizza')
+  assert.equal(negatedLabelHit(g, '317,24', null, 'TUTELA LEGALE  30.000,00  317,24'), null)
+})
+
+// [flag opzioni] prova di un'opzione di una scelta chiusa (09/10/2026)
+import { optionHasEvidence } from '../src/services/polizzaService.js'
+test('optionHasEvidence: opzione o sua parte come parola nel testo; «Altra tipologia» letterale; non opzioni mai', () => {
+  const f = { description: 'Tipologia della copertura: la categoria, una tra Azienda, Professionista/Studio professionale, Auto/Circolazione, Condominio, Altra tipologia. Si ricava dal prodotto.' }
+  assert.equal(optionHasEvidence(f, 'Auto/Circolazione', 'PROFILO CLIENTE  X Tutela della mobilità / circolazione'), true)
+  assert.equal(optionHasEvidence(f, 'Auto/Circolazione', 'autoveicolo e autostrada'), false)
+  assert.equal(optionHasEvidence(f, 'Altra tipologia', 'tipologia del rischio'), false)
+  assert.equal(optionHasEvidence(f, 'Veicolo', 'veicolo'), false)
+})

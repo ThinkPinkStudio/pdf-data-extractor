@@ -32,11 +32,15 @@ export async function POST(req: NextRequest) {
     // il salvataggio la SCARTAVA in silenzio e lo switch tornava sempre a gruppi.
     'polizzaStagedCascade',
     // Pre-check di pertinenza profilo↔fascicolo (off/keywords/semantic/llm).
-    'polizzaPrecheckMode',
+    'polizzaPrecheckMode', 'polizzaThink', 'polizzaOcrEngine',
+    // Tabelle delle scansioni: Ollama e modello per tabelle (GLM-OCR).
+    'polizzaTableOcrUrl', 'polizzaTableOcrModel',
+    // Voci di menu nascoste nella sidebar PDF Extractor (Impostazioni tecniche).
+    'navHiddenExtractor',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyEnabled', 'compareFuzzyMinOverlap', 'compareFuzzyIgnoreWords',
-    'compareFuzzyBroadEnabled', 'compareFuzzyMinOverlapBroad', 'compareSearchConditions', 'compareBothMatchConditions',
+    'compareFuzzyBroadEnabled', 'compareFuzzyMinOverlapBroad', 'compareFuzzyThresholdLow', 'compareFuzzyThresholdHigh', 'compareSearchConditions', 'compareBothMatchConditions',
     'compareBothFilterConditions', 'compareProfiles', 'compareBothProfiles',
     'adesioniFields', 'adesioniIdd', 'adesioniPrezzi', 'adesioniDateOffsetDays',
     'adesioniExportNotify', 'adesioniSmtp', 'adesioniFtpStaging', 'adesioniFtpProd', 'adesioniProfiles',
