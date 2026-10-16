@@ -114,6 +114,9 @@ export interface WebSettings {
   // OCR delle pagine scansionate: '' / 'tesseract' (default) o il nome di un
   // modello visivo Ollama che TRASCRIVE la pagina (qwen2.5vl:7b, gemma3:27b…).
   polizzaOcrEngine?: string
+  // Worker Tesseract in parallelo (16/10/2026): 0 = automatico (core del
+  // server meno 2). Ogni worker legge una pagina su un core.
+  polizzaOcrWorkers?: number
   // TABELLE DELLE SCANSIONI (flag tabelleocr, 08/10/2026): Ollama che ospita il
   // modello per tabelle (GLM-OCR) e nome del modello. '' = tabelle spente.
   polizzaTableOcrUrl?: string
@@ -281,6 +284,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaPrecheckMode: (['off', 'keywords', 'semantic', 'llm'].includes(map.polizzaPrecheckMode) ? map.polizzaPrecheckMode : 'llm') as WebSettings['polizzaPrecheckMode'],
     polizzaThink: (['off', 'abbinamento', 'estrazione', 'tutto'].includes(map.polizzaThink) ? map.polizzaThink : 'off') as WebSettings['polizzaThink'],
     polizzaOcrEngine: String(map.polizzaOcrEngine || '').trim(),
+    polizzaOcrWorkers: map.polizzaOcrWorkers ? Math.max(0, Math.min(parseInt(map.polizzaOcrWorkers, 10) || 0, 32)) : 0,
     // Default: il vecchio Ollama di Coolify, l'unico con GLM-OCR (il server dei
     // 32B per ora non scarica modelli). Un valore salvato, anche vuoto, vince.
     polizzaTableOcrUrl: String(map.polizzaTableOcrUrl ?? 'http://192.168.37.10:11434').trim(),

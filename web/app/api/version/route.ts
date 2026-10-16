@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import os from 'os'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -114,12 +115,15 @@ const BUILD_FEATURES = [
   'flag-datagriglia', // Flag «datagriglia» (spento): un documento che il markdown lascia senza data si data dalla griglia OCR (quietanze «sandwich» P39/P44/P45); «date8» mirato: date del frontespizio provvisorie solo se un documento datato è più recente, e lì vince la data più recente del documento più recente
   'riepilogo-non-stampata', // Flag «riepilogo»: diritti/interessi/imposte letti in una colonna di tabella che non li nomina si svuotano (la voce non è stampata); poi l'imponibile per esclusione (P19 18 → 21, replay del 06/10)
   'riga-griglia', // Flag «rigagriglia» acceso: dopo il merge, importo della copertura dalla sua riga nella stessa colonna dei totali; campi «sulla stessa riga» del premio dalla cella sotto l'intestazione che li nomina (+19 −1 su 41 posizioni, misura offline del 05/10)
+  'ocr-parallelo', // OCR Tesseract con un pool di worker: pagine e dossier della lettura preliminare in parallelo; `cpus` qui sotto dice quanti core vede il server (16/10/2026)
 ]
 
 export async function GET() {
   return NextResponse.json({
     version: process.env.NEXT_PUBLIC_APP_VERSION || 'n/d',
     buildFeatures: BUILD_FEATURES,
+    // Core visti dal processo: il default dei worker Tesseract è questo meno 2.
+    cpus: typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length,
     now: new Date().toISOString(),
   })
 }

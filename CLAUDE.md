@@ -1871,6 +1871,22 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   perturbazione degli altri: ogni modifica al prompt sposta quanto corregge).
   OCR con qwen3-vl:32b: ~3 min a PAGINA (ragiona anche con think off); su 3
   posizioni +2 netto (P07 sbloccata, P20 bloccata); misura completa in corso.
+- **Tesseract in parallelo (16/10/2026, NON ancora in produzione)**: il
+  riabbinamento di Lipari (776 dossier) ha passato 17 ore nella lettura
+  preliminare della riconciliazione: 5.579 pagine «sandwich» rilette da UN
+  worker tesseract.js (un core, ~10 s a pagina a 4400 px), tutto sotto
+  `withGlobalLock`. Ora un POOL di worker (`ocrWorkerCount`: impostazione
+  `polizzaOcrWorkers`, 0 = core − 2; tutti coi parametri di sempre, prima il
+  worker nato da `probeOcr` non li aveva), pagine di un file in parallelo in
+  `readPdfPagesWithOcr` (limite globale di pagine in volo = worker, il modello
+  visivo resta una pagina alla volta) e dossier in parallelo nella lettura
+  preliminare (`input` resta nell'ordine dei dossier). Sul Mac (10 core, 8
+  worker, 33 pagine): 109 s → 52 s (file in fila) → 33 s (file insieme), testo
+  identico pagina per pagina (92/92). `/api/version` dice `cpus` del server. Il
+  lucchetto unico resta: CPU e GPU non lavorano ancora insieme (fase successiva
+  da decidere). Riuso fra motori della cache nella riconciliazione
+  (`getOcrCacheAnyEngine`): mai le voci delle tabelle `…:tab1:…`, preferito il
+  modello visivo configurato.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

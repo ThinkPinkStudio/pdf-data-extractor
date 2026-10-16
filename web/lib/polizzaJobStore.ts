@@ -201,6 +201,58 @@ export async function getOcrCache(fileHash: string): Promise<string[] | null> {
   return rows[0].pages ?? null
 }
 
+/**
+ * Testo già in cache per QUESTO file ma scritto da un ALTRO motore (`…:vis:<modello>`
+ * dopo una lettura col modello visivo). La chiave cambia col motore, quindi al
+ * primo giro dopo un cambio di motore TUTTE le voci risultano miss e il testo si
+ * rilegge da zero: per la RICONCILIAZIONE, che legge sempre con Tesseract, questo
+ * significava ri-OCR di ogni pagina scansionata di ogni fascicolo del batch
+ * (836 fascicoli = ore di attesa a interfaccia ferma). Per la riconciliazione il
+ * testo di un altro motore è del tutto equivalente: serve solo a trovare i NUMERI
+ * di polizza, e il matching è già tollerante all'OCR (ocrNorm/oneIndel).
+ * `sandwich` sceglie la variante `:sw` (pagina immagine con OCR invisibile dello
+ * scanner), che NON va confusa con quella normale dello stesso file.
+ */
+export async function getOcrCacheAnyEngine(fileHash: string, sandwich = false, preferEngine = ''): Promise<string[] | null> {
+  const { rows } = await pool.query<{ file_hash: string; pages: string[]; format: number }>(
+    'SELECT file_hash, pages, format FROM ocr_cache WHERE file_hash LIKE $1 ORDER BY created_at DESC',
+    [`${fileHash}:vis:%`]
+  )
+  return pickCrossEnginePages(fileHash, rows, sandwich, preferEngine)
+}
+
+/**
+ * Sceglie la voce da riusare fra quelle scritte da un altro motore per lo stesso
+ * file. La variante `:sw` (pagina immagine con OCR invisibile dello scanner) NON
+ * va confusa con quella normale dello stesso file: sono testi diversi dello
+ * stesso PDF e mescolarli darebbe una griglia incoerente. Vince la voce più
+ * recente con il FORMATO del testo attuale (le vecchie vanno rigenerate).
+ * PURA: senza DB, così la si verifica nei test.
+ */
+export function pickCrossEnginePages(
+  fileHash: string,
+  rows: { file_hash: string; pages: string[]; format: number }[] | null | undefined,
+  sandwich: boolean,
+  preferEngine = '',
+): string[] | null {
+  // Il prefisso (`<hash>:vis:`) è ricontrollato qui, non solo nel LIKE della query:
+  // la funzione resta PURA e autosufficiente, così un elenco più largo del previsto
+  // non fa riusare il testo di un ALTRO file.
+  const prefix = `${fileHash}:vis:`
+  // Le voci delle TABELLE delle scansioni (`<chiave OCR>:tab1:<modello>`, scanTables)
+  // hanno lo stesso prefisso ma non sono l'OCR della pagina: col LIKE da solo
+  // passavano, e una `…:sw:tab1:…` superava anche il filtro della variante normale.
+  const isTable = (h: string) => /:tab\d+:/.test(h.slice(prefix.length))
+  const want = sandwich ? (h: string) => h.endsWith(':sw') : (h: string) => !h.endsWith(':sw')
+  const ok = (rows || []).filter((r) => r.file_hash.startsWith(prefix) && !isTable(r.file_hash) && want(r.file_hash) && (r.format ?? 1) === OCR_FORMAT)
+  // Con più modelli visivi in cache vince quello configurato ora: `created_at` non
+  // dice l'ultima scrittura (l'upsert non lo aggiorna), quindi l'ordine della query
+  // da solo non distingue il modello in uso da uno vecchio.
+  const pref = String(preferEngine || '').trim()
+  const preferred = pref ? ok.find((r) => r.file_hash === `${prefix}${pref}${sandwich ? ':sw' : ''}`) : null
+  return (preferred || ok[0])?.pages ?? null
+}
+
 // true se in cache c'è una voce per questo hash ma in un FORMATO vecchio:
 // serve solo al log del worker ("ri-OCR per aggiornamento formato", non "mai
 // visto") — in produzione un miss inatteso sembrerebbe una cache rotta.

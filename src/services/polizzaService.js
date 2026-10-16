@@ -12,6 +12,7 @@
 import { readFileSync, existsSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import os from 'os'
 // Nell'app web (Node puro) electron NON deve esistere: lo carichiamo in modo
 // opzionale con guardie (in ESM `require` non esiste → catch). `app` serve solo
 // a trovare ita.traineddata per l'OCR offline e ha fallback su TESSERACT_DATA_DIR.
@@ -1720,31 +1721,80 @@ function tessLangOptions() {
   } catch (_) { /* fallback CDN */ }
   return {}
 }
-let _ocrWorker = null
 let _ocrUnavailable = false
+
+// POOL di worker Tesseract (16/10/2026). Prima c'era UN worker per processo:
+// tesseract.js lavora su un solo core per worker e le pagine passavano una alla
+// volta (Lipari: 5.579 pagine «sandwich» in 17 ore di lettura preliminare, ~10 s
+// a pagina, gli altri core fermi). Ogni pagina prende un worker libero e lo
+// rende a fine pagina; il cambio PSM 6 → 3 → 6 del ripiego resta sullo stesso
+// worker, quindi non tocca le pagine degli altri. Tutti i worker nascono con gli
+// stessi parametri: prima il worker creato da probeOcr non li aveva (il testo
+// dipendeva da chi aveva creato il worker per primo).
+const _ocrPool = { workers: [], idle: [], waiters: [], creating: 0 }
+
+/** Quanti worker Tesseract: impostazione `polizzaOcrWorkers`, altrimenti i core meno 2 (minimo 1). */
+export function ocrWorkerCount(settings = {}) {
+  const set = Math.floor(Number(settings?.polizzaOcrWorkers))
+  if (Number.isFinite(set) && set >= 1) return Math.min(set, 32)
+  let cores = 1
+  try { cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length } catch { /* 1 */ }
+  return Math.max(1, Math.min(cores - 2, 32))
+}
+
+async function createOcrWorker(lang = 'ita') {
+  const tesseract = await import('tesseract.js')
+  const createWorker = tesseract.createWorker || tesseract.default?.createWorker
+  if (!createWorker) return null
+  const w = await createWorker(lang, undefined, tessLangOptions())
+  // Migliora l'allineamento anche del testo piatto di fallback (data.text).
+  try { await w.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6' }) } catch { /* parametro opzionale */ }
+  return w
+}
+
+// Un worker libero; se non c'è e il pool non è pieno se ne crea uno, altrimenti
+// si aspetta il primo che si libera (FIFO). null = tesseract.js non installato.
+async function acquireOcrWorker(size, lang = 'ita') {
+  const pool = _ocrPool
+  if (pool.idle.length) return pool.idle.pop()
+  if (pool.workers.length + pool.creating < size) {
+    pool.creating++
+    try {
+      const w = await createOcrWorker(lang)
+      if (w) pool.workers.push(w)
+      return w
+    } finally { pool.creating-- }
+  }
+  return new Promise((resolve) => pool.waiters.push(resolve))
+}
+
+function releaseOcrWorker(w) {
+  if (!w || !_ocrPool.workers.includes(w)) return // pool chiuso nel frattempo
+  const next = _ocrPool.waiters.shift()
+  if (next) next(w)
+  else _ocrPool.idle.push(w)
+}
+
 /**
- * Chiude il worker Tesseract. Nel server web il worker vive quanto il
- * processo; negli SCRIPT (pertinenza-eval, calibrazione) il worker tiene vivo
- * l'event loop e il processo non termina mai: la misura del 22/09 aveva finito
- * in 5 minuti e il processo è rimasto appeso per due ore (0% CPU) — scambiato
- * per un'estrazione infinita.
+ * Chiude i worker Tesseract. Nel server web il pool vive quanto il processo;
+ * negli SCRIPT (pertinenza-eval, calibrazione) i worker tengono vivo l'event
+ * loop e il processo non termina mai: la misura del 22/09 aveva finito in 5
+ * minuti e il processo è rimasto appeso per due ore (0% CPU) — scambiato per
+ * un'estrazione infinita.
  */
 export async function closeOcrWorker() {
-  const w = _ocrWorker
-  _ocrWorker = null
-  if (w) { try { await w.terminate() } catch { /* già chiuso */ } }
+  const ws = _ocrPool.workers.splice(0)
+  _ocrPool.idle.length = 0
+  for (const resolve of _ocrPool.waiters.splice(0)) resolve(null)
+  for (const w of ws) { try { await w.terminate() } catch { /* già chiuso */ } }
 }
-async function ocrImageToText(base64DataUrl, lang = 'ita') {
+
+async function ocrImageToText(base64DataUrl, lang = 'ita', settings = {}) {
   if (_ocrUnavailable) return ''
+  let worker = null
   try {
-    const tesseract = await import('tesseract.js')
-    const createWorker = tesseract.createWorker || tesseract.default?.createWorker
-    if (!createWorker) { _ocrUnavailable = true; return '' }
-    if (!_ocrWorker) {
-      _ocrWorker = await createWorker(lang, undefined, tessLangOptions())
-      // Migliora l'allineamento anche del testo piatto di fallback (data.text).
-      try { await _ocrWorker.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6' }) } catch { /* parametro opzionale */ }
-    }
+    worker = await acquireOcrWorker(ocrWorkerCount(settings), lang)
+    if (!worker) { if (!_ocrPool.workers.length) _ocrUnavailable = true; return '' }
     // Pre-processing dell'immagine (solo per scan): contrasto/upscale/sharpening
     // PRIMA di Tesseract. Se il modulo non è disponibile torna l'originale.
     const { preprocessImage } = await import('./ocrPreprocess.js')
@@ -1752,15 +1802,15 @@ async function ocrImageToText(base64DataUrl, lang = 'ita') {
     // blocks: le COORDINATE parola escono dalla stessa chiamata (zero OCR in
     // più) e permettono di ricostruire la pagina come griglia a colonne — i
     // layout tabellari restano incolonnati invece di venire "srotolati".
-    let data = await _ocrWorker.recognize(imageToOcr, {}, { text: true, blocks: true })
+    let data = await worker.recognize(imageToOcr, {}, { text: true, blocks: true })
     data = data?.data || data
     // Fallback PSM: se con PSM 6 (un blocco) non esce testo (pagine
     // multicolonna), riprovo col PSM 3 (automatico).
     if (!data?.text || !data.text.trim()) {
-      try { await _ocrWorker.setParameters({ tessedit_pageseg_mode: '3' }) } catch { /* ok */ }
-      const retry = await _ocrWorker.recognize(imageToOcr, {}, { text: true, blocks: true })
+      try { await worker.setParameters({ tessedit_pageseg_mode: '3' }) } catch { /* ok */ }
+      const retry = await worker.recognize(imageToOcr, {}, { text: true, blocks: true })
       data = retry?.data || retry
-      try { await _ocrWorker.setParameters({ tessedit_pageseg_mode: '6' }) } catch { /* ok */ }
+      try { await worker.setParameters({ tessedit_pageseg_mode: '6' }) } catch { /* ok */ }
     }
     const spatial = buildSpatialPage(data?.blocks)
     if (spatial.trim()) return spatial
@@ -1769,6 +1819,8 @@ async function ocrImageToText(base64DataUrl, lang = 'ita') {
     console.warn('[ocr] non disponibile/fallita, proseguo con sola immagine:', e.message)
     _ocrUnavailable = true
     return ''
+  } finally {
+    releaseOcrWorker(worker)
   }
 }
 
@@ -1787,7 +1839,12 @@ export async function probeOcr(settings = {}) {
     const tesseract = await import('tesseract.js')
     const createWorker = tesseract.createWorker || tesseract.default?.createWorker
     if (!createWorker) { _ocrUnavailable = true; return { available: false, reason: "pacchetto 'tesseract.js' non installato (createWorker mancante)" } }
-    if (!_ocrWorker) _ocrWorker = await createWorker('ita', undefined, tessLangOptions())
+    // Un worker già nel pool basta (anche se occupato: niente attesa qui);
+    // altrimenti se ne crea uno, con gli stessi parametri dell'OCR, e torna libero.
+    if (!_ocrPool.workers.length) {
+      const w = await acquireOcrWorker(ocrWorkerCount(settings), 'ita')
+      releaseOcrWorker(w)
+    }
     return { available: true }
   } catch (e) {
     _ocrUnavailable = true
@@ -1824,7 +1881,7 @@ async function callRollingLLMVision(settings, state, imageBase64, pageNum, total
   const promptExtra = (settings.polizzaPromptExtra || '').trim()
   // #1 — OCR del testo (fonte primaria) affiancato all'immagine. Additivo: se l'OCR
   // non è disponibile, ocrBlock resta vuoto e si usa la sola immagine come prima.
-  const ocrText = settings.polizzaOcrEnabled === false ? '' : await ocrImageToText(imageBase64)
+  const ocrText = settings.polizzaOcrEnabled === false ? '' : await ocrImageToText(imageBase64, 'ita', settings)
   // ANCORAGGIO AL PERIODO: dal testo OCR ricavo (regex deterministica) il periodo a
   // cui il documento si riferisce (scadenza/periodo/decorrenza). Datando ogni valore
   // con questo periodo, per i campi che cambiano nel tempo vince sempre il documento
@@ -2011,7 +2068,7 @@ export async function updateStateWithVisionPage(state, imageBase64, pageNum, tot
 
 export async function ocrPageText(imageBase64, settings = {}) {
   if (settings && settings.polizzaOcrEnabled === false) return ''
-  return ocrImageToText(imageBase64)
+  return ocrImageToText(imageBase64, 'ita', settings)
 }
 
 // OCR CON MODELLO VISIVO (25/09/2026, server RTX 6000 Ada): il modello

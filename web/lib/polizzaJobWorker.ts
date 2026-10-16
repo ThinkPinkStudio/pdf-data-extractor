@@ -19,6 +19,7 @@ import { notValidError, polizzaLine, policyGate, type PolizzaCheck } from './job
 interface PolizzaSvc {
   updateStateWithVisionPage: (state: any, imageBase64: string, pageNum: number, totalPages: number, settings: any, source: any) => Promise<any>
   ocrPageText: (imageBase64: string, settings: any) => Promise<string>
+  ocrWorkerCount: (settings: any) => number
   visionOcrPageText: (imageDataUrl: string, settings: any) => Promise<string>
   visionOcrEngine: (settings: any) => string | null
   extractPolizzaFromFullText: (fullText: string, settings: any, onProgress?: (p: { batch: number; batchTotal: number }) => void) => Promise<{ data: Record<string, string>; sources: Record<string, { file: string; page: number }>; diag?: string[]; reliability?: Record<string, { reliable: number; tipoDiVerifica: string[] }> }>
@@ -167,7 +168,7 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
     }
   }
   const totalPages = textLayer ? textLayer.length : (doc?.numPages || 0)
-  const pages: string[] = []
+  const pages: string[] = new Array(totalPages).fill('')
   if (textLayer) {
     const nText = textLayer.filter((t) => t && t.trim()).length
     await log(`Text layer pdfjs per "${docName}": ${nText}/${textLayer.length} pagine con testo${needOcr!.length ? `, ${needOcr!.length} in OCR` : ''}`)
@@ -178,28 +179,61 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   // needOcr è null per una scansione INTERA (nessun text layer): allora tutte le pagine.
   const toOcr = hooks.onlyPages ? Math.min(hooks.onlyPages.length, totalPages) : (needOcr ? needOcr.length : totalPagesForLog(textLayer, doc))
   if (vision && toOcr) await log(`OCR con modello visivo ${vision} per "${docName}" (${toOcr} pagine)`)
+  // Tesseract: pagine in parallelo fino al numero di worker del pool (ogni
+  // worker = un core). Il modello visivo resta una pagina alla volta (una GPU).
+  // Ogni pagina ha il suo posto nell'array: ordine e numerazione come prima.
+  const limit = vision || !m ? 1 : Math.max(1, m.ocrWorkerCount(settings))
   let ocrPages = 0
-  try {
-    for (let p = 1; p <= totalPages; p++) {
-      if (hooks.isCanceled && await hooks.isCanceled()) return { pages, canceled: true, ocrPages, sandwich }
-      if (hooks.onPage) await hooks.onPage(p, totalPages)
+  let nextPage = 1
+  let started = 0
+  let canceled = false
+  const runner = async () => {
+    while (!canceled) {
+      const p = nextPage++
+      if (p > totalPages) return
+      if (hooks.isCanceled && await hooks.isCanceled()) { canceled = true; return }
+      if (hooks.onPage) await hooks.onPage(++started, totalPages)
       // Pagine fuori dal sottoinsieme richiesto: nessun OCR, resta il text layer se c'è.
-      if (hooks.onlyPages && !hooks.onlyPages.includes(p)) { pages.push(textLayer ? (textLayer[p - 1] || '') : ''); continue }
+      if (hooks.onlyPages && !hooks.onlyPages.includes(p)) { pages[p - 1] = textLayer ? (textLayer[p - 1] || '') : ''; continue }
       const layer = textLayer ? textLayer[p - 1] : ''
-      if (layer && layer.trim()) { pages.push(layer); continue }
-      if (!doc || !m) { pages.push(''); continue }
-      let png: string
-      try { png = vision ? await doc.renderPage(p, { longSide: 1800, preprocess: false }) : await doc.renderPage(p) } catch (err: any) { await log(`SKIP pagina ${p} di "${docName}": ${err.message}`); pages.push(''); continue }
+      if (layer && layer.trim()) { pages[p - 1] = layer; continue }
+      if (!doc || !m) continue
+      if (!vision) await acquireTessSlot(limit)
       try {
-        const text = (vision ? await m.visionOcrPageText(png, settings) : await m.ocrPageText(png, settings)) || ''
-        pages.push(text)
-        if (text.trim()) ocrPages++
-      } catch (err: any) { await log(`OCR pagina ${p} di "${docName}": ${err.message}`); pages.push('') }
+        let png: string
+        try { png = vision ? await doc.renderPage(p, { longSide: 1800, preprocess: false }) : await doc.renderPage(p) } catch (err: any) { await log(`SKIP pagina ${p} di "${docName}": ${err.message}`); continue }
+        try {
+          const text = (vision ? await m.visionOcrPageText(png, settings) : await m.ocrPageText(png, settings)) || ''
+          pages[p - 1] = text
+          if (text.trim()) ocrPages++
+        } catch (err: any) { await log(`OCR pagina ${p} di "${docName}": ${err.message}`) }
+      } finally {
+        if (!vision) releaseTessSlot()
+      }
     }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, totalPages)) }, runner))
   } finally {
     if (doc) await doc.destroy()
   }
+  if (canceled) return { pages, canceled: true, ocrPages, sandwich }
   return { pages, ocrPages, sandwich }
+}
+
+// Pagine Tesseract «in volo» in tutto il processo (render a 4400 px + OCR): al
+// massimo quanti worker ha il pool, anche quando più file si leggono insieme
+// (riconciliazione). Così non restano in memoria decine di pagine renderizzate
+// in attesa di un worker libero.
+const tessSlots = { busy: 0, waiters: [] as (() => void)[] }
+async function acquireTessSlot(limit: number): Promise<void> {
+  if (tessSlots.busy < limit) { tessSlots.busy++; return }
+  await new Promise<void>((resolve) => tessSlots.waiters.push(resolve))
+}
+function releaseTessSlot(): void {
+  const next = tessSlots.waiters.shift()
+  if (next) next() // il posto passa a chi aspetta: busy invariato
+  else tessSlots.busy = Math.max(0, tessSlots.busy - 1)
 }
 
 /** Il job sta girando in questo processo (anche se nel DB risulta annullato). */

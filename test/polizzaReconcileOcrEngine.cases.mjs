@@ -82,3 +82,46 @@ test('riconciliazione: il predicato degli «illeggibili» — documento di conto
   assert.equal(rec.extractPolicyNumbersFromPages([page]).length, 0, 'nessun numero etichettato')
   assert.ok(rec.knownNumbersInPages([page], [DAS]).length > 0, 'ma il numero del batch è citato nel testo')
 })
+
+// [RIUSO FRA MOTORI] La chiave di cache dipende dal motore, quindi al primo giro dopo
+// un cambio (la preliminare ora legge SEMPRE con Tesseract) ogni voce scritta col modello
+// visivo è un miss e il batch si ri-OCRA da zero — 836 fascicoli = ore. Il riuso legge la
+// voce dell'altro motore, MA senza mai mescolare la variante `:sw` (pagina immagine con
+// OCR invisibile dello scanner) con quella normale dello stesso file: sono testi diversi
+// dello stesso PDF e incrociarli darebbe una griglia incoerente.
+test('riconciliazione: riuso della cache di un ALTRO motore, senza incrociare le varianti', () => {
+  const h = 'aa11bb22'
+  const vis = `${h}:vis:qwen3-vl:32b`
+  const visSw = `${vis}:sw`
+  const row = (file_hash, pages) => ({ file_hash, pages, format: store.OCR_FORMAT })
+
+  // Fascicolo normale: si riusa la voce normale, non quella sandwich.
+  const rows = [row(vis, ['NORMALE']), row(visSw, ['SANDWICH'])]
+  assert.deepEqual(store.pickCrossEnginePages(h, rows, false), ['NORMALE'])
+  // Fascicolo con pagine sandwich: si riusa la voce `:sw`, non quella normale.
+  assert.deepEqual(store.pickCrossEnginePages(h, rows, true), ['SANDWICH'])
+  // Nessuna voce di QUESTO file → nessun riuso (si rilegge): l'hash conta anche
+  // se l'elenco arriva più largo del previsto.
+  assert.equal(store.pickCrossEnginePages(h, [row('zz99:vis:qwen3-vl:32b', ['ALTRO FILE'])], false), null)
+  // Formato vecchio: la voce non è riusabile, si rigenera.
+  assert.equal(store.pickCrossEnginePages(h, [{ file_hash: vis, pages: ['VECCHIO'], format: store.OCR_FORMAT - 1 }], false), null)
+})
+
+test('riconciliazione: il riuso fra motori non prende le voci delle TABELLE e preferisce il modello in uso', () => {
+  const h = 'aa11bb22'
+  const vis = `${h}:vis:qwen3-vl:32b`
+  const row = (file_hash, pages) => ({ file_hash, pages, format: store.OCR_FORMAT })
+  // Le tabelle delle scansioni (`<chiave OCR>:tab1:<modello>`) non sono l'OCR della pagina.
+  assert.equal(store.pickCrossEnginePages(h, [row(`${vis}:tab1:glm-ocr`, ['TABELLE'])], false), null)
+  // Una `…:sw:tab1:…` non deve passare come variante normale né come sandwich.
+  assert.equal(store.pickCrossEnginePages(h, [row(`${vis}:sw:tab1:glm-ocr`, ['TABELLE SW'])], false), null)
+  assert.equal(store.pickCrossEnginePages(h, [row(`${vis}:sw:tab1:glm-ocr`, ['TABELLE SW'])], true), null)
+  // Con la pagina vera accanto alle tabelle si prende la pagina, in qualunque ordine arrivino.
+  assert.deepEqual(store.pickCrossEnginePages(h, [row(`${vis}:tab1:glm-ocr`, ['TABELLE']), row(vis, ['PAGINA'])], false), ['PAGINA'])
+  // Due modelli visivi in cache: vince quello configurato, non il primo dell'elenco.
+  const old = row(`${h}:vis:qwen2.5vl:7b`, ['VECCHIO MODELLO'])
+  assert.deepEqual(store.pickCrossEnginePages(h, [old, row(vis, ['MODELLO IN USO'])], false, 'qwen3-vl:32b'), ['MODELLO IN USO'])
+  assert.deepEqual(store.pickCrossEnginePages(h, [old, row(`${vis}:sw`, ['IN USO SW'])], true, 'qwen3-vl:32b'), ['IN USO SW'])
+  // Senza il modello configurato in cache si riusa comunque quello che c'è.
+  assert.deepEqual(store.pickCrossEnginePages(h, [old], false, 'qwen3-vl:32b'), ['VECCHIO MODELLO'])
+})
