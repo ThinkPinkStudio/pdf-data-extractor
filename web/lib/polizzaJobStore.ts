@@ -1,6 +1,7 @@
 import { pool } from './db'
 import { createHash, randomUUID } from 'crypto'
 import { flattenRollingState, initRollingState } from './polizzaRolling'
+import { applyCorrections, type ValueCorrection, type CorrectionChange } from './valueCorrections'
 import { forcedWithoutPolicy, isNotValidJob } from './jobValidity'
 import { importSharedService } from './sharedServices'
 
@@ -655,6 +656,25 @@ export async function updateJob(id: string, patch: Partial<Record<keyof JobRow, 
   if (typeof patch.status === 'string' && RUN_END_STATUSES.has(patch.status)) {
     try { await recordJobRun(id) } catch (err) { console.warn('[polizza] storico run non salvato:', (err as Error)?.message) }
   }
+}
+
+/**
+ * Valori corretti di un dossier estratto: sostituiscono quelli del motore e il
+ * salvataggio chiude una run come un'estrazione (Storico con il prima/dopo).
+ * Solo job `done`; mai con il job in coda o in corso (l'estrazione li
+ * riscriverebbe). Regole pure in valueCorrections.ts.
+ */
+export async function correctJobValues(id: string, corrections: ValueCorrection[]): Promise<
+  { ok: true; changed: CorrectionChange[] } | { ok: false; code: 'not-found' | 'not-done' | 'unknown-field' | 'bad-input'; fieldId?: string }
+> {
+  const job = await getJob(id)
+  if (!job) return { ok: false, code: 'not-found' }
+  if (job.status !== 'done') return { ok: false, code: 'not-done' }
+  const r = applyCorrections(job.rolling_state as any, job.sources as any, job.field_defs as any, corrections)
+  if (!r.ok) return r
+  if (!r.changed.length) return { ok: true, changed: [] }
+  await updateJob(id, { rolling_state: r.state, sources: r.sources, status: 'done' })
+  return { ok: true, changed: r.changed }
 }
 
 // ── STORICO DELLE RUN ────────────────────────────────────────────────────────

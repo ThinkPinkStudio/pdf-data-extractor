@@ -116,6 +116,7 @@ const BUILD_FEATURES = [
   'riepilogo-non-stampata', // Flag «riepilogo»: diritti/interessi/imposte letti in una colonna di tabella che non li nomina si svuotano (la voce non è stampata); poi l'imponibile per esclusione (P19 18 → 21, replay del 06/10)
   'riga-griglia', // Flag «rigagriglia» acceso: dopo il merge, importo della copertura dalla sua riga nella stessa colonna dei totali; campi «sulla stessa riga» del premio dalla cella sotto l'intestazione che li nomina (+19 −1 su 41 posizioni, misura offline del 05/10)
   'ocr-parallelo', // OCR Tesseract con un pool di worker: pagine e dossier della lettura preliminare in parallelo; `cpus` qui sotto dice quanti core vede il server (16/10/2026)
+  'valori-corretti', // POST /api/polizza/job/<id>/values: i valori corretti di un dossier estratto sostituiscono quelli del motore e chiudono una run nello Storico (19/10/2026)
 ]
 
 export async function GET() {
