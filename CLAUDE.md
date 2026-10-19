@@ -1871,7 +1871,7 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   perturbazione degli altri: ogni modifica al prompt sposta quanto corregge).
   OCR con qwen3-vl:32b: ~3 min a PAGINA (ragiona anche con think off); su 3
   posizioni +2 netto (P07 sbloccata, P20 bloccata); misura completa in corso.
-- **Tesseract in parallelo (16/10/2026, NON ancora in produzione)**: il
+- **Tesseract in parallelo (16/10/2026, in produzione dal 19/10 col deploy di b22deb0; il server vede 8 core → 6 worker)**: il
   riabbinamento di Lipari (776 dossier) ha passato 17 ore nella lettura
   preliminare della riconciliazione: 5.579 pagine «sandwich» rilette da UN
   worker tesseract.js (un core, ~10 s a pagina a 4400 px), tutto sotto
@@ -1887,6 +1887,29 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   da decidere). Riuso fra motori della cache nella riconciliazione
   (`getOcrCacheAnyEngine`): mai le voci delle tabelle `…:tab1:…`, preferito il
   modello visivo configurato.
+- **OCR visivo SPENTO in produzione (19/10/2026, decisione dell'utente: «non
+  devono passare dalla gpu»)**: `polizzaOcrEngine` = `tesseract`. Su Lipari il
+  modello visivo aveva letto 1.626 pagine in ~68 ore su 95 dossier di sole
+  scansioni, 61 poi scartati «copertura mai nominata»; con Tesseract (testo già
+  in cache dalla lettura preliminare) da ~5 a ~30 dossier all'ora. Si perde la
+  lettura migliore dei premi sulle sole scansioni (P07/P22/P24/P37 dell'08/10).
+  Proposta aperta: decidere «mai nominata» sul testo Tesseract PRIMA dell'OCR
+  visivo (sui 95 dossier: 49 scartabili, 0 persi; `work/replay/vision-skip-census.mjs`).
+- **Valori corretti (19/10/2026, decisione dell'utente: «sovrascriverle,
+  aggiungendo un'estrazione nello storico … non come correzione manuale»)**:
+  `POST /api/polizza/job/<id>/values` (`correctJobValues`, logica pura in
+  `web/lib/valueCorrections.ts`): i valori sostituiscono quelli del motore e il
+  salvataggio chiude una run nello Storico come un'estrazione; solo job `done`.
+  Lipari: 143 dossier estratti controllati da agenti col protocollo
+  `catalog/lipari-check/CHECK.md` (descrizione = ordine, prova per ogni campo,
+  immagine della pagina sulle scansioni): 2.697/3.151 giusti (86%), 453 campi
+  corretti in 118 dossier con `work/replay/lipari-apply.mjs` (backup in
+  `lipari-check/applied-*.json`); 19 campi a confidenza bassa lasciati. Errori
+  ricorrenti (materiale per il motore): tipologia vuota sulle auto Unipol (51),
+  imponibile/lordo scambiati o totali del contratto, attività da «uso
+  privato»/professione/nome, massimale RCA (riga «per sinistro» dell'RCA),
+  N° polizza con «/1» dell'appendice o polizza sostituita, PDF con più polizze
+  non divisi (quietanze DAS di 25 contraenti in un file, cartelle con più veicoli).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
