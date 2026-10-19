@@ -40,7 +40,7 @@ import {
   valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels, negatedPhrases, negatedPhraseLabelling, valueWindows,
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
-  partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
+  partitionFields, normForMatch, passesStagedEvidence, evidenceInContext, pickMoreRecentCandidate,
   isSuspectStructuralOverride, isRinvioAttivita, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
   isTextualField,
   hasOcrDigitRunAsAmount,
@@ -4335,6 +4335,25 @@ export function optionHasEvidence(field, value, text) {
   return [opt, ...opt.split('/')].map(norm).filter((x) => x.length >= 4).some((x) => hay.includes(` ${x} `))
 }
 
+/**
+ * [flag sceltaprova] SCELTA CHIUSA (la descrizione elenca le risposte: «una tra
+ * Azienda, …, Auto/Circolazione, …»): la risposta è una CATEGORIA, un giudizio
+ * come la risposta di una verifica, non una parola copiata dal documento. Come
+ * per le verifiche, la prova è la CITAZIONE: il valore deve essere un'opzione
+ * della descrizione e la frase citata deve stare nel testo inviato
+ * (`evidenceInContext`, la stessa regola delle verifiche). Lipari 19/10/2026:
+ * 43 tipologie giuste del modello («Auto/Circolazione» citando «Veicolo:
+ * AUTOVETTURA», «GARANZIA RCA») scartate «senza evidenza» perché la parola
+ * della categoria nel documento non c'è.
+ */
+export function closedChoiceHasEvidence(field, value, evidenza, normCtx, rawCtx) {
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const v = norm(value)
+  if (!v || !String(evidenza || '').trim()) return false
+  if (!enumeratedOptions(field?.description).some((o) => norm(o) === v)) return false
+  return evidenceInContext(String(evidenza).trim(), normCtx, rawCtx)
+}
+
 export function enumeratedOptions(description) {
   const m = positiveDescriptionText(String(description || '')).match(/\buna\s+tra\s+([^(.;:]+)/i)
   if (!m) return []
@@ -6333,10 +6352,18 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     // descrizione del campo non lo prevede come valore (Lucca: franchigia
     // "NESSUNA" è il dato, la descrizione lo dice, e veniva buttato qui).
     if (isAbsencePlaceholder(val) || (isPlaceholderValue(val) && !descriptionAllowsValue(field, val))) { counters.placeholders++; note(k, 'placeholder', val); continue }
-    const cleaned = sanitizeFieldValue(field, val)
+    // [flag separatori] Numero di un documento con gli spazi attorno alle barre
+    // o ai trattini («1 / 85050 / 30 / 204605869», come lo stampa il frontespizio
+    // Unipol): gli spazi non sono sporcizia OCR, ma contavano come caratteri non
+    // alfanumerici e `isGarbageIdentifier` lo scartava (Lipari 19/10/2026: 12
+    // numeri di polizza giusti persi, vinceva «30/…/1» del certificato).
+    const val2 = STAGED_FLAGS.get(best)?.separatori && descriptionAsksDocumentNumber(field.description)
+      ? String(val).replace(/\s*([\/\-])\s*/g, '$1') : val
+    const cleaned = sanitizeFieldValue(field, val2)
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
     const evQuote = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
-    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx) && !(STAGED_FLAGS.get(best)?.opzioni && optionHasEvidence(field, cleaned, rawCtx || ''))) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx) && !(STAGED_FLAGS.get(best)?.opzioni && optionHasEvidence(field, cleaned, rawCtx || ''))
+        && !(STAGED_FLAGS.get(best)?.sceltaprova && closedChoiceHasEvidence(field, cleaned, evQuote, normCtx, rawCtx))) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
     // ECO della descrizione di un ALTRO campo della chiamata, assente dal testo
     // ("Non operante" delle Condizioni finito nelle Esclusioni, RCP SAPORITI).
     {
@@ -6456,7 +6483,17 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
         // tocca, altrimenti una P.IVA legittima scritta "11640070014" (nuda)
         // verrebbe scartata perché la run non ha separatori.
         const isBareCode = /^\d{6,16}$/.test(cleaned) && !/[.,]/.test(cleaned)
-        if (!isBareCode && !hasOcrDigitRunAsAmount(srcDoc.text, String(Math.trunc(Math.abs(amtNum))))) {
+        const run = String(Math.trunc(Math.abs(amtNum)))
+        // [flag piattoovunque] La guardia c'è contro gli importi CREATI dal
+        // riallineamento a colonne; un importo che sta, linearmente, in una
+        // qualunque pagina inviata in questa chiamata esiste davvero. Prima si
+        // guardava solo il documento che il modello aveva citato: se il valore
+        // stava in un altro documento della chiamata cadeva (Lipari 19/10/2026:
+        // 18 massimali Helvetia «PACCHETTO "Top" … € 15.000,00» persi).
+        const inCallFlat = () => STAGED_FLAGS.get(best)?.piattoovunque && (callPages
+          ? [...callPages].some(([name, pages]) => { const d = analyzed.find((x) => x.name === name); return !!d && [...pages].some((pg) => hasOcrDigitRunAsAmount(String((d.pages || [])[pg - 1] || ''), run)) })
+          : analyzed.some((d) => hasOcrDigitRunAsAmount(String(d.text || ''), run)))
+        if (!isBareCode && !hasOcrDigitRunAsAmount(srcDoc.text, run) && !inCallFlat()) {
           counters.noEvidence++
           note(k, 'senza-evidenza-nel-piatto', cleaned)
           continue
@@ -6607,7 +6644,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const diag = []
   const best = {}   // id → candidato vincente { valore, effDate, docType, file, page, … }
-  STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni') })
+  STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni'), sceltaprova: engineFlag(settings, 'sceltaprova'), separatori: engineFlag(settings, 'separatori'), piattoovunque: engineFlag(settings, 'piattoovunque') })
   STAGED_OPTS.set(best, { lists: engineFlag(settings, 'elenchi') })
 
   const ollamaModel = resolveOllamaModel(settings)
