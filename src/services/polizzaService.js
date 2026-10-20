@@ -4668,9 +4668,16 @@ export function componentsOverGross(best, fields) {
  * nomina il campo. Schede DAS: «PREMIO ANNUO 147,62 0,00 0,00 31,37 178,99»
  * della tabella delle garanzie (nessuna colonna dei diritti) → «PREMIO RATA
  * SUCCESSIVA 0,00 147,62 2,48 31,90 182,00». Un solo valore candidato.
+ * Con `empty` (flag comprensiva) anche quando la componente NON è stata
+ * estratta, per lo STESSO premio (la riga attuale del campo porta l'imponibile
+ * estratto): la riga candidata deve avere la sua colonna, portare il valore
+ * estratto del campo a cui è legata (l'imponibile) ed essere COERENTE, cioè
+ * imponibile + celle delle componenti = cella del campo. qwen3.5:27b, schede
+ * DAS condominio (20/10): lordo 361,99 della tabella delle garanzie, diritti mai
+ * proposti; il riepilogo «0,00 298,55 2,48 63,97 365,00» li comprende.
  * @returns {{field:object, valore:string, prima:string, riga:string, componente:object}[]}
  */
-export function includedComponentsRowFix(best, fields, docs) {
+export function includedComponentsRowFix(best, fields, docs, { empty = false } = {}) {
   const amount = (fields || []).filter((f) => f && f.enabled !== false && fieldValueKind(f) === 'amount')
   const owns = (header, f) => {
     if (!header) return false
@@ -4692,15 +4699,26 @@ export function includedComponentsRowFix(best, fields, docs) {
     if (!cur.length) continue
     for (const c of comps) {
       const cv = parsePureAmount(best?.[c.id]?.valore)
-      if (cv == null || cv === 0) continue
+      const missing = cv == null && empty && String(best?.[c.id]?.valore ?? '').trim() === ''
+      if (!missing && (cv == null || cv === 0)) continue
       // la tabella del campo ha già la colonna della componente: niente da correggere
       if (cur.some((i) => cells(i).some((t) => owns(t.header, c)))) continue
       const anchor = riepilogoAnchorField(c, fields)
       const av = anchor && anchor.id !== f.id ? parsePureAmount(best?.[anchor.id]?.valore) : null
+      // componente non estratta: vale solo per lo STESSO premio, cioè la riga
+      // attuale del campo porta anch'essa l'imponibile estratto
+      if (missing && (av == null || !cur.some((i) => cells(i).some((t) => sameAmount(t.n, av))))) continue
+      // componente non estratta: la riga ne ha la colonna ed è coerente
+      // (imponibile + componenti = campo, cella per cella)
+      const coherent = (i, cell) => {
+        const cs = cells(i)
+        const sum = comps.reduce((acc, g) => acc + (cs.find((t) => owns(t.header, g))?.n || 0), av)
+        return sameAmount(sum, cell.n)
+      }
       const cands = lines.map((l, i) => i)
-        .filter((i) => !lines[i].includes('|') && cells(i).some((t) => sameAmount(t.n, cv) && owns(t.header, c)) && (av == null || cells(i).some((t) => sameAmount(t.n, av))))
+        .filter((i) => !lines[i].includes('|') && cells(i).some((t) => (missing || sameAmount(t.n, cv)) && owns(t.header, c)) && (av == null || cells(i).some((t) => sameAmount(t.n, av))))
         .map((i) => ({ i, cell: cells(i).find((t) => owns(t.header, f)) }))
-        .filter((x) => x.cell)
+        .filter((x) => x.cell && (!missing || coherent(x.i, x.cell)))
       if (new Set(cands.map((x) => x.cell.n)).size !== 1 || sameAmount(cands[0].cell.n, n)) continue
       if (!sanitizeFieldValue(f, cands[0].cell.text)) continue
       out.push({ field: f, valore: cands[0].cell.text, prima: e.valore, riga: gridRowLabel(lines[cands[0].i]), componente: c })
@@ -9197,7 +9215,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   // coerenza cross-field).
   const riepilogoOn = engineFlag(settings, 'riepilogo')
   if (riepilogoOn) {
-    for (const s of includedComponentsRowFix(best, activeFields, analyzed)) {
+    for (const s of includedComponentsRowFix(best, activeFields, analyzed, { empty: engineFlag(settings, 'comprensiva') })) {
       best[s.field.id] = { ...best[s.field.id], valore: s.valore, gridRow: true }
       diag.push(`Riga comprensiva[${s.field.label}]: "${s.prima}" → "${s.valore}" (riga "${s.riga}", che porta anche ${s.componente.label}: la descrizione lo dice comprensivo di quella voce)`)
     }

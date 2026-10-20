@@ -244,6 +244,31 @@ test('includedComponentsRowFix: il lordo della tabella senza diritti passa alla 
   assert.equal(includedComponentsRowFix({ ...best, [F('Premio lordo totale tutela legale').id]: entry('182,00', file) }, TL, docs).length, 0)
 })
 
+test('[flag comprensiva] includedComponentsRowFix con i diritti NON estratti: riga con la loro colonna, stesso imponibile e coerente', async () => {
+  const { includedComponentsRowFix } = await import('../src/services/polizzaService.js')
+  const file = 'MONZA 293 CONDOMINIO.pdf'
+  const docs = [{ name: file, spatialPages: [DAS] }]
+  const best = {
+    [F('Premio imponibile tutela legale').id]: entry('147,62', file),
+    [F('Imposte').id]: entry('31,37', file),
+    [F('Premio lordo totale tutela legale').id]: entry('178,99', file),
+  }
+  // senza il flag resta la regola di sempre (componente estratta non nulla)
+  assert.equal(includedComponentsRowFix(best, TL, docs).length, 0)
+  const out = includedComponentsRowFix(best, TL, docs, { empty: true })
+  assert.deepEqual(out.map((s) => [s.field.label.trim(), s.prima, s.valore, s.riga]), [['Premio lordo totale tutela legale', '178,99', '182,00', 'PREMIO RATA SUCCESSIVA']])
+  // voci tutte estratte (anche a zero): nessuna voce mancante, resta la regola di sempre
+  assert.equal(includedComponentsRowFix({ ...best, [F('Diritti').id]: entry('0,00', file), [F('Interessi di frazionamento').id]: entry('0,00', file) }, TL, docs, { empty: true }).length, 0)
+  // imponibile diverso da quello della riga: niente (la rata iniziale 75,04 non è il premio estratto)
+  assert.equal(includedComponentsRowFix({ ...best, [F('Premio imponibile tutela legale').id]: entry('75,04', file) }, TL, docs, { empty: true }).length, 0)
+  // riga non coerente (imponibile + voci ≠ lordo): niente
+  const bad = DAS.replace('31,90          182,00', '31,90          190,00')
+  assert.equal(includedComponentsRowFix(best, TL, [{ name: file, spatialPages: [bad] }], { empty: true }).length, 0)
+  // senza imponibile estratto la riga non si riconosce
+  const noImp = { ...best }; delete noImp[F('Premio imponibile tutela legale').id]
+  assert.equal(includedComponentsRowFix(noImp, TL, docs, { empty: true }).length, 0)
+})
+
 test('riepilogoMismatches: il lordo «comprensivo» delle imposte segue il riepilogo dell\'imponibile (legame transitivo)', async () => {
   const { riepilogoMismatches } = await import('../src/services/polizzaService.js')
   const POL = '       SEZIONE TUTELA LEGALE\n                  Prima rata        € 616,64        Imponibile annuo       € 616,64'
