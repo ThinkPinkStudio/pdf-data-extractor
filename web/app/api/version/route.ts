@@ -118,6 +118,7 @@ const BUILD_FEATURES = [
   'ocr-parallelo', // OCR Tesseract con un pool di worker: pagine e dossier della lettura preliminare in parallelo; `cpus` qui sotto dice quanti core vede il server (16/10/2026)
   'valori-corretti', // POST /api/polizza/job/<id>/values: i valori corretti di un dossier estratto sostituiscono quelli del motore e chiudono una run nello Storico (19/10/2026)
   'flag-sceltaprova', // Flag spenti da misurare: «sceltaprova» (prova delle scelte chiuse = citazione), «separatori» (numeri di polizza con barre spaziate), «piattoovunque» (importo lineare in qualunque pagina della chiamata) (19/10/2026)
+  'test-estrazione', // Run di test con `extractModel`: un modello per la sola estrazione, la pertinenza resta su ollamaModel (20/10/2026)
 ]
 
 export async function GET() {

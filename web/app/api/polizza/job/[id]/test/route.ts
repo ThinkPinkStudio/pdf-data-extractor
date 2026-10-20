@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Il job sorgente è ancora in esecuzione o in coda' }, { status: 409 })
   }
 
-  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number; ocr?: string; flags?: string; tableOcrUrl?: string } = {}
+  let body: { profileId?: string | null; model?: string; stagedCascade?: boolean; perField?: boolean; promptExtra?: string; think?: string; ctx?: number; ocr?: string; flags?: string; tableOcrUrl?: string; extractModel?: string } = {}
   try { body = await req.json() } catch { /* body vuoto = tutti i default */ }
 
   const settings = await getSettings()
@@ -47,6 +47,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const settingsOverride: Record<string, unknown> = {}
   const model = (body.model || '').trim()
   if (model) { settingsOverride.ollamaModel = model; settingsOverride.polizzaWholeDossierModel = model }
+  // Modello della sola ESTRAZIONE (motore a stadi): la pertinenza resta su
+  // ollamaModel (quello di `model` o delle Impostazioni). Prova del 20/10: il
+  // 35b-a3b estrae bene ma in pertinenza scarta la «Tutela Legale della
+  // Circolazione» delle polizze auto.
+  const extractModel = (body.extractModel || '').trim()
+  if (extractModel) settingsOverride.polizzaWholeDossierModel = extractModel
   if (typeof body.stagedCascade === 'boolean') settingsOverride.polizzaStagedCascade = body.stagedCascade
   if (typeof body.perField === 'boolean') settingsOverride.polizzaPerField = body.perField
   // Ragionamento per fase e tetto di contesto: A/B senza toccare le impostazioni globali.
@@ -63,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? (body.perField ? ' · per-campo' : (body.stagedCascade ? ' · cascata' : ' · gruppi'))
     : (typeof body.stagedCascade === 'boolean' ? (body.stagedCascade ? ' · cascata' : ' · gruppi') : '')
   const extraBit = `${settingsOverride.polizzaThink ? ` · ragionamento ${settingsOverride.polizzaThink}` : ''}${settingsOverride.polizzaBatchContext ? ` · ctx ${settingsOverride.polizzaBatchContext}` : ''}${settingsOverride.polizzaOcrEngine ? ` · OCR ${settingsOverride.polizzaOcrEngine}` : ''}${settingsOverride.polizzaEngineFlags ? ` · flag ${settingsOverride.polizzaEngineFlags}` : ''}`
-  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${engineBit}${extraBit}`
+  const label = `TEST · ${src.dossier_name || (src.scanned_files || [])[0] || src.id.slice(0, 8)} · ${model || 'modello corrente'}${extractModel ? ` · estrazione ${extractModel}` : ''}${engineBit}${extraBit}`
   const job = await createTestJob({
     sourceJobId: src.id, email: session.email, fieldDefs, promptExtra, settingsOverride, label,
     ...(profile ? { profileId: profile.id, profileName: profile.name } : {}),

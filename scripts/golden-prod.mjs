@@ -8,7 +8,7 @@
  *
  *   node scripts/golden-prod.mjs --base https://genius.csabroker.it --email <utente>
  *        [--only bolchini-rc-2026,alzaia-tl] [--model qwen3:32b] [--out .goldens-out/prod-<tag>]
- *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b] [--flags campi,…]
+ *        [--strategy gruppi|cascata] [--think off|abbinamento|estrazione|tutto] [--ctx 8192] [--ocr qwen2.5vl:7b] [--flags campi,…] [--extract-model qwen3.5:35b-a3b]
  *        [--from .goldens-out/prod-<base>] [--forza-pertinenza]
  *
  * - Un BATCH per fascicolo («TEST GOLDEN …»): la riconciliazione per numero di
@@ -62,10 +62,12 @@ const CTX = arg('ctx') ? Number(arg('ctx')) : null
 const OCR = arg('ocr')
 // Flag del motore (src/services/engineFlags.js): correzioni accese solo nelle run di test.
 const FLAGS = arg('flags')
+// Modello della sola estrazione (la pertinenza resta su --model o sulle Impostazioni).
+const EXTRACT = arg('extract-model')
 // --flags è un override come gli altri: senza, la run di test coi flag non partiva
 // mai e la misura «coi flag» era una copia della base (09/10/2026).
-const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR || FLAGS
-const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}${FLAGS ? `-flag-${FLAGS.replace(/[^a-z0-9]+/gi, '-')}` : ''}`))
+const OVERRIDE = MODEL || STRATEGY || THINK || CTX || OCR || FLAGS || EXTRACT
+const OUT = arg('out', join(root, '.goldens-out', `prod-${MODEL ? MODEL.replace(/[:.]/g, '-') : 'default'}${STRATEGY ? `-${STRATEGY}` : ''}${THINK ? `-think-${THINK}` : ''}${CTX ? `-ctx${CTX}` : ''}${OCR ? `-ocr-${OCR.replace(/[:.]/g, '-')}` : ''}${FLAGS ? `-flag-${FLAGS.replace(/[^a-z0-9]+/gi, '-')}` : ''}${EXTRACT ? `-estr-${EXTRACT.replace(/[:.]/g, '-')}` : ''}`))
 // Mai forzare di default (vedi intestazione). --no-proceed resta accettato (è il default).
 const FORCE = process.argv.includes('--forza-pertinenza')
 // «Non valido» (nessuna polizza): stato mismatch con l'errore che lo dice; i job
@@ -89,7 +91,7 @@ if (existsSync(join(root, '.goldens-out', 'SKIP_QUEUED')) && !process.argv.inclu
   }
   if (told) console.log(`Pausa finita — ${new Date().toLocaleTimeString('it-IT')}`)
 }
-if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --strategy, --think, --ctx, --ocr o --flags'); process.exit(2) }
+if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --extract-model, --strategy, --think, --ctx, --ocr o --flags'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // certificato interno
@@ -150,7 +152,7 @@ console.log(`App ${BASE} — versione ${version?.version || '?'} — Ollama ${se
 const buildFeatures = [].concat(version?.buildFeatures || [])
 console.log(`  codice deployato (ultimi marcatori): ${buildFeatures.slice(-6).join(' · ') || 'sconosciuto'}`)
 
-const summary = { base: BASE, version: version?.version || null, buildFeatures, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, flags: FLAGS || settings.polizzaEngineFlags || '', precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
+const summary = { base: BASE, version: version?.version || null, buildFeatures, model: MODEL || settings.ollamaModel || null, strategy: STRATEGY || (settings.polizzaStagedCascade ? 'cascata' : 'gruppi'), think: THINK || settings.polizzaThink || 'off', ocr: OCR || settings.polizzaOcrEngine || 'tesseract', ctx: CTX || settings.polizzaBatchContext || 8192, flags: FLAGS || settings.polizzaEngineFlags || '', extractModel: EXTRACT || settings.polizzaWholeDossierModel || '', precheckMode: settings.polizzaPrecheckMode || null, cases: [] }
 const t00 = Date.now()
 for (const c of FULL_CASES) {
   if (ONLY && !ONLY.has(c.id)) continue
@@ -208,7 +210,7 @@ for (const c of FULL_CASES) {
     // pertinenza (modello, flag) va misurato proprio lì; la run di test rifà
     // il controllo con l'override.
     if (OVERRIDE && (job.status === 'done' || ['review', 'mismatch', 'matched'].includes(job.status))) {
-      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}), ...(FLAGS ? { flags: FLAGS } : {}) }
+      const body = { profileId: profile.id, ...(MODEL ? { model: MODEL } : {}), ...(STRATEGY ? { perField: false, stagedCascade: STRATEGY === 'cascata' } : {}), ...(THINK ? { think: THINK } : {}), ...(CTX ? { ctx: CTX } : {}), ...(OCR ? { ocr: OCR } : {}), ...(FLAGS ? { flags: FLAGS } : {}), ...(EXTRACT ? { extractModel: EXTRACT } : {}) }
       const t = await api(`/api/polizza/job/${jobId}/test`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
