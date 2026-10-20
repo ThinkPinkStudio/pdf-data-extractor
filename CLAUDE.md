@@ -1910,6 +1910,25 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   privato»/professione/nome, massimale RCA (riga «per sinistro» dell'RCA),
   N° polizza con «/1» dell'appendice o polizza sostituita, PDF con più polizze
   non divisi (quietanze DAS di 25 contraenti in un file, cartelle con più veicoli).
+- **Flag del 19/10 misurati sulle copie (notte 19→20/10)**: base e flag sulle
+  stesse copie (stesso codice, OCR Tesseract): Lipari 28 dossier (verità dei
+  check.json, `catalog/ab-lipari.mjs`, SET=lipari) 530 → 526, Tutela legale 45
+  (golden, SET=tl3) 977 → 975, altri profili (golden-prod 12 casi) 312 → 313.
+  `separatori` (numeri di documento con barre spaziate «1 / 85050 / 30 / …»:
+  gli spazi non sono sporcizia OCR per `isGarbageIdentifier`) +1 senza perdite
+  → **di default**. `sceltaprova` (scelte chiuse provate dalla citazione come le
+  verifiche) BOCCIATO e tolto: il filtro che scartava «Auto/Circolazione»
+  scartava anche le risposte SBAGLIATE del modello, più numerose («Azienda»
+  citando il nome della società, «Altra tipologia»): Lipari tipologia 19 → 16.
+  `piattoovunque` (guardia anti-colonne su tutte le pagine della chiamata):
+  nessun effetto misurato, tolto. Lezione: il censimento «il modello aveva
+  proposto il giusto» (`work/replay/proposed-census.mjs`, 113 casi) conta anche
+  i dossier dove il modello propone ANCHE il sbagliato: allentare un filtro non
+  basta, il collo di bottiglia è il giudizio del modello (tipologia: la
+  descrizione dice «categoria prevalente del soggetto o del rischio coperto» e
+  il modello sceglie il soggetto). Stesse 28 posizioni: valori originali di
+  produzione (con OCR visivo) 531/644, copie con Tesseract 530/644: spegnere
+  l'OCR visivo non è costato precisione su questo campione.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
