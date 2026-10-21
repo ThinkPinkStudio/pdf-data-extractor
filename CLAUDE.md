@@ -1930,6 +1930,33 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   produzione (con OCR visivo) 531/644, copie con Tesseract 530/644: spegnere
   l'OCR visivo non è costato precisione su questo campione.
 
+- **L'ESTRAZIONE È PER POLIZZA, NON PER CARTELLA (21/10/2026, regola
+  dell'utente: «lo avevamo già detto mille volte!»). Flag `perpolizza`, DI
+  DEFAULT dal deploy di 0fb8ee9**: la riconciliazione, oltre a UNIRE i pezzi
+  della stessa polizza sparsi in cartelle diverse, DIVIDE una cartella con più
+  polizze (Lipari «Traglio Carlo/Rca Auto»: cinque auto, cinque polizze, il
+  fuoco ne estraeva una e metteva da parte le altre in silenzio). Catene di
+  rischio dal contenuto (`policyLineages` in policyReconcile.js): stessa polizza
+  scritta in altro modo (`samePolicyNumber`: ramo e appendice «30/203739946/1»,
+  agenzie diverse, mai numeri consecutivi né codici d'agenzia sotto gli 8
+  caratteri), polizza dichiarata sostituita (`replacedPolicyNumbersFromPages`:
+  «n° Polizza sostituita ⏎ 1/85050/30/203792050», Unipol rinumera a ogni
+  rinnovo e variazione), stessa targa (`vehiclePlateFromPages`, la più
+  frequente; AA00000 solo su righe di targa/veicolo, altrimenti «MI 20122» è un
+  CAP). In un contenitore esce in un dossier suo («…/Polizza N») solo la catena
+  CON TARGA diversa da quella del primo file numerato: le catene senza targa
+  restano (i rinnovi senza «sostituita» di RCT/O, multirischi, sanitaria si
+  spezzavano: 14 errori su 85). Le unioni tra cartelle restano per numero esatto
+  (recon-measure invariato 35/41). Il fuoco dell'estrazione tiene la catena
+  della prova (rinnovi col numero nuovo). Misura offline sugli 89 dossier di
+  Lipari A-I con più numeri contro una verità per rischio
+  (`catalog/lipari-multi-truth.json`, `work/replay/split-eval.mjs`): 78/85,
+  nessuna divisione sbagliata; non divisi i 7 rischi senza targa (due case, due
+  assicurati, più sedi: servirebbero ubicazione o assicurato). Lipari A-I è stato
+  riconciliato prima: 5 dossier (8 polizze) si dividono solo con «Riabbina» +
+  «Riunisci» su quei dossier (`catalog/lipari-split-ids.json`). Lipari J - T (449
+  dossier, caricato il 21/10) parte già col flag.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
