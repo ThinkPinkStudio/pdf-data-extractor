@@ -119,7 +119,8 @@ const BUILD_FEATURES = [
   'valori-corretti', // POST /api/polizza/job/<id>/values: i valori corretti di un dossier estratto sostituiscono quelli del motore e chiudono una run nello Storico (19/10/2026)
   'flag-sceltaprova', // Flag spenti da misurare: «sceltaprova» (prova delle scelte chiuse = citazione), «separatori» (numeri di polizza con barre spaziate), «piattoovunque» (importo lineare in qualunque pagina della chiamata) (19/10/2026)
   'test-estrazione', // Run di test con `extractModel`: un modello per la sola estrazione, la pertinenza resta su ollamaModel (20/10/2026)
-  'per-polizza', // Flag spento «perpolizza»: la riconciliazione divide le cartelle con più polizze (catene: numero, polizza sostituita, targa) e il fuoco tiene i rinnovi della stessa catena (21/10/2026)
+  'per-polizza-default', // «perpolizza» di default: la riconciliazione divide le cartelle con più polizze (21/10/2026, ok dell'utente per Lipari J - T)
+  'per-polizza', // Flag «perpolizza» (prima spento): la riconciliazione divide le cartelle con più polizze (catene: numero, polizza sostituita, targa) e il fuoco tiene i rinnovi della stessa catena (21/10/2026)
 ]
 
 export async function GET() {
