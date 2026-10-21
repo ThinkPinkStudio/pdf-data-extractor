@@ -6635,6 +6635,9 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni'), separatori: engineFlag(settings, 'separatori') })
   STAGED_OPTS.set(best, { lists: engineFlag(settings, 'elenchi') })
 
+  // Ogni chiamata dell'estrazione passa da s2 (modello d'estrazione, polizzaWholeDossierModel):
+  // la pertinenza resta su ollamaModel. Fino al 21/10 tabelle (A.7), frontespizio (A.8) e
+  // filtro degli elenchi usavano ancora ollamaModel: con due modelli diversi ne usavano due.
   const ollamaModel = resolveOllamaModel(settings)
   const s2 = { ...settings, ollamaModel }
   const modelLimit = await getOllamaContextLimit(s2, ollamaModel)
@@ -7599,7 +7602,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           // proposte, e le cifre in prosa del Set Informativo battevano la tabella).
           // Un errore di chiamata ferma lo stadio come prima (catch esterno): i
           // candidati dei documenti già letti restano.
-          const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
+          const raw = await callOllamaRolling(s2, sys, user, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
           let parsed = parseJsonResponse(raw)
           // {"voci": [...]} → array; {"campo":…} singolo → [voce]
           if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
@@ -7612,7 +7615,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
           if (Array.isArray(parsed) && parsed.length && !arrayHasIdx(parsed)) {
             const user2 = user + '\n\nIMPORTANTISSIMO: ogni voce dell\'array "voci" DEVE avere "campo": <indice numerico del campo>.'
             try {
-              const raw2 = await callOllamaRolling(settings, sys, user2, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
+              const raw2 = await callOllamaRolling(s2, sys, user2, { numCtx: batchCtx, timeoutMs: 180000, diag, fields: a7Fields, shape: 'staged', format: 'json' })
               let parsed2 = parseJsonResponse(raw2)
               if (parsed2 && !Array.isArray(parsed2) && Array.isArray(parsed2.voci)) parsed2 = parsed2.voci
               if (arrayHasIdx(parsed2) || (parsed2 && !Array.isArray(parsed2))) parsed = parsed2
@@ -7912,7 +7915,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             'FORMATO: un ARRAY JSON con una voce per ogni campo trovato: {"campo": <indice del campo>, "valore": "...", "riga": "..."}. ' +
             'L\'indice "campo" è il numero del campo nell\'elenco (0, 1, 2…): ripetilo SEMPRE. Se un campo non ha un valore chiaro, non includerlo. Non inventare.'
         const user = `${a78 ? 'FRONTESPIZIO:' : 'FRONTESPIZIO (etichetta sopra, valore sotto):'}\n${frontBlock}\n\nCAMPI DA ESTRARRE (numerati):\n${fieldLines}\n\nRispondi SOLO con l'array JSON, es. [{"campo": 0, "valore": "...", "riga": "..."}]. I campi senza valore non compaiono.`
-        const raw = await callOllamaRolling(settings, sys, user, { numCtx: batchCtx, timeoutMs: 180000, numPredict: 4096, diag, fields: anagFields, shape: 'staged', format: false })
+        const raw = await callOllamaRolling(s2, sys, user, { numCtx: batchCtx, timeoutMs: 180000, numPredict: 4096, diag, fields: anagFields, shape: 'staged', format: false })
         const parsed = parseJsonResponse(raw)
         const a8NormCtx = normForMatch(frontBlock)
         const entries2 = Array.isArray(parsed)
@@ -8003,7 +8006,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const useCascade = settings.polizzaStagedCascade === true
   // In testa alla diagnostica: quale strategia ha DAVVERO girato (chiude ogni
   // dubbio su "lo switch ha funzionato?" guardando il log del job).
-  diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${settings.ollamaModel || settings.llmModel || '?'} — flag del motore: ${engineFlagsLabel(settings)}`)
+  diag.push(`Strategia Stadio B: ${useCascade ? 'CASCATA dal documento più recente' : 'GRUPPI a copertura totale'} — modello ${ollamaModel} — flag del motore: ${engineFlagsLabel(settings)}`)
   let progressTotal = 0
   let progressDone = 0
   // Tetto di CAMPI PER CHIAMATA. Con 12 descrizioni per chiamata il modello da
@@ -9485,7 +9488,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (!items.length) continue
       try {
         const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVOCI TROVATE NEI DOCUMENTI (numerate):\n${items.map((t, i) => `${i}. ${t}`).join('\n')}\n\nRispondi SOLO con l'oggetto JSON {"tenere": [...]}.`
-        const raw = await callOllamaRolling(settings, LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
+        const raw = await callOllamaRolling(s2, LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
         let parsed = null
         try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
         const keep = parsed && Array.isArray(parsed.tenere)
