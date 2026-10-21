@@ -27,7 +27,7 @@ type Segment = { from: number; to: number; numbers: string[] }
 interface ReconcileSvc {
   reconcileFromPages: (
     d: { id: string; path: string; files: { idx: number; name?: string; pages: string[]; digital?: boolean[] }[] }[],
-    opts?: { noSplit?: Set<string> },
+    opts?: { noSplit?: Set<string>; split?: boolean },
   ) => {
     plan: ReconcileMerge[]
     splits: { dossier: string; idx: number; name: string; groups: { merge: number | null; segs: Segment[] }[] }[]
@@ -310,10 +310,14 @@ export async function reconcileBatch(batchId: string): Promise<void> {
       if (canceledByVision) return // annullato durante il fallback: non si marca il batch come riconciliato
     }
     const pathOf: Record<string, string> = Object.fromEntries(input.map((d) => [d.id, d.path]))
+    // [flag perpolizza] l'estrazione è per POLIZZA, non per cartella: una cartella con
+    // più polizze (catene di rischio diverse) si divide, un dossier per polizza.
+    const perPolizza = await importSharedService<{ engineFlag: (s: any, n: string) => boolean }>('engineFlags.js')
+      .then((f) => f.engineFlag(settings, 'perpolizza')).catch(() => false)
     // 2. Piano dal contenuto (numeri in tutto il documento, PDF con più polizze divisi
     // per pagine); un PDF che non si lascia dividere resta intero dov'è e si ripianifica.
     const noSplit = new Set<string>()
-    let res = svc.reconcileFromPages(input, { noSplit })
+    let res = svc.reconcileFromPages(input, { noSplit, split: perPolizza })
     let splits: ReconcileSplit[] = []
     for (let round = 0; round < 5; round++) {
       splits = []
@@ -338,7 +342,7 @@ export async function reconcileBatch(batchId: string): Promise<void> {
         splits.push({ job: sp.dossier, idx: sp.idx, fileName: sp.name, parts })
       }
       if (!failed) break
-      res = svc.reconcileFromPages(input, { noSplit })
+      res = svc.reconcileFromPages(input, { noSplit, split: perPolizza })
     }
     // Il perché resta nel log anche quando non si unisce nulla.
     for (const r of res.read) {

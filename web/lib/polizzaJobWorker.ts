@@ -964,13 +964,13 @@ const shouldPrecheck = !!profile && !precheckBase.override && !precheckBase.conf
       if (flags.engineFlag(settings, 'fuocopolizza') && Number.isInteger(proofDoc) && proofDoc >= 1 && proofDoc <= docsForIndex.length) {
         const rec = await importSharedService<{
           extractPolicyNumbersFromPages: (pages: string[]) => string[]
-          focusOnProofPolicy: (files: { numbers: string[]; pages: string[] }[], proofIndex: number) => { keep: boolean[]; proof: string[]; excluded: { index: number; numbers: string[] }[] }
+          focusOnProofPolicy: (files: { numbers: string[]; pages: string[] }[], proofIndex: number, opts?: { chain?: boolean }) => { keep: boolean[]; proof: string[]; excluded: { index: number; numbers: string[] }[] }
         }>('policyReconcile.js')
         const files = docsForIndex.map((d) => {
           const pages = (((d as any).spatialPages as string[] | undefined) || d.pages).map((p) => String(p || ''))
           return { numbers: rec.extractPolicyNumbersFromPages(pages.slice(0, 5)), pages }
         })
-        const focus = rec.focusOnProofPolicy(files, proofDoc - 1)
+        const focus = rec.focusOnProofPolicy(files, proofDoc - 1, { chain: flags.engineFlag(settings, 'perpolizza') })
         if (focus.excluded.length && focus.keep.some(Boolean)) {
           docsToExtract = docsForIndex.filter((_, i) => focus.keep[i])
           const names = focus.excluded.map((x) => `${docsForIndex[x.index].name.replace(/^.*[\\/]/, '')} (n. ${x.numbers.join(', ')})`).join('; ')

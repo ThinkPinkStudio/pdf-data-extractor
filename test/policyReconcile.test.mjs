@@ -297,3 +297,61 @@ test('planReconcile: lo stesso numero letto diverso dall\'OCR (I/1, O/0, R/1) è
   ])
   assert.equal(sep.length, 0)
 })
+
+// ── Catene di rischio nello stesso dossier (21/10/2026, Lipari) ──────────────
+test('samePolicyNumber: stessa polizza col ramo, l\'appendice o un\'altra agenzia; mai numeri consecutivi né codici d\'agenzia', async () => {
+  const { samePolicyNumber } = await import('../src/services/policyReconcile.js')
+  assert.ok(samePolicyNumber('203739946', '302037399461'))               // ramo 30 davanti, appendice 1 dietro
+  assert.ok(samePolicyNumber('18505030203792050', '203792050'))          // 1/85050/30/203792050
+  assert.ok(samePolicyNumber('18505012210463260', '18502112210463260'))  // agenzie 85050 e 85021
+  assert.ok(samePolicyNumber('18505061150561358', '185021611505613581')) // agenzia diversa + appendice
+  assert.ok(!samePolicyNumber('203737141', '203737241'))                 // flotta: auto diverse
+  assert.ok(!samePolicyNumber('18505030203737141', '18505030203737142'))
+  assert.ok(!samePolicyNumber('185050', '185050'))                       // codice d'agenzia
+  assert.ok(!samePolicyNumber('30210563718', '30207042774'))
+})
+
+test('replacedPolicyNumbersFromPages: il numero stampato sotto «n° Polizza sostituita», anche spezzato', async () => {
+  const { replacedPolicyNumbersFromPages } = await import('../src/services/policyReconcile.js')
+  assert.deepEqual(replacedPolicyNumbersFromPages(['n° Polizza sostituita\n1/85050/30/203792050\nEffetto 21/01/2026 ore 24:00']), ['18505030203792050'])
+  assert.deepEqual(replacedPolicyNumbersFromPages(['POLIZZE SOSTITUITE\nLa presente polizza annulla e sostituisce le seguenti:\nPolizza numero 212 . 044 . 0000902058']), ['2120440000902058'])
+  assert.deepEqual(replacedPolicyNumbersFromPages(['Polizza n. 203792050   Effetto 21/01/2026']), [])  // nessuna etichetta di sostituzione
+  assert.deepEqual(replacedPolicyNumbersFromPages(['n° Polizza sostituita\n21/01/2026']), [])             // una data non è un numero
+})
+
+test('policyLineages: cinque auto = cinque catene; rinnovo che dichiara sostituita la polizza = stessa catena', async () => {
+  const { policyLineages } = await import('../src/services/policyReconcile.js')
+  // Traglio Carlo / Rca Auto: cinque polizze senza legami
+  assert.deepEqual(policyLineages([{ numbers: ['30210563718'] }, { numbers: ['30207042774'] }, { numbers: ['30203678547'] }, { numbers: ['302037648961'] }, { numbers: ['30207012858', '185050'] }]), [0, 1, 2, 3, 4])
+  // CF305KY: polizza, quietanza (stesso numero col ramo) e rinnovo annuale col numero nuovo che cita la vecchia
+  assert.deepEqual(policyLineages([{ numbers: ['203792050'] }, { numbers: ['30203792050'] }, { numbers: ['30214510761'], replaced: ['18505030203792050'] }, { numbers: [] }]), [0, 0, 0, -1])
+  // variazione con l'appendice «/1»: stessa catena della polizza
+  assert.deepEqual(policyLineages([{ numbers: ['203739946'] }, { numbers: ['302037399461'] }]), [0, 0])
+})
+
+test('[flag perpolizza] planReconcile: la polizza di un\'altra catena esce dal contenitore in un dossier suo; i rinnovi e i file senza numero restano', async () => {
+  const dossiers = [{ id: 'D1', path: 'Lipari/Traglio Carlo/Rca Auto', files: [
+    { idx: 0, numbers: ['30210563718'], lineage: 0 },   // DP73203
+    { idx: 1, numbers: ['30207042774'], lineage: 1 },   // ER841KK
+    { idx: 2, numbers: ['30219006698'], lineage: 0 },   // rinnovo di DP73203 col numero nuovo (stessa catena)
+    { idx: 3, numbers: [] },                            // condizioni generali
+    { idx: 4, numbers: ['185050'], lineage: -1 },       // solo un codice d'agenzia
+  ] }]
+  assert.deepEqual(planReconcile(dossiers), [], 'senza il flag il contenitore resta com\'è')
+  const plan = planReconcile(dossiers, { split: true })
+  assert.equal(plan.length, 1)
+  assert.equal(plan[0].create, true)
+  assert.equal(plan[0].name, 'Lipari/Traglio Carlo/Rca Auto/Polizza 30207042774')
+  assert.deepEqual(plan[0].moves, [{ from: 'D1', all: false, idxs: [1] }])
+})
+
+test('[flag perpolizza] focusOnProofPolicy: con la catena restano i rinnovi della stessa auto col numero nuovo', async () => {
+  const { focusOnProofPolicy } = await import('../src/services/policyReconcile.js')
+  const files = [
+    { numbers: ['200731967'], pages: ['Polizza n. 200731967\nVeicolo targa GT288EA'] },
+    { numbers: ['30219006698'], pages: ['Polizza n. 30219006698\nVeicolo targa GT288EA'] },
+    { numbers: ['30207042774'], pages: ['Polizza n. 30207042774\nVeicolo targa ER841KK'] },
+  ]
+  assert.deepEqual(focusOnProofPolicy(files, 0).keep, [true, false, false])
+  assert.deepEqual(focusOnProofPolicy(files, 0, { chain: true }).keep, [true, true, false])
+})

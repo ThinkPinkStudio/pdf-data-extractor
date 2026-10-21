@@ -199,18 +199,24 @@ export function nearSameNumber(a, b) {
  * documento della prova non si esclude nulla.
  * @param {{numbers: string[], pages: string[]}[]} files i documenti del fascicolo, in ordine
  * @param {number} proofIndex indice (0-based) del documento della prova
+ * @param {{chain?: boolean}} [opts] chain: tieni anche la catena della prova (flag perpolizza)
  * @returns {{keep: boolean[], proof: string[], excluded: {index:number, numbers:string[]}[]}}
  */
-export function focusOnProofPolicy(files, proofIndex) {
+export function focusOnProofPolicy(files, proofIndex, opts = {}) {
   const long = (n) => ocrNorm(n).replace(/^0+/, '').length >= 8
   const nums = numbersWithKnown(files || []).map((ns) => [...new Set(ns)].filter(long))
   const keep = nums.map(() => true)
   const proof = nums[proofIndex] || []
   const excluded = []
   if (!proof.length) return { keep, proof, excluded }
+  // [flag perpolizza] Restano anche i documenti della stessa CATENA della prova:
+  // la stessa polizza rinnovata o variata con un numero nuovo (Unipol GT288EA: il
+  // fuoco sulla polizza del 2024 escludeva le quietanze 25-26 e 26-27).
+  const chain = opts.chain ? policyLineages(nums.map((ns, i) => ({ numbers: ns, replaced: replacedPolicyNumbersFromPages(files[i].pages || []), plate: vehiclePlateFromPages(files[i].pages || []) }))) : null
   nums.forEach((ns, i) => {
     if (i === proofIndex || !ns.length) return
     if (ns.some((n) => proof.some((p) => nearSameNumber(n, p)))) return
+    if (chain && chain[i] >= 0 && chain[i] === chain[proofIndex]) return
     keep[i] = false
     excluded.push({ index: i, numbers: ns })
   })
@@ -437,7 +443,11 @@ function unionFind() {
  * @param {{id:string, path:string, files:{idx:number, numbers:string[]}[]}[]} dossiers  in ordine di caricamento
  * @returns {{target:string, name:string, numbers:string[], moves:{from:string, all:boolean, idxs:number[]}[]}[]}
  */
-export function planReconcile(dossiers) {
+export function planReconcile(dossiers, opts = {}) {
+  // opts.split (flag del motore «perpolizza», 21/10/2026): un CONTENITORE (cartella
+  // con più polizze) si DIVIDE, una polizza per dossier; i file con la stessa
+  // catena (f.lineage, policyLineages) sono la stessa polizza.
+  const split = !!opts.split
   // 0. Un numero che FINISCE con un altro di almeno 8 caratteri è lo stesso col
   // ramo o l'agenzia davanti («30/210502137» e «RAMO 30 · NR. POLIZZA 210502137»).
   // Un numero che è l'INIZIO di un altro numero del batch più lungo di almeno 4
@@ -503,12 +513,15 @@ export function planReconcile(dossiers) {
       for (const n of f.numbers) c.numbers.add(n)
     }
     const whole = comps.size === 1
+    const firstIdx = Math.min(...numbered.map((f) => f.idx))
     let k = 0
     for (const c of comps.values()) {
       nodes.push({
         key: `${d.id}#${k++}`, dossier: d, whole,
         idxs: whole ? (d.files || []).map((f) => f.idx) : c.idxs,
         numbers: c.numbers,
+        home: !whole && c.idxs.includes(firstIdx),
+        lins: new Set((d.files || []).filter((f) => c.idxs.includes(f.idx) && f.lineage >= 0).map((f) => f.lineage)),
       })
     }
   }
@@ -534,6 +547,7 @@ export function planReconcile(dossiers) {
   const pathOf = new Map(list.map((d) => [d.id, d.path || '']))
   const byTarget = new Map() // target → { target, numbers:Set, moves:Map }
   const fresh = [] // polizze fatte solo di pezzi di contenitori diversi
+  const chainSplits = new Map() // [perpolizza] dossier#catena → polizza da togliere dal contenitore
   for (const g of groups.values()) {
     const wholes = g.filter((n) => n.whole)
     if (!wholes.length) {
@@ -543,7 +557,23 @@ export function planReconcile(dossiers) {
       // in due cartelle che hanno anche altre polizze) diventa un dossier NUOVO
       // con i soli documenti di quella polizza.
       const from = [...new Set(g.map((n) => n.dossier.id))]
-      if (from.length < 2) continue
+      if (from.length < 2) {
+        // Con «perpolizza» una polizza che sta in UN contenitore diventa un dossier
+        // suo (Lipari «Traglio Carlo/Rca Auto»: cinque auto, cinque polizze, una
+        // sola estratta), se la sua CATENA (f.lineage) è diversa da quella della
+        // polizza del primo file numerato, che resta nel contenitore coi file
+        // senza numero. Stessa catena = la stessa polizza rinnovata o variata con
+        // un altro numero: resta; nessuna catena (soli numeri corti) resta.
+        if (!split) continue
+        const n = g[0]
+        const homeNode = nodes.find((x) => x.dossier.id === n.dossier.id && x.home)
+        if (n.home || !n.lins.size || !homeNode || [...n.lins].some((l) => homeNode.lins.has(l))) continue
+        const key = `${n.dossier.id}#${Math.min(...n.lins)}`
+        const prev = chainSplits.get(key)
+        if (prev) { prev.idxs.push(...n.idxs); n.numbers.forEach((x) => prev.numbers.add(x)); continue }
+        chainSplits.set(key, { dossier: n.dossier.id, idxs: [...n.idxs], numbers: new Set(n.numbers) })
+        continue
+      }
       const moves = new Map()
       for (const n of g) {
         const m = moves.get(n.dossier.id) || { from: n.dossier.id, all: false, idxs: [] }
@@ -581,11 +611,15 @@ export function planReconcile(dossiers) {
       moves: [...e.moves.values()].map((m) => ({ ...m, idxs: [...new Set(m.idxs)].sort((a, b) => a - b) })),
     })
   }
+  for (const c of chainSplits.values()) {
+    fresh.push({ numbers: c.numbers, moves: new Map([[c.dossier, { from: c.dossier, all: false, idxs: c.idxs }]]), paths: [pathOf.get(c.dossier)] })
+  }
   for (const e of fresh) {
     // Nome: la cartella comune ai pezzi e il numero della polizza.
     const parts = e.paths.map((p) => String(p || '').split('/').filter(Boolean))
     const common = []
-    for (let i = 0; parts.every((x) => i < x.length - 1 && x[i] === parts[0][i]); i++) common.push(parts[0][i])
+    if (parts.length === 1) common.push(...parts[0]) // una polizza tolta da UN contenitore: nella sua cartella
+    else for (let i = 0; parts.every((x) => i < x.length - 1 && x[i] === parts[0][i]); i++) common.push(parts[0][i])
     const numbers = [...e.numbers].sort()
     const rep = [...numbers].sort((a, b) => b.length - a.length || a.localeCompare(b))[0]
     plan.push({
@@ -636,7 +670,24 @@ export function reconcileFromPages(dossiers, opts = {}) {
   for (const u of units) u.numbers = extractPolicyNumbersFromPages(u.pages.slice(0, NP))
   const withKnown = numbersWithKnown(units.map((u) => ({ numbers: u.numbers, pages: u.pages })))
   units.forEach((u, k) => { u.known = !u.numbers.length && withKnown[k].length > 0; u.numbers = withKnown[k] })
-  const plan = planReconcile(list.map((d) => ({ id: d.id, path: d.path, files: units.filter((u) => u.d === d).map((u) => ({ idx: u.idx, numbers: u.numbers })) })))
+  // [flag perpolizza] catene di rischio per dossier: stessa polizza scritta in altro
+  // modo, polizza sostituita, stessa targa (policyLineages).
+  if (opts.split) {
+    for (const d of list) {
+      const mine = units.filter((u) => u.d === d)
+      const plates = mine.map((u) => vehiclePlateFromPages(u.pages))
+      const lin = policyLineages(mine.map((u, k) => ({ numbers: u.numbers, replaced: replacedPolicyNumbersFromPages(u.pages), plate: plates[k] })))
+      // Si divide solo tra polizze di VEICOLI diversi (targhe diverse): misurato sui
+      // dossier di Lipari con più numeri, i rinnovi senza targa che cambiano numero
+      // senza stampare quello sostituito (RCT/O, multirischi, sanitaria, fabbricati)
+      // si dividevano per sbaglio (14 su 85). Una catena senza targa resta con la
+      // polizza del primo documento numerato.
+      const plated = new Set(lin.filter((g, k) => g >= 0 && plates[k]))
+      const home = lin.find((g) => g >= 0)
+      mine.forEach((u, k) => { u.lineage = lin[k] >= 0 && !plated.has(lin[k]) ? home : lin[k] })
+    }
+  }
+  const plan = planReconcile(list.map((d) => ({ id: d.id, path: d.path, files: units.filter((u) => u.d === d).map((u) => ({ idx: u.idx, numbers: u.numbers, lineage: u.lineage })) })), { split: !!opts.split })
   const destOf = (dossier, idx) => {
     const k = plan.findIndex((m) => m.moves.some((mv) => mv.from === dossier && (mv.all || mv.idxs.includes(idx))))
     return k < 0 ? null : k
@@ -720,4 +771,136 @@ export function planSplitByOrigin(dossierName, files) {
     keep: [...byFolder.get(home), ...noPath].sort((a, b) => a - b),
     groups: folders.filter((f) => f !== home).sort().map((folder) => ({ folder, idxs: byFolder.get(folder).sort((a, b) => a - b) })),
   }
+}
+
+// ── CATENE DI RISCHIO nello stesso dossier (21/10/2026) ─────────────────────
+// Una cartella può contenere polizze DIVERSE (Lipari «Traglio Carlo/Rca Auto»:
+// cinque auto, cinque polizze, una sola estratta) oppure la STESSA polizza con
+// numeri diversi: Unipol stampa il numero corto o lungo («203739946» e
+// «1/85050/30/203739946/1» con ramo e appendice, o con agenzie diverse
+// «1/85050/122/10463260» e «1/85021/122/10463260») e a ogni rinnovo,
+// variazione o sostituzione emette un numero NUOVO, stampando quello vecchio
+// sotto «n° Polizza sostituita». Solo il NUMERO decide, come nel resto della
+// riconciliazione: stessa polizza scritta in un altro modo, o polizza
+// dichiarata sostituita da un documento del dossier = stessa CATENA (stesso
+// rischio); catene senza legame = rischi diversi.
+
+const policyDigits = (n) => String(n || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^0+/, '')
+
+/**
+ * Due numeri sono la STESSA polizza scritta in modi diversi: come sameNumber
+ * (OCR, ramo davanti), oppure (a) il più corto (≥ 8 caratteri) sta dentro il
+ * più lungo con davanti al più 8 caratteri (ramo, agenzia) e dietro al più 2
+ * (appendice: «30/203739946/1»); (b) due numeri lunghi (≥ 12) finiscono con le
+ * stesse ≥ 9 cifre (agenzie diverse); (c) come (b) col più lungo di UNA cifra di
+ * appendice in più. Mai sotto gli 8 caratteri (codici d'agenzia come «185050»)
+ * e mai due numeri della stessa lunghezza diversi in fondo: i numeri
+ * CONSECUTIVI di una flotta («203737141», «203737241») sono auto diverse.
+ */
+export function samePolicyNumber(a, b) {
+  const x = policyDigits(a), y = policyDigits(b)
+  if (x.length < 8 || y.length < 8) return false
+  if (x === y || sameNumber(x, y)) return true
+  const [s, l] = x.length <= y.length ? [x, y] : [y, x]
+  const at = l.indexOf(s)
+  if (at >= 0 && at <= 8 && l.length - at - s.length <= 2) return true
+  const tail = (p, q) => { let k = 0; while (k < p.length && k < q.length && p[p.length - 1 - k] === q[q.length - 1 - k]) k++; return k }
+  if (s.length >= 12 && tail(s, l) >= 9) return true
+  return s.length >= 12 && l.length === s.length + 1 && tail(s, l.slice(0, -1)) >= 9
+}
+
+// Etichetta di una polizza SOSTITUITA, annullata o precedente: «n° Polizza
+// sostituita», «POLIZZE SOSTITUITE», «annulla e sostituisce la polizza n.»,
+// «in sostituzione della polizza», «polizza precedente».
+const REPLACED_LABEL_RE = /polizz[ae]?\s+(?:n\S*\s+)?(?:sostituit|annullat|precedent)|(?:annulla\s+e\s+)?sostituisce\s+(?:la\s+|le\s+)?(?:polizz|n[°º.r])|in\s+sostituzione\s+(?:della|di)\s+(?:polizz|n[°º.r])/i
+const REPLACED_TOKEN_RE = /(?<![A-Z0-9])[A-Z0-9][A-Z0-9/.\-]{6,}[A-Z0-9](?![A-Z0-9])/gi
+
+/**
+ * Numeri delle polizze che il documento dichiara SOSTITUITE (o annullate,
+ * precedenti): sulla riga dell'etichetta dopo di lei e nelle due righe sotto
+ * («n° Polizza sostituita ⏎ 1/85050/30/203792050 ⏎ Effetto 21/01/2026»). Gruppi
+ * spezzati dal kerning riattaccati («212 . 044 . 0000902058»); mai una data, mai
+ * un codice fiscale o una partita IVA del documento.
+ * @param {string[]} pages
+ * @returns {string[]}
+ */
+export function replacedPolicyNumbersFromPages(pages) {
+  const out = new Set()
+  const fiscal = new Set([...fiscalNumbers((pages || []).join('\n'))].map(policyDigits))
+  for (const page of pages || []) {
+    const lines = String(page || '').split('\n')
+    lines.forEach((line, i) => {
+      const at = line.search(REPLACED_LABEL_RE)
+      if (at < 0) return
+      const win = [line.slice(at), lines[i + 1] || '', lines[i + 2] || ''].join('\n').replace(/(\d)\s*([./-])\s*(?=\d)/g, '$1$2')
+      for (const m of win.matchAll(REPLACED_TOKEN_RE)) {
+        if ((m[0].match(/\d/g) || []).length < 6 || DATE_LIKE_RE.test(m[0])) continue
+        const n = normalizePolicyNumber(m[0])
+        if (n && policyDigits(n).length >= 8 && !fiscal.has(policyDigits(n))) out.add(n)
+      }
+    })
+  }
+  return [...out]
+}
+
+// Targa del veicolo assicurato: il formato AA000AA ovunque; AA00000 (moto, rimorchi,
+// targhe vecchie) solo sulle righe che parlano di targa o veicolo, altrimenti
+// «MI 20122» (provincia e CAP) sembra una targa. Vale la più frequente del documento:
+// una targa citata di passaggio (veicolo di provenienza della classe di merito) no.
+const PLATE_RE = /(?<![A-Z0-9])([A-Z]{2})\s?(\d{3})\s?([A-Z]{2})(?![A-Z0-9])/g
+const PLATE5_RE = /(?<![A-Z0-9])([A-Z]{2})\s?(\d{5})(?![A-Z0-9])/g
+const VEHICLE_LINE_RE = /targa|veicolo|motociclo|ciclomotore|rimorchio|autovettura|autocarro/i
+
+/**
+ * La targa del veicolo assicurato nel documento (la più frequente), o null.
+ * Nella riconciliazione per polizza tiene insieme i rinnovi della STESSA auto
+ * che cambiano numero senza stampare quello sostituito (Allianz ET43073:
+ * riattivazione, sospensione, polizza nuova; cambio di compagnia) e separa le
+ * auto diverse di una cartella.
+ * @param {string[]} pages
+ */
+export function vehiclePlateFromPages(pages) {
+  const count = new Map()
+  const add = (k) => count.set(k, (count.get(k) || 0) + 1)
+  for (const page of pages || []) {
+    for (const line of String(page || '').toUpperCase().split('\n')) {
+      for (const m of line.matchAll(PLATE_RE)) if (!/^(EE|ZZ)$/.test(m[1])) add(m[1] + m[2] + m[3])
+      if (VEHICLE_LINE_RE.test(line)) for (const m of line.matchAll(PLATE5_RE)) add(m[1] + m[2])
+    }
+  }
+  const top = [...count.entries()].sort((a, b) => b[1] - a[1])
+  return top.length ? top[0][0] : null
+}
+
+/**
+ * CATENE di rischio dei documenti di un dossier: due documenti stanno nella
+ * stessa catena se portano la stessa polizza (samePolicyNumber), se uno
+ * dichiara sostituita la polizza dell'altro o se assicurano la stessa targa
+ * (vehiclePlateFromPages). I documenti senza numero non appartengono a nessuna
+ * catena (-1).
+ * @param {{numbers: string[], replaced?: string[], plate?: string|null}[]} files
+ * @returns {number[]} l'indice della catena di ogni documento, in ordine di prima comparsa; -1 senza numero
+ */
+export function policyLineages(files) {
+  const list = files || []
+  const own = list.map((f) => (f.numbers || []).filter((n) => policyDigits(n).length >= 8))
+  const { find, union } = unionFind()
+  list.forEach((_, i) => { if (own[i].length) find(i) })
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (!own[i].length || !own[j].length) continue
+      const linked = own[i].some((x) => own[j].some((y) => samePolicyNumber(x, y)))
+        || (list[i].replaced || []).some((r) => own[j].some((y) => samePolicyNumber(r, y)))
+        || (list[j].replaced || []).some((r) => own[i].some((x) => samePolicyNumber(r, x)))
+        || (!!list[i].plate && list[i].plate === list[j].plate)
+      if (linked) union(i, j)
+    }
+  }
+  const index = new Map()
+  return list.map((_, i) => {
+    if (!own[i].length) return -1
+    const r = find(i)
+    if (!index.has(r)) index.set(r, index.size)
+    return index.get(r)
+  })
 }
