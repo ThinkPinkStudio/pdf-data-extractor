@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { defaultCompareConfig, type CompareConfig, type Workbook } from './engine'
+import { defaultCompareConfig, clampThresholds, normaliseKey, type CompareConfig, type Workbook } from './engine'
 
 interface LoadedFile {
   name: string
@@ -24,13 +24,18 @@ const Ctx = createContext<CompareCtx | null>(null)
 // Mappa i valori piatti restituiti da /api/settings nella CompareConfig.
 function configFromSettings(d: Record<string, unknown>): CompareConfig {
   const base = defaultCompareConfig()
+  const t = clampThresholds(d.compareFuzzyThresholdLow, d.compareFuzzyThresholdHigh)
   return {
-    matchKeys: Array.isArray(d.compareMatchKeys) ? (d.compareMatchKeys as CompareConfig['matchKeys']) : base.matchKeys,
+    // Chiavi sempre in forma esplicita A/B con nome calcolato (la UI non ha più
+    // «Stessa colonna» né il campo nome).
+    matchKeys: Array.isArray(d.compareMatchKeys) ? (d.compareMatchKeys as CompareConfig['matchKeys']).map(normaliseKey) : base.matchKeys,
     fuzzyEnabled: d.compareFuzzyEnabled !== false,
     fuzzyMinOverlap: typeof d.compareFuzzyMinOverlap === 'number' ? d.compareFuzzyMinOverlap : base.fuzzyMinOverlap,
     fuzzyIgnoreWords: typeof d.compareFuzzyIgnoreWords === 'string' ? d.compareFuzzyIgnoreWords : base.fuzzyIgnoreWords,
     fuzzyBroadEnabled: d.compareFuzzyBroadEnabled !== false,
     fuzzyMinOverlapBroad: typeof d.compareFuzzyMinOverlapBroad === 'number' ? d.compareFuzzyMinOverlapBroad : base.fuzzyMinOverlapBroad,
+    fuzzyThresholdLow: t.low,
+    fuzzyThresholdHigh: t.high,
     searchConditions: Array.isArray(d.compareSearchConditions) && d.compareSearchConditions.length ? (d.compareSearchConditions as CompareConfig['searchConditions']) : base.searchConditions,
     bothMatchConditions: Array.isArray(d.compareBothMatchConditions) && d.compareBothMatchConditions.length ? (d.compareBothMatchConditions as CompareConfig['bothMatchConditions']) : base.bothMatchConditions,
     bothFilterConditions: Array.isArray(d.compareBothFilterConditions) ? (d.compareBothFilterConditions as CompareConfig['bothFilterConditions']) : base.bothFilterConditions,
@@ -65,6 +70,8 @@ export function CompareProvider({ children }: { children: React.ReactNode }) {
         compareFuzzyIgnoreWords: c.fuzzyIgnoreWords ?? '',
         compareFuzzyBroadEnabled: c.fuzzyBroadEnabled,
         compareFuzzyMinOverlapBroad: c.fuzzyMinOverlapBroad,
+        compareFuzzyThresholdLow: clampThresholds(c.fuzzyThresholdLow, c.fuzzyThresholdHigh).low,
+        compareFuzzyThresholdHigh: clampThresholds(c.fuzzyThresholdLow, c.fuzzyThresholdHigh).high,
         compareSearchConditions: c.searchConditions,
         compareBothMatchConditions: c.bothMatchConditions,
         compareBothFilterConditions: c.bothFilterConditions,

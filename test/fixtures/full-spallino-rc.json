@@ -1,0 +1,195 @@
+{
+  "id": "spallino-rc",
+  "label": "SPALLINO LORENZO — RC professionale avvocato AIG BLUE055945 via ASSITA; appendice n.4 rinnovo 31/03/2026-31/03/2027",
+  "fields": {
+    "N° Polizza": {
+      "value": "BLUE055945",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AIG",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "Spallino",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "03865880136",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "Via Volta",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "ASSITA",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "31/03/2026",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "31/03/2027",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "200,20",
+      "mode": "amount",
+      "note": "descrizione = imposte (appendice 2026)"
+    },
+    "Premio lordo": {
+      "value": "1.100,00",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "899,80",
+      "mode": "amount",
+      "note": "descrizione = imponibile (appendice 2026)"
+    },
+    "Professione dichiarata": {
+      "value": "Avvocato",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": null,
+      "mode": "text"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "Questionario p2 Sez. 4 domanda 8: campi del modulo SI5='' e NO5='X' (risposta NO); il gruppo radio dei sinistri non ha valore (tutti /Off) e le Sezioni 6-7 (scheda sinistro/circostanza) sono vuote. Il golden del 12/09 diceva 'Sì' leggendo come barrato un cerchio stampato spostato [corretto 25/09/2026 dall'analisi degli errori in produzione]"
+    },
+    "Massimale per sinistro": {
+      "value": "1.500.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "1.500.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "500,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "escluso 4.16/4.18 salvo condizione aggiuntiva non richiamata → No (o vuoto)"
+    },
+    "Progettazione / DL": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": "Sì",
+      "mode": "yes",
+      "note": "gar. A (p. 4): rappresentanza e difesa, consulenza stragiudiziale; F domiciliazioni; D arbitrato; 3.5 mediazione"
+    },
+    "Sottolimiti": {
+      "mode": "anyof",
+      "values": [
+        "150.000",
+        "500.000",
+        "quarto del massimale"
+      ],
+      "note": "est. 3.1 perdita documenti 150.000,00 per sinistro e per anno; RCT conduzione locali 500.000,00; costi di difesa entro un quarto del massimale (polizza pp. 5-7, 18-19)"
+    },
+    "Estensioni operative": {
+      "mode": "anyof",
+      "values": [
+        "perdita documenti",
+        "privacy",
+        "gdpr",
+        "interruzione",
+        "tributar",
+        "mediazione",
+        "ultrattivit",
+        "eredi",
+        "studio associato",
+        "estensioni"
+      ],
+      "note": "Sez. 3 estensioni 3.1-3.10 (pp. 7-9), garanzie base A-G"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "sindaco",
+        "revisore",
+        "231",
+        "USA",
+        "Canada",
+        "dolos",
+        "denaro",
+        "titoli al portatore",
+        "attività professionale diversa",
+        "insolvenza",
+        "sanzioni"
+      ],
+      "note": "esclusioni 4.1-4.18 (pp. 9-11): 4.16 attività diversa (sindaco/revisore/CdA/ODV), 4.10 USA/Canada, 4.11 denaro e titoli al portatore…"
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "RCT",
+        "RCO",
+        "conduzione",
+        "condizioni aggiuntive",
+        "come in corso",
+        "appendice",
+        "1341"
+      ],
+      "note": "art. 10 Condizioni Aggiuntive 10.1 RCT/RCO (pp. 18-19); appendice n. 4 rinnovo 'alle condizioni tutte come in corso'"
+    },
+    "Visto leggero": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "mai menzionato (solo consulenza fiscale gar. B / tributarista 3.7)"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Incarichi giudiziari": {
+      "value": "Sì",
+      "mode": "yes",
+      "note": "gar. C Funzioni pubbliche/giudiziali (p. 4): curatore, custode giudiziario, delegato alle vendite…"
+    },
+    "Custodia documenti / valori": {
+      "value": "Sì",
+      "mode": "yes",
+      "note": "est. 3.1 perdita documenti incl. somme, titoli e valori in deposito (pp. 6-7)"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Polizza base 2020-2021 (premio 920,00) rinnovata con appendice n.4 per 2026-2027 'alle condizioni tutte come in corso': i valori economici e le date vengono dall'appendice, massimale/franchigia dalla polizza."
+}

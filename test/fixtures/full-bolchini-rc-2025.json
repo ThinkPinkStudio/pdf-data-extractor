@@ -1,0 +1,169 @@
+{
+  "id": "bolchini-rc-2025",
+  "label": "BOLCHINI MARGHERITA — RC professionale AIG IPD0017417, App. 1 rinnovo 19/04/2025-19/04/2026 (fascicolo Cessate)",
+  "fields": {
+    "N° Polizza": {
+      "value": "IPD0017417",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "AIG",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "BOLCHINI",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "10576980154",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "MUGELLO",
+      "mode": "contains"
+    },
+    "Agenzia": {
+      "value": "PANIZZA",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "19/04/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "19/04/2026",
+      "mode": "date"
+    },
+    "Tacito Rinnovo": {
+      "value": "137,67",
+      "mode": "amount",
+      "note": "descrizione = imposte"
+    },
+    "Premio lordo": {
+      "value": "756,42",
+      "mode": "amount"
+    },
+    "Frazionamento": {
+      "value": "618,75",
+      "mode": "amount",
+      "note": "descrizione = premio imponibile"
+    },
+    "Professione dichiarata": {
+      "value": "ARCHITETTO",
+      "mode": "contains"
+    },
+    "Fatturato dichiarato": {
+      "value": "81.936,00",
+      "mode": "amount",
+      "note": "questionario AE sett. 2021, 5.a fatturato consuntivo ultimo esercizio: 81.936,00 €"
+    },
+    "Retroattività": {
+      "value": "Illimitata",
+      "mode": "contains"
+    },
+    "Data retroattività": {
+      "value": null,
+      "mode": "date"
+    },
+    "Sinistri e circostanze": {
+      "value": null,
+      "mode": "emptyOrNo",
+      "note": "questionario 5 aprile 2025: richieste di risarcimento NO, schede vuote → vuoto o No"
+    },
+    "Massimale per sinistro": {
+      "value": "1.000.000,00",
+      "mode": "amount"
+    },
+    "Massimale annuo": {
+      "value": "1.000.000,00",
+      "mode": "amount"
+    },
+    "Franchigia base": {
+      "value": "1.000,00",
+      "mode": "amount"
+    },
+    "Scoperto base": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sottolimiti": {
+      "mode": "anyof",
+      "values": [
+        "250.000",
+        "20.000",
+        "500.000"
+      ]
+    },
+    "Visto pesante / bonus edilizi": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Massimale visto pesante": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Sindaco / Revisore": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "ODV / CDA": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Estensioni operative": {
+      "mode": "anyof",
+      "values": [
+        "opzional",
+        "come in corso"
+      ],
+      "note": "App.1: 'Garanzie Opzionali operanti: C'; condizioni speciali 'se presenti, tutte come in corso'"
+    },
+    "Esclusioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "USA",
+        "Canada"
+      ],
+      "note": "'Estensione territoriale: Mondo intero escluso USA e Canada'"
+    },
+    "Condizioni particolari": {
+      "mode": "anyof",
+      "values": [
+        "come in corso",
+        "IngArch",
+        "Appendice",
+        "claims made"
+      ]
+    },
+    "Visto leggero": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Massimale visto leggero": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Progettazione / DL": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Legge Merloni / Appalti": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Attività giudiziale / stragiudiziale": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Incarichi giudiziari": {
+      "value": null,
+      "mode": "emptyOrNo"
+    },
+    "Custodia documenti / valori": {
+      "value": null,
+      "mode": "emptyOrNo"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Appendice n.1 rinnovo (emessa 07/05/2025); stessi importi del 2026. La 'POLIZZA QUIETANZATA.pdf' è una scansione."
+}

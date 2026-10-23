@@ -1,0 +1,84 @@
+{
+  "_doc": "Verità di PERTINENZA dalle verifiche manuali del 21/09/2026 (Lucchese Doriano, Pizzamiglio Guia): per ogni posizione (cartella diretta = dossier, come nel bulk) se la tutela legale è OPERANTE. expected 'operante' = il pre-controllo deve dire ok; 'non operante' = deve fermare (mismatch o review). Cartelle mancanti in polizze_test = caso saltato. expected 'non valido' = nessuna polizza tra i documenti (sole quietanze): il pre-controllo deve dire NON VALIDO (mismatch+notValid, NON forzabile) — regola dell'utente del 26/09/2026 «SENZA UNA POLIZZA È SEMPRE NON VALIDO», che sostituisce l'«accantonata» forzabile del 22/09.",
+  "profile": "Tutela Legale 3",
+  "cases": [
+    {
+      "id": "lucchese-rc-dual",
+      "dir": "polizze_test/LUCCHESE DORIANO/RC PROFESSIONALE",
+      "expected": "non operante",
+      "note": "RC Professionale DUAL/Arch: 'spese legali' e 'difesa' dentro una RC, non è tutela legale"
+    },
+    {
+      "id": "lucchese-helvetia-2223",
+      "dir": "polizze_test/LUCCHESE DORIANO/LUCCHESE DORIANO epoca",
+      "expected": "non operante",
+      "note": "Helvetia veicoli d'epoca 2022/23: 'Tutela Legale della Circolazione' opzione prestampata non selezionata, nessun premio; scelta solo Helvetia Assistance"
+    },
+    {
+      "id": "lucchese-helvetia-2026",
+      "dir": "polizze_test/LUCCHESE DORIANO/LUCCHESE DORIANO epoca/LUCCHESE DORIANO veicoli epoca 03-2026",
+      "expected": "non operante",
+      "note": "Rinnovo 2026: colonna Tutela Legale senza premio, questionario seleziona solo Assistenza"
+    },
+    {
+      "id": "lucchese-arag",
+      "dir": "polizze_test/LUCCHESE DORIANO/TUT. LEGALE PROFESSIONE",
+      "expected": "operante",
+      "note": "ARAG Tutela Legale Impresa Premium per Libera Professione: polizza autonoma di tutela legale"
+    },
+    {
+      "id": "pizzamiglio-das-alzaia",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/ALZAIA NAVIGLIO PAVESE 104/ALZAIA NAVIGLIO PAVESE 101 Tutela legale DAS",
+      "expected": "non valido",
+      "note": "DAS: sola quietanza di rinnovo, nessuna polizza (la tutela legale c'è, 'ESCLUSA' = indicizzazione, ma senza il contratto non si estrae): NON VALIDO, non forzabile (regola dell'utente 26/09)"
+    },
+    {
+      "id": "pizzamiglio-boiardo",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/COND. BOIARDO",
+      "expected": "operante",
+      "note": "Vittoria condominio: sezione tutela legale operante (massimale 30.000)"
+    },
+    {
+      "id": "pizzamiglio-alzaia-fabbricato",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/ALZAIA NAVIGLIO PAVESE 104/COND. ALZAIA 104 -POLIZZA 01.2024",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Vittoria: tutela legale solo nelle condizioni generali"
+    },
+    {
+      "id": "pizzamiglio-bertolazzi",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/BERTOLAZZI 26 CONDOMINIO PIZZAMIGLIO",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Allianz Viva"
+    },
+    {
+      "id": "pizzamiglio-campestre",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/CAMPESTRE 34-36-38 COND",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Allianz Viva"
+    },
+    {
+      "id": "pizzamiglio-smenp",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/SMENP  CONDOMINIO",
+      "expected": "non operante",
+      "note": "Polizza fabbricato Zurich"
+    },
+    {
+      "id": "pizzamiglio-campestre-rinnovo",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/CAMPESTRE RINNOVO DAL 30.09.2023 SEMESTRALE",
+      "expected": "non operante",
+      "note": "Rinnovo semestrale fabbricato"
+    },
+    {
+      "id": "pizzamiglio-infortuni",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/PIZZAMIGLIO GUIA-INFORTUNI",
+      "expected": "non operante",
+      "note": "Infortuni Helvetia (già correttamente esclusa)"
+    },
+    {
+      "id": "pizzamiglio-campestre-rate",
+      "dir": "polizze_test/PIZZAMIGLIO GUIA AMM.NE STABILI -GRUPPO/CAMPESTRE RINNOVO DAL 30.09.2023 SEMESTRALE/RATE ANNUALI",
+      "expected": "non valido",
+      "note": "Sola QUIETANZA DI PAGAMENTO Allianz Next (fabbricato, rata semestrale), nessuna polizza e la tutela legale mai nominata: NON VALIDO, non forzabile (regola dell'utente 26/09; prima 'non operante')"
+    }
+  ]
+}
