@@ -1957,6 +1957,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   «Riunisci» su quei dossier (`catalog/lipari-split-ids.json`). Lipari J - T (449
   dossier, caricato il 21/10) parte già col flag.
 
+- **Caricamento non chiuso = batch fermo (23/10/2026)**: un batch nuovo parte
+  (riconciliazione, poi abbinamento ed estrazione) solo con `upload_complete`.
+  Lo chiudeva «Fine caricamento» della pagina Cartella bulk o la chiusura della
+  scheda (pagehide); uscendo dalla pagina col MENU non partiva nulla e Lipari
+  J - T (726 dossier) è rimasto «in coda» 26 ore. Ora lo smontaggio della pagina
+  chiude il caricamento (subito se finito, altrimenti alla fine del ciclo di
+  upload, che prosegue a pagina lasciata) e Elaborazioni mostra «Caricamento non
+  chiuso» con «Chiudi caricamento e avvia» (card e pagina del batch,
+  `useCloseUpload`, `uploadComplete` nella GET del batch).
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

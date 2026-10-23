@@ -22,6 +22,9 @@ export interface BatchSummary {
   last_launch_at?: number | string | null
   last_launch_by?: string | null
   last_run_at?: number | string | null
+  // FALSE = caricamento non chiuso: i dossier aspettano (un batch nuovo parte
+  // solo a caricamento chiuso). Assente nel batch virtuale delle singole.
+  upload_complete?: boolean
 }
 
 // Esito del controllo di pertinenza/operatività scritto dal worker (precheck).

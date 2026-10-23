@@ -356,6 +356,16 @@ export default function PolizzaBulkPage() {
   }
 
   const matchOnlyRef = useRef(false)
+  // Uscita dalla pagina DENTRO l'app (menu, link) a caricamento non chiuso: non
+  // c'è pagehide, e il batch restava «in coda» per sempre senza che nessuno lo
+  // prendesse (Lipari J - T, 22/10/2026). Il ciclo di caricamento prosegue anche a
+  // pagina lasciata: se è ancora in corso chiude lui alla fine (leftRef), se è già
+  // finito si chiude subito (effetto di smontaggio, sotto).
+  const uploadingRef = useRef(false)
+  const leftRef = useRef(false)
+  const closeUpload = (id: string) => {
+    void fetch(`/api/polizza/batch/${id}/complete`, { method: 'POST', keepalive: true }).catch(() => {})
+  }
   async function uploadDossier(id: string, d: FinalDossier) {
     setDossierStatus((p) => ({ ...p, [d.gid]: 'uploading' }))
     try {
@@ -416,7 +426,13 @@ export default function PolizzaBulkPage() {
       if (!res.ok) throw new Error(t('bulk.errUpload'))
       const { batchId: id } = await res.json()
       setBatchId(id)
-      for (const d of list) await uploadDossier(id, d) // sequenziale: un dossier alla volta
+      uploadingRef.current = true
+      try {
+        for (const d of list) await uploadDossier(id, d) // sequenziale: un dossier alla volta
+      } finally {
+        uploadingRef.current = false
+      }
+      if (leftRef.current) closeUpload(id)
     } catch (err: any) {
       setPickError(err.message); setPhase('select')
     }
@@ -445,6 +461,7 @@ export default function PolizzaBulkPage() {
   const closeRef = useRef<{ batchId: string | null; phase: string }>({ batchId: null, phase: 'select' })
   closeRef.current = { batchId, phase }
   useEffect(() => {
+    leftRef.current = false
     const onLeave = () => {
       const { batchId: id, phase: ph } = closeRef.current
       if (id && ph !== 'started' && typeof navigator !== 'undefined' && navigator.sendBeacon) {
@@ -452,7 +469,13 @@ export default function PolizzaBulkPage() {
       }
     }
     window.addEventListener('pagehide', onLeave)
-    return () => window.removeEventListener('pagehide', onLeave)
+    return () => {
+      window.removeEventListener('pagehide', onLeave)
+      leftRef.current = true
+      const { batchId: id, phase: ph } = closeRef.current
+      if (id && ph !== 'started' && !uploadingRef.current) closeUpload(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Finestra visibile della lista dossier (windowing): indici di riga da renderizzare.

@@ -121,6 +121,7 @@ const BUILD_FEATURES = [
   'test-estrazione', // Run di test con `extractModel`: un modello per la sola estrazione, la pertinenza resta su ollamaModel (20/10/2026)
   'per-polizza-default', // «perpolizza» di default: la riconciliazione divide le cartelle con più polizze (21/10/2026, ok dell'utente per Lipari J - T)
   'per-polizza', // Flag «perpolizza» (prima spento): la riconciliazione divide le cartelle con più polizze (catene: numero, polizza sostituita, targa) e il fuoco tiene i rinnovi della stessa catena (21/10/2026)
+  'chiudi-caricamento', // Caricamento non chiuso visibile e chiudibile da Elaborazioni; uscire da Cartella bulk col menu chiude il caricamento (23/10/2026, Lipari J - T fermo 26 ore)
 ]
 
 export async function GET() {

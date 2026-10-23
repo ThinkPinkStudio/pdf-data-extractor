@@ -15,6 +15,7 @@ import { IcAlert, IcChevRight, IcDownload, IcPlay, IcRefresh, IcSearch, IcSwap, 
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { ActionMenu } from '@/components/jobs/ActionMenu'
 import { useCrossActions } from '@/components/jobs/useCrossActions'
+import { useCloseUpload } from '@/components/jobs/useCloseUpload'
 
 // ELABORAZIONI — lista dei batch: una card per batch (barra segmentata,
 // contatori, «cosa aspetta te») + la card delle estrazioni singole, che è un
@@ -75,6 +76,8 @@ export default function PolizzaJobsPage() {
   const selBatches = (batches || []).filter((b) => selB.has(b.id))
   const selHits = [...selJ].map((id) => hitMemo.get(id)).filter((h): h is SearchHit => !!h)
   const X = useCrossActions({ batches: selBatches, hits: selHits, reload: load })
+  const U = useCloseUpload(load)
+  const closeUpload = async (b: BatchSummary) => { const err = await U.close(b.id, b.label, b.total); if (err) setMsg(`✗ ${err}`) }
   const nActiveSel = selBatches.filter(batchActive).length + selHits.filter(jobActive).length
   // «1 batch, 3 polizze»: numeri e plurali giusti in barra, conferme e risultati.
   const nouns = (b: number, j: number) => [b ? (b === 1 ? t('jobsDash.nBatch1') : t('jobsDash.nBatchN', { n: b })) : '', j ? (j === 1 ? t('jobsDash.nJob1') : t('jobsDash.nJobN', { n: j })) : ''].filter(Boolean).join(', ')
@@ -121,6 +124,7 @@ export default function PolizzaJobsPage() {
     <div>
       {panel}
       {X.confirmPanel}
+      {U.panel}
       {X.dialog}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
@@ -205,7 +209,8 @@ export default function PolizzaJobsPage() {
         {showSingles && singlesSummary && singlesActive && (
           <BatchCard b={singlesSummary} href={`/polizza/jobs/${SINGLES_ID}`} subtitle={t('jobsDash.singlesCardDesc')} virtual />
         )}
-        {shown.map((b) => <BatchCard key={b.id} b={b} href={`/polizza/jobs/${b.id}`} selected={selB.has(b.id)} active={batchActive(b)} onToggle={() => setSelB((p) => toggle(p, b.id))} />)}
+        {shown.map((b) => <BatchCard key={b.id} b={b} href={`/polizza/jobs/${b.id}`} selected={selB.has(b.id)} active={batchActive(b)} onToggle={() => setSelB((p) => toggle(p, b.id))}
+          onCloseUpload={() => void closeUpload(b)} closing={U.busy} />)}
         {showSingles && singlesSummary && !singlesActive && (
           <BatchCard b={singlesSummary} href={`/polizza/jobs/${SINGLES_ID}`} subtitle={t('jobsDash.singlesCardDesc')} virtual />
         )}
@@ -268,13 +273,15 @@ function SearchResults({ hits, selected, onToggle, isActive }: { hits: SearchHit
   )
 }
 
-function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: { b: BatchSummary; href: string; subtitle?: string; virtual?: boolean; selected?: boolean; active?: boolean; onToggle?: () => void }) {
+function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle, onCloseUpload, closing }: { b: BatchSummary; href: string; subtitle?: string; virtual?: boolean; selected?: boolean; active?: boolean; onToggle?: () => void; onCloseUpload?: () => void; closing?: boolean }) {
   const t = useT()
   const state = batchStatus(b)
   const counts = countsFromBatch(b)
   const segments = segmentsFromCounts(counts)
   const decisions = decisionCount(b)
   const processed = batchProcessed(b)
+  // Caricamento non chiuso: il batch non parte finché non lo si chiude.
+  const uploadOpen = !virtual && b.upload_complete === false
   // Data mostrata: l'ultimo lancio (chi e quando), non il caricamento, che resta nel tooltip.
   const when = batchWhen(Number(b.created_at) || 0, b.last_launch_at, b.last_launch_by, b.last_run_at)
   const uploaded = t('jobsDash.uploadedBy', { date: fmtDate(Number(b.created_at) || 0), by: b.email })
@@ -295,7 +302,9 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
             {subtitle || whenText}
           </span>
         </div>
-        {b.total > 0 && <span className={`jb-pill ${BATCH_STATE_PILL[state]}`} style={{ flex: 'none' }}>{t(BATCH_STATE_LABEL_KEY[state])}</span>}
+        {b.total > 0 && (uploadOpen
+          ? <span className="jb-pill warn" style={{ flex: 'none' }}>{t('jobsDash.bUploadOpen')}</span>
+          : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`} style={{ flex: 'none' }}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
@@ -310,7 +319,17 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle }: {
           {segments.length === 0 && <span className="jb-leg jb-leg-wrap">{virtual ? t('jobsDash.singlesEmpty') : t('jobsDash.bQueued')}</span>}
         </div>
       </div>
-      {decisions > 0 ? (
+      {uploadOpen ? (
+        <div className="jb-callout">
+          <span className="jb-c-warn" style={{ display: 'inline-flex' }}><IcAlert /></span>
+          <span style={{ flex: '1 1 0' }}><b>{t('jobsDash.uploadOpenTitle')}</b></span>
+          {onCloseUpload && (
+            <button type="button" className="jb-btn btn-primary" disabled={closing} title={t('jobsDash.uploadOpenText', { n: b.total })} onClick={onCloseUpload}>
+              <IcPlay />{t('jobsDash.uploadClose')}
+            </button>
+          )}
+        </div>
+      ) : decisions > 0 ? (
         <div className="jb-callout">
           <span className="jb-c-warn" style={{ display: 'inline-flex' }}><IcAlert /></span>
           <span style={{ flex: '1 1 0' }}>

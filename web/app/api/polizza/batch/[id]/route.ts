@@ -22,6 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     lastLaunchAt: result.batch.last_launch_at != null ? Number(result.batch.last_launch_at) : null,
     lastLaunchBy: result.batch.last_launch_by || null,
     lastRunAt: await batchLastRunAt(result.batch.id).catch(() => null),
+    // Caricamento ancora aperto: il batch non parte finché non viene chiuso.
+    uploadComplete: !!result.batch.upload_complete,
     jobs: result.jobs.map(jobSnapshot),
   })
 }

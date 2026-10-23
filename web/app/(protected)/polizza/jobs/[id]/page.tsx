@@ -17,7 +17,8 @@ import { JobsQueue } from '@/components/jobs/JobsQueue'
 import { FolderSchema } from '@/components/jobs/FolderSchema'
 import { JobDetail } from '@/components/jobs/JobDetail'
 import { ActionMenu } from '@/components/jobs/ActionMenu'
-import { IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, IcTable, IcTree, IcZip } from '@/components/jobs/Icons'
+import { IcAlert, IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, IcTable, IcTree, IcZip } from '@/components/jobs/Icons'
+import { useCloseUpload } from '@/components/jobs/useCloseUpload'
 import { useSummarySelection } from '@/components/summaries/useSummarySelection'
 
 const VIEW_KEY = 'jobsView'
@@ -43,7 +44,7 @@ function BatchView() {
   const sp = useSearchParams()
   const isSingles = id === SINGLES_ID
 
-  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number; lastLaunchAt?: number | null; lastLaunchBy?: string | null; lastRunAt?: number | null } | null>(null)
+  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number; lastLaunchAt?: number | null; lastLaunchBy?: string | null; lastRunAt?: number | null; uploadComplete?: boolean } | null>(null)
   const [jobs, setJobs] = useState<JobSnapshot[] | null>(null)
   const [missing, setMissing] = useState(false)
   const [view, setViewState] = useState<ViewMode>('tabella')
@@ -98,7 +99,7 @@ function BatchView() {
         const res = await fetch(`/api/polizza/batch/${id}`)
         if (res.status === 404) { setMissing(true); setJobs([]); return }
         const d = await res.json()
-        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0, lastLaunchAt: d.lastLaunchAt ?? null, lastLaunchBy: d.lastLaunchBy ?? null, lastRunAt: d.lastRunAt ?? null })
+        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0, lastLaunchAt: d.lastLaunchAt ?? null, lastLaunchBy: d.lastLaunchBy ?? null, lastRunAt: d.lastRunAt ?? null, uploadComplete: d.uploadComplete !== false })
         setJobs(d.jobs || [])
       }
       setNow(Date.now())
@@ -116,6 +117,8 @@ function BatchView() {
   // Riepiloghi generali: pulsanti nella barra della selezione (Tabella) o
   // barra propria (Coda), e il pannello «Nuovo riepilogo».
   const R = useSummarySelection({ batchLabel: label, isSingles })
+  const U = useCloseUpload(reload)
+  const [uploadErr, setUploadErr] = useState<string | null>(null)
 
   const all = useMemo(() => jobs || [], [jobs])
   const checkedJobs = useMemo(() => all.filter((j) => checked.has(j.jobId)), [all, checked])
@@ -142,6 +145,9 @@ function BatchView() {
   const lastUpdate = all.reduce((m, j) => Math.max(m, j.updatedAt || 0), 0)
   const ago = lastUpdate ? agoParts(lastUpdate, now) : null
   const when = meta?.createdAt ? batchWhen(meta.createdAt, meta.lastLaunchAt, meta.lastLaunchBy, meta.lastRunAt) : null
+  // Caricamento non chiuso: i dossier sembrano «in coda» ma nessuno li prenderà
+  // finché il caricamento non viene chiuso (vedi useCloseUpload).
+  const uploadOpen = !isSingles && meta?.uploadComplete === false
 
   if (missing) {
     return (
@@ -164,7 +170,9 @@ function BatchView() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label || '…'}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--c-text-secondary)', flexWrap: 'wrap' }}>
-            {jobs && all.length > 0 && <span className={`jb-pill ${BATCH_STATE_PILL[state]}`}>{t(BATCH_STATE_LABEL_KEY[state])}</span>}
+            {jobs && all.length > 0 && (uploadOpen
+              ? <span className="jb-pill warn">{t('jobsDash.bUploadOpen')}</span>
+              : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
             {meta?.owner && <span>{meta.owner}</span>}
             {!!meta?.createdAt && <span>· {t('jobsDash.uploadedAt', { date: fmtDate(meta.createdAt) })}</span>}
             {when && when.kind !== 'created' && (
@@ -203,6 +211,19 @@ function BatchView() {
           <button type="button" className="jb-btn ghost" onClick={() => void reload()}>{t('jobsDash.refresh')}</button>
         </div>
       </div>
+
+      {uploadOpen && (
+        <div className="jb-callout" role="status">
+          <span className="jb-c-warn" style={{ display: 'inline-flex' }}><IcAlert /></span>
+          <span style={{ flex: '1 1 0' }}>
+            <b>{t('jobsDash.uploadOpenTitle')}</b> {t('jobsDash.uploadOpenText', { n: all.length })}
+            {uploadErr && <span style={{ display: 'block', color: 'var(--c-error)', marginTop: 4 }}>{uploadErr}</span>}
+          </span>
+          <button type="button" className="jb-btn btn-primary" disabled={U.busy} onClick={async () => setUploadErr(await U.close(id, label, all.length))}>
+            {U.busy ? <span className="spinner" /> : <IcPlay />}{t('jobsDash.uploadClose')}
+          </button>
+        </div>
+      )}
 
       <KpiStrip counts={counts} active={filter} onChange={setFilter} />
 
@@ -248,6 +269,7 @@ function BatchView() {
       {schemaOpen && <FolderSchema jobs={all} batchLabel={label} onClose={() => setSchemaOpen(false)} />}
       {A.dialog}
       {A.confirmPanel}
+      {U.panel}
       {R.panel}
       {R.confirmPanel}
     </div>
