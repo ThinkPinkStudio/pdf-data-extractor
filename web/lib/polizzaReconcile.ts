@@ -19,8 +19,8 @@ import { importSharedService } from './sharedServices'
 import { readPdfPagesWithOcr } from './polizzaJobWorker'
 import {
   listQueuedBatchDossiers, getJobFileBase64, getOcrCache, getOcrCacheAnyEngine, putOcrCache, hashPdfBase64,
-  applyReconcilePlan, markBatchReconciled, updateJob, getJob, getJobStatus, ocrCacheKey,
-  type ReconcileMerge, type ReconcileSplit,
+  applyReconcilePlan, markBatchReconciled, updateJob, getJob, getJobStatus, ocrCacheKey, getBatchReconcileScope,
+  type ReconcileMerge, type ReconcileSplit, type ReconcileResult,
 } from './polizzaJobStore'
 
 type Segment = { from: number; to: number; numbers: string[] }
@@ -201,11 +201,16 @@ async function retryIllegiblesWithVision(
 
 export async function reconcileBatch(batchId: string): Promise<void> {
   const tag = `[batch:${batchId}] riconciliazione`
+  // Ambito: dossier IN CODA (batch nuovo) o dossier GIÀ ELABORATI indicati
+  // (riunione: si rimettono in coda solo quelli che il piano unisce o divide).
+  const scope = await getBatchReconcileScope(batchId).catch(() => null)
+  const result: ReconcileResult = { at: 0, scope: scope ? 'idle' : 'queued', dossiers: 0, failedFiles: 0, applied: 0, touched: 0, error: null }
   try {
     const svc = await importSharedService<ReconcileSvc>('policyReconcile.js')
     const settings: any = await getSettings()
-    const dossiers = await listQueuedBatchDossiers(batchId)
-    if (dossiers.length < 2) { await markBatchReconciled(batchId); return }
+    const dossiers = await listQueuedBatchDossiers(batchId, scope)
+    result.dossiers = dossiers.length
+    if (dossiers.length < 2) { await markBatchReconciled(batchId, { ...result, at: Math.floor(Date.now() / 1000) }); return }
     // 1. Lettura di TUTTI i file, ogni pagina (text layer + OCR delle scansioni).
     // Più dossier insieme (16/10/2026): un dossier alla volta lasciava fermi
     // tutti i core tranne uno (Lipari: 5.579 pagine Tesseract in 17 ore). Le
@@ -229,58 +234,67 @@ export async function reconcileBatch(batchId: string): Promise<void> {
       const dSettings = { ...settings, polizzaOcrEngine: 'tesseract' }
       const loaded: { b64: string | null; buf: Buffer | null; probeInfo: { pages: string[] | null; sandwich: number } }[] = []
       for (const f of d.files) {
-        const b64 = await getJobFileBase64(d.id, f.idx)
+        const b64 = await getJobFileBase64(d.id, f.idx).catch(() => null)
         const buf = b64 ? Buffer.from(b64, 'base64') : null
         loaded.push({ b64, buf, probeInfo: buf ? await spatialPagesOf(buf, settings) : { pages: null, sandwich: 0 } })
       }
       let canceled = false
       for (let i = 0; i < d.files.length; i++) {
         const f = d.files[i]
-        // Battito (receivedAt) e contatore PAGINE: senza, questa fase sembrava
-        // ferma per minuti (l'OCR visivo tace mentre il modello macina le pagine).
-        const prog = (pageIndex: number, pageTotal: number) => ({
-          docIndex: i, docTotal: d.files.length, pageIndex, pageTotal,
-          docName: `Lettura preliminare: ${f.file_name}`, totalPagesProcessed: 0, receivedAt: Date.now(),
-        })
-        await updateJob(d.id, { progress: prog(0, 0) })
-        let pages: string[] | null = null
-        const { b64, buf, probeInfo } = loaded[i]
-        const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
-        const probe = probeInfo.pages
-        const key = hash ? cacheKeyOf(hash, probeInfo, dSettings) : null
-        if (key) pages = await getOcrCache(key).catch(() => null)
-        // Fallback FRA MOTORI: la chiave di cache dipende dal motore di lettura,
-        // quindi al primo giro dopo un cambio (qui: la preliminare legge sempre con
-        // Tesseract) ogni voce scritta col modello visivo risulta miss e l'intero
-        // batch si ri-OCRA da zero — centinaia di fascicoli, ore di attesa a
-        // interfaccia ferma. Per la RICONCILIAZIONE il testo di un altro motore è
-        // equivalente (servono solo i NUMERI di polizza, il matching è tollerante
-        // all'OCR): lo si riusa invece di rileggere. La cache dell'estrazione non
-        // viene toccata: qui si LEGGE soltanto, mai si scrive sotto la chiave altrui.
-        if (!pages && hash) {
-          pages = await getOcrCacheAnyEngine(hash, probeInfo.sandwich > 0, settings.polizzaOcrEngine || '').catch(() => null)
-          if (pages) {
-            await appendReconcileLog(d.id, `Lettura preliminare: testo di "${f.file_name}" riusato dalla cache OCR di un altro motore (evitata la rilettura)`)
-          }
-        }
-        // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
-        if (pages && probe) pages = await freshDigitalPages(pages, probe)
-        if (!pages && buf) {
-          // OCR con VISIBILITÀ: log riga per riga, battito a ogni pagina, e
-          // «Annulla» ascoltato (prima: nessun log, progresso congelato e cancel
-          // ignorato → il job sembrava morto mentre Ollama lavorava).
-          const r = await readPdfPagesWithOcr(buf, f.file_name, dSettings, {
-            log: (line) => appendReconcileLog(d.id, line),
-            isCanceled: async () => (await getJobStatus(d.id)) === 'canceled',
-            onPage: async (p, total) => { await updateJob(d.id, { progress: prog(p, total) }) },
+        // Un file che non si lascia leggere resta nel suo dossier (nessun numero),
+        // col perché nel log: prima l'errore abbandonava l'intera riconciliazione
+        // e il batch si elaborava per cartella (Lipari J - T, 23/10/2026).
+        try {
+          // Battito (receivedAt) e contatore PAGINE: senza, questa fase sembrava
+          // ferma per minuti (l'OCR visivo tace mentre il modello macina le pagine).
+          const prog = (pageIndex: number, pageTotal: number) => ({
+            docIndex: i, docTotal: d.files.length, pageIndex, pageTotal,
+            docName: `Lettura preliminare: ${f.file_name}`, totalPagesProcessed: 0, receivedAt: Date.now(),
           })
-          if (r?.canceled) { canceled = true; break }
-          pages = r?.pages || null
-          // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
-          if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
+          await updateJob(d.id, { progress: prog(0, 0) })
+          let pages: string[] | null = null
+          const { b64, buf, probeInfo } = loaded[i]
+          const hash = f.file_hash || (b64 ? hashPdfBase64(b64) : null)
+          const probe = probeInfo.pages
+          const key = hash ? cacheKeyOf(hash, probeInfo, dSettings) : null
+          if (key) pages = await getOcrCache(key).catch(() => null)
+          // Fallback FRA MOTORI: la chiave di cache dipende dal motore di lettura,
+          // quindi al primo giro dopo un cambio (qui: la preliminare legge sempre con
+          // Tesseract) ogni voce scritta col modello visivo risulta miss e l'intero
+          // batch si ri-OCRA da zero — centinaia di fascicoli, ore di attesa a
+          // interfaccia ferma. Per la RICONCILIAZIONE il testo di un altro motore è
+          // equivalente (servono solo i NUMERI di polizza, il matching è tollerante
+          // all'OCR): lo si riusa invece di rileggere. La cache dell'estrazione non
+          // viene toccata: qui si LEGGE soltanto, mai si scrive sotto la chiave altrui.
+          if (!pages && hash) {
+            pages = await getOcrCacheAnyEngine(hash, probeInfo.sandwich > 0, settings.polizzaOcrEngine || '').catch(() => null)
+            if (pages) {
+              await appendReconcileLog(d.id, `Lettura preliminare: testo di "${f.file_name}" riusato dalla cache OCR di un altro motore (evitata la rilettura)`)
+            }
+          }
+          // Pagine digitali dal text layer di adesso (campi compilabili: «Polizza numero» di un modulo).
+          if (pages && probe) pages = await freshDigitalPages(pages, probe)
+          if (!pages && buf) {
+            // OCR con VISIBILITÀ: log riga per riga, battito a ogni pagina, e
+            // «Annulla» ascoltato (prima: nessun log, progresso congelato e cancel
+            // ignorato → il job sembrava morto mentre Ollama lavorava).
+            const r = await readPdfPagesWithOcr(buf, f.file_name, dSettings, {
+              log: (line) => appendReconcileLog(d.id, line),
+              isCanceled: async () => (await getJobStatus(d.id)) === 'canceled',
+              onPage: async (p, total) => { await updateJob(d.id, { progress: prog(p, total) }) },
+            })
+            if (r?.canceled) { canceled = true; break }
+            pages = r?.pages || null
+            // Stesso contratto del worker: in cache solo se almeno una pagina ha testo.
+            if (key && pages && pages.some((t) => t && t.trim())) await putOcrCache(key, f.file_name, pages).catch(() => {})
+          }
+          const list = pages || []
+          files.push({ idx: f.idx, name: f.file_name, pages: list, digital: list.map((_, k) => !!(probe && probe[k] && probe[k].trim())) })
+        } catch (err) {
+          result.failedFiles++
+          await appendReconcileLog(d.id, `Lettura preliminare: "${f.file_name}" non letto (${(err as Error)?.message || err}) — il file resta in questo dossier`)
+          files.push({ idx: f.idx, name: f.file_name, pages: [], digital: [] })
         }
-        const list = pages || []
-        files.push({ idx: f.idx, name: f.file_name, pages: list, digital: list.map((_, k) => !!(probe && probe[k] && probe[k].trim())) })
       }
       if (canceled) return 'canceled'
       await updateJob(d.id, { progress: {} })
@@ -289,13 +303,21 @@ export async function reconcileBatch(batchId: string): Promise<void> {
     const read: (ReconcileDossier | null)[] = new Array(dossiers.length).fill(null)
     let canceledAll = false
     let nextDossier = 0
+    // Un runner non lancia mai: un dossier illeggibile resta fuori dal piano (com'era),
+    // gli altri continuano. Prima un errore faceva fallire Promise.all, la
+    // riconciliazione si abbandonava e gli altri runner leggevano a vuoto per ore.
     const runner = async () => {
       while (!canceledAll) {
         const i = nextDossier++
         if (i >= dossiers.length) return
-        const r = await readDossier(dossiers[i])
-        if (r === 'canceled') { canceledAll = true; return }
-        read[i] = r
+        try {
+          const r = await readDossier(dossiers[i])
+          if (r === 'canceled') { canceledAll = true; return }
+          read[i] = r
+        } catch (err) {
+          result.failedFiles += dossiers[i].files.length
+          await appendReconcileLog(dossiers[i].id, `Lettura preliminare non riuscita (${(err as Error)?.message || err}): il dossier resta com'è`)
+        }
       }
     }
     await Promise.all(Array.from({ length: Math.min(parallel, dossiers.length) }, runner))
@@ -352,11 +374,21 @@ export async function reconcileBatch(batchId: string): Promise<void> {
       logs.push(`[${new Date().toTimeString().slice(0, 8)}] Lettura preliminare (tutte le pagine): ${input.find((d) => d.id === r.id)?.files.length ?? 0} file, numeri di polizza trovati: ${r.numbers.length ? r.numbers.join(', ') : 'nessuno'}${r.notes.length ? ` — ${r.notes.join('; ')}` : ''}`)
       await updateJob(r.id, { logs })
     }
-    const applied = await applyReconcilePlan(res.plan, pathOf, splits)
-    console.log(`${tag}: ${dossiers.length} dossier letti, ${applied} unioni/divisioni`)
+    const { applied, touched } = await applyReconcilePlan(res.plan, pathOf, splits, { idle: !!scope, by: scope?.by || null })
+    result.applied = applied
+    result.touched = touched.length
+    if (applied === 0 && (res.plan.length || splits.length)) {
+      result.error = scope
+        ? 'piano non applicato: un dossier coinvolto è stato rimesso in coda o annullato nel frattempo'
+        : 'piano non applicato: un dossier coinvolto non era più in coda'
+    }
+    console.log(`${tag}: ${dossiers.length} dossier letti, ${applied} unioni/divisioni${scope ? `, ${touched.length} dossier rimessi in coda` : ''}`)
   } catch (err) {
-    console.error(`${tag} non eseguita (non fatale):`, (err as Error)?.message)
+    result.error = String((err as Error)?.message || err)
+    console.error(`${tag} non eseguita:`, result.error)
   }
-  // Una volta sola, riuscita o no: un guasto non deve ripetere la lettura a ogni ripartenza.
-  try { await markBatchReconciled(batchId) } catch { /* noop */ }
+  // Una volta sola, riuscita o no: un guasto non deve ripetere la lettura a ogni
+  // ripartenza. L'esito (anche l'errore) resta sul batch e la pagina lo mostra.
+  result.at = Math.floor(Date.now() / 1000)
+  try { await markBatchReconciled(batchId, result) } catch { /* noop */ }
 }

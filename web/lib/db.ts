@@ -76,6 +76,14 @@ export async function initDb() {
     -- stesso nome, uno fermo da settimane, si confondevano.
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_at BIGINT;
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_by TEXT;
+    -- RIUNIONE dei dossier GIÀ ELABORATI (25/10/2026): { jobIds } = la prossima
+    -- riconciliazione legge quei dossier (non solo i nuovi in coda) e rimette in
+    -- coda SOLO quelli che unisce o divide. NULL = batch nuovo, dossier in coda.
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS reconcile_scope JSONB;
+    -- Esito dell'ultima riconciliazione (quando, dossier letti, modifiche, errore):
+    -- la pagina del batch lo mostra. Prima un guasto passava in silenzio e il batch
+    -- si elaborava per cartella (Lipari J - T, 23/10/2026).
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS reconcile_result JSONB;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 

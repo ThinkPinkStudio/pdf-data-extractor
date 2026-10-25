@@ -319,6 +319,9 @@ export interface BatchRow {
   updated_at: number
   last_launch_at?: number | null
   last_launch_by?: string | null
+  needs_reconcile?: boolean
+  reconcile_scope?: ReconcileScope | null
+  reconcile_result?: ReconcileResult | null
 }
 
 export async function initBatch(params: { email: string; label: string }): Promise<string> {
@@ -483,8 +486,12 @@ export async function getNextPendingBatchJob(batchId: string): Promise<string | 
 
 // Batch con almeno un job non ancora in stato terminale (per la ripresa al boot).
 export async function listActiveBatchIds(): Promise<string[]> {
+  // Anche la RIUNIONE dei già elaborati in sospeso (reconcile_scope): finché non
+  // applica il piano nessun dossier è in coda, e dopo un riavvio a metà lettura
+  // la riunione non ripartirebbe più.
   const { rows } = await pool.query<{ batch_id: string }>(
-    `SELECT DISTINCT batch_id FROM polizza_jobs WHERE batch_id IS NOT NULL AND status IN ('queued','running')`
+    `SELECT DISTINCT batch_id FROM polizza_jobs WHERE batch_id IS NOT NULL AND status IN ('queued','running')
+     UNION SELECT id FROM batch_jobs WHERE needs_reconcile AND reconcile_scope IS NOT NULL`
   )
   return rows.map((r) => r.batch_id)
 }
@@ -1161,24 +1168,67 @@ export async function batchNeedsReconcile(batchId: string): Promise<boolean> {
   return !!rows[0]?.needs_reconcile
 }
 
-export async function markBatchReconciled(batchId: string): Promise<void> {
-  await pool.query('UPDATE batch_jobs SET needs_reconcile = FALSE, updated_at = $1 WHERE id = $2', [now(), batchId])
+/**
+ * Ambito della riconciliazione. Assente = batch nuovo (o Riabbina con «Riunisci»):
+ * i dossier IN CODA, che poi l'orchestratore elabora tutti. `jobIds` = RIUNIONE dei
+ * dossier GIÀ ELABORATI (25/10/2026): si leggono quei dossier fermi e si rimettono
+ * in coda, per abbinamento ed estrazione, SOLO quelli che il piano unisce o divide;
+ * gli altri tengono stato e risultati.
+ */
+export interface ReconcileScope { jobIds: string[]; by?: string | null }
+/** Esito dell'ultima riconciliazione, mostrato nella pagina del batch. */
+export interface ReconcileResult {
+  at: number
+  scope: 'queued' | 'idle'
+  dossiers: number
+  // File che la lettura preliminare non è riuscita a leggere (restano nel loro dossier).
+  failedFiles: number
+  applied: number
+  touched: number
+  error?: string | null
+}
+
+export async function markBatchReconciled(batchId: string, result?: ReconcileResult | null): Promise<void> {
+  if (result) {
+    await pool.query('UPDATE batch_jobs SET needs_reconcile = FALSE, reconcile_scope = NULL, reconcile_result = $1::jsonb, updated_at = $2 WHERE id = $3', [JSON.stringify(result), now(), batchId])
+  } else {
+    await pool.query('UPDATE batch_jobs SET needs_reconcile = FALSE, reconcile_scope = NULL, updated_at = $1 WHERE id = $2', [now(), batchId])
+  }
 }
 
 /**
  * Batch GIÀ CARICATO (anteriore alla riconciliazione, o da rifare): la riaccende.
  * Vale per il prossimo giro dell'orchestratore, che la esegue sui dossier in
- * coda prima di elaborarli — il Riabbina li rimette in coda subito dopo.
+ * coda prima di elaborarli — il Riabbina li rimette in coda subito dopo. Con
+ * `scope` la esegue invece sui dossier GIÀ ELABORATI indicati (vedi ReconcileScope).
  */
-export async function markBatchNeedsReconcile(batchId: string): Promise<void> {
-  await pool.query('UPDATE batch_jobs SET needs_reconcile = TRUE, updated_at = $1 WHERE id = $2', [now(), batchId])
+export async function markBatchNeedsReconcile(batchId: string, scope?: ReconcileScope | null): Promise<void> {
+  await pool.query('UPDATE batch_jobs SET needs_reconcile = TRUE, reconcile_scope = $1::jsonb, updated_at = $2 WHERE id = $3',
+    [scope ? JSON.stringify(scope) : null, now(), batchId])
 }
 
-/** Dossier IN CODA del batch con i loro file (senza i PDF): la riconciliazione tocca solo quelli mai elaborati. */
-export async function listQueuedBatchDossiers(batchId: string): Promise<{ id: string; dossier_name: string | null; files: { idx: number; file_name: string; file_hash: string | null }[] }[]> {
-  const { rows: jobs } = await pool.query<{ id: string; dossier_name: string | null }>(
-    `SELECT id, dossier_name FROM polizza_jobs WHERE batch_id = $1 AND status = 'queued' AND source_job_id IS NULL ORDER BY created_at, id`, [batchId]
-  )
+export async function getBatchReconcileScope(batchId: string): Promise<ReconcileScope | null> {
+  const { rows } = await pool.query<{ reconcile_scope: ReconcileScope | null }>('SELECT reconcile_scope FROM batch_jobs WHERE id = $1', [batchId])
+  const s = rows[0]?.reconcile_scope
+  return s && Array.isArray(s.jobIds) ? s : null
+}
+
+// Stati di un dossier FERMO che la riunione dei già elaborati può toccare: mai in
+// coda/in corso (li sta lavorando qualcuno), mai annullato (lo ha fermato l'utente).
+const IDLE_RECONCILE_STATUSES = ['done', 'mismatch', 'review', 'matched', 'error']
+
+/**
+ * Dossier del batch con i loro file (senza i PDF). Senza ambito: quelli IN CODA,
+ * la riconciliazione tocca solo quelli mai elaborati. Con `scope`: i dossier FERMI
+ * indicati (riunione dei già elaborati).
+ */
+export async function listQueuedBatchDossiers(batchId: string, scope?: ReconcileScope | null): Promise<{ id: string; dossier_name: string | null; files: { idx: number; file_name: string; file_hash: string | null }[] }[]> {
+  const { rows: jobs } = scope
+    ? await pool.query<{ id: string; dossier_name: string | null }>(
+      `SELECT id, dossier_name FROM polizza_jobs WHERE batch_id = $1 AND id = ANY($2) AND status = ANY($3) AND source_job_id IS NULL ORDER BY created_at, id`,
+      [batchId, scope.jobIds, IDLE_RECONCILE_STATUSES])
+    : await pool.query<{ id: string; dossier_name: string | null }>(
+      `SELECT id, dossier_name FROM polizza_jobs WHERE batch_id = $1 AND status = 'queued' AND source_job_id IS NULL ORDER BY created_at, id`, [batchId])
   if (!jobs.length) return []
   const { rows: files } = await pool.query<{ job_id: string; idx: number; file_name: string; file_hash: string | null }>(
     `SELECT job_id, idx, file_name, file_hash FROM polizza_job_files WHERE job_id = ANY($1) ORDER BY job_id, idx`, [jobs.map((j) => j.id)]
@@ -1212,14 +1262,19 @@ export interface ReconcileSplit { job: string; idx: number; fileName: string; pa
  * posizione) e scrive il perché nel log. Gli indici del piano sono quelli
  * originali: un contenitore può cedere file a più destinazioni. Se un dossier
  * coinvolto non è più in coda, nulla.
- * @returns numero di unioni applicate
+ * `idle` (riunione dei GIÀ ELABORATI): i dossier coinvolti devono essere FERMI
+ * (né in coda, né in corso, né annullati) e, nella STESSA transazione, quelli che
+ * restano dopo unioni e divisioni tornano in coda da zero (pertinenza ed
+ * estrazione, coi loro campi): i loro risultati valevano per i file di prima.
+ * @returns unioni/divisioni applicate e dossier toccati rimasti (da elaborare)
  */
 export async function applyReconcilePlan(
   plan: ReconcileMerge[],
   pathOf: Record<string, string>,
   splits: ReconcileSplit[] = [],
-): Promise<number> {
-  if (!plan.length && !splits.length) return 0
+  opts: { idle?: boolean; by?: string | null } = {},
+): Promise<{ applied: number; touched: string[] }> {
+  if (!plan.length && !splits.length) return { applied: 0, touched: [] }
   const involved = [...new Set([
     ...plan.flatMap((m) => [...(m.target ? [m.target] : []), ...m.moves.map((x) => x.from)]),
     ...splits.map((x) => x.job),
@@ -1230,7 +1285,8 @@ export async function applyReconcilePlan(
     const { rows: st } = await client.query<{ id: string; status: string }>(
       'SELECT id, status FROM polizza_jobs WHERE id = ANY($1) FOR UPDATE', [involved]
     )
-    if (st.length !== involved.length || st.some((r) => r.status !== 'queued')) { await client.query('ROLLBACK'); return 0 }
+    const movable = (status: string) => opts.idle ? IDLE_RECONCILE_STATUSES.includes(status) : status === 'queued'
+    if (st.length !== involved.length || st.some((r) => !movable(r.status))) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
     const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
     const touched = new Set(involved)
     const nextIdx = async (jobId: string): Promise<number> => {
@@ -1243,7 +1299,7 @@ export async function applyReconcilePlan(
       if (merge.target) { targets.push(merge.target); continue }
       const { rows: src } = await client.query('SELECT * FROM polizza_jobs WHERE id = $1', [merge.moves[0]?.from])
       const job = src[0]
-      if (!job) { await client.query('ROLLBACK'); return 0 }
+      if (!job) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
       const id = randomUUID()
       const fieldDefs = Array.isArray(job.field_defs) ? job.field_defs : []
       await client.query(
@@ -1252,7 +1308,8 @@ export async function applyReconcilePlan(
         [id, job.email, job.batch_id, merge.name, job.whole_dossier, JSON.stringify(fieldDefs), job.prompt_extra ?? null,
           job.profile_id ?? null, job.profile_name ?? null, JSON.stringify(initRollingState(fieldDefs)),
           job.settings_override ? JSON.stringify(job.settings_override) : null,
-          job.precheck ? JSON.stringify(job.precheck) : null, now()],
+          // Già elaborato: il verdetto del dossier d'origine non vale per la polizza nuova.
+          job.precheck && !opts.idle ? JSON.stringify(job.precheck) : null, now()],
       )
       touched.add(id)
       targets.push(id)
@@ -1262,7 +1319,7 @@ export async function applyReconcilePlan(
     const partLines = new Map<number, string[]>()
     for (const sp of splits) {
       const { rows } = await client.query<{ rel_path: string | null }>('DELETE FROM polizza_job_files WHERE job_id = $1 AND idx = $2 RETURNING rel_path', [sp.job, sp.idx])
-      if (!rows.length) { await client.query('ROLLBACK'); return 0 }
+      if (!rows.length) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
       relOf.set(`${sp.job}#${sp.idx}`, rows[0].rel_path)
       const here: string[] = []
       for (const part of sp.parts) {
@@ -1303,15 +1360,34 @@ export async function applyReconcilePlan(
         [merge.name, JSON.stringify([`${stamp} Riconciliazione per numero di polizza (${merge.numbers.join(', ')}): ${why}`]), target],
       )
     }
+    const remaining: string[] = []
     for (const id of touched) {
       const { rows: fs } = await client.query<{ idx: number; file_name: string }>('SELECT idx, file_name FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [id])
       if (!fs.length) { await client.query('DELETE FROM polizza_jobs WHERE id = $1', [id]); continue }
+      remaining.push(id)
       await client.query('UPDATE polizza_job_files SET idx = -idx - 1 WHERE job_id = $1', [id])
       for (let i = 0; i < fs.length; i++) await client.query('UPDATE polizza_job_files SET idx = $1 WHERE job_id = $2 AND idx = $3', [i, id, -fs[i].idx - 1])
       await client.query('UPDATE polizza_jobs SET scanned_files = $1::jsonb, updated_at = $2 WHERE id = $3', [JSON.stringify(fs.map((f) => f.file_name)), now(), id])
     }
+    if (opts.idle && remaining.length) {
+      // Da zero, come un Riabbina + estrai: stato, risultati, fonti e verdetto di
+      // pertinenza valevano per i file di prima. Restano campi e profilo del dossier.
+      const line = JSON.stringify([`${stamp} — Riabbinamento ed estrazione dopo la riunione per numero di polizza${opts.by ? ` (avviata da ${opts.by})` : ''}: i file del dossier sono cambiati —`])
+      for (const id of remaining) {
+        const { rows } = await client.query<{ field_defs: JobRow['field_defs'] }>('SELECT field_defs FROM polizza_jobs WHERE id = $1', [id])
+        await client.query(
+          `UPDATE polizza_jobs SET status = 'queued', error = NULL, cursor = '{}'::jsonb, progress = '{}'::jsonb, sources = '{}'::jsonb,
+             rolling_state = $1::jsonb, precheck = NULL, duplicate_of = NULL, logs = logs || $2::jsonb, updated_at = $3 WHERE id = $4`,
+          [JSON.stringify(initRollingState(rows[0]?.field_defs || [])), line, now(), id],
+        )
+      }
+      // «Già elaborato» (riuso dei risultati) valeva per gli insiemi di file di prima.
+      await client.query('UPDATE polizza_jobs SET duplicate_of = NULL WHERE duplicate_of = ANY($1)', [[...touched]])
+      // Il batch riparte: la mail di fine batch si riarma (come col Riabbina).
+      await client.query('UPDATE batch_jobs SET notified_at = NULL WHERE id = (SELECT batch_id FROM polizza_jobs WHERE id = $1)', [remaining[0]])
+    }
     await client.query('COMMIT')
-    return plan.length + splits.length
+    return { applied: plan.length + splits.length, touched: remaining }
   } catch (e) {
     await client.query('ROLLBACK')
     throw e

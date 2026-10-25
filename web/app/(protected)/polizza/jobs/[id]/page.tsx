@@ -21,6 +21,9 @@ import { IcAlert, IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, 
 import { useCloseUpload } from '@/components/jobs/useCloseUpload'
 import { useSummarySelection } from '@/components/summaries/useSummarySelection'
 
+// Esito dell'ultima riunione per numero di polizza (reconcile_result del batch).
+interface ReconcileResultView { at: number; scope: 'queued' | 'idle'; dossiers: number; failedFiles: number; applied: number; touched: number; error?: string | null }
+
 const VIEW_KEY = 'jobsView'
 const REASON_KEY = 'jobsReasonFull'
 const isView = (v: string | null): v is ViewMode => v === 'tabella' || v === 'coda'
@@ -44,7 +47,7 @@ function BatchView() {
   const sp = useSearchParams()
   const isSingles = id === SINGLES_ID
 
-  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number; lastLaunchAt?: number | null; lastLaunchBy?: string | null; lastRunAt?: number | null; uploadComplete?: boolean } | null>(null)
+  const [meta, setMeta] = useState<{ label: string; owner: string; createdAt: number; lastLaunchAt?: number | null; lastLaunchBy?: string | null; lastRunAt?: number | null; uploadComplete?: boolean; needsReconcile?: boolean; reconcileResult?: ReconcileResultView | null } | null>(null)
   const [jobs, setJobs] = useState<JobSnapshot[] | null>(null)
   const [missing, setMissing] = useState(false)
   const [view, setViewState] = useState<ViewMode>('tabella')
@@ -99,7 +102,7 @@ function BatchView() {
         const res = await fetch(`/api/polizza/batch/${id}`)
         if (res.status === 404) { setMissing(true); setJobs([]); return }
         const d = await res.json()
-        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0, lastLaunchAt: d.lastLaunchAt ?? null, lastLaunchBy: d.lastLaunchBy ?? null, lastRunAt: d.lastRunAt ?? null, uploadComplete: d.uploadComplete !== false })
+        setMeta({ label: d.label || '', owner: d.owner || '', createdAt: d.createdAt || 0, lastLaunchAt: d.lastLaunchAt ?? null, lastLaunchBy: d.lastLaunchBy ?? null, lastRunAt: d.lastRunAt ?? null, uploadComplete: d.uploadComplete !== false, needsReconcile: !!d.needsReconcile, reconcileResult: d.reconcileResult || null })
         setJobs(d.jobs || [])
       }
       setNow(Date.now())
@@ -148,6 +151,10 @@ function BatchView() {
   // Caricamento non chiuso: i dossier sembrano «in coda» ma nessuno li prenderà
   // finché il caricamento non viene chiuso (vedi useCloseUpload).
   const uploadOpen = !isSingles && meta?.uploadComplete === false
+  // Riunione per numero di polizza in sospeso o in corso (lettura preliminare):
+  // nessun dossier si elabora prima che finisca.
+  const reconciling = !isSingles && !uploadOpen && !!meta?.needsReconcile
+  const rr = !isSingles ? meta?.reconcileResult || null : null
 
   if (missing) {
     return (
@@ -172,7 +179,9 @@ function BatchView() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--c-text-secondary)', flexWrap: 'wrap' }}>
             {jobs && all.length > 0 && (uploadOpen
               ? <span className="jb-pill warn">{t('jobsDash.bUploadOpen')}</span>
-              : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
+              : reconciling
+                ? <span className="jb-pill info">{t('jobsDash.bReconciling')}</span>
+                : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
             {meta?.owner && <span>{meta.owner}</span>}
             {!!meta?.createdAt && <span>· {t('jobsDash.uploadedAt', { date: fmtDate(meta.createdAt) })}</span>}
             {when && when.kind !== 'created' && (
@@ -184,6 +193,12 @@ function BatchView() {
             )}
             {isSingles && <span>{t('jobsDash.singlesCardDesc')}</span>}
             {ago && <span>· {t('jobsDash.lastUpdate', { ago: t(ago.key, { n: ago.n }) })}</span>}
+            {rr && !rr.error && (
+              <span>· {rr.scope === 'idle'
+                ? t('jobsDash.reconcileDoneIdle', { date: fmtDate(rr.at), applied: rr.applied, touched: rr.touched })
+                : t('jobsDash.reconcileDoneQueued', { date: fmtDate(rr.at), applied: rr.applied, n: rr.dossiers })}
+                {rr.failedFiles > 0 && <> · {t('jobsDash.reconcileFailedFiles', { n: rr.failedFiles })}</>}</span>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 'none', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -222,6 +237,17 @@ function BatchView() {
           <button type="button" className="jb-btn btn-primary" disabled={U.busy} onClick={async () => setUploadErr(await U.close(id, label, all.length))}>
             {U.busy ? <span className="spinner" /> : <IcPlay />}{t('jobsDash.uploadClose')}
           </button>
+        </div>
+      )}
+
+      {rr?.error && !reconciling && (
+        <div className="jb-callout" role="status">
+          <span className="jb-c-warn" style={{ display: 'inline-flex' }}><IcAlert /></span>
+          <span style={{ flex: '1 1 0' }}>
+            {rr.scope === 'idle'
+              ? t('jobsDash.reconcileFailedIdle', { date: fmtDate(rr.at), error: rr.error })
+              : t('jobsDash.reconcileFailedQueued', { date: fmtDate(rr.at), error: rr.error })}
+          </span>
         </div>
       )}
 

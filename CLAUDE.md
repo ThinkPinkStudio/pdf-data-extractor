@@ -1967,6 +1967,32 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   chiuso» con «Chiudi caricamento e avvia» (card e pagina del batch,
   `useCloseUpload`, `uploadComplete` nella GET del batch).
 
+- **Riconciliazione abbandonata in silenzio → robusta + riunione dei già
+  elaborati (25/10/2026)**: su Lipari J - T (23/10) una delle 6 letture
+  preliminari in parallelo è andata in errore dopo 3 minuti; `Promise.all` ha
+  fatto chiudere il PDF sotto le altre pagine («sendWithPromise» su Minetto
+  Alice), la riconciliazione si è abbandonata («non fatale», solo console), il
+  batch si è elaborato PER CARTELLA (nessuna unione né divisione) e le altre 5
+  letture hanno girato a vuoto per 6 ore in parallelo all'estrazione. Ora: in
+  `readPdfPagesWithOcr` ogni pagina ha il suo try e i ganci (DB) sono protetti;
+  in `reconcileBatch` un file illeggibile resta nel suo dossier col perché nel
+  log e un dossier illeggibile resta com'è (i runner non lanciano mai); l'esito
+  sta in `batch_jobs.reconcile_result` (dossier, file non letti, modifiche,
+  errore) e la pagina del batch lo mostra («Riunione per polizza in corso»,
+  «riunione … N unioni/divisioni», avviso se non riuscita). **Riunione dei GIÀ
+  ELABORATI**: Riabbina del batch con «Riunisci» + «Rielabora solo i dossier
+  uniti o divisi» (bulk `rematch` + `reconcile` + `onlyTouched`) →
+  `batch_jobs.reconcile_scope` = { jobIds }: la riconciliazione legge quei
+  dossier fermi (done/mismatch/review/matched/error, mai annullati) e
+  `applyReconcilePlan(…, { idle: true })` rimette in coda da zero (pertinenza ed
+  estrazione, precheck NULL, niente verdetto copiato nei dossier nuovi, riuso
+  azzerato) SOLO quelli che unisce o divide, nella stessa transazione; gli altri
+  tengono stato e risultati. `listActiveBatchIds` riprende al riavvio una
+  riunione in sospeso. Prova su Postgres locale con PDF veri (Traglio 5 polizze,
+  Ricotti 2, Di Nunzio FZ551FB + FZ708KD come la verità, pezzo GF857JT riunito
+  da un'altra cartella). Banco: `node --experimental-strip-types` + un loader che
+  aggiunge `.ts` (scratchpad `pgtest/`), Postgres Docker `pdfx-pg-test` su 55432.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

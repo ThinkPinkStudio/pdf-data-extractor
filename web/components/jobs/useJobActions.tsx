@@ -122,6 +122,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
     if (v.profileId) body.profileId = v.profileId
     if (isRematch && v.extractAfter) body.extract = true
     if (isRematch && v.reconcile && !isSingles) body.reconcile = true
+    if (isRematch && v.reconcile && v.onlyTouched && !isSingles) { body.onlyTouched = true; delete body.profileId; delete body.extract }
     if (!isRematch) {
       if (v.model.trim()) body.model = v.model.trim()
       if (v.strategy === 'perfield') body.perField = true
@@ -138,7 +139,7 @@ export function useJobActions({ batchId, batchLabel, isSingles, reload }: { batc
         const res = await post(`/api/polizza/batch/${batchId}/bulk`, { action, jobIds: jobs.map((j) => j.jobId), ...body })
         const d = await res.json().catch(() => ({}))
         ok = res.ok; errMsg = d.error || ''
-        if (ok) setBulkResult(t('jobsDash.bulkResult', { ok: d.done || 0, skipped: d.skipped || 0 }))
+        if (ok) setBulkResult(d.reconcileOnly ? t('jobsDash.reconcileOnlyStarted', { n: d.requested || 0 }) : t('jobsDash.bulkResult', { ok: d.done || 0, skipped: d.skipped || 0 }))
       } else if (jobs.length > 1) {
         let n = 0, ko = 0
         for (const j of jobs) { const r = await jobPost(j, action, body); if (r.ok) n++; else ko++ }

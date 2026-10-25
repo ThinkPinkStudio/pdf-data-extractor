@@ -5,7 +5,7 @@ import type { JobSnapshot, ReprofileMode } from './types'
 import { shortName } from './model'
 import { IcFlask, IcPlay, IcRefresh, IcSwap } from './Icons'
 
-export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string; extractAfter: boolean; reconcile: boolean }
+export interface RelaunchValues { profileId: string; model: string; strategy: string; prompt: string; extractAfter: boolean; reconcile: boolean; onlyTouched: boolean }
 
 // Ultima scelta di «Estrai subito dopo l'abbinamento» (preferenza per utente/browser).
 const EXTRACT_AFTER_KEY = 'jobsRematchExtract'
@@ -50,6 +50,10 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
   // Si spegne solo a mano (es. un batch con dossier ancora in corso).
   const [reconcile, setReconcile] = useState(true)
   const showReconcile = isRematch && isBatch && !!canReconcile
+  // RIUNIONE dei già elaborati (25/10/2026): si leggono tutti, ma tornano in coda
+  // solo i dossier che la riunione unisce o divide (gli altri tengono i risultati).
+  const [onlyTouched, setOnlyTouched] = useState(false)
+  const reconcileOnly = showReconcile && reconcile && onlyTouched
 
   // Preselezione (rielabora con profilo, singolo): l'ultimo profilo di QUESTO
   // job, se esiste ancora; i profili arrivano in asincrono.
@@ -67,10 +71,10 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
     ? (isBatch ? t('jobsDash.rematchBatchDialogTitle', { n }) : t('jobsDash.rematchDialogTitle'))
     : mode === 'test' ? t('jobsDash.testDialogTitle')
       : isBatch ? t('jobsDash.reprofileBatchDialogTitle', { n }) : t('jobsDash.reprofileDialogTitle')
-  const hint = isRematch ? (extractAfter ? t('jobsDash.rematchExtractDialogHint') : t('jobsDash.rematchDialogHint'))
+  const hint = reconcileOnly ? t('jobsDash.reconcileOnlyHint') : isRematch ? (extractAfter ? t('jobsDash.rematchExtractDialogHint') : t('jobsDash.rematchDialogHint'))
     : mode === 'test' ? t('jobsDash.testDialogHint')
       : isBatch ? t('jobsDash.reprofileBatchDialogHint') : t('jobsDash.reprofileDialogHint')
-  const startLabel = isRematch
+  const startLabel = reconcileOnly ? t('jobsDash.reconcileOnlyStart') : isRematch
     ? (extractAfter
       ? (isBatch ? t('jobsDash.rematchExtractStartBatch', { n }) : t('jobsDash.rematchExtractStart'))
       : (isBatch ? t('jobsDash.rematchStartBatch', { n }) : t('jobsDash.rematchStart')))
@@ -84,15 +88,15 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
         <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 14 }}>
           {isBatch ? `${n} job — ` : `${shortName(jobs[0])} — `}{hint}
         </p>
-        <div className="form-group">
+        {!reconcileOnly && <div className="form-group">
           <label className="label">{t('jobsDash.testProfile')}{isReprofile ? ' *' : ''}</label>
           <select value={profileId} onChange={(e) => setProfileId(e.target.value)} style={{ width: '100%' }}>
             <option value="">{isRematch ? t('jobsDash.rematchProfileCurrent') : mode === 'test' ? t('jobsDash.testProfileFrozen') : t('jobsDash.testProfileFrozenHint')}</option>
             {isRematch && <option value="auto">{t('jobsDash.rematchProfileAuto')}</option>}
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-        </div>
-        {isRematch && (
+        </div>}
+        {isRematch && !reconcileOnly && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, marginBottom: 4, cursor: 'pointer' }}>
             <input type="checkbox" checked={extractAfter} style={{ marginTop: 2 }}
               onChange={(e) => { setExtractAfter(e.target.checked); writeExtractAfter(e.target.checked) }} />
@@ -103,6 +107,12 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, margin: '8px 0 4px', cursor: 'pointer' }}>
             <input type="checkbox" checked={reconcile} style={{ marginTop: 2 }} onChange={(e) => setReconcile(e.target.checked)} />
             <span>{t('jobsDash.rematchReconcile')}<br /><span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.rematchReconcileHelp')}</span></span>
+          </label>
+        )}
+        {showReconcile && reconcile && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, margin: '4px 0 4px 24px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={onlyTouched} style={{ marginTop: 2 }} onChange={(e) => setOnlyTouched(e.target.checked)} />
+            <span>{t('jobsDash.rematchOnlyTouched')}<br /><span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('jobsDash.rematchOnlyTouchedHelp')}</span></span>
           </label>
         )}
         {!isRematch && (<>
@@ -128,7 +138,7 @@ export function RelaunchDialog({ mode, jobs, profiles, models, busy, error, init
         {error && <p style={{ fontSize: 11, color: 'var(--c-error)', margin: '0 0 10px' }}>{error}</p>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
           <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={onCancel}>{t('jobsDash.testCancel')}</button>
-          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt, extractAfter: isRematch && extractAfter, reconcile: showReconcile && reconcile })}>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} disabled={busy} onClick={() => onSubmit({ profileId, model, strategy, prompt, extractAfter: isRematch && extractAfter, reconcile: showReconcile && reconcile, onlyTouched: reconcileOnly })}>
             <IcPlay /> {startLabel}
           </button>
         </div>

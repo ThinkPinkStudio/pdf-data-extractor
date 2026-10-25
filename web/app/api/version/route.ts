@@ -122,6 +122,7 @@ const BUILD_FEATURES = [
   'per-polizza-default', // «perpolizza» di default: la riconciliazione divide le cartelle con più polizze (21/10/2026, ok dell'utente per Lipari J - T)
   'per-polizza', // Flag «perpolizza» (prima spento): la riconciliazione divide le cartelle con più polizze (catene: numero, polizza sostituita, targa) e il fuoco tiene i rinnovi della stessa catena (21/10/2026)
   'chiudi-caricamento', // Caricamento non chiuso visibile e chiudibile da Elaborazioni; uscire da Cartella bulk col menu chiude il caricamento (23/10/2026, Lipari J - T fermo 26 ore)
+  'riunione-toccati', // Riconciliazione robusta (un file illeggibile non la abbandona più, esito sul batch) + riunione dei GIÀ ELABORATI che rimette in coda solo i dossier uniti o divisi (25/10/2026, Lipari J - T)
 ]
 
 export async function GET() {

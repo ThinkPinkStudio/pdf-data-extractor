@@ -24,6 +24,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     lastRunAt: await batchLastRunAt(result.batch.id).catch(() => null),
     // Caricamento ancora aperto: il batch non parte finché non viene chiuso.
     uploadComplete: !!result.batch.upload_complete,
+    // Riunione per numero di polizza: in sospeso (needsReconcile) ed esito dell'ultima.
+    needsReconcile: !!result.batch.needs_reconcile,
+    reconcileResult: result.batch.reconcile_result || null,
     jobs: result.jobs.map(jobSnapshot),
   })
 }

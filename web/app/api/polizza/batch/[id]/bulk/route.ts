@@ -44,6 +44,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // prima si uniscono i dossier con lo stesso NUMERO DI POLIZZA (stesse regole
     // dei batch nuovi, polizzaReconcile), poi l'abbinamento.
     reconcile?: boolean
+    // Con reconcile: RIUNIONE dei dossier GIÀ ELABORATI (25/10/2026). Nessun dossier
+    // torna in coda qui: la riconciliazione legge quelli scelti e rimette in coda
+    // (abbinamento ed estrazione) SOLO quelli che unisce o divide.
+    onlyTouched?: boolean
     // 'split': dopo la separazione per cartella d'origine rimette in coda per
     // l'abbinamento il dossier e i nuovi (con profileId/reconcile come il Riabbina).
     rematch?: boolean
@@ -109,6 +113,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const active = batchData.jobs.filter((j) => j.status === 'running' || j.status === 'queued')
     if (active.length) {
       return NextResponse.json({ error: `Riconciliazione non avviata: ${active.length} dossier del batch sono in corso o in coda. Riprova quando hanno finito.` }, { status: 409 })
+    }
+    if (action === 'rematch' && body.onlyTouched === true) {
+      await markBatchNeedsReconcile(params.id, { jobIds: targets, by: session.email })
+      launchBatch(params.id, session.email)
+      await logAction({
+        email: session.email, action: 'polizza.batch.bulk.reconcileOnlyTouched',
+        resource: `${batch.label} (${targets.length} dossier letti, rielaborati solo quelli uniti o divisi)`, ip,
+      })
+      return NextResponse.json({ ok: true, action, reconcileOnly: true, requested: targets.length, done: 0, skipped: 0 })
     }
     await markBatchNeedsReconcile(params.id)
   }

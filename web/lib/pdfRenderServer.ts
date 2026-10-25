@@ -21,7 +21,9 @@ let _pdfjs: any = null
 async function getPdfjs() {
   if (_pdfjs) return _pdfjs
   // Build "legacy" (CJS) di pdfjs 3.x: gira in Node senza worker DOM.
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js')
+  // Fuori da webpack (script, prove con Node) il modulo CJS arriva come { default }.
+  const mod: any = await import('pdfjs-dist/legacy/build/pdf.js')
+  const pdfjs = mod.getDocument ? mod : (mod.default || mod)
   // Nessun worker in Node: il fake worker della build legacy è sufficiente.
   if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
   _pdfjs = pdfjs

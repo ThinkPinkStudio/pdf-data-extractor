@@ -187,28 +187,38 @@ export async function readPdfPagesWithOcr(buf: Buffer, docName: string, settings
   let nextPage = 1
   let started = 0
   let canceled = false
+  // Un runner non deve MAI lanciare: con Promise.all il primo errore faceva
+  // chiudere il documento (finally qui sotto) mentre le altre pagine lo stavano
+  // ancora leggendo («Cannot read properties of null (reading 'sendWithPromise')»
+  // su tutte le pagine dopo) e l'errore risaliva fino alla riconciliazione, che si
+  // abbandonava intera (Lipari J - T, 23/10/2026). Ogni pagina ha il suo try: un
+  // guasto resta su quella pagina, scritto nel log; anche i ganci (DB) sono protetti.
   const runner = async () => {
     while (!canceled) {
       const p = nextPage++
       if (p > totalPages) return
-      if (hooks.isCanceled && await hooks.isCanceled()) { canceled = true; return }
-      if (hooks.onPage) await hooks.onPage(++started, totalPages)
-      // Pagine fuori dal sottoinsieme richiesto: nessun OCR, resta il text layer se c'è.
-      if (hooks.onlyPages && !hooks.onlyPages.includes(p)) { pages[p - 1] = textLayer ? (textLayer[p - 1] || '') : ''; continue }
-      const layer = textLayer ? textLayer[p - 1] : ''
-      if (layer && layer.trim()) { pages[p - 1] = layer; continue }
-      if (!doc || !m) continue
-      if (!vision) await acquireTessSlot(limit)
       try {
-        let png: string
-        try { png = vision ? await doc.renderPage(p, { longSide: 1800, preprocess: false }) : await doc.renderPage(p) } catch (err: any) { await log(`SKIP pagina ${p} di "${docName}": ${err.message}`); continue }
+        if (hooks.isCanceled && await hooks.isCanceled().catch(() => false)) { canceled = true; return }
+        if (hooks.onPage) await hooks.onPage(++started, totalPages).catch(() => {})
+        // Pagine fuori dal sottoinsieme richiesto: nessun OCR, resta il text layer se c'è.
+        if (hooks.onlyPages && !hooks.onlyPages.includes(p)) { pages[p - 1] = textLayer ? (textLayer[p - 1] || '') : ''; continue }
+        const layer = textLayer ? textLayer[p - 1] : ''
+        if (layer && layer.trim()) { pages[p - 1] = layer; continue }
+        if (!doc || !m) continue
+        if (!vision) await acquireTessSlot(limit)
         try {
-          const text = (vision ? await m.visionOcrPageText(png, settings) : await m.ocrPageText(png, settings)) || ''
-          pages[p - 1] = text
-          if (text.trim()) ocrPages++
-        } catch (err: any) { await log(`OCR pagina ${p} di "${docName}": ${err.message}`) }
-      } finally {
-        if (!vision) releaseTessSlot()
+          let png: string
+          try { png = vision ? await doc.renderPage(p, { longSide: 1800, preprocess: false }) : await doc.renderPage(p) } catch (err: any) { await log(`SKIP pagina ${p} di "${docName}": ${err.message}`); continue }
+          try {
+            const text = (vision ? await m.visionOcrPageText(png, settings) : await m.ocrPageText(png, settings)) || ''
+            pages[p - 1] = text
+            if (text.trim()) ocrPages++
+          } catch (err: any) { await log(`OCR pagina ${p} di "${docName}": ${err.message}`) }
+        } finally {
+          if (!vision) releaseTessSlot()
+        }
+      } catch (err: any) {
+        await log(`Pagina ${p} di "${docName}" non letta: ${err?.message || err}`).catch(() => {})
       }
     }
   }
