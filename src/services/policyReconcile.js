@@ -259,6 +259,63 @@ export function numbersWithKnown(files) {
   })
 }
 
+// Codici fiscali di PERSONA nel testo (stessa forma di PERSON_CF_RE, omocodia
+// compresa). Niente confine in coda: l'OCR ci attacca a volte un carattere
+// («CHVLRA25R47F205Z2» di una polizza Helvetia scansionata).
+const PERSON_CF_SCAN_RE = /\b[A-Z]{6}[\dLMNPQRSTUV]{2}[ABCDEHLMPRST][\dLMNPQRSTUV]{2}[A-Z][\dLMNPQRSTUV]{3}[A-Z]/g
+const PERSON_CF_IN_RE = new RegExp(PERSON_CF_SCAN_RE.source)
+
+/** Codici fiscali di persona citati nelle pagine. */
+export function personTaxCodes(pages) {
+  return new Set(String((pages || []).join('\n')).match(PERSON_CF_SCAN_RE) || [])
+}
+
+// Stessa PERSONA: cognome, nome, data di nascita e sesso (i primi 11 caratteri)
+// uguali tranne al più uno letto storto dall'OCR. Il comune e il controllo non
+// contano: «NRERNT49M18F240R» e «…F205R» sono lo stesso Neri Renato.
+const samePerson = (a, b) => {
+  let d = 0
+  for (let i = 0; i < 11; i++) if (a[i] !== b[i] && ++d > 1) return false
+  return true
+}
+const sharePerson = (A, B) => [...A].some((a) => [...B].some((b) => samePerson(a, b)))
+// Persone DIVERSE oltre le quali un numero è un codice condiviso. Con due può
+// essere la stessa polizza passata a un altro intestatario (Lipari J - T, Parth:
+// polizza Helvetia 45106672 intestata al padre, quietanza al figlio).
+const SHARED_CODE_MIN_PEOPLE = 3
+
+/**
+ * Numeri CONDIVISI, non di polizza (25/10/2026). Un numero stampato nei
+ * documenti di almeno TRE persone diverse (codici fiscali di persona senza nulla
+ * in comune) non identifica una polizza: è un codice dell'agenzia o del modulo.
+ * Lipari J - T: nella prima pagina delle polizze Helvetia lette con Tesseract il
+ * numero vero sotto «Polizza N.» non si legge e la cella più vicina è «6402000»,
+ * il codice dell'agenzia: univa le RC capofamiglia e le abitazioni di cinque
+ * persone. Giudica solo i documenti che portano un codice fiscale di persona:
+ * senza (polizze di società), nessun giudizio. Le P.IVA non contano: quella
+ * della compagnia sta su tutti i suoi documenti.
+ * @param items [{ numbers: string[], codes: Set<string> }]
+ * @returns i numeri da non usare per legare
+ */
+export function sharedCodeNumbers(items) {
+  const by = new Map()
+  ;(items || []).forEach((it, k) => { for (const n of it.numbers || []) { if (!by.has(n)) by.set(n, new Set()); by.get(n).add(k) } })
+  const out = new Set()
+  for (const [n, ks] of by) {
+    const withCodes = [...ks].filter((k) => items[k].codes && items[k].codes.size)
+    if (withCodes.length < SHARED_CODE_MIN_PEOPLE) continue
+    // Persone distinte = gruppi di documenti che condividono una persona.
+    const uf = unionFind()
+    for (let i = 0; i < withCodes.length; i++) {
+      for (let j = i + 1; j < withCodes.length; j++) {
+        if (sharePerson(items[withCodes[i]].codes, items[withCodes[j]].codes)) uf.union(withCodes[i], withCodes[j])
+      }
+    }
+    if (new Set(withCodes.map((k) => uf.find(k))).size >= SHARED_CODE_MIN_PEOPLE) out.add(n)
+  }
+  return out
+}
+
 // Lo stesso numero DECORATO in modi diversi nello stesso documento: Unipol
 // «30/161659629/5» (ramo, numero, controllo) e «1/85112/30/161659629»
 // (agenzia, ramo, numero) → «301616596295» e «18511230161659629». Il nucleo
@@ -369,9 +426,18 @@ export function extractPolicyNumbersFromPages(pages) {
         // quello più vicino alla parola, non il primo (sarebbe il codice agenzia).
         const at = cell.start + cell.text.search(LABEL_CELL_RE)
         for (let k = i + 1; k <= Math.min(i + 3, lines.length - 1); k++) {
-          const under = gridCells(lines[k]).filter((c) => c.start < cell.end && c.end > cell.start)
+          const rowCells = gridCells(lines[k])
+          const under = rowCells.filter((c) => c.start < cell.end && c.end > cell.start)
           if (!under.length) continue
-          const nums = under.filter((c) => !DATE_LIKE_RE.test(c.text.split(/\s+/)[0])).map((c) => ({ c, n: normalizePolicyNumber(c.text.split(/\s+/)[0]) })).filter((x) => x.n)
+          // Riga di una PERSONA: un numero con alla sua sinistra, sulla stessa riga,
+          // il codice fiscale di una persona è un suo dato, non la polizza. Nei
+          // moduli Helvetia le etichette stanno SOTTO i valori («PNTGNN44C12C933W  M
+          // 5700006» sopra «Codice Fiscale  Sesso  Cod. Professione») e sotto
+          // «Polizza N.» c'era il codice professione: «6402000» univa le polizze di
+          // cinque persone, «5700006» le case di Milano e Gargnano (Lipari J - T).
+          const cfAt = rowCells.filter((c) => PERSON_CF_IN_RE.test(c.text)).map((c) => c.start)
+          const nums = under.filter((c) => !DATE_LIKE_RE.test(c.text.split(/\s+/)[0]) && !cfAt.some((x) => x < c.start))
+            .map((c) => ({ c, n: normalizePolicyNumber(c.text.split(/\s+/)[0]) })).filter((x) => x.n)
           if (nums.length) {
             const dist = (c) => (at < c.start ? c.start - at : at > c.end ? at - c.end : 0)
             nums.sort((a, b) => dist(a.c) - dist(b.c))
@@ -670,6 +736,17 @@ export function reconcileFromPages(dossiers, opts = {}) {
   for (const u of units) u.numbers = extractPolicyNumbersFromPages(u.pages.slice(0, NP))
   const withKnown = numbersWithKnown(units.map((u) => ({ numbers: u.numbers, pages: u.pages })))
   units.forEach((u, k) => { u.known = !u.numbers.length && withKnown[k].length > 0; u.numbers = withKnown[k] })
+  // Codici condivisi tra persone diverse (agenzia, modulo): non legano nulla.
+  const shared = sharedCodeNumbers(units.map((u) => ({ numbers: u.numbers, codes: personTaxCodes(u.pages) })))
+  if (shared.size) {
+    for (const u of units) {
+      const drop = u.numbers.filter((n) => shared.has(n))
+      if (!drop.length) continue
+      u.shared = drop
+      u.numbers = u.numbers.filter((n) => !shared.has(n))
+      if (!u.numbers.length) u.known = false
+    }
+  }
   // [flag perpolizza] catene di rischio per dossier: stessa polizza scritta in altro
   // modo, polizza sostituita, stessa targa (policyLineages).
   if (opts.split) {
@@ -722,6 +799,7 @@ export function reconcileFromPages(dossiers, opts = {}) {
     const mine = units.filter((u) => u.d === d)
     const notes = []
     for (const u of mine) if (u.known) notes.push(`${u.numbers.join(', ')} citato nel testo di "${u.f.name || u.f.idx}"${u.seg ? ` (pag. ${pageRanges([u.seg])})` : ''}`)
+    for (const u of mine) if (u.shared) notes.push(`${u.shared.join(', ')} in "${u.f.name || u.f.idx}" sta anche in documenti di altre persone (codici fiscali diversi): codice condiviso, non un numero di polizza`)
     flat.forEach(({ d: dd, f }, k) => {
       if (dd !== d || !segsOf[k]) return
       notes.push(segsOf[k] === 'whole'

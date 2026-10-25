@@ -123,6 +123,7 @@ const BUILD_FEATURES = [
   'per-polizza', // Flag «perpolizza» (prima spento): la riconciliazione divide le cartelle con più polizze (catene: numero, polizza sostituita, targa) e il fuoco tiene i rinnovi della stessa catena (21/10/2026)
   'chiudi-caricamento', // Caricamento non chiuso visibile e chiudibile da Elaborazioni; uscire da Cartella bulk col menu chiude il caricamento (23/10/2026, Lipari J - T fermo 26 ore)
   'riunione-toccati', // Riconciliazione robusta (un file illeggibile non la abbandona più, esito sul batch) + riunione dei GIÀ ELABORATI che rimette in coda solo i dossier uniti o divisi (25/10/2026, Lipari J - T)
+  'codici-condivisi', // Riconciliazione: sotto «Polizza N.» il numero a destra del codice fiscale di una persona è un suo dato (Helvetia: codice professione); un numero nei documenti di ≥3 persone diverse è un codice condiviso; Separa + estrai (25/10/2026, Lipari J - T)
 ]
 
 export async function GET() {

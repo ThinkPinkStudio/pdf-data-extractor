@@ -1993,6 +1993,23 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   da un'altra cartella). Banco: `node --experimental-strip-types` + un loader che
   aggiunge `.ts` (scratchpad `pgtest/`), Postgres Docker `pdfx-pg-test` su 55432.
 
+- **Codici di persona e d'agenzia non sono numeri di polizza (25/10/2026,
+  riunione di Lipari J - T)**: nelle prime pagine Helvetia lette con Tesseract le
+  etichette stanno SOTTO i valori e sotto «Polizza N.» c'è la riga del contraente
+  («PNTGNN44C12C933W  M  5700006» sopra «Codice Fiscale  Sesso  Cod.
+  Professione»): il codice professione («6402000», «5700006», «7400000») univa le
+  polizze di cinque persone, le case di Milano e Gargnano di Piontelli, Carelli
+  con gli eredi Chiovato. Ora, nella lettura sotto l'etichetta, un numero con alla
+  sua sinistra sulla stessa riga il codice fiscale di una persona è un suo dato
+  (`extractPolicyNumbersFromPages`; il codice fiscale senza confine in coda, l'OCR
+  attacca caratteri). Rete di sicurezza: `sharedCodeNumbers` — un numero nei
+  documenti di ≥3 persone diverse (primi 11 caratteri del codice fiscale, uno di
+  tolleranza; le P.IVA non contano) è un codice condiviso e non lega; con DUE no
+  (Parth: polizza Helvetia 45106672 del padre, quietanza del figlio). Misure
+  invariate (catalogo 35/41, divisioni 78/85); sul testo dei 139 dossier toccati di
+  J-T cambia solo il gruppo Helvetia (`work/replay/jt2-replan-ab.mjs`). Bulk
+  `split` + `rematch` accetta `extract` come il Riabbina.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

@@ -355,3 +355,45 @@ test('[flag perpolizza] focusOnProofPolicy: con la catena restano i rinnovi dell
   assert.deepEqual(focusOnProofPolicy(files, 0).keep, [true, false, false])
   assert.deepEqual(focusOnProofPolicy(files, 0, { chain: true }).keep, [true, true, false])
 })
+
+// Prima pagina di una polizza Helvetia letta con Tesseract (Lipari J - T, 25/10/2026): le
+// etichette stanno SOTTO i valori; sotto «Polizza N.» c'è la riga del contraente.
+const helvetia = (cf, code) => [
+  '      Helvetia      DOMUS           MILANO        A                       452       010       _12131164-00',
+  '      A                                     Agenzia                              Cod.      Ramo     Polizza N.                 Cod. Cliente',
+  '                                   ROSSI           MARIO',
+  '      Contraente                  Cognome  e Nome o Ragione Sociale',
+  `                                   ${cf}                                              M          ${code}`,
+  '                                   Codice Fiscale                                           Sesso         Cod. Professione         Cliente globale',
+].join('\n')
+
+test('extractPolicyNumbersFromPages: sotto «Polizza N.» il numero a destra del codice fiscale di una persona è un suo dato', async () => {
+  assert.deepEqual(extractPolicyNumbersFromPages([helvetia('PNTGNN44C12C933W', '5700006')]), [])
+  // Un carattere attaccato dall'OCR in coda al codice fiscale non cambia nulla.
+  assert.deepEqual(extractPolicyNumbersFromPages([helvetia('CHVLRA25R47F205Z2', '7400000')]), [])
+  // Senza codice fiscale nella riga il numero sotto l'etichetta resta.
+  const plain = ['   Agenzia     Ramo     Polizza N.', '   452         010      12131207'].join('\n')
+  assert.deepEqual(extractPolicyNumbersFromPages([plain]), ['12131207'])
+})
+
+test('sharedCodeNumbers: un numero nei documenti di tre persone diverse è un codice condiviso, con due no', async () => {
+  const { sharedCodeNumbers } = await import('../src/services/policyReconcile.js')
+  const p = (...cf) => new Set(cf)
+  const three = [
+    { numbers: ['6402000'], codes: p('SMMLCU73S09F205Y') },
+    { numbers: ['6402000'], codes: p('DRLLDN48P43I690T') },
+    { numbers: ['6402000'], codes: p('BSSFPP71B19F205M') },
+  ]
+  assert.deepEqual([...sharedCodeNumbers(three)], ['6402000'])
+  // Polizza passata dal padre al figlio: due persone, stessa polizza.
+  assert.deepEqual([...sharedCodeNumbers(three.slice(0, 2))], [])
+  // Stessa persona col comune letto storto dall'OCR (F240 / F205): una persona sola.
+  const neri = [
+    { numbers: ['46609960'], codes: p('NRERNT49M18F240R') },
+    { numbers: ['46609960'], codes: p('NRERNT49M18F205R') },
+    { numbers: ['46609960'], codes: p('NRERNT49M18F205R') },
+  ]
+  assert.deepEqual([...sharedCodeNumbers(neri)], [])
+  // Documenti senza codice fiscale di persona (polizze di società): nessun giudizio.
+  assert.deepEqual([...sharedCodeNumbers([{ numbers: ['130280'], codes: p() }, { numbers: ['130280'], codes: p() }, { numbers: ['130280'], codes: p() }])], [])
+})

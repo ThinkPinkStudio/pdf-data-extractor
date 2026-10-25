@@ -189,7 +189,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       } catch { /* best-effort */ }
       for (const c of res.created) splitCreated.push({ from: id, ...c })
       if (body.rematch === true) {
-        for (const jid of [id, ...res.created.map((c) => c.id)]) await resetJobForRetry(jid, session.email, rematchOpts())
+        // Con `extract` (come il Riabbina): abbinamento e, se riuscito, estrazione subito.
+        const o = rematchOpts()
+        for (const jid of [id, ...res.created.map((c) => c.id)]) await resetJobForRetry(jid, session.email, body.extract === true ? { ...o, matchOnly: false, andExtract: true } : o)
       }
     } else if (action === 'rematch') {
       // Riabbina: stesso profilo (nessun profileId), Automatico ('auto': campi
