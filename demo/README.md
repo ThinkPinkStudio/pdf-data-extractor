@@ -22,6 +22,7 @@ PostgreSQL **locale** e separato, mai quello di produzione.
 | `capture.mjs` | Crea i Riepiloghi con l'API reale dell'app e scatta gli screenshot (Playwright, 2× retina) in `screenshots/` |
 | `theme-omeganodes.css` | Token colore OmegaNodes (tema scuro e chiaro) + logo neutro |
 | `relabel.js` | Etichette non assicurative a video (polizza → pratica) |
+| `video.mjs` | Registra il video dimostrativo (1920×1080, didascalie, cursore) in `video/pdf-extractor-demo.mp4` |
 
 ## Come rigenerare
 
@@ -43,10 +44,16 @@ node demo/generate-pdfs.mjs
 DATABASE_URL=postgresql://demo:demo@localhost:55432/pdfextractor node demo/seed.mjs
 node demo/capture.mjs            # tutti
 node demo/capture.mjs 07 08      # solo alcuni (prefisso del nome)
+node demo/video.mjs              # video dimostrativo (serve ffmpeg)
 ```
 
 Se il Chromium di Playwright non è quello atteso, indica il binario con
 `CHROMIUM_PATH=/percorso/chrome`.
+
+Il video naviga l'app reale (cartella bulk → Elaborazioni → dettaglio batch →
+Pratiche → Riepiloghi) registrando lo schermo via CDP; la scelta della cartella
+usa i file di `bulk/` senza aprire il selettore di sistema. Non lancia
+un'estrazione dal vivo: mostra i risultati del seed.
 
 Gli screenshot che dipendono dall'AI (estrazione, chat) mostrano sessioni
 ripristinate dalla Cronologia e risultati salvati nel DB: per scattarli non
