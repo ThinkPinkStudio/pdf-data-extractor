@@ -1,6 +1,8 @@
 # Generati dagli script (rigenerabili)
 pdfs/
+pdfs-en/
 bulk/
+bulk-en/
 screenshots/
-.seed-ids.json
+.seed-ids*.json
 video/

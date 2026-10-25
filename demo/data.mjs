@@ -237,6 +237,22 @@ export const FILES = {
   audit: 'Verbale_audit_qualita_2026.pdf',
 }
 
+// Albero di cartelle per la pagina "Cartella bulk" (scritto da generate-pdfs.mjs).
+export const BULK_ROOT = 'Archivio_Documenti_2026'
+export const BULK_TREE = {
+  'Contratti_fornitori/Officine_Meridiane': [FILES.quadro, FILES.addendum, FILES.listino, FILES.audit, FILES.ftMeridiane],
+  'Fatture_passive/2026-09/Logistica_Tre_Valli': [FILES.ftTrevalli],
+  'Fatture_passive/2026-09/Nordwave_Digital': [FILES.ftNordwave],
+  'Fatture_passive/2026-09/Annullate/Nordwave_Digital': [FILES.ftNordwave],
+  'DDT/2026-09/Tessitura_Brera_Nova': [FILES.ddt],
+  'Immobili/Locazione_Via_Garibaldi_41': [FILES.locazione],
+  'Personale/Cedolini_2026-09': [FILES.cedolino],
+  'Personale/Candidature': [FILES.cv],
+  'Offerte/Studio_Alba': [FILES.preventivo],
+  'Utenze/Energia_sede': [FILES.bolletta],
+  '_bozze/Vecchie_scansioni': [FILES.ftNordwave],
+}
+
 // ─── Valori estratti dei job (rolling_state = { id: { valore, fonte } }) ─────
 const v = (valore, file, page = 1) => ({ valore, data_validita: null, fonte: file ? { file, page } : undefined })
 
@@ -295,10 +311,13 @@ export const PAYSLIPS = [
   ['Paolo Esposito', 'SPSPLA82C11F839H', '6° Commercio', '168', '1.968,30', '1.583,92', '145,80', '10'],
 ]
 
+export const PAY_PERIOD = 'Settembre 2026'
+export const payslipFile = (name) => `Cedolino_09-2026_${name.split(' ').reverse().join('-')}.pdf`
+
 export function payslipState(row, fileName) {
   const [dip, cf, liv, ore, lordo, netto, tfr, ferie] = row
   return {
-    p_dip: v(dip, fileName), p_cf: v(cf, fileName), p_mese: v('Settembre 2026', fileName), p_liv: v(liv, fileName),
+    p_dip: v(dip, fileName), p_cf: v(cf, fileName), p_mese: v(PAY_PERIOD, fileName), p_liv: v(liv, fileName),
     p_ore: v(ore, fileName), p_lordo: v(lordo, fileName), p_netto: v(netto, fileName), p_tfr: v(tfr, fileName), p_ferie: v(ferie, fileName),
   }
 }
@@ -440,3 +459,124 @@ export function billState(b) {
     u_cons: v(b.cons, f), u_pot: v('30', f), u_tot: v(b.tot, f), u_scad: v(b.scad, f),
   }
 }
+
+// ─── Testi del seed (log dei job, controlli di pertinenza, batch, singole, cronologia) ─
+export const TEXT = {
+  singlesFolder: 'Estrazioni_singole',
+  log: {
+    strategy: (profile) => `Strategia: gruppi a copertura totale · modello qwen2.5:7b-instruct · profilo "${profile}"`,
+    docs: (n, native, ocr) => `Documenti: ${n} · testo nativo ${native}, OCR ${ocr}`,
+    cache: (hit, n) => `Cache OCR: ${hit}/${n} documenti riusati (contenuto identico già elaborato)`,
+    precheck: 'Pre-check pertinenza [keywords]: ok (punteggio 0.83) — parole chiave del profilo trovate nel contenuto',
+    stages: 'Stadio A: seed dal documento più recente · Stadio B: gruppi focalizzati (3 recenti + 3 più affini)',
+    done: (n, total) => `Validazione cross-field: ok · Estratti ${n}/${total} campi`,
+    index: 'Indice vettoriale: 1 fascicolo indicizzato',
+  },
+  detected: {
+    prof_fatture: 'fattura elettronica', prof_fornitura: 'contratto di fornitura con allegati', prof_locazione: 'contratto di locazione commerciale',
+    prof_ddt: 'documento di trasporto', prof_cedolini: 'cedolino paga', prof_cv: 'curriculum vitae', prof_preventivi: 'offerta commerciale', prof_utenze: 'bolletta energia elettrica',
+  },
+  okReason: 'parole chiave del profilo trovate nel contenuto',
+  okSummary: (n, profile) => `Il testo contiene ${n}/${n} parole del profilo «${profile}»: si procede con l'estrazione.`,
+}
+
+export const BATCHES = {
+  invoices: 'Fatture passive · Settembre 2026',
+  contracts: 'Contratti fornitori · rinnovi 2027',
+  payslips: 'Cedolini · Settembre 2026',
+  leases: 'Locazioni · sede e punti vendita',
+  archive: 'Fatture passive · archivio 2024–2025',
+  bills: 'Utenze · bollette energia 2025–2026',
+}
+
+// Documento fuori posto nel batch fatture: il controllo di pertinenza lo ferma.
+export const MISMATCH = {
+  dossier: 'Documenti vari (da smistare)',
+  error: 'Contenuto non pertinente al profilo "Fatture fornitori" — rilevato: curriculum vitae (esperienze, formazione, competenze). Verifica il profilo o premi "Procedi comunque".',
+  precheck: {
+    verdict: 'mismatch', mode: 'keywords', score: 0.0, threshold: 0.25, reason: 'nessuna parola chiave del profilo nel contenuto',
+    missing: ['fattura', 'imponibile', 'IVA', 'totale documento'], detected: { type: 'curriculum vitae', keywords: ['esperienze', 'formazione', 'competenze'] },
+    suggestion: { id: 'prof_cv', name: 'Curriculum candidati' },
+    summary: 'Nessuna parola del profilo «Fatture fornitori» nel testo; il contenuto somiglia a «Curriculum candidati». Il job resta fermo finché non scegli: cambia profilo o «Procedi comunque».',
+  },
+}
+
+export const LEASE_ERROR = {
+  dossier: 'Magazzino Seriate · scansione 1998',
+  file: 'Locazione_magazzino_Seriate_scan.pdf',
+  error: 'OCR: testo non leggibile su 4/4 pagine (scansione a 72 dpi). Ricarica una scansione ad almeno 200 dpi.',
+}
+
+const at = (file, valore) => ({ valore, fonte: { file, page: 1 } })
+export const SINGLES = {
+  meridiane: {
+    dossier: 'Fornitore Officine Meridiane',
+    previous: {
+      summary: 'Prima run sul solo contratto quadro: addendum e verbale di audit caricati dopo.',
+      values: {
+        c_forn: 'Officine Meridiane S.r.l.', c_piva: '09356720961', c_ogg: 'Fornitura di componenti metallici per arredo', c_stip: '15/01/2024',
+        c_scad: '31/12/2026', c_rinn: 'Sì, annuale (tacito)', c_prea: '90 giorni', c_val: '120.000,00', c_pag: 'Bonifico 60 gg d.f.f.m.',
+        c_pen: '0,5% al giorno lavorativo, max 10%', c_foro: 'Milano', c_ref: 'Ing. Paolo Re',
+      },
+    },
+  },
+  cv: {
+    email: 'sara.galli@example.com', dossier: 'Candidatura UX Designer',
+    state: {
+      v_nome: at(FILES.cv, 'Chiara Lombardi'), v_ruolo: at(FILES.cv, 'Senior UX Designer — Nordwave Digital S.r.l.'),
+      v_email: at(FILES.cv, 'chiara.lombardi@example.org'), v_tel: at(FILES.cv, '+39 347 000 1234'),
+      v_citta: at(FILES.cv, 'Milano'), v_anni: at(FILES.cv, '8'),
+      v_studio: at(FILES.cv, 'Laurea Magistrale in Design della Comunicazione'),
+      v_skill: at(FILES.cv, 'Figma, design system, user research, prototipazione, accessibilità, HTML/CSS'),
+      v_lingue: at(FILES.cv, 'Inglese C1, Spagnolo B2'), v_disp: at(FILES.cv, '30 giorni di preavviso'),
+    },
+  },
+  quote: {
+    email: DEMO_USER, dossier: 'Offerta digitalizzazione archivio',
+    state: {
+      o_num: at(FILES.preventivo, 'PR-2026-077'), o_data: at(FILES.preventivo, '06/10/2026'),
+      o_forn: at(FILES.preventivo, 'Studio Alba Consulting S.r.l.'), o_ogg: at(FILES.preventivo, 'Digitalizzazione archivio documentale'),
+      o_imp: at(FILES.preventivo, '7.500,00'), o_valid: at(FILES.preventivo, '05/11/2026'),
+      o_tempi: at(FILES.preventivo, '6 settimane dalla conferma d’ordine'), o_pag: at(FILES.preventivo, '30% all’ordine, saldo a collaudo'),
+    },
+  },
+  energy: {
+    email: 'davide.conti@example.com', dossier: 'Energia sede · agosto 2026',
+    state: {
+      u_forn: at(FILES.bolletta, 'Lumen Energia S.p.A.'), u_pod: at(FILES.bolletta, 'IT001E00012345'),
+      u_inizio: at(FILES.bolletta, '01/08/2026'), u_per: at(FILES.bolletta, '01/08/2026 – 31/08/2026'),
+      u_cons: at(FILES.bolletta, '4.640'), u_pot: at(FILES.bolletta, '30'), u_tot: at(FILES.bolletta, '1.486,22'),
+      u_scad: at(FILES.bolletta, '25/09/2026'),
+    },
+  },
+}
+
+// Cronologia dell'Estrattore singolo (sessioni ripristinabili con «Apri»).
+export const SESSIONS = (H, D) => [
+  { file: FILES.ftMeridiane, pages: 1, ago: 35 * 60, chat: MAIN_SESSION_CHAT,
+    fields: [['Numero fattura', 'FT 2026/0418'], ['Data emissione', '12/09/2026'], ['Fornitore', 'Officine Meridiane S.r.l.'], ['P.IVA fornitore', '09356720961'], ['Cliente', CLIENT.name], ['Imponibile', '5.770,00'], ['Imposta', '1.269,40'], ['Totale documento', '7.039,40'], ['Scadenza pagamento', '30/11/2026'], ['Modalità di pagamento', 'Bonifico bancario'], ['IBAN', 'IT60X0542811101000000123456'], ['Riferimento ordine', 'ODA-2026-311 del 28/08/2026']] },
+  { file: FILES.locazione, pages: 2, ago: 3 * H, chat: LEASE_CHAT,
+    fields: [['Locatore', 'Immobiliare Colle Aperto S.r.l.'], ['Conduttore', CLIENT.name], ['Indirizzo immobile', 'Via Garibaldi 41, 24122 Bergamo (BG)'], ['Dati catastali', 'Fg. 34, map. 1187, sub. 5 · C/1'], ['Decorrenza', '01/03/2026'], ['Prima scadenza', '28/02/2032'], ['Canone annuo', '26.400,00'], ['Rata e periodicità', '2.200,00 mensili anticipate'], ['Deposito cauzionale', '6.600,00'], ['Aggiornamento ISTAT', '75%'], ['Preavviso recesso', '6 mesi (PEC o raccomandata A/R)'], ['Estremi registrazione', 'AdE Bergamo, 14/03/2026, n. 4821 serie 3T']] },
+  { file: FILES.ddt, pages: 1, ago: 22 * H, chat: [],
+    fields: [['Numero DDT', '2291'], ['Data DDT', '22/09/2026'], ['Mittente', 'Tessitura Brera Nova S.p.A.'], ['Destinatario', CLIENT.name], ['Luogo di destinazione', 'Via dei Tessitori 18, 24126 Bergamo (BG)'], ['Causale trasporto', 'Vendita'], ['Vettore', 'Logistica Tre Valli S.r.l.'], ['Numero colli', '14'], ['Peso lordo (kg)', '412'], ['Porto', 'Franco']] },
+  { file: FILES.cedolino, pages: 1, ago: 2 * D, chat: [],
+    fields: [['Dipendente', 'Luca Ferraris'], ['Codice fiscale', 'FRRLCU88C14A794K'], ['Periodo di paga', 'Settembre 2026'], ['Livello e CCNL', '4° · Commercio Terziario'], ['Ore ordinarie', '168'], ['Totale competenze', '2.767,20'], ['Netto in busta', '2.054,02'], ['TFR maturato nel mese', '204,98'], ['Ferie residue (gg)', '11,5']] },
+  { file: FILES.cv, pages: 1, ago: 2 * D + 5 * H, chat: [],
+    fields: [['Candidato', 'Chiara Lombardi'], ['Ruolo attuale', 'Senior UX Designer'], ['Email', 'chiara.lombardi@example.org'], ['Telefono', '+39 347 000 1234'], ['Città', 'Milano'], ['Anni di esperienza', '8'], ['Titolo di studio', 'Laurea Magistrale in Design della Comunicazione'], ['Competenze chiave', 'Figma, design system, user research, prototipazione'], ['Lingue', 'Inglese C1, Spagnolo B2'], ['Disponibilità', '30 giorni di preavviso']] },
+  { file: FILES.preventivo, pages: 1, ago: 3 * D, chat: [],
+    fields: [['Numero offerta', 'PR-2026-077'], ['Data offerta', '06/10/2026'], ['Fornitore', 'Studio Alba Consulting S.r.l.'], ['Oggetto', 'Digitalizzazione archivio documentale'], ['Imponibile', '7.500,00'], ['Valida fino al', '05/11/2026'], ['Tempi di consegna', '6 settimane'], ['Condizioni di pagamento', '30% all’ordine, saldo a collaudo']] },
+  { file: FILES.bolletta, pages: 1, ago: 5 * D, chat: [],
+    fields: [['Fornitore', 'Lumen Energia S.p.A.'], ['POD / PDR', 'IT001E00012345'], ['Periodo di fatturazione', '01/08/2026 – 31/08/2026'], ['Consumo (kWh)', '4.640'], ['Potenza impegnata (kW)', '30'], ['Totale da pagare', '1.486,22'], ['Scadenza', '25/09/2026']] },
+]
+
+export const SETTINGS_TEXT = {
+  qdrantCollection: 'documenti_demo',
+  polizzaPromptExtra: 'Importi sempre in formato italiano (1.234,56) e date GG/MM/AAAA.\nSe un dato non è scritto nel documento lascia il campo vuoto: meglio vuoto che inventato.\nIn presenza di più documenti vince il dato del documento più recente.',
+  polizzaVerificaCampi: 'Totale documento, Scadenza pagamento, IBAN',
+  bulkExcludedFolderNames: '_bozze, Vecchie_scansioni',
+  bulkExcludeKeywords: 'annullat',
+  language: 'it',
+}
+
+// Riepiloghi creati con l'API dell'app da capture.mjs / video.mjs.
+export const SUMMARY_NAMES = { invoices: 'Fatture fornitori · 2024–2026', energy: 'Energia sede · 2025–2026' }
