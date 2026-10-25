@@ -16,9 +16,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LANG, SUFFIX, data } from './lang.mjs'
 
-const {
-  DEMO_USER, FILES, INVOICES, MISMATCH, BATCHES, SINGLES, LEASE_ERROR, SUMMARY_NAMES, BULK_ROOT, profileById, SUPPLY_CONTRACTS,
-} = data
+// Quali batch, pratiche e campi mostrare lo decide il catalogo della lingua (FILM).
+const { DEMO_USER, BULK_ROOT, profileById, PLAN, FILM } = data
 
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(join(here, '..', 'web', 'package.json'))
@@ -36,6 +35,10 @@ const SCALE = 1.2
 // Testo nella lingua del filmato.
 const t = (it, en) => (LANG === 'en' ? en : it)
 const label = (profileId, fieldId) => profileById[profileId].fields.find((f) => f.id === fieldId).label
+const fieldLabel = ([profileId, fieldId]) => label(profileId, fieldId)
+const batchLabel = (role) => PLAN.batches.find((b) => b.key === FILM.batches[role]).label
+const batchId = (role) => IDS.batches[FILM.batches[role]]
+const singleDossier = (role) => PLAN.singles.find((s) => s.key === FILM.singles[role]).dossier
 
 // Cursore, onde del click, didascalie e cartelli: solo DOM della pagina, ricreati
 // a ogni caricamento (la posizione del cursore sopravvive in sessionStorage).
@@ -131,7 +134,7 @@ async function film(name, script) {
       document.head.append(font, st); document.documentElement.setAttribute('data-theme', 'dark')
     }
     if (document.head) inject(); else document.addEventListener('DOMContentLoaded', inject)
-  }, { css: CSS, jobId: IDS.dossierMeridiane, lang: LANG })
+  }, { css: CSS, jobId: IDS.singles[FILM.singles.dossier], lang: LANG })
   await ctx.addInitScript(RELABEL)
   await ctx.addInitScript(OVERLAY)
   const page = await ctx.newPage()
@@ -280,21 +283,22 @@ async function api(method, path, body) {
 const summaries = async () => (await api('GET', '/api/polizza/summaries')).summaries || []
 const doneIn = async (batchId) => ((await api('GET', `/api/polizza/batch/${batchId}`)).jobs || []).filter((j) => j.status === 'done').map((j) => j.jobId)
 
-// Riepilogo fatture della panoramica, creato se manca.
-async function ensureInvoiceSummary() {
-  if ((await summaries()).some((x) => x.name === SUMMARY_NAMES.invoices)) return
-  const jobIds = [...await doneIn(IDS.batchArchive), ...await doneIn(IDS.batchInvoices)]
-  await api('POST', '/api/polizza/summaries', { name: SUMMARY_NAMES.invoices, jobIds, yearFieldId: 'f_data', mode: 'live' })
+// Riepilogo della panoramica, creato se manca.
+async function ensureSummary() {
+  const { name, batches, dateField } = FILM.summary
+  if ((await summaries()).some((x) => x.name === name)) return
+  const jobIds = (await Promise.all(batches.map((key) => doneIn(IDS.batches[key])))).flat()
+  await api('POST', '/api/polizza/summaries', { name, jobIds, yearFieldId: dateField[1], mode: 'live' })
 }
 
 // ─── Filmati ───────────────────────────────────────────────────────────────────
-const SPEND = t('Spesa fornitori 2024–2026', 'Supplier spend 2024–2026')
+const NEW_SUMMARY = FILM.summary.newName
 
 const FILMS = {
   // Panoramica: dalla cartella al riepilogo.
   overview: async (d) => {
     const { page, wait, moveTo, click, ripple, caption, settle, smoothScroll, nav, rowName, tab, button, jobCard } = d
-    await ensureInvoiceSummary()
+    await ensureSummary()
     await page.goto(`${BASE}/polizza/jobs`)
     await settle(900)
     await d.start({ sub: t('Dati estratti in automatico da migliaia di PDF, con la fonte di ogni valore', 'Data pulled automatically from thousands of PDFs — with the source of every value') })
@@ -325,9 +329,9 @@ const FILMS = {
     await click(nav(t('Elaborazioni', 'Jobs')))
     await page.waitForURL('**/polizza/jobs'); await page.locator('.jb-card').first().waitFor(); await settle(700)
     await caption(t('<b>2.</b> Il batch lavora sul server, anche a browser chiuso', '<b>2.</b> The batch runs on the server, even with the browser closed'))
-    await moveTo(jobCard(BATCHES.contracts), { dy: -40 })
+    await moveTo(jobCard(batchLabel('running')), { dy: -40 })
     await wait(1500)
-    await moveTo(jobCard(BATCHES.payslips), { dy: -40 })
+    await moveTo(jobCard(batchLabel('archive')), { dy: -40 })
     await wait(1100)
     await caption(t('Se un documento richiede una decisione, il batch lo segnala', 'When a document needs a decision, the batch flags it'))
     await click(button(t('Apri il batch', 'Open batch')))
@@ -337,21 +341,21 @@ const FILMS = {
     await caption(t('<b>3.</b> Per ogni pratica: stato, profilo e campi estratti', '<b>3.</b> For every dossier: status, profile and extracted fields'))
     await moveTo(page.locator('.jb-kpi', { hasText: t('Estratte', 'Extracted') }).first())
     await wait(1300)
-    await click(rowName(INVOICES[0].dossier))
+    await click(rowName(FILM.decision.firstRow))
     await wait(900)
     await click(tab(t('Valori', 'Values')))
     await wait(500)
     await caption(t('Ogni valore ha la sua fonte: file e pagina del documento', 'Every value has its source: file and page of the document'))
-    await moveTo(page.locator('.jb-detail').getByText(label('prof_fatture', 'f_tot')).first(), { dx: 120 })
+    await moveTo(page.locator('.jb-detail').getByText(fieldLabel(FILM.decision.valueField)).first(), { dx: 120 })
     await wait(1500)
     await smoothScroll('.jb-detail .jb-tabs + div', 360)
     await wait(900)
 
     // 4 · Documento fuori posto
-    await click(rowName(MISMATCH.dossier))
+    await click(rowName(FILM.decision.mismatch))
     await wait(800)
     await caption(t('Un documento fuori posto si ferma, con il profilo giusto già suggerito', 'A misplaced document stops, with the right profile already suggested'))
-    await moveTo(page.locator('.jb-detail').getByText(MISMATCH.precheck.suggestion.name).first())
+    await moveTo(page.locator('.jb-detail').getByText(FILM.decision.suggestion).first())
     await wait(2200)
 
     // 5 · Pratica multi-documento
@@ -361,10 +365,10 @@ const FILMS = {
     await caption(t('<b>4.</b> Più documenti nella stessa pratica: vince il dato più recente', '<b>4.</b> Many documents in one dossier: the most recent value wins'))
     await moveTo(page.locator('.polizza-file-item').nth(1))
     await wait(1000)
-    await moveTo(page.locator('.polizza-table tr', { hasText: label('prof_fornitura', 'c_scad') }).first(), { dx: 200 })
+    await moveTo(page.locator('.polizza-table tr', { hasText: fieldLabel(FILM.dossierFields[0]) }).first(), { dx: 200 })
     await wait(1800)
     await smoothScroll('.polizza-results', 520)
-    await moveTo(page.locator('.polizza-table tr', { hasText: label('prof_fornitura', 'c_audit') }).first(), { dx: 200 })
+    await moveTo(page.locator('.polizza-table tr', { hasText: fieldLabel(FILM.dossierFields[1]) }).first(), { dx: 200 })
     await wait(1600)
 
     // 6 · Riepiloghi
@@ -372,7 +376,7 @@ const FILMS = {
     await click(nav(t('Riepiloghi', 'Summaries')))
     await page.waitForURL('**/polizza/riepiloghi'); await settle(700)
     await caption(t('<b>5.</b> Anni di documenti riassunti in un cruscotto, pronto per Excel', '<b>5.</b> Years of documents in one dashboard, ready for Excel'))
-    await click(jobCard(SUMMARY_NAMES.invoices).locator('a.jb-btn').first())
+    await click(jobCard(FILM.summary.name).locator('a.jb-btn').first())
     await page.waitForURL('**/polizza/riepiloghi/**'); await settle(1300)
     await moveTo(page.locator('.rp-card', { has: page.locator('svg') }).first(), { dy: 40 })
     await wait(1800)
@@ -398,14 +402,14 @@ const FILMS = {
     await wait(400)
     await page.locator('input[type=file][webkitdirectory]').setInputFiles(join(here, 'bulk' + SUFFIX, BULK_ROOT))
     await settle(1000)
-    await caption(t('Bozze e documenti annullati restano fuori, con regole che decidi tu', 'Drafts and cancelled documents stay out — by rules you set'))
+    await caption(FILM.text.skipped)
     await moveTo(await d.inputWithValue(data.SETTINGS_TEXT.bulkExcludeKeywords, 'input'))
     await wait(1200)
     const skipped = page.getByRole('button', { name: t(/Mostra i \d+ PDF scartati/, /Show the \d+ skipped PDFs/) }).first()
     await click(skipped)
     await wait(700)
     await d.scrollToText(t('Nascondi i PDF scartati', 'Hide skipped PDFs'), 160)
-    await moveTo(page.getByText(new RegExp(t('Annullate', 'Cancelled') + '/')).first(), { dx: 120 })
+    await moveTo(page.getByText(new RegExp(FILM.skippedFolder + '/')).first(), { dx: 120 })
     await wait(1600)
     await d.scrollToText(t('Cartella: ', 'Folder: ') + BULK_ROOT)
     await caption(t('Ogni sottocartella diventa una pratica, con il suo profilo documento', 'Each subfolder becomes a dossier, with its own document profile'), { top: true })
@@ -422,17 +426,18 @@ const FILMS = {
     await click(nav(t('Elaborazioni', 'Jobs')))
     await page.waitForURL('**/polizza/jobs'); await page.locator('.jb-card').first().waitFor(); await settle(700)
     await caption(t('Lo stato di ogni batch, anche a browser chiuso', 'Every batch’s progress — even with the browser closed'))
-    const contracts = jobCard(BATCHES.contracts)
-    await moveTo(contracts, { dy: -20 })
+    const running = jobCard(batchLabel('running'))
+    await moveTo(running, { dy: -20 })
     await wait(1400)
-    await click(contracts.locator('a,button', { hasText: t('Apri', 'Open') }).last())
+    await click(running.locator('a,button', { hasText: t('Apri', 'Open') }).last())
     await page.waitForURL('**/polizza/jobs/**'); await page.locator('.jb-table tbody tr').first().waitFor(); await settle(800)
     await caption(t('Pratica per pratica: estratte, in corso, in coda', 'Dossier by dossier: extracted, running, queued'))
-    await moveTo(row(SUPPLY_CONTRACTS[0].dossier), { dx: 40 })
+    const [doneRow, runningRow, queuedRow] = FILM.runningRows
+    await moveTo(row(doneRow), { dx: 40 })
     await wait(900)
-    await moveTo(row(SUPPLY_CONTRACTS[3].dossier), { dx: 40 })
+    await moveTo(row(runningRow), { dx: 40 })
     await wait(1500)
-    await moveTo(row(SUPPLY_CONTRACTS[4].dossier), { dx: 40 })
+    await moveTo(row(queuedRow), { dx: 40 })
     await wait(1000)
     await caption(t('Esporta tutto il batch in Excel o ZIP, con un clic', 'Export the whole batch to Excel or ZIP in one click'))
     await click(button(t('Esporta', 'Export')))
@@ -464,77 +469,78 @@ const FILMS = {
   profiles: async (d) => {
     const { page, wait, moveTo, click, caption, settle, nav } = d
     const profileRow = (name) => page.locator('div', { has: page.locator(`span:text-is("${name}")`) }).filter({ has: page.getByRole('button', { name: t('Applica', 'Apply') }) }).last()
-    const payslips = profileById.prof_cedolini
+    const P = FILM.profiles
+    const shown = profileById[P.apply]
     await page.goto(`${BASE}/settings`)
     await settle(900)
     await d.scrollToText(t('Profili documento (JSON)', 'Document profiles (JSON)'), 90)
     await d.start({ kicker: 'PDF Extractor', title: t('Ogni <span>documento</span>', 'Any <span>document</span>'), sub: t('Descrivi i campi una volta: al resto pensa l’AI', 'Describe the fields once — the AI does the rest') })
 
-    await caption(t('Un profilo per ogni tipo di documento: fatture, contratti, cedolini, CV…', 'One profile per document type: invoices, contracts, leases, payslips, CVs…'))
-    for (const id of ['prof_fatture', 'prof_fornitura', 'prof_locazione', 'prof_cedolini', 'prof_cv']) {
+    await caption(FILM.text.profilesList)
+    for (const id of P.hover) {
       await moveTo(page.locator(`span:text-is("${profileById[id].name}")`).first(), { steps: 22 })
       await wait(500)
     }
-    await click(profileRow(payslips.name).getByRole('button', { name: t('Applica', 'Apply') }))
+    await click(profileRow(shown.name).getByRole('button', { name: t('Applica', 'Apply') }))
     await wait(900)
     await d.scrollToText(t('Profilo attuale:', 'Current profile:'), 60)
     await caption(t('Ogni campo ha una descrizione in parole semplici che guida l’AI', 'Every field has a plain-language description that guides the AI'))
-    for (const fid of ['p_netto', 'p_tfr', 'p_ferie']) {
-      const f = payslips.fields.find((x) => x.id === fid)
+    for (const fid of P.describe) {
+      const f = shown.fields.find((x) => x.id === fid)
       await moveTo(await d.inputWithValue(f.description, 'input'), { dx: -200 })
       await wait(1100)
     }
     await caption(t('Parole chiave delle cartelle e una definizione «come riconoscerlo» scelgono il profilo giusto', 'Folder keywords and a “how to recognise it” definition pick the right profile'))
     await d.scrollToText(t('Profili documento (JSON)', 'Document profiles (JSON)'), 90)
-    await moveTo(await d.inputWithValue(payslips.matchKeywords, 'input'))
+    await moveTo(await d.inputWithValue(shown.matchKeywords, 'input'))
     await wait(1100)
-    await moveTo(await d.inputWithValue(payslips.recognition, 'textarea'), { dx: -300 })
+    await moveTo(await d.inputWithValue(shown.recognition, 'textarea'), { dx: -300 })
     await wait(1600)
 
     await caption(null)
     await d.smoothScroll(null, 0)
     await click(nav(t('Cronologia', 'History')))
     await page.waitForURL('**/history'); await settle(700)
-    await caption(t('Lo stesso motore legge i cedolini…', 'The same engine reads payslips…'))
-    await click(page.locator('.card', { hasText: FILES.cedolino }).first().getByRole('button', { name: t('Apri', 'Open') }))
+    await caption(FILM.text.sameEngine)
+    await click(page.locator('.card', { hasText: P.extractorFile }).first().getByRole('button', { name: t('Apri', 'Open') }))
     await page.waitForURL('**/extractor'); await settle(1600)
     await moveTo(page.locator('.ext-canvas img').first(), { dy: 40 })
     await wait(1100)
-    await moveTo(page.getByText(label('prof_cedolini', 'p_netto'), { exact: true }).last(), { dx: 160 })
+    await moveTo(page.getByText(fieldLabel(P.extractorField), { exact: true }).last(), { dx: 160 })
     await wait(1500)
-    await caption(t('…i contratti di locazione, e risponde a domande sul testo', '…leases too — and answers questions about the text'))
+    await caption(FILM.text.chatToo)
     await click(nav(t('Cronologia', 'History')))
     await page.waitForURL('**/history'); await settle(700)
-    await click(page.locator('.card', { hasText: FILES.locazione }).first().getByRole('button', { name: t('Apri', 'Open') }))
+    await click(page.locator('.card', { hasText: P.chatFile }).first().getByRole('button', { name: t('Apri', 'Open') }))
     await page.waitForURL('**/extractor'); await settle(1400)
     await click(page.getByRole('button', { name: 'Chat' }).first())
     await settle(900)
-    await moveTo(page.locator('text=/6 mesi|6 months/').first(), { dx: 80 }).catch(() => {})
-    await wait(1800)
-    await moveTo(page.locator('text=/2\.350,00|2,350\.00/').first(), { dx: 80 }).catch(() => {})
-    await wait(2200)
+    for (const [i, text] of P.chatHover.entries()) {
+      await moveTo(page.getByText(text).first(), { dx: 80 }).catch(() => {})
+      await wait(i ? 2200 : 1800)
+    }
     await d.outro(t('Un motore · ogni documento · i tuoi campi', 'One engine · any document · your fields'))
   },
 
   // Tracciabilità: pertinenza, fonte di ogni valore, storico delle run, errori.
   trust: async (d) => {
     const { page, wait, moveTo, click, caption, settle, nav, rowName, tab, jobCard } = d
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await page.goto(`${BASE}/polizza/jobs/${batchId('decision')}`)
     await settle(900)
     await d.start({ kicker: 'PDF Extractor', title: t('Tracciabile <span>per scelta</span>', 'Traceable <span>by design</span>'), sub: t('Ogni valore con la sua fonte, ogni elaborazione registrata', 'Every value comes with its source — every run is on record') })
 
-    await click(rowName(INVOICES[0].dossier))
+    await click(rowName(FILM.decision.firstRow))
     await wait(700)
     await click(tab(t('Pertinenza', 'Relevance')))
     await wait(400)
     await caption(t('Prima di estrarre verifica che il documento corrisponda al profilo', 'Before extracting, it checks the document really matches the profile'))
-    await moveTo(page.locator('.jb-detail').getByText(t('fattura', 'invoice'), { exact: true }).first())
+    await moveTo(page.locator('.jb-detail').getByText(FILM.decision.relevanceWord, { exact: true }).first())
     await wait(1800)
     await click(tab(t('Valori', 'Values')))
     await wait(500)
     await caption(t('Ogni valore porta al suo file e alla sua pagina', 'Every value links back to its file and page'))
-    const totRow = page.locator('.jb-detail tr', { hasText: label('prof_fatture', 'f_tot') }).first()
-    const src = totRow.locator('td.src a').first()
+    const srcRow = page.locator('.jb-detail tr', { hasText: fieldLabel(FILM.decision.valueField) }).first()
+    const src = srcRow.locator('td.src a').first()
     await moveTo(src)
     await wait(1200)
     // Il link apre il PDF in una nuova scheda: qui lo si segue nella stessa, per vederlo.
@@ -544,13 +550,13 @@ const FILMS = {
     await wait(600)
     await caption(t('Il PDF originale, alla pagina citata', 'The original PDF, opened at the cited page'), { top: true })
     await d.holdScreenshots(3600)
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await page.goto(`${BASE}/polizza/jobs/${batchId('decision')}`)
     await page.locator('.jb-table tbody tr').first().waitFor(); await settle(900)
 
-    await click(rowName(MISMATCH.dossier))
+    await click(rowName(FILM.decision.mismatch))
     await wait(800)
     await caption(t('Se non corrisponde si ferma e suggerisce il profilo giusto: decidi tu', 'If it doesn’t match, it stops and suggests the right profile — you decide'))
-    await moveTo(page.locator('.jb-detail').getByText(MISMATCH.precheck.suggestion.name).first())
+    await moveTo(page.locator('.jb-detail').getByText(FILM.decision.suggestion).first())
     await wait(1400)
     await moveTo(page.locator('.jb-detail').locator('button', { hasText: t('Procedi comunque', 'Proceed anyway') }).first())
     await wait(1500)
@@ -560,16 +566,16 @@ const FILMS = {
     await page.waitForURL('**/polizza/jobs'); await page.locator('.jb-card').first().waitFor(); await settle(700)
     await click(jobCard(t('Estrazioni singole', 'Single extractions')).locator('a,button', { hasText: t('Apri', 'Open') }).last())
     await page.waitForURL('**/polizza/jobs/**'); await page.locator('.jb-table tbody tr').first().waitFor(); await settle(800)
-    await click(rowName(SINGLES.meridiane.dossier))
+    await click(rowName(singleDossier('history')))
     await wait(700)
     await click(tab(t('Storico', 'History')))
     await wait(500)
     await page.locator('.jb-detail details summary').first().click().catch(() => {})
     await wait(500)
     await caption(t('Ogni elaborazione resta registrata: cosa è cambiato e perché', 'Every run is on record: what changed, and why'))
-    await moveTo(page.locator('.jb-detail tr', { hasText: label('prof_fornitura', 'c_scad') }).first(), { dx: 60 })
+    await moveTo(page.locator('.jb-detail tr', { hasText: fieldLabel(FILM.historyFields[0]) }).first(), { dx: 60 })
     await wait(1600)
-    await moveTo(page.locator('.jb-detail tr', { hasText: label('prof_fornitura', 'c_val') }).first(), { dx: 60 })
+    await moveTo(page.locator('.jb-detail tr', { hasText: fieldLabel(FILM.historyFields[1]) }).first(), { dx: 60 })
     await wait(1300)
     await click(tab('Log'))
     await wait(500)
@@ -580,9 +586,9 @@ const FILMS = {
     await caption(null)
     await click(nav(t('Elaborazioni', 'Jobs')))
     await page.waitForURL('**/polizza/jobs'); await page.locator('.jb-card').first().waitFor(); await settle(700)
-    await click(jobCard(BATCHES.leases).locator('a,button', { hasText: t('Apri', 'Open') }).last())
+    await click(jobCard(batchLabel('errors')).locator('a,button', { hasText: t('Apri', 'Open') }).last())
     await page.waitForURL('**/polizza/jobs/**'); await page.locator('.jb-table tbody tr').first().waitFor(); await settle(800)
-    await click(rowName(LEASE_ERROR.dossier))
+    await click(rowName(FILM.errorRow))
     await wait(800)
     await caption(t('Una scansione illeggibile viene segnalata, non indovinata: meglio vuoto che sbagliato', 'An unreadable scan is flagged, not guessed: better empty than wrong'))
     await moveTo(page.locator('.jb-detail').getByText(/OCR:/).or(page.locator('.jb-table').getByText(/OCR:/)).first())
@@ -592,10 +598,10 @@ const FILMS = {
 
   // Riepiloghi: creazione dal batch, aggiunta di un altro batch, personalizza, Excel.
   dashboards: async (d) => {
-    const { page, wait, moveTo, click, caption, settle, nav, button } = d
+    const { page, wait, moveTo, click, caption, settle, nav, button, jobCard } = d
     // Rilanciabile: il riepilogo creato dal filmato non deve esistere già.
-    for (const s of await summaries()) if (s.name === SPEND) await api('DELETE', `/api/polizza/summaries/${s.id}`)
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchArchive}`)
+    for (const s of await summaries()) if (s.name === NEW_SUMMARY) await api('DELETE', `/api/polizza/summaries/${s.id}`)
+    await page.goto(`${BASE}/polizza/jobs/${batchId('archive')}`)
     await settle(900)
     await d.start({ kicker: 'PDF Extractor', title: t('Dai documenti <span>ai numeri</span>', 'From documents <span>to decisions</span>'), sub: t('Riepiloghi ed Excel, direttamente dai dati estratti', 'Dashboards and Excel, straight from the extracted data') })
 
@@ -606,9 +612,9 @@ const FILMS = {
     await click(button(t('Crea riepilogo', 'Create summary')))
     await wait(900)
     await page.keyboard.press('Control+A')
-    await page.keyboard.type(SPEND, { delay: 45 })
+    await page.keyboard.type(NEW_SUMMARY, { delay: 45 })
     await wait(500)
-    await moveTo(page.locator('select', { has: page.locator('option', { hasText: label('prof_fatture', 'f_data') }) }).first())
+    await moveTo(page.locator('select', { has: page.locator('option', { hasText: fieldLabel(FILM.summary.dateField) }) }).first())
     await wait(1000)
     await click(button(t('Crea e apri', 'Create and open')))
     await page.waitForURL('**/polizza/riepiloghi/**'); await settle(1400)
@@ -621,13 +627,13 @@ const FILMS = {
     await caption(t('Aggiungi altri batch quando vuoi: il cruscotto si aggiorna', 'Add more batches any time — the dashboard updates'), { top: true })
     await click(nav(t('Elaborazioni', 'Jobs')))
     await page.waitForURL('**/polizza/jobs'); await page.locator('.jb-card').first().waitFor(); await settle(700)
-    await click(button(t('Apri il batch', 'Open batch')))
+    await click(jobCard(batchLabel('latest')).locator('a,button', { hasText: t('Apri', 'Open') }).last())
     await page.waitForURL('**/polizza/jobs/**'); await page.locator('.jb-table tbody tr').first().waitFor(); await settle(800)
     await click(page.locator('.jb-table thead input[type=checkbox]').first())
     await wait(700)
     await click(button(t('Aggiungi a un riepilogo', 'Add to a summary')))
     await wait(700)
-    await click(page.getByRole('menuitem', { name: new RegExp(SPEND) }).first().or(page.locator('[role=menu] *', { hasText: SPEND }).last()))
+    await click(page.getByRole('menuitem', { name: new RegExp(NEW_SUMMARY) }).first().or(page.locator('[role=menu] *', { hasText: NEW_SUMMARY }).last()))
     await wait(1300)
     await click(page.locator('[role=status] a', { hasText: t('Apri', 'Open') }).first())
     await page.waitForURL('**/polizza/riepiloghi/**'); await settle(1400)
@@ -636,17 +642,17 @@ const FILMS = {
     await moveTo(page.getByText(t('In scadenza nei prossimi 90 giorni', 'Expiring in the next 90 days')).first(), { dy: 50 })
     await wait(1500)
 
-    await caption(t('Personalizzalo: per esempio, raggruppa per fornitore', 'Make it yours — for example, group by supplier'))
+    await caption(FILM.text.groupBy)
     await click(button(t('Personalizza', 'Customize')))
     await wait(700)
     const group = page.locator('label', { has: page.locator('.rp-lbl', { hasText: t('Raggruppa per', 'Group by') }) }).locator('select').first()
     await moveTo(group)
     await wait(500)
-    await group.selectOption('f_forn')
+    await group.selectOption(FILM.summary.groupFieldId)
     await wait(700)
     await click(page.getByRole('button', { name: t('Salva', 'Save'), exact: true }).first())
     await settle(900)
-    await moveTo(page.locator('.rp-card', { hasText: label('prof_fatture', 'f_forn') }).first(), { dy: 20 })
+    await moveTo(page.locator('.rp-card', { hasText: label(FILM.summary.dateField[0], FILM.summary.groupFieldId) }).first(), { dy: 20 })
     await wait(1800)
     await caption(t('Tabella per anno, dettaglio per campo…', 'Year-by-year table, field-by-field detail…'))
     await click(page.getByRole('button', { name: t('Tabella per anno', 'Table by year'), exact: true }).first())

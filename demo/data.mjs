@@ -580,3 +580,87 @@ export const SETTINGS_TEXT = {
 
 // Riepiloghi creati con l'API dell'app da capture.mjs / video.mjs.
 export const SUMMARY_NAMES = { invoices: 'Fatture fornitori · 2024–2026', energy: 'Energia sede · 2025–2026' }
+
+// ─── Piano del seed: batch ed estrazioni singole (letto da seed.mjs) ──────────
+// `ago` in secondi prima di adesso, `step` tra un job e il successivo del batch.
+const HOUR = 3600
+const DAY = 24 * HOUR
+export const PLAN = {
+  activeProfileId: 'prof_fatture',
+  batches: [
+    {
+      key: 'invoices', label: BATCHES.invoices, email: DEMO_USER, ago: 2 * DAY + 5 * HOUR, step: 140,
+      jobs: [
+        ...INVOICES.map((inv) => ({ dossier: inv.dossier, profileId: 'prof_fatture', files: [inv.file], state: invoiceState(inv) })),
+        { dossier: MISMATCH.dossier, profileId: 'prof_fatture', files: [FILES.cv], status: 'mismatch', error: MISMATCH.error, precheck: MISMATCH.precheck },
+      ],
+    },
+    {
+      key: 'contracts', label: BATCHES.contracts, email: TEAM[1], ago: 3 * HOUR, step: 300,
+      jobs: SUPPLY_CONTRACTS.map((c) => ({ dossier: c.dossier, profileId: 'prof_fornitura', files: c.files, state: c.state, status: c.status, progress: c.progress })),
+    },
+    {
+      key: 'payslips', label: BATCHES.payslips, email: TEAM[2], ago: 4 * DAY + 2 * HOUR, step: 90,
+      jobs: PAYSLIPS.map((row, i) => {
+        const file = i === 0 ? FILES.cedolino : payslipFile(row[0])
+        return { dossier: row[0], profileId: 'prof_cedolini', files: [file], state: payslipState(row, file) }
+      }),
+    },
+    {
+      key: 'leases', label: BATCHES.leases, email: DEMO_USER, ago: 6 * DAY + 7 * HOUR, step: 200,
+      jobs: [
+        ...LEASES.map((l) => ({ dossier: l.dossier, profileId: 'prof_locazione', files: [l.file], state: leaseState(l) })),
+        { dossier: LEASE_ERROR.dossier, profileId: 'prof_locazione', files: [LEASE_ERROR.file], status: 'error', error: LEASE_ERROR.error },
+      ],
+    },
+    {
+      key: 'archive', label: BATCHES.archive, email: TEAM[1], ago: 12 * DAY + 3 * HOUR, step: 75,
+      jobs: archiveInvoices().map((inv) => ({ dossier: inv.dossier, profileId: 'prof_fatture', files: [inv.file], state: invoiceState(inv) })),
+    },
+    {
+      key: 'bills', label: BATCHES.bills, email: TEAM[1], ago: 9 * DAY + 6 * HOUR, step: 60,
+      jobs: monthlyBills().map((b) => ({ dossier: b.dossier, profileId: 'prof_utenze', files: [b.file], state: billState(b) })),
+    },
+  ],
+  singles: [
+    {
+      key: 'meridiane', email: DEMO_USER, dossier: SINGLES.meridiane.dossier, profileId: 'prof_fornitura',
+      files: DOSSIER_MERIDIANE.files, state: DOSSIER_MERIDIANE.state, ago: 50 * 60, runs: [{ ago: 3 * DAY, ...SINGLES.meridiane.previous }],
+    },
+    { key: 'cv', ...SINGLES.cv, profileId: 'prof_cv', files: [FILES.cv], ago: 5 * HOUR },
+    { key: 'quote', ...SINGLES.quote, profileId: 'prof_preventivi', files: [FILES.preventivo], ago: 26 * HOUR },
+    { key: 'energy', ...SINGLES.energy, profileId: 'prof_utenze', files: [FILES.bolletta], ago: 3 * DAY },
+  ],
+}
+
+// ─── Regia dei video (video.mjs): quali batch, pratiche e campi mostrare ──────
+const fieldOf = (profileId, fieldId) => [profileId, fieldId]
+export const FILM = {
+  // ruolo → chiave del batch in PLAN
+  batches: { decision: 'invoices', running: 'contracts', archive: 'archive', latest: 'invoices', errors: 'leases' },
+  // ruolo → chiave della singola in PLAN
+  singles: { dossier: 'meridiane', history: 'meridiane' },
+  decision: { firstRow: INVOICES[0].dossier, valueField: fieldOf('prof_fatture', 'f_tot'), relevanceWord: 'fattura', mismatch: MISMATCH.dossier, suggestion: MISMATCH.precheck.suggestion.name },
+  runningRows: [SUPPLY_CONTRACTS[0].dossier, SUPPLY_CONTRACTS[3].dossier, SUPPLY_CONTRACTS[4].dossier],
+  dossierFields: [fieldOf('prof_fornitura', 'c_scad'), fieldOf('prof_fornitura', 'c_audit')],
+  historyFields: [fieldOf('prof_fornitura', 'c_scad'), fieldOf('prof_fornitura', 'c_val')],
+  errorRow: LEASE_ERROR.dossier,
+  skippedFolder: 'Annullate',
+  summary: {
+    name: SUMMARY_NAMES.invoices, batches: ['archive', 'invoices'], dateField: fieldOf('prof_fatture', 'f_data'),
+    groupFieldId: 'f_forn', newName: 'Spesa fornitori 2024–2026',
+  },
+  profiles: {
+    hover: ['prof_fatture', 'prof_fornitura', 'prof_locazione', 'prof_cedolini', 'prof_cv'],
+    apply: 'prof_cedolini', describe: ['p_netto', 'p_tfr', 'p_ferie'],
+    extractorFile: FILES.cedolino, extractorField: fieldOf('prof_cedolini', 'p_netto'),
+    chatFile: FILES.locazione, chatHover: ['6 mesi', '2.350,00'],
+  },
+  text: {
+    profilesList: 'Un profilo per ogni tipo di documento: fatture, contratti, cedolini, CV…',
+    sameEngine: 'Lo stesso motore legge i cedolini…',
+    chatToo: '…i contratti di locazione, e risponde a domande sul testo',
+    groupBy: 'Personalizzalo: per esempio, raggruppa per fornitore',
+    skipped: 'Bozze e documenti annullati restano fuori, con regole che decidi tu',
+  },
+}

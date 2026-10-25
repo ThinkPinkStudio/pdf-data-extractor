@@ -50,7 +50,7 @@ async function newPage(theme = 'dark', { width = 1440, height = 900 } = {}) {
       document.documentElement.setAttribute('data-theme', theme)
     }
     if (document.head) inject(); else document.addEventListener('DOMContentLoaded', inject)
-  }, { css: CSS, theme, jobId: IDS.dossierMeridiane })
+  }, { css: CSS, theme, jobId: IDS.singles.meridiane })
   await ctx.addInitScript(RELABEL)
   const page = await ctx.newPage()
   for (let attempt = 1; ; attempt++) {
@@ -127,9 +127,9 @@ async function ensureSummaries(page) {
     return (d.jobs || []).filter((j) => j.status === 'done').map((j) => j.jobId)
   }
   const want = [
-    { name: 'Fatture fornitori · 2024–2026', batches: [IDS.batchArchive, IDS.batchInvoices], yearFieldId: 'f_data' },
+    { name: 'Fatture fornitori · 2024–2026', batches: [IDS.batches.archive, IDS.batches.invoices], yearFieldId: 'f_data' },
     {
-      name: 'Energia sede · 2025–2026', batches: [IDS.batchBills], yearFieldId: 'u_inizio',
+      name: 'Energia sede · 2025–2026', batches: [IDS.batches.bills], yearFieldId: 'u_inizio',
       prefs: { ops: { u_pot: ['avg'] }, highlights: [{ fieldId: 'u_cons', op: 'sum' }, { fieldId: 'u_tot', op: 'sum' }, { fieldId: 'u_tot', op: 'avg' }] },
     },
   ]
@@ -190,13 +190,13 @@ const SHOTS = [
   }],
   ['05_batch_tabella', async () => {
     const page = await newPage('dark')
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batches.invoices}`)
     await settle(page, 1200)
     await shot(page, '05_batch_tabella')
   }],
   ['05b_batch_dettaglio_valori', async () => {
     const page = await newPage('dark')
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batches.invoices}`)
     await settle(page, 1000)
     await openJobRow(page, 'Officine Meridiane')
     await detailTab(page, 'Valori')
@@ -204,14 +204,14 @@ const SHOTS = [
   }],
   ['05c_batch_non_pertinente', async () => {
     const page = await newPage('dark')
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchInvoices}`)
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batches.invoices}`)
     await settle(page, 1000)
     await openJobRow(page, 'Documenti vari')
     await shot(page, '05c_batch_non_pertinente')
   }],
   ['05d_batch_in_corso', async () => {
     const page = await newPage('dark')
-    await page.goto(`${BASE}/polizza/jobs/${IDS.batchContracts}`)
+    await page.goto(`${BASE}/polizza/jobs/${IDS.batches.contracts}`)
     await settle(page, 1200)
     await openJobRow(page, 'Tessitura Brera Nova')
     await detailTab(page, 'Valori')

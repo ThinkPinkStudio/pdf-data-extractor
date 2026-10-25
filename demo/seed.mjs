@@ -11,12 +11,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { data, SUFFIX } from './lang.mjs'
 
-const {
-  DEMO_USER, TEAM, PROFILES, GENERIC_PROFILES, profileById, FILES, DOSSIER_MERIDIANE,
-  INVOICES, invoiceState, PAYSLIPS, payslipState, payslipFile, LEASES, leaseState, SUPPLY_CONTRACTS,
-  archiveInvoices, monthlyBills, billState, TEXT, BATCHES, MISMATCH, LEASE_ERROR, SINGLES, SESSIONS, SETTINGS_TEXT,
-} = data
-const [, DAVID, SARAH] = TEAM
+// Cosa inserire (batch, singole, cronologia) lo decide il catalogo: qui solo come.
+const { DEMO_USER, TEAM, PROFILES, GENERIC_PROFILES, profileById, TEXT, PLAN, SESSIONS, SETTINGS_TEXT } = data
 
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(join(here, '..', 'web', 'package.json'))
@@ -138,7 +134,7 @@ const HAS_REL = relCol.length > 0
 // ─── Utenti e impostazioni ─────────────────────────────────────────────────────
 for (const e of TEAM) await q('INSERT INTO users (email, created_at) VALUES ($1,$2)', [e, NOW - 90 * D])
 
-const fatture = profileById.prof_fatture
+const active = profileById[PLAN.activeProfileId]
 const settings = {
   ollamaUrl: 'http://ollama.lan:11434',
   ollamaModel: 'qwen2.5:7b-instruct',
@@ -146,8 +142,8 @@ const settings = {
   polizzaWholeDossierModel: 'qwen2.5:7b-instruct',
   embeddingModel: 'bge-m3',
   polizzaProfiles: JSON.stringify(PROFILES),
-  polizzaFields: JSON.stringify(fatture.fields),
-  polizzaActiveProfileId: fatture.id,
+  polizzaFields: JSON.stringify(active.fields),
+  polizzaActiveProfileId: active.id,
   polizzaConsensusPasses: '3',
   polizzaPrecheckMode: 'keywords',
   profiles: JSON.stringify(GENERIC_PROFILES),
@@ -160,95 +156,25 @@ const settings = {
 }
 for (const [k, v] of Object.entries(settings)) await q('INSERT INTO settings (key, value) VALUES ($1,$2)', [k, String(v)])
 
-// ─── Batch ─────────────────────────────────────────────────────────────────────
-const ids = {}
-
-// 1) Fatture passive di settembre: una cartella per fornitore + un documento fuori posto.
-{
-  const t0 = NOW - 2 * D - 5 * H
-  const b = await insertBatch(BATCHES.invoices, DEMO_USER, t0)
+// ─── Batch ed estrazioni singole del piano ─────────────────────────────────────
+const ids = { batches: {}, singles: {} }
+for (const b of PLAN.batches) {
+  const t0 = NOW - b.ago
+  const batchId = await insertBatch(b.label, b.email, t0)
   let i = 0
-  for (const inv of INVOICES) {
-    await insertJob({ batchId: b, email: DEMO_USER, dossier: inv.dossier, profile: fatture, files: [inv.file], state: invoiceState(inv), created: t0 + (i++) * 140 })
-  }
-  await insertJob({
-    batchId: b, email: DEMO_USER, dossier: MISMATCH.dossier, profile: fatture, files: [FILES.cv], status: 'mismatch', created: t0 + i * 140,
-    error: MISMATCH.error, precheck: MISMATCH.precheck,
-  })
-  ids.batchInvoices = b
-}
-
-// 2) Contratti fornitori: rinnovi 2027 (uno in corso, uno in coda).
-{
-  const t0 = NOW - 3 * H
-  const b = await insertBatch(BATCHES.contracts, DAVID, t0)
-  let i = 0
-  for (const c of SUPPLY_CONTRACTS) {
+  for (const j of b.jobs) {
     await insertJob({
-      batchId: b, email: DAVID, dossier: c.dossier, profile: profileById.prof_fornitura, files: c.files,
-      state: c.state, status: c.status, created: t0 + (i++) * 300, progress: c.progress || {},
+      batchId, email: b.email, dossier: j.dossier, profile: profileById[j.profileId], files: j.files, state: j.state || {},
+      status: j.status || 'done', created: t0 + (i++) * (b.step || 120), progress: j.progress || {}, error: j.error || null, precheck: j.precheck || null,
     })
   }
-  ids.batchContracts = b
+  ids.batches[b.key] = batchId
 }
-
-// 3) Cedolini del mese.
-{
-  const t0 = NOW - 4 * D - 2 * H
-  const b = await insertBatch(BATCHES.payslips, SARAH, t0)
-  let i = 0
-  for (const row of PAYSLIPS) {
-    const file = i === 0 ? FILES.cedolino : payslipFile(row[0])
-    await insertJob({ batchId: b, email: SARAH, dossier: row[0], profile: profileById.prof_cedolini, files: [file], state: payslipState(row, file), created: t0 + (i++) * 90 })
-  }
-}
-
-// 4) Locazioni: sede e punti vendita (una scansione illeggibile).
-{
-  const t0 = NOW - 6 * D - 7 * H
-  const b = await insertBatch(BATCHES.leases, DEMO_USER, t0)
-  let i = 0
-  for (const l of LEASES) {
-    await insertJob({ batchId: b, email: DEMO_USER, dossier: l.dossier, profile: profileById.prof_locazione, files: [l.file], state: leaseState(l), created: t0 + (i++) * 200 })
-  }
-  await insertJob({
-    batchId: b, email: DEMO_USER, dossier: LEASE_ERROR.dossier, profile: profileById.prof_locazione, files: [LEASE_ERROR.file],
-    status: 'error', created: t0 + i * 200, error: LEASE_ERROR.error,
+for (const s of PLAN.singles) {
+  ids.singles[s.key] = await insertJob({
+    email: s.email, dossier: s.dossier, profile: profileById[s.profileId], files: s.files, state: s.state, created: NOW - s.ago,
+    runs: (s.runs || []).map(({ ago, ...r }) => ({ ...r, at: NOW - ago })),
   })
-  ids.batchLeases = b
-}
-
-// 5) Archivio fatture 2024–2025 (per il riepilogo pluriennale).
-{
-  const t0 = NOW - 12 * D - 3 * H
-  const b = await insertBatch(BATCHES.archive, DAVID, t0)
-  let i = 0
-  for (const inv of archiveInvoices()) {
-    await insertJob({ batchId: b, email: DAVID, dossier: inv.dossier, profile: fatture, files: [inv.file], state: invoiceState(inv), created: t0 + (i++) * 75 })
-  }
-  ids.batchArchive = b
-}
-
-// 6) Bollette mensili della sede (gen 2025 – ago 2026).
-{
-  const t0 = NOW - 9 * D - 6 * H
-  const b = await insertBatch(BATCHES.bills, DAVID, t0)
-  let i = 0
-  for (const bill of monthlyBills()) {
-    await insertJob({ batchId: b, email: DAVID, dossier: bill.dossier, profile: profileById.prof_utenze, files: [bill.file], state: billState(bill), created: t0 + (i++) * 60 })
-  }
-  ids.batchBills = b
-}
-
-// ─── Estrazioni singole (fuori batch) ──────────────────────────────────────────
-ids.dossierMeridiane = await insertJob({
-  email: DEMO_USER, dossier: SINGLES.meridiane.dossier, profile: profileById.prof_fornitura, files: DOSSIER_MERIDIANE.files,
-  state: DOSSIER_MERIDIANE.state, created: NOW - 50 * 60,
-  runs: [{ at: NOW - 3 * D, ...SINGLES.meridiane.previous }],
-})
-for (const [key, profileId, created, file] of [['cv', 'prof_cv', NOW - 5 * H, FILES.cv], ['quote', 'prof_preventivi', NOW - 26 * H, FILES.preventivo], ['energy', 'prof_utenze', NOW - 3 * D, FILES.bolletta]]) {
-  const { email, dossier, state } = SINGLES[key]
-  await insertJob({ email, dossier, profile: profileById[profileId], files: [file], created, state })
 }
 
 // ─── Cronologia dell'Estrattore singolo ────────────────────────────────────────
@@ -261,10 +187,12 @@ for (const s of SESSIONS(H, D)) {
 }
 
 // ─── Log di attività (pagina Sicurezza/Log) ────────────────────────────────────
+const [first] = PLAN.batches
 const actions = [
-  [DEMO_USER, 'auth.login', null, 40 * 60], [DEMO_USER, 'polizza.job.create', SINGLES.meridiane.dossier, 50 * 60],
-  [DAVID, 'polizza.batch.create', BATCHES.contracts, 3 * H], [DEMO_USER, 'extract', FILES.ftMeridiane, 36 * 60],
-  [SARAH, 'polizza.export', BATCHES.payslips, 4 * D - 3 * H],
+  [DEMO_USER, 'auth.login', null, 40 * 60],
+  [PLAN.singles[0].email, 'polizza.job.create', PLAN.singles[0].dossier, PLAN.singles[0].ago],
+  [first.email, 'polizza.batch.create', first.label, first.ago],
+  [DEMO_USER, 'extract', SESSIONS(H, D)[0].file, 36 * 60],
 ]
 for (const [email, action, resource, ago] of actions) {
   await q('INSERT INTO action_logs (timestamp, email, action, resource, metadata, ip, user_agent, success) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)',

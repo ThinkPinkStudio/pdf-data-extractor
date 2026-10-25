@@ -17,17 +17,17 @@ PostgreSQL **locale** e separato, mai quello di produzione.
 
 | File | Ruolo |
 |---|---|
-| `data.mjs` | Catalogo: aziende fittizie, 8 profili documento (fatture, contratti di fornitura, locazioni, DDT, cedolini, CV, preventivi, bollette), valori estratti, chat, testi del seed |
-| `data-en.mjs` | Lo stesso catalogo in inglese (azienda irlandese fittizia, importi 1,234.56, IVA 23%) |
+| `data.mjs` | Catalogo: aziende fittizie, 8 profili documento (fatture, contratti di fornitura, locazioni, DDT, cedolini, CV, preventivi, bollette), valori estratti, chat, testi del seed, piano del seed (`PLAN`) e regia dei video (`FILM`) |
+| `data-en.mjs` | Catalogo inglese a tema finanziario: società irlandese fittizia che ricostruisce dati da pratiche di mutuo (offerta, offerta rivista, perizia, buste paga), finanziamenti alle imprese, estratti conto di portafogli titoli, contratti fornitori, affitti; importi 1,234.56, IVA 23% |
 | `lang.mjs` | Sceglie il catalogo da `DEMO_LANG` (`en` → inglese, file generati col suffisso `-en`) |
 | `generate-pdfs.mjs` | Crea i PDF di esempio in `pdfs/` e l'albero cartelle per la pagina bulk in `bulk/` |
 | `generate-pdfs-en.mjs` | Gli stessi documenti in inglese in `pdfs-en/` e `bulk-en/` |
 | `pdf-layout.mjs` | Motore di impaginazione dei PDF, comune ai due generatori |
-| `seed.mjs` | Svuota e ripopola il DB demo: profili, batch (anche archivi 2024–2026 per i grafici), esiti di pertinenza, storico run, cronologia (rifiuta un `DATABASE_URL` non locale) |
+| `seed.mjs` | Svuota e ripopola il DB demo con il `PLAN` del catalogo: profili, batch (anche archivi pluriennali per i grafici), esiti di pertinenza, storico run, cronologia (rifiuta un `DATABASE_URL` non locale) |
 | `capture.mjs` | Crea i Riepiloghi con l'API reale dell'app e scatta gli screenshot (Playwright, 2× retina) in `screenshots/` — solo italiano |
 | `theme-omeganodes.css` | Token colore OmegaNodes (tema scuro e chiaro) + logo neutro |
 | `relabel.js` | Etichette non assicurative a video (polizza → pratica, policy → dossier) |
-| `video.mjs` | Registra i video dimostrativi (1920×1080, didascalie, cursore) in `video/pdf-extractor-<filmato>[-en].mp4` |
+| `video.mjs` | Registra i video dimostrativi (1920×1080, didascalie, cursore) in `video/pdf-extractor-<filmato>[-en].mp4`; batch, pratiche e campi da mostrare li prende da `FILM` del catalogo |
 
 ## Come rigenerare
 

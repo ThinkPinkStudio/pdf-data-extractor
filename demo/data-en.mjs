@@ -1,6 +1,9 @@
-// English DEMO catalogue (all invented), same shape as data.mjs: an Irish
-// furniture retailer, euro amounts in 1,234.56 format, dates DD/MM/YYYY. Used by
-// generate-pdfs-en.mjs and, with DEMO_LANG=en, by seed.mjs and video.mjs.
+// English DEMO catalogue (all invented), same shape as data.mjs, built around
+// financial documents: a Dublin firm that services loan books and manages client
+// portfolios has to rebuild its data from thousands of PDFs — mortgage files,
+// business loan agreements, portfolio statements, vendor contracts, leases.
+// Euro amounts in 1,234.56 format, dates DD/MM/YYYY. Used by generate-pdfs-en.mjs
+// and, with DEMO_LANG=en, by seed.mjs and video.mjs.
 
 export const DEMO_USER = 'emma.walsh@example.com'
 export const TEAM = ['emma.walsh@example.com', 'david.connolly@example.com', 'sarah.gallagher@example.com']
@@ -8,26 +11,154 @@ const [, DAVID, SARAH] = TEAM
 
 // ─── Fictional companies ──────────────────────────────────────────────────────
 export const CLIENT = {
-  name: 'Brightwood Interiors Ltd',
-  addr: ['Unit 18, Weavers Park', 'Dublin 12, D12 X2K7'],
+  name: 'Halden Finance Ltd',
+  addr: ['3 Grand Canal Square', 'Dublin 2, D02 X576'],
   vat: 'IE6388047V',
 }
 
 export const CO = {
-  meridiane: { name: 'Meridian Metalworks Ltd', addr: ['14 Harbour Road', 'Cork T12 HX93'], vat: 'IE9356720K', color: [0.12, 0.29, 0.33], tag: 'Precision metal fabrication' },
-  trevalli: { name: 'Three Valleys Logistics Ltd', addr: ['Ballymount Industrial Estate', 'Dublin 24, D24 E5W2'], vat: 'IE3518440H', color: [0.45, 0.13, 0.16], tag: 'Freight and contract logistics' },
+  harbour: { name: 'Harbour Bank DAC', addr: ['1 Harbour Plaza', 'Dublin 1, D01 K7W2'], vat: 'IE9356720K', color: [0.07, 0.27, 0.45], tag: 'Mortgages and business lending' },
+  valuer: { name: 'Corrib Valuers Ltd', addr: ['8 Mill Street', 'Galway H91 T2K3'], vat: 'IE3518440H', color: [0.2, 0.36, 0.25], tag: 'Chartered surveyors · residential valuation' },
+  brightwood: { name: 'Brightwood Interiors Ltd', addr: ['Unit 18, Weavers Park', 'Dublin 12, D12 X2K7'], vat: 'IE1204831T', color: [0.27, 0.3, 0.36], tag: 'Payroll processed by Liffey Payroll Services' },
   nordwave: { name: 'Nordwave Digital Ltd', addr: ['44 Grand Canal Quay', 'Dublin 2, D02 R590'], vat: 'IE1204830T', color: [0.16, 0.2, 0.42], tag: 'Software, cloud and digital services' },
-  brera: { name: 'Liffey Weaving Mills Ltd', addr: ['Mill Lane', 'Kilkenny R95 YD76'], vat: 'IE2741690B', color: [0.33, 0.24, 0.14], tag: 'Upholstery fabrics since 1962' },
-  alba: { name: 'Alba Consulting Ltd', addr: ['21 Merrion Square', 'Dublin 2, D02 VK51'], vat: 'IE2077340L', color: [0.2, 0.36, 0.25], tag: 'Operations and process consulting' },
-  colle: { name: 'Hillcrest Property Ltd', addr: ['15 Eyre Square', 'Galway H91 F2X4'], vat: 'IE3980120M', color: [0.25, 0.25, 0.28], tag: '' },
-  energia: { name: 'Lumen Energy Ltd', addr: ['210 Airside Business Park', 'Swords, Co. Dublin K67 P6Y2'], vat: 'IE0655480D', color: [0.05, 0.42, 0.47], tag: 'Electricity and gas for business' },
+  liffey: { name: 'Liffey Weaving Mills Ltd', addr: ['Mill Lane', 'Kilkenny R95 YD76'], vat: 'IE2741690B', color: [0.33, 0.24, 0.14], tag: 'Upholstery fabrics since 1962' },
+  atlantic: { name: 'Atlantic Securities Ltd', addr: ['22 Fitzwilliam Place', 'Dublin 2, D02 YH68'], vat: 'IE0655480D', color: [0.05, 0.32, 0.42], tag: 'Custody and brokerage' },
+  meridian: { name: 'Meridian Data Services Ltd', addr: ['14 Harbour Road', 'Cork T12 HX93'], vat: 'IE9356721L', color: [0.12, 0.29, 0.33], tag: 'Market data feeds and secure hosting' },
+  lee: { name: 'Lee Estates Ltd', addr: ['15 South Mall', 'Cork T12 F8P2'], vat: 'IE3980120M', color: [0.25, 0.25, 0.28], tag: '' },
 }
 
 // ─── Document profiles ────────────────────────────────────────────────────────
-// Same field ids as the Italian catalogue: they key rolling_state/sources.
+// Order matters for the bulk page: the first profile whose keyword starts a word
+// of the folder path is proposed.
 const F = (id, label, type, description) => ({ id, label, type, description, enabled: true, cells: [] })
 
 export const PROFILES = [
+  {
+    id: 'prof_mutui',
+    recognition: 'A residential mortgage file for one application: mortgage offer (and any revised offer), property valuation report, proof of income such as payslips.',
+    name: 'Mortgage files',
+    matchKeywords: 'mortgage',
+    matchExcludeKeywords: 'withdrawn',
+    contentKeywords: 'mortgage, loan amount, property, valuation',
+    contentExcludeKeywords: 'curriculum',
+    promptExtra: 'A file may hold several offers: the most recent offer always wins. Income comes from the latest payslip of each applicant.',
+    fields: [
+      F('m_borrower', 'Borrower(s)', 'text', 'Full name of each applicant, as on the offer.'),
+      F('m_property', 'Property address', 'text', 'Address of the mortgaged property.'),
+      F('m_price', 'Purchase price', 'number', 'Agreed purchase price of the property, in euro.'),
+      F('m_valuation', 'Valuation', 'number', 'Market value stated in the most recent valuation report.'),
+      F('m_loan', 'Loan amount', 'number', 'Amount offered by the lender in the most recent offer.'),
+      F('m_ltv', 'Loan to value', 'percent', 'Loan amount divided by the valuation, as a percentage.'),
+      F('m_ratetype', 'Rate type', 'enum', 'Fixed (and for how long), variable or tracker.'),
+      F('m_rate', 'Interest rate', 'percent', 'Annual interest rate of the most recent offer.'),
+      F('m_term', 'Term', 'text', 'Mortgage term in years.'),
+      F('m_payment', 'Monthly repayment', 'number', 'Monthly repayment of the most recent offer.'),
+      F('m_income', 'Net monthly income', 'number', 'Net pay from the most recent payslip of each applicant, summed.'),
+      F('m_lender', 'Lender', 'text', 'Bank or lender issuing the offer.'),
+      F('m_expiry', 'Offer valid until', 'date', 'Date the most recent offer expires.'),
+    ],
+  },
+  {
+    id: 'prof_prestiti',
+    recognition: 'A business loan or facility agreement between a lender and a company, with any amendments, guarantees and financial statements attached.',
+    name: 'Business loan agreements',
+    matchKeywords: 'loan, facility',
+    matchExcludeKeywords: '',
+    contentKeywords: 'facility, borrower, interest, repayment',
+    contentExcludeKeywords: '',
+    promptExtra: 'Amendments change the original agreement: the most recent document wins.',
+    fields: [
+      F('b_borrower', 'Borrower', 'text', 'Company borrowing the money.'),
+      F('b_lender', 'Lender', 'text', 'Bank or lender providing the facility.'),
+      F('b_principal', 'Facility amount', 'number', 'Total amount of the facility, in euro.'),
+      F('b_rate', 'Interest rate', 'text', 'Reference rate and margin currently applicable (e.g. "3M Euribor + 3.25%").'),
+      F('b_sign', 'Signing date', 'date', 'Date the original agreement was signed.'),
+      F('b_maturity', 'Final maturity', 'date', 'Final repayment date; take extensions in later amendments into account.'),
+      F('b_repay', 'Repayment', 'text', 'Repayment profile: frequency and amortising or bullet.'),
+      F('b_security', 'Security', 'text', 'Charges, guarantees and other security given to the lender.'),
+      F('b_covenant', 'Financial covenants', 'text', 'Ratios the borrower must respect, with their current thresholds.'),
+      F('b_purpose', 'Purpose', 'text', 'What the money is for.'),
+      F('b_fee', 'Arrangement fee', 'number', 'One-off fee paid when the facility was arranged.'),
+    ],
+  },
+  {
+    id: 'prof_portafoglio',
+    recognition: 'A periodic statement of an investment portfolio issued by a custodian or broker: client, account, holdings, asset allocation, income, fees and performance.',
+    name: 'Portfolio statements',
+    matchKeywords: 'portfolio, statement',
+    matchExcludeKeywords: '',
+    contentKeywords: 'portfolio, holdings, allocation, custodian',
+    contentExcludeKeywords: '',
+    promptExtra: 'Percentages with one decimal (58.0%).',
+    fields: [
+      F('s_client', 'Client', 'text', 'Name of the client or entity owning the portfolio.'),
+      F('s_account', 'Account number', 'text', 'Portfolio account number.'),
+      F('s_mandate', 'Mandate', 'enum', 'Investment mandate: conservative, balanced or growth.'),
+      F('s_custodian', 'Custodian', 'text', 'Custodian or broker issuing the statement.'),
+      F('s_date', 'Statement date', 'date', 'Valuation date of the statement.'),
+      F('s_value', 'Portfolio value', 'number', 'Total market value of the portfolio at the statement date.'),
+      F('s_cash', 'Cash', 'number', 'Cash balance held in the portfolio.'),
+      F('s_equity', 'Equities', 'percent', 'Share of the portfolio invested in equities.'),
+      F('s_bonds', 'Bonds', 'percent', 'Share of the portfolio invested in bonds.'),
+      F('s_top', 'Largest holding', 'text', 'Name and weight of the largest single position.'),
+      F('s_div', 'Dividends and coupons', 'number', 'Income received in the year to the statement date.'),
+      F('s_fees', 'Fees', 'number', 'Management and custody fees charged in the year to the statement date.'),
+      F('s_return', 'Return YTD', 'percent', 'Year-to-date performance net of fees.'),
+      F('s_review', 'Next review', 'date', 'Date of the next portfolio review with the client.'),
+    ],
+  },
+  {
+    id: 'prof_fornitura',
+    recognition: 'A contract, framework agreement or addendum for an ongoing supply of services: parties, subject, term, prices or price lists, payment, service levels and termination. Price lists and audit reports from the same vendor belong to the dossier.',
+    name: 'Vendor contracts',
+    matchKeywords: 'vendor, contract, framework',
+    matchExcludeKeywords: 'draft',
+    contentKeywords: 'agreement, services, term, termination',
+    contentExcludeKeywords: '',
+    promptExtra: 'The dossier may hold contract, addenda, price lists, reports and invoices: the value from the most recent document always wins.',
+    fields: [
+      F('c_forn', 'Vendor', 'text', 'Company name of the supplying party.'),
+      F('c_piva', 'Vendor VAT no.', 'text', 'Vendor VAT registration number.'),
+      F('c_ogg', 'Contract subject', 'text', 'Short description of the services supplied.'),
+      F('c_stip', 'Signing date', 'date', 'Date the original contract was signed.'),
+      F('c_scad', 'Contract end date', 'date', 'End of validity; take extensions from later addenda into account.'),
+      F('c_rinn', 'Auto-renewal', 'boolean', 'Yes/No and how often it renews tacitly.'),
+      F('c_prea', 'Termination notice', 'text', 'Days or months of notice required to terminate.'),
+      F('c_val', 'Estimated annual value', 'number', 'Expected yearly value in euro.'),
+      F('c_pag', 'Payment terms', 'text', 'Payment method and terms currently in force.'),
+      F('c_pen', 'Service level penalty', 'text', 'Service credits or penalties if the service level is missed.'),
+      F('c_list', 'Price list increase', 'text', 'Price change in the latest price list and its start date.'),
+      F('c_audit', 'Latest audit result', 'text', 'Outcome and score of the latest vendor audit.'),
+      F('c_iso', 'ISO 27001 expiry', 'date', 'Expiry date of the vendor information-security certificate.'),
+      F('c_foro', 'Jurisdiction', 'text', 'Courts with jurisdiction over disputes.'),
+      F('c_ref', 'Vendor contact', 'text', 'Name of the account manager given.'),
+      F('c_fatt', 'Latest invoice', 'text', 'Number and total of the most recent invoice in the dossier.'),
+    ],
+  },
+  {
+    id: 'prof_locazione',
+    recognition: 'A lease of office or commercial premises between landlord and tenant: address and land registry details, rent, term, security deposit, stamp duty.',
+    name: 'Office leases',
+    matchKeywords: 'lease, propert, rent',
+    matchExcludeKeywords: '',
+    contentKeywords: 'landlord, tenant, rent',
+    contentExcludeKeywords: '',
+    promptExtra: '',
+    fields: [
+      F('l_loc', 'Landlord', 'text', 'Owner letting the premises.'),
+      F('l_cond', 'Tenant', 'text', 'Party renting the premises.'),
+      F('l_imm', 'Premises address', 'text', 'Street, number and town of the leased premises.'),
+      F('l_cat', 'Land registry ref.', 'text', 'Folio number and property type.'),
+      F('l_dec', 'Start date', 'date', 'Date the lease begins.'),
+      F('l_scad', 'First term end', 'date', 'End date of the first contractual term.'),
+      F('l_can', 'Annual rent', 'number', 'Yearly rent in euro, service charges excluded.'),
+      F('l_rata', 'Instalments', 'text', 'Amount and frequency of payments (e.g. monthly in advance).'),
+      F('l_dep', 'Security deposit', 'number', 'Security deposit amount in euro.'),
+      F('l_istat', 'Rent indexation', 'text', 'How and when the rent is indexed (e.g. CPI).'),
+      F('l_prea', 'Break notice', 'text', 'Notice the tenant must give to break the lease.'),
+      F('l_reg', 'Stamp duty ref.', 'text', 'Revenue stamp duty reference and date.'),
+    ],
+  },
   {
     id: 'prof_fatture',
     recognition: 'An invoice (or credit note) issued by a supplier to the company: invoice number and date, supplier and customer with VAT numbers, lines with net amount, VAT and total due.',
@@ -35,7 +166,7 @@ export const PROFILES = [
     matchKeywords: 'invoice',
     matchExcludeKeywords: 'drafts, cancelled',
     contentKeywords: 'invoice, net amount, VAT, total due',
-    contentExcludeKeywords: 'curriculum, quotation',
+    contentExcludeKeywords: 'curriculum',
     promptExtra: 'Amounts in 1,234.56 format. If the invoice has several VAT rates, return the total VAT.',
     fields: [
       F('f_num', 'Invoice number', 'text', 'Document identifier exactly as printed (e.g. "INV 2026/0418").'),
@@ -50,101 +181,6 @@ export const PROFILES = [
       F('f_mod', 'Payment method', 'enum', 'Bank transfer, direct debit, card, cash, cheque.'),
       F('f_iban', 'IBAN', 'text', 'Supplier IBAN to pay into.'),
       F('f_oda', 'Purchase order ref.', 'text', 'Number and date of the purchase order quoted on the invoice, if any.'),
-    ],
-  },
-  {
-    id: 'prof_fornitura',
-    recognition: 'A contract, framework agreement or addendum governing an ongoing supply of goods or services: parties, subject, term, prices or price lists, payment, penalties and termination. Price lists and audit reports from the same supplier belong to the dossier.',
-    name: 'Supply contracts',
-    matchKeywords: 'contract, framework, supplier',
-    matchExcludeKeywords: 'draft',
-    contentKeywords: 'agreement, supply, term, termination',
-    contentExcludeKeywords: '',
-    promptExtra: 'The dossier may hold contract, addenda, price lists, reports and invoices: the value from the most recent document always wins.',
-    fields: [
-      F('c_forn', 'Supplier', 'text', 'Company name of the supplying party.'),
-      F('c_piva', 'Supplier VAT no.', 'text', 'Supplier VAT registration number.'),
-      F('c_ogg', 'Contract subject', 'text', 'Short description of the goods/services supplied.'),
-      F('c_stip', 'Signing date', 'date', 'Date the original contract was signed.'),
-      F('c_scad', 'Contract end date', 'date', 'End of validity; take extensions from later addenda into account.'),
-      F('c_rinn', 'Auto-renewal', 'boolean', 'Yes/No and how often it renews tacitly.'),
-      F('c_prea', 'Termination notice', 'text', 'Days or months of notice required to terminate.'),
-      F('c_val', 'Estimated annual value', 'number', 'Expected yearly volume/value in euro.'),
-      F('c_pag', 'Payment terms', 'text', 'Payment method and terms currently in force.'),
-      F('c_pen', 'Late delivery penalty', 'text', 'Penalty for late delivery (percentage and cap).'),
-      F('c_list', 'Price list increase', 'text', 'Price change in the latest price list and its start date.'),
-      F('c_audit', 'Latest audit result', 'text', 'Outcome and score of the latest quality audit/report.'),
-      F('c_iso', 'ISO 9001 expiry', 'date', 'Expiry date of the supplier quality certificate.'),
-      F('c_foro', 'Jurisdiction', 'text', 'Courts with jurisdiction over disputes.'),
-      F('c_ref', 'Supplier contact', 'text', 'Name of the sales/technical contact given.'),
-      F('c_fatt', 'Latest invoice', 'text', 'Number and total of the most recent invoice in the dossier.'),
-    ],
-  },
-  {
-    id: 'prof_locazione',
-    recognition: 'A lease of a property (commercial or residential) between landlord and tenant: address and land registry details, rent, term, security deposit, stamp duty.',
-    name: 'Commercial leases',
-    matchKeywords: 'lease, propert, rent',
-    matchExcludeKeywords: '',
-    contentKeywords: 'landlord, tenant, rent',
-    contentExcludeKeywords: '',
-    promptExtra: '',
-    fields: [
-      F('l_loc', 'Landlord', 'text', 'Owner letting the property.'),
-      F('l_cond', 'Tenant', 'text', 'Party renting the property.'),
-      F('l_imm', 'Property address', 'text', 'Street, number and town of the leased property.'),
-      F('l_cat', 'Land registry ref.', 'text', 'Folio number and property type.'),
-      F('l_dec', 'Start date', 'date', 'Date the lease begins.'),
-      F('l_scad', 'First term end', 'date', 'End date of the first contractual term.'),
-      F('l_can', 'Annual rent', 'number', 'Yearly rent in euro, service charges excluded.'),
-      F('l_rata', 'Instalments', 'text', 'Amount and frequency of payments (e.g. monthly in advance).'),
-      F('l_dep', 'Security deposit', 'number', 'Security deposit amount in euro.'),
-      F('l_istat', 'Rent indexation', 'text', 'How and when the rent is indexed (e.g. CPI).'),
-      F('l_prea', 'Break notice', 'text', 'Notice the tenant must give to break the lease.'),
-      F('l_reg', 'Stamp duty ref.', 'text', 'Revenue stamp duty reference and date.'),
-    ],
-  },
-  {
-    id: 'prof_ddt',
-    recognition: 'A delivery note travelling with the goods: sender, consignee, delivery address, reason for transport, carrier, packages and weight. No prices or VAT.',
-    name: 'Delivery notes',
-    matchKeywords: 'delivery note, dispatch, transport',
-    matchExcludeKeywords: '',
-    contentKeywords: 'delivery note, carrier, packages',
-    contentExcludeKeywords: '',
-    promptExtra: '',
-    fields: [
-      F('d_num', 'Delivery note no.', 'text', 'Delivery note identifier.'),
-      F('d_data', 'Delivery note date', 'date', 'Issue date of the delivery note.'),
-      F('d_mitt', 'Sender', 'text', 'Company name of the sender.'),
-      F('d_dest', 'Consignee', 'text', 'Company name of the consignee.'),
-      F('d_luogo', 'Delivery address', 'text', 'Address where the goods are delivered.'),
-      F('d_caus', 'Reason for transport', 'enum', 'Sale, processing, return, on approval…'),
-      F('d_vett', 'Carrier', 'text', 'Haulier in charge.'),
-      F('d_colli', 'Packages', 'number', 'Total number of packages shipped.'),
-      F('d_peso', 'Gross weight (kg)', 'number', 'Total gross weight in kg.'),
-      F('d_porto', 'Freight terms', 'enum', 'Prepaid, collect, prepaid and charged.'),
-    ],
-  },
-  {
-    id: 'prof_cedolini',
-    recognition: 'A monthly payslip of an employee: pay period, earnings and deductions, net pay, pension and leave.',
-    name: 'Payslips',
-    matchKeywords: 'payslip, payroll',
-    matchExcludeKeywords: '',
-    contentKeywords: 'payslip, net pay, PRSI',
-    contentExcludeKeywords: '',
-    promptExtra: 'Never report health data or confidential notes that may appear on the payslip.',
-    fields: [
-      F('p_dip', 'Employee', 'text', 'Employee first and last name.'),
-      F('p_cf', 'PPS number', 'text', 'Employee PPS number (7 digits + 1–2 letters).'),
-      F('p_mese', 'Pay period', 'text', 'Month and year the pay refers to.'),
-      F('p_liv', 'Role and grade', 'text', 'Job title and pay grade.'),
-      F('p_ore', 'Hours worked', 'number', 'Number of ordinary hours worked in the month.'),
-      F('p_lordo', 'Gross pay', 'number', 'Total gross pay for the month.'),
-      F('p_netto', 'Net pay', 'number', 'Net amount paid to the employee.'),
-      F('p_tfr', 'Employer pension contribution', 'number', 'Employer pension contribution for the period.'),
-      F('p_ferie', 'Annual leave left (days)', 'number', 'Days of annual leave left at month end.'),
     ],
   },
   {
@@ -169,46 +205,6 @@ export const PROFILES = [
       F('v_disp', 'Availability', 'text', 'Availability/notice period to start.'),
     ],
   },
-  {
-    id: 'prof_preventivi',
-    recognition: 'A commercial quote or offer sent to the company: list of activities or products with prices, total, validity and terms.',
-    name: 'Quotes and offers',
-    matchKeywords: 'quote, offer, quotation',
-    matchExcludeKeywords: '',
-    contentKeywords: 'quote, offer, valid until',
-    contentExcludeKeywords: '',
-    promptExtra: '',
-    fields: [
-      F('o_num', 'Quote number', 'text', 'Quote identifier.'),
-      F('o_data', 'Quote date', 'date', 'Date of the quote.'),
-      F('o_forn', 'Supplier', 'text', 'Who makes the offer.'),
-      F('o_ogg', 'Subject', 'text', 'Short description of the supply/project.'),
-      F('o_imp', 'Net amount', 'number', 'Quote total excluding VAT.'),
-      F('o_valid', 'Valid until', 'date', 'Expiry date of the offer.'),
-      F('o_tempi', 'Delivery time', 'text', 'Delivery or completion time.'),
-      F('o_pag', 'Payment terms', 'text', 'Proposed payment terms.'),
-    ],
-  },
-  {
-    id: 'prof_utenze',
-    recognition: 'An electricity or gas bill: meter point (MPRN/GPRN), billing period, consumption, amount and due date.',
-    name: 'Utility bills',
-    matchKeywords: 'utilit, bill, electricity, energy, gas',
-    matchExcludeKeywords: '',
-    contentKeywords: 'MPRN, kWh, consumption',
-    contentExcludeKeywords: '',
-    promptExtra: '',
-    fields: [
-      F('u_forn', 'Supplier', 'text', 'Electricity/gas supplier.'),
-      F('u_pod', 'MPRN / GPRN', 'text', 'Meter point reference number.'),
-      F('u_inizio', 'Period start', 'date', 'First day of the billed consumption period.'),
-      F('u_per', 'Billing period', 'text', 'Date range of the billed consumption.'),
-      F('u_cons', 'Consumption (kWh)', 'number', 'kWh consumed in the period.'),
-      F('u_pot', 'Contracted capacity (kVA)', 'number', 'Contracted capacity in kVA.'),
-      F('u_tot', 'Total due', 'number', 'Total amount of the bill.'),
-      F('u_scad', 'Due date', 'date', 'Payment due date.'),
-    ],
-  },
 ]
 
 export const profileById = Object.fromEntries(PROFILES.map((p) => [p.id, p]))
@@ -220,260 +216,298 @@ export const GENERIC_PROFILES = PROFILES.map((p) => ({
   fields: p.fields.map((f) => ({ id: 'g_' + f.id, label: f.label, description: f.description, type: f.type, enabled: true })),
 }))
 
-// ─── PDF documents ────────────────────────────────────────────────────────────
+// ─── PDF documents (generated by generate-pdfs-en.mjs) ────────────────────────
 export const FILES = {
-  ftMeridiane: 'INV-2026-0418_Meridian-Metalworks.pdf',
-  ftTrevalli: 'INV-1127-2026_Three-Valleys-Logistics.pdf',
-  ftNordwave: 'INV-0093-2026_Nordwave-Digital.pdf',
-  locazione: 'Lease_41-Dominick-Street_Galway.pdf',
-  ddt: 'DN_2291_Liffey-Weaving-Mills.pdf',
-  cedolino: 'Payslip_09-2026_Ferris-Luke.pdf',
-  cv: 'CV_Claire-Lambert.pdf',
-  preventivo: 'Quote_Q-2026-077_Alba-Consulting.pdf',
-  bolletta: 'Electricity_bill_08-2026.pdf',
-  quadro: 'Framework_supply_agreement_2024.pdf',
+  offer1: 'Mortgage_offer_Harbour-Bank_2026-08-03.pdf',
+  offer2: 'Mortgage_offer_REVISED_Harbour-Bank_2026-09-28.pdf',
+  valuation: 'Valuation_report_14-Oak-Park_Galway.pdf',
+  payslipA: 'Payslip_09-2026_Byrne-Aoife.pdf',
+  payslipB: 'Payslip_09-2026_Kelly-Sean.pdf',
+  facility: 'Facility_agreement_Liffey-Weaving-Mills_2024.pdf',
+  amendment: 'Amendment_01_2026_Liffey-Weaving-Mills.pdf',
+  statement: 'Statement_Q3-2026_Client-0142.pdf',
+  quadro: 'Framework_services_agreement_2024.pdf',
   addendum: 'Addendum_01_2025.pdf',
   listino: 'Price_list_2026.pdf',
-  audit: 'Quality_audit_report_2026.pdf',
+  audit: 'Vendor_security_audit_2026.pdf',
+  ftMeridian: 'INV-2026-0418_Meridian-Data-Services.pdf',
+  ftNordwave: 'INV-0093-2026_Nordwave-Digital.pdf',
+  locazione: 'Lease_Cork-branch_8-Patrick-Street.pdf',
+  cv: 'CV_Claire-Lambert.pdf',
 }
 
 // Folder tree for the "Bulk folder" page (written by generate-pdfs-en.mjs).
-export const BULK_ROOT = 'Document_Archive_2026'
+export const BULK_ROOT = 'Client_Files_2026'
 export const BULK_TREE = {
-  'Supplier_contracts/Meridian_Metalworks': [FILES.quadro, FILES.addendum, FILES.listino, FILES.audit, FILES.ftMeridiane],
-  'Invoices_payable/2026-09/Three_Valleys_Logistics': [FILES.ftTrevalli],
+  'Mortgages/2026-10/Byrne_Kelly_Galway': [FILES.offer1, FILES.valuation, FILES.payslipA, FILES.payslipB, FILES.offer2],
+  'Mortgages/2026-10/Withdrawn/Collins_Cork': [FILES.offer1],
+  'Business_loans/Liffey_Weaving_Mills': [FILES.facility, FILES.amendment],
+  'Portfolios/Q3-2026/Client_0142_Fitzgerald': [FILES.statement],
+  'Vendors/Meridian_Data_Services': [FILES.quadro, FILES.addendum, FILES.listino, FILES.audit, FILES.ftMeridian],
   'Invoices_payable/2026-09/Nordwave_Digital': [FILES.ftNordwave],
-  'Invoices_payable/2026-09/Cancelled/Nordwave_Digital': [FILES.ftNordwave],
-  'Delivery_notes/2026-09/Liffey_Weaving_Mills': [FILES.ddt],
-  'Property/Lease_41_Dominick_Street': [FILES.locazione],
-  'Staff/Payslips_2026-09': [FILES.cedolino],
-  'Staff/Applications': [FILES.cv],
-  'Quotes/Alba_Consulting': [FILES.preventivo],
-  'Utilities/HQ_electricity': [FILES.bolletta],
+  'Property/Lease_Cork_branch': [FILES.locazione],
+  'HR/Applications': [FILES.cv],
   '_drafts/Old_scans': [FILES.ftNordwave],
 }
 
-// ─── Extracted values (rolling_state = { id: { valore, fonte } }) ─────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const v = (valore, file, page = 1) => ({ valore, data_validita: null, fonte: file ? { file, page } : undefined })
-
 // 1,234.56 (ICU in Node does not group 4-digit thousands consistently).
 export const eur = (n) => {
   const [i, d] = (Math.round(n * 100) / 100).toFixed(2).split('.')
   return i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + d
 }
+const pct = (n) => `${(Math.round(n * 10) / 10).toFixed(1)}%`
 const num = (s) => Number(String(s).replace(/,/g, ''))
 export const VAT_RATE = 23
+// Annuity repayment of a mortgage (annual rate in %, term in years).
+export const monthlyPayment = (loan, rate, years) => {
+  const r = rate / 1200
+  return (loan * r) / (1 - Math.pow(1 + r, -years * 12))
+}
+function prng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296) }
+const pad = (n) => String(n).padStart(2, '0')
 
-export const DOSSIER_MERIDIANE = {
-  files: [FILES.quadro, FILES.addendum, FILES.listino, FILES.audit, FILES.ftMeridiane],
-  state: {
-    c_forn: v(CO.meridiane.name, FILES.quadro, 1),
-    c_piva: v(CO.meridiane.vat, FILES.quadro, 1),
-    c_ogg: v('Supply of metal components for furniture', FILES.quadro, 1),
-    c_stip: v('15/01/2024', FILES.quadro, 1),
-    c_scad: v('31/12/2027', FILES.addendum, 1),
-    c_rinn: v('Yes, yearly (tacit)', FILES.quadro, 2),
-    c_prea: v('90 days', FILES.quadro, 2),
-    c_val: v('150,000.00', FILES.addendum, 1),
-    c_pag: v('Bank transfer, 90 days end of month', FILES.addendum, 1),
-    c_pen: v('0.5% per working day, max 10%', FILES.quadro, 2),
-    c_list: v('+3.8% from 01/01/2026', FILES.listino, 1),
-    c_audit: v('Compliant · 92/100', FILES.audit, 1),
-    c_iso: v('18/05/2028', FILES.audit, 1),
-    c_foro: v('Courts of Ireland (Cork)', FILES.quadro, 2),
-    c_ref: v('Paul Reid', FILES.quadro, 2),
-    c_fatt: v('INV 2026/0418 · €7,097.10', FILES.ftMeridiane, 1),
+// ─── Mortgage files ───────────────────────────────────────────────────────────
+// The showcase file (Byrne & Kelly) has real PDFs: first offer, valuation, two
+// payslips and a revised offer that supersedes the first one.
+export const SHOWCASE = {
+  borrowers: 'Aoife Byrne & Seán Kelly',
+  home: ['27 Seapoint Promenade', 'Galway H91 C4D2'],
+  property: '14 Oak Park, Knocknacarra, Galway H91 K2E8',
+  price: 425000, valuation: 420000, loan: 336000, term: 30, lender: CO.harbour.name,
+  offer1: { date: '03/08/2026', ref: 'HB-M-2026-08841', rate: 3.95, rateType: 'Fixed 3 years, then variable', aprc: '4.12%', validUntil: '03/11/2026' },
+  offer2: { date: '28/09/2026', ref: 'HB-M-2026-08841/R1', rate: 3.7, rateType: 'Fixed 5 years, then variable', aprc: '3.86%', validUntil: '28/12/2026' },
+  valuationDate: '22/07/2026',
+  // net pay from the two payslips (3,214.57 + 2,968.40)
+  income: 6182.97,
+}
+
+const S = SHOWCASE
+const showcaseState = (offer, file) => ({
+  m_borrower: v(S.borrowers, file), m_property: v(S.property, FILES.valuation, 1), m_price: v(eur(S.price), file),
+  m_valuation: v(eur(S.valuation), FILES.valuation, 2), m_loan: v(eur(S.loan), file), m_ltv: v(pct((S.loan / S.valuation) * 100), file),
+  m_ratetype: v(offer.rateType, file), m_rate: v(`${offer.rate.toFixed(2)}%`, file), m_term: v(`${S.term} years`, file),
+  m_payment: v(eur(monthlyPayment(S.loan, offer.rate, S.term)), file), m_income: v(eur(S.income), FILES.payslipB),
+  m_lender: v(S.lender, file), m_expiry: v(offer.validUntil, file),
+})
+const flat = (state) => Object.fromEntries(Object.entries(state).map(([k, e]) => [k, e.valore]))
+
+const MORTGAGES = [
+  ['Collins · Cork', 'Andrew Collins', '7 Lee View, Douglas, Cork T12 R8X4', 365000, 370000, 292000, 'Fixed 3 years, then variable', 3.95, 30, 'Shannon Home Loans DAC', 4120.0, '15/12/2026'],
+  ['Murphy & Nolan · Dublin 6', 'Ciara Murphy & Tom Nolan', '22 Grosvenor Road, Rathgar, Dublin 6 D06 F3K8', 690000, 680000, 544000, 'Variable', 4.25, 35, 'Atlantic Building Society', 9850.0, '20/01/2027'],
+  ['O’Brien · Limerick', 'Niall O’Brien', '3 Ennis Road, Limerick V94 X2P1', 298000, 300000, 268200, 'Fixed 4 years, then variable', 3.85, 30, CO.harbour.name, 3980.0, '05/01/2027'],
+  ['Walsh · Kilkenny', 'Gráinne Walsh', '11 Castle Gardens, Kilkenny R95 E7D2', 340000, 335000, 268000, 'Fixed 3 years, then variable', 3.9, 25, 'Liffey Mutual Society', 4410.0, '30/12/2026'],
+  ['Doyle & Ryan · Dublin 15', 'Simon Doyle & Kate Ryan', '45 Ongar Village, Dublin 15 D15 P2R6', 455000, 450000, 405000, 'Fixed 5 years, then variable', 3.65, 30, 'Shannon Home Loans DAC', 7020.0, '12/01/2027'],
+  ['Fitzpatrick · Waterford', 'Owen Fitzpatrick', '9 Mall Lane, Waterford X91 K8T1', 260000, 262000, 208000, 'Variable', 4.35, 30, 'Atlantic Building Society', 3560.0, '18/12/2026'],
+  ['Kavanagh · Wexford', 'Róisín Kavanagh', '2 Harbour View, Wexford Y35 H9P4', 310000, 305000, 244000, 'Fixed 3 years, then variable', 3.95, 30, CO.harbour.name, 4050.0, '22/12/2026'],
+  ['Hughes · Sligo', 'Declan Hughes', '17 Strandhill Road, Sligo F91 W3C6', 245000, 250000, 196000, 'Fixed 4 years, then variable', 3.8, 25, 'Liffey Mutual Society', 3320.0, '09/01/2027'],
+  ['Moran & Quinn · Athlone', 'Aisling Moran & Peter Quinn', '5 Retreat Heights, Athlone N37 A6X9', 385000, 380000, 304000, 'Fixed 5 years, then variable', 3.7, 30, CO.harbour.name, 6240.0, '03/01/2027'],
+].map(([dossier, borrowers, property, price, valuation, loan, rateType, rate, term, lender, income, expiry]) => {
+  const slug = dossier.split(' · ')[0].replace(/[^A-Za-z]+/g, '-').replace(/-$/, '')
+  const offer = `Mortgage_offer_${lender.split(' ')[0]}_${slug}.pdf`
+  const val = `Valuation_report_${slug}.pdf`
+  const slip = `Payslip_09-2026_${slug}.pdf`
+  return {
+    dossier, profileId: 'prof_mutui', files: [offer, val, slip],
+    state: {
+      m_borrower: v(borrowers, offer), m_property: v(property, val), m_price: v(eur(price), offer), m_valuation: v(eur(valuation), val, 2),
+      m_loan: v(eur(loan), offer), m_ltv: v(pct((loan / valuation) * 100), offer), m_ratetype: v(rateType, offer), m_rate: v(`${rate.toFixed(2)}%`, offer),
+      m_term: v(`${term} years`, offer), m_payment: v(eur(monthlyPayment(loan, rate, term)), offer), m_income: v(eur(income), slip),
+      m_lender: v(lender, offer), m_expiry: v(expiry, offer),
+    },
+  }
+})
+
+// Out-of-place document in the mortgage batch: the relevance check stops it.
+const MISMATCH = {
+  dossier: 'Misc documents (to sort)',
+  error: 'Content not relevant to the "Mortgage files" profile — detected: curriculum vitae (experience, education, skills). Check the profile or press "Proceed anyway".',
+  precheck: {
+    verdict: 'mismatch', mode: 'keywords', score: 0.0, threshold: 0.25, reason: 'no profile keyword in the content',
+    missing: ['mortgage', 'loan amount', 'property', 'valuation'], detected: { type: 'curriculum vitae', keywords: ['experience', 'education', 'skills'] },
+    suggestion: { id: 'prof_cv', name: 'Candidate CVs' },
+    summary: 'No word of the «Mortgage files» profile in the text; the content looks like «Candidate CVs». The job stays on hold until you choose: change profile or «Proceed anyway».',
   },
 }
 
-// September invoice batch (one folder per supplier). VAT and total from the net.
+// ─── Business loans ───────────────────────────────────────────────────────────
+export const FACILITY = {
+  ref: 'HB-B-2024-0312', date: '15/03/2024', principal: 750000, margin: '3.25%', marginNew: '2.95%',
+  maturity: '15/03/2029', maturityNew: '15/03/2031', amendDate: '10/06/2026', fee: 7500,
+  purpose: 'Purchase and installation of two jacquard looms',
+  security: 'First-ranking charge over the Kilkenny mill; directors’ guarantees up to €200,000',
+  covenants: 'Net debt/EBITDA ≤ 3.0x; interest cover ≥ 4.0x',
+  covenantsNew: 'Net debt/EBITDA ≤ 3.5x until 31/12/2027; interest cover ≥ 4.0x',
+}
+const loan = (dossier, files, o) => {
+  const [agr] = files
+  return {
+    dossier, profileId: 'prof_prestiti', files,
+    state: {
+      b_borrower: v(o.borrower, agr), b_lender: v(o.lender, agr), b_principal: v(eur(o.principal), agr), b_rate: v(o.rate, agr),
+      b_sign: v(o.sign, agr), b_maturity: v(o.maturity, agr, 2), b_repay: v(o.repay, agr), b_security: v(o.security, agr, 2),
+      b_covenant: v(o.covenant, agr, 2), b_purpose: v(o.purpose, agr), b_fee: v(eur(o.fee), agr),
+    },
+  }
+}
+const LOANS = [
+  loan('Corrib Hardware & Sons', ['Facility_agreement_Corrib-Hardware_2023.pdf', 'Annual_accounts_2025_Corrib-Hardware.pdf'], {
+    borrower: 'Corrib Hardware & Sons', lender: CO.harbour.name, principal: 250000, rate: '3M Euribor + 3.50%', sign: '12/06/2023', maturity: '12/06/2028',
+    repay: 'Monthly, amortising', security: 'Charge over the Galway premises', covenant: 'Net debt/EBITDA ≤ 3.0x', purpose: 'Refit of the retail premises', fee: 2500,
+  }),
+  loan('Midland Powder Coating', ['Loan_agreement_Midland-Powder-Coating_2025.pdf', 'Guarantee_Midland-Powder-Coating.pdf'], {
+    borrower: 'Midland Powder Coating Ltd', lender: 'Shannon Commercial Finance DAC', principal: 480000, rate: '6M Euribor + 2.90%', sign: '03/02/2025', maturity: '03/02/2032',
+    repay: 'Quarterly, amortising after a 12-month grace period', security: 'Chattel mortgage over the coating line; parent guarantee', covenant: 'Debt service cover ≥ 1.25x', purpose: 'New powder coating line', fee: 4800,
+  }),
+  loan('Lakeside Packaging', ['Facility_agreement_Lakeside-Packaging_2024.pdf', 'Amendment_01_2025_Lakeside-Packaging.pdf'], {
+    borrower: 'Lakeside Packaging Ltd', lender: CO.harbour.name, principal: 320000, rate: '3M Euribor + 3.10%', sign: '20/09/2024', maturity: '20/09/2029',
+    repay: 'Quarterly, amortising', security: 'Floating charge over stock and receivables', covenant: 'Net debt/EBITDA ≤ 2.75x', purpose: 'Working capital and warehouse racking', fee: 3200,
+  }),
+  {
+    dossier: 'Liffey Weaving Mills', profileId: 'prof_prestiti', status: 'running',
+    files: [FILES.facility, FILES.amendment, 'Guarantee_Liffey-Weaving-Mills.pdf', 'Annual_accounts_2025_Liffey-Weaving-Mills.pdf'],
+    progress: { docIndex: 2, docTotal: 4, pageIndex: 2, pageTotal: 5, docName: 'Guarantee_Liffey-Weaving-Mills.pdf', totalPagesProcessed: 6 },
+    state: {
+      b_borrower: v(CO.liffey.name, FILES.facility), b_lender: v(CO.harbour.name, FILES.facility), b_principal: v(eur(FACILITY.principal), FILES.facility),
+      b_rate: v(`3M Euribor + ${FACILITY.marginNew}`, FILES.amendment), b_maturity: v(FACILITY.maturityNew, FILES.amendment),
+    },
+  },
+  { dossier: 'Three Valleys Logistics', profileId: 'prof_prestiti', status: 'queued', files: ['Facility_agreement_Three-Valleys_2022.pdf', 'Annual_accounts_2025_Three-Valleys.pdf'], state: {} },
+]
+
+// ─── Portfolio statements ─────────────────────────────────────────────────────
+const CUSTODIANS = [CO.atlantic.name, 'Harbour Custody Services', 'Northstar Trust DAC', 'Shannon Wealth Custody DAC']
+const MANDATES = ['Balanced', 'Growth', 'Conservative']
+const HOLDINGS = ['Global Equity Index Fund', 'Euro Government Bond Fund', 'MSCI World ETF', 'Euro Corporate Bond Fund', 'Global Technology Fund', 'Irish Equity Fund']
+const CLIENTS = [
+  ['0142', 'Fitzgerald', 'Mary & John Fitzgerald'], ['0155', 'O’Neill', 'Eoin O’Neill'], ['0163', 'Brennan', 'Brennan Family Trust'],
+  ['0171', 'Daly', 'Patricia Daly'], ['0187', 'McCarthy', 'McCarthy Holdings Ltd'], ['0192', 'Lynch', 'Fergal Lynch'],
+  ['0204', 'Farrell', 'Siobhán Farrell'], ['0219', 'Power', 'Power & Sons Pension Scheme'], ['0226', 'Keane', 'Laura Keane'],
+  ['0238', 'Duffy', 'Duffy Family Office'], ['0241', 'Reilly', 'Conor Reilly'], ['0257', 'Healy', 'Healy Charitable Trust'],
+  ['0263', 'Barry', 'Mark & Ann Barry'], ['0270', 'Coleman', 'Coleman Medical Partners'], ['0284', 'Sheehan', 'Úna Sheehan'],
+  ['0291', 'Dunne', 'Dunne Farm Pension Plan'],
+]
+// The Q3 2026 statement of client 0142 is the sample PDF.
+export const STATEMENT = {
+  client: 'Mary & John Fitzgerald', account: 'HF-0142', custodian: CO.atlantic.name, date: '30/09/2026', mandate: 'Balanced',
+  value: 1284350, cash: 64210, equity: 744923, bonds: 436679, alternatives: 38538,
+  top: [['Global Equity Index Fund', 159259], ['Euro Government Bond Fund', 138710], ['MSCI World ETF', 123298], ['Euro Corporate Bond Fund', 104032], ['Global Technology Fund', 79630]],
+  dividends: 9842.17, mgmtFee: 2640.88, custodyFee: 570, ret: 6.8, review: '15/11/2026',
+}
+
+function statement(key, client, period) {
+  const file = period.file || `Statement_${period.tag}_Client-${client.id}.pdf`
+  const s = period.values
+  return {
+    dossier: `Client ${client.id} · ${client.surname} · ${period.tag.replace('-', ' ')}`, profileId: 'prof_portafoglio', files: [file],
+    state: {
+      s_client: v(client.name, file), s_account: v(`HF-${client.id}`, file), s_mandate: v(client.mandate, file), s_custodian: v(client.custodian, file), s_date: v(period.date, file),
+      s_value: v(eur(s.value), file), s_cash: v(eur(s.cash), file), s_equity: v(pct(s.equityPct), file), s_bonds: v(pct(s.bondPct), file),
+      s_top: v(s.top, file), s_div: v(eur(s.div), file), s_fees: v(eur(s.fees), file), s_return: v(pct(s.ret), file), s_review: v(s.review, file),
+    },
+  }
+}
+
+// Year-end statements 2024–2025 and Q3 2026 for each client (deterministic).
+function portfolios() {
+  const rnd = prng(2026)
+  const archive = []
+  const q3 = []
+  CLIENTS.forEach(([id, surname, name], i) => {
+    const client = { id, surname, name, custodian: CUSTODIANS[i % CUSTODIANS.length], mandate: MANDATES[i % MANDATES.length] }
+    const equityPct = 40 + Math.round(rnd() * 35)
+    const cashPct = 2 + Math.round(rnd() * 5)
+    const altPct = Math.round(rnd() * 4)
+    let value = 320000 + rnd() * 2300000
+    const yearValues = (ret, months, date, review) => {
+      value *= 1 + ret / 100
+      const top = `${HOLDINGS[Math.floor(rnd() * HOLDINGS.length)]} · ${pct(6 + rnd() * 8)}`
+      return {
+        value, cash: (value * cashPct) / 100, equityPct, bondPct: 100 - equityPct - cashPct - altPct, top,
+        div: value * (0.016 + rnd() * 0.01) * (months / 12), fees: value * (0.0055 + rnd() * 0.003) * (months / 12), ret, review,
+      }
+    }
+    for (const year of [2024, 2025]) {
+      const ret = year === 2024 ? 6 + rnd() * 6 : 3 + rnd() * 6
+      archive.push(statement('a', client, { tag: `${year}`, date: `31/12/${year}`, values: yearValues(ret, 12, `31/12/${year}`, `${pad(10 + Math.floor(rnd() * 18))}/0${2 + Math.floor(rnd() * 3)}/${year + 1}`) }))
+    }
+    const reviewDay = new Date(Date.UTC(2026, 10, 1) + Math.floor(rnd() * 85) * 86400000)
+    const review = `${pad(reviewDay.getUTCDate())}/${pad(reviewDay.getUTCMonth() + 1)}/${reviewDay.getUTCFullYear()}`
+    const values = yearValues(2 + rnd() * 6, 9, '30/09/2026', review)
+    if (id === '0142') {
+      const st = STATEMENT
+      Object.assign(values, {
+        value: st.value, cash: st.cash, equityPct: (st.equity / st.value) * 100, bondPct: (st.bonds / st.value) * 100,
+        top: `${st.top[0][0]} · ${pct((st.top[0][1] / st.value) * 100)}`, div: st.dividends, fees: st.mgmtFee + st.custodyFee, ret: st.ret, review: st.review,
+      })
+      client.custodian = st.custodian
+    }
+    q3.push(statement('q', client, { tag: 'Q3-2026', date: '30/09/2026', values, file: id === '0142' ? FILES.statement : undefined }))
+  })
+  return { archive, q3 }
+}
+const PORTFOLIOS = portfolios()
+
+// ─── Vendor contracts, invoices, leases ───────────────────────────────────────
+export const VENDOR = {
+  files: [FILES.quadro, FILES.addendum, FILES.listino, FILES.audit, FILES.ftMeridian],
+  state: {
+    c_forn: v(CO.meridian.name, FILES.quadro, 1), c_piva: v(CO.meridian.vat, FILES.quadro, 1),
+    c_ogg: v('Real-time market data feeds and secure hosting', FILES.quadro, 1), c_stip: v('15/01/2024', FILES.quadro, 1),
+    c_scad: v('31/12/2027', FILES.addendum, 1), c_rinn: v('Yes, yearly (tacit)', FILES.quadro, 2), c_prea: v('90 days', FILES.quadro, 2),
+    c_val: v('150,000.00', FILES.addendum, 1), c_pag: v('Bank transfer, 90 days end of month', FILES.addendum, 1),
+    c_pen: v('Service credits up to 25% of the monthly fee', FILES.quadro, 2), c_list: v('+3.8% from 01/01/2026', FILES.listino, 1),
+    c_audit: v('Compliant · 92/100', FILES.audit, 1), c_iso: v('18/05/2028', FILES.audit, 1), c_foro: v('Courts of Ireland (Cork)', FILES.quadro, 2),
+    c_ref: v('Paul Reid', FILES.quadro, 2), c_fatt: v('INV 2026/0418 · €7,097.10', FILES.ftMeridian, 1),
+  },
+}
+
 const inv = (o) => {
   const net = num(o.imp)
   const iva = Math.round(net * VAT_RATE) / 100
   return { ...o, iva: eur(iva), tot: eur(net + iva) }
 }
-export const INVOICES = [
-  inv({ dossier: 'Meridian Metalworks', file: FILES.ftMeridiane, num: 'INV 2026/0418', data: '12/09/2026', forn: CO.meridiane.name, piva: CO.meridiane.vat, imp: '5,770.00', scad: '30/11/2026', mod: 'Bank transfer', iban: 'IE29AIBK93115212345678', oda: 'PO-2026-311 of 28/08/2026' }),
-  inv({ dossier: 'Three Valleys Logistics', file: FILES.ftTrevalli, num: '1127/2026', data: '30/09/2026', forn: CO.trevalli.name, piva: CO.trevalli.vat, imp: '2,433.53', scad: '31/10/2026', mod: 'Direct debit', iban: '', oda: '' }),
-  inv({ dossier: 'Nordwave Digital', file: FILES.ftNordwave, num: '0093/2026', data: '01/10/2026', forn: CO.nordwave.name, piva: CO.nordwave.vat, imp: '2,010.00', scad: '31/10/2026', mod: 'Bank transfer', iban: 'IE64IRCE92050112345678', oda: 'SaaS agreement NW-2025-018' }),
-  inv({ dossier: 'Shannon Electrical', file: 'Invoice_318-B_Shannon-Electrical.pdf', num: '318/B', data: '18/09/2026', forn: 'Shannon Electrical Supplies Ltd', piva: 'IE2215870R', imp: '1,053.11', scad: '18/10/2026', mod: 'Bank transfer', iban: 'IE12BOFI90001712345678', oda: 'PO-2026-329 of 09/09/2026' }),
-  inv({ dossier: 'Lakeside Packaging', file: 'SI-2026-0772_Lakeside-Packaging.pdf', num: 'SI-2026-0772', data: '21/09/2026', forn: 'Lakeside Packaging Ltd', piva: 'IE3362710F', imp: '526.27', scad: '31/10/2026', mod: 'Direct debit', iban: '', oda: '' }),
-  inv({ dossier: 'Midland Powder Coating', file: 'Invoice_2026-219_Midland-Powder-Coating.pdf', num: '2026/219', data: '24/09/2026', forn: 'Midland Powder Coating Ltd', piva: 'IE4119350S', imp: '3,600.00', scad: '30/11/2026', mod: 'Bank transfer', iban: 'IE87AIBK93208612345678', oda: 'PO-2026-305 of 21/08/2026' }),
-  inv({ dossier: 'Corrib Hardware & Sons', file: 'Invoice_1543_Corrib-Hardware.pdf', num: '1543', data: '26/09/2026', forn: 'Corrib Hardware & Sons', piva: 'IE1947260C', imp: '318.95', scad: '26/09/2026', mod: 'Card', iban: '', oda: '' }),
-  inv({ dossier: 'Liffey Weaving Mills', file: 'Invoice_26-01984_Liffey-Weaving-Mills.pdf', num: '26/01984', data: '29/09/2026', forn: CO.brera.name, piva: CO.brera.vat, imp: '9,195.82', scad: '30/11/2026', mod: 'Bank transfer', iban: 'IE33BOFI90583812345067', oda: 'PO-2026-298 of 12/08/2026' }),
+const INVOICES = [
+  inv({ dossier: 'Meridian Data Services', file: FILES.ftMeridian, num: 'INV 2026/0418', data: '12/09/2026', forn: CO.meridian.name, piva: CO.meridian.vat, imp: '5,770.00', scad: '30/11/2026', mod: 'Bank transfer', iban: 'IE29AIBK93115212345678', oda: 'PO-2026-311 of 28/08/2026' }),
+  inv({ dossier: 'Nordwave Digital', file: FILES.ftNordwave, num: '0093/2026', data: '01/10/2026', forn: CO.nordwave.name, piva: CO.nordwave.vat, imp: '2,010.00', scad: '31/10/2026', mod: 'Bank transfer', iban: 'IE64IRCE92050112345678', oda: 'Agreement NW-2025-018' }),
+  inv({ dossier: 'Corrib Facilities', file: 'Invoice_1182_Corrib-Facilities.pdf', num: '1182', data: '30/09/2026', forn: 'Corrib Facilities Ltd', piva: 'IE2215870R', imp: '1,840.00', scad: '30/10/2026', mod: 'Direct debit', iban: '', oda: '' }),
+  inv({ dossier: 'Shannon Print & Post', file: 'SI-2026-0772_Shannon-Print-Post.pdf', num: 'SI-2026-0772', data: '21/09/2026', forn: 'Shannon Print & Post Ltd', piva: 'IE3362710F', imp: '626.27', scad: '21/10/2026', mod: 'Bank transfer', iban: 'IE12BOFI90001712345678', oda: 'PO-2026-329 of 09/09/2026' }),
+  inv({ dossier: 'Lakeside Office Supplies', file: 'Invoice_2026-219_Lakeside-Office.pdf', num: '2026/219', data: '24/09/2026', forn: 'Lakeside Office Supplies Ltd', piva: 'IE4119350S', imp: '418.95', scad: '24/10/2026', mod: 'Card', iban: '', oda: '' }),
+  inv({ dossier: 'Atlantic Couriers', file: 'Invoice_1543_Atlantic-Couriers.pdf', num: '1543', data: '29/09/2026', forn: 'Atlantic Couriers Ltd', piva: 'IE1947260C', imp: '312.40', scad: '29/10/2026', mod: 'Direct debit', iban: '', oda: '' }),
 ]
-
-export function invoiceState(i) {
+const invoiceState = (i) => {
   const f = i.file
   return {
-    f_num: v(i.num, f, 1), f_data: v(i.data, f, 1), f_forn: v(i.forn, f, 1), f_piva: v(i.piva, f, 1),
-    f_cli: v(CLIENT.name, f, 1), f_imp: v(i.imp, f, 1), f_iva: v(i.iva, f, 1), f_tot: v(i.tot, f, 1),
-    f_scad: v(i.scad, f, 1), f_mod: v(i.mod, f, 1), f_iban: i.iban ? v(i.iban, f, 1) : v(null), f_oda: i.oda ? v(i.oda, f, 1) : v(null),
+    f_num: v(i.num, f), f_data: v(i.data, f), f_forn: v(i.forn, f), f_piva: v(i.piva, f), f_cli: v(CLIENT.name, f),
+    f_imp: v(i.imp, f), f_iva: v(i.iva, f), f_tot: v(i.tot, f), f_scad: v(i.scad, f), f_mod: v(i.mod, f),
+    f_iban: i.iban ? v(i.iban, f) : v(null), f_oda: i.oda ? v(i.oda, f) : v(null),
   }
 }
 
-// [employee, PPS, role, hours, gross, net, employer pension (5%), leave days]
-export const PAYSLIPS = [
-  ['Luke Ferris', '8813402TA', 'Sales associate · Grade 4', '163', '2,767.20', '2,214.57', '138.36', '11.5'],
-  ['Aoife Byrne', '9152237WA', 'Showroom designer · Grade 3', '163', '2,941.35', '2,322.05', '147.07', '8'],
-  ['Andrew Collins', '8509112PA', 'Operations manager · Grade 1', '163', '4,120.00', '3,061.40', '206.00', '14'],
-  ['Ellie Page', '9501618WA', 'Customer service · Grade 5', '122', '1,604.88', '1,411.12', '80.24', '6.5'],
-  ['Matthew Ryan', '9022745CA', 'Sales associate · Grade 4', '163', '2,689.40', '2,160.10', '134.47', '9'],
-  ['Fiona Moore', '8704519NA', 'Purchasing lead · Grade 2', '163', '3,312.60', '2,560.33', '165.63', '12'],
-  ['Simon Doyle', '9303118YA', 'Warehouse operative · Grade 4', '163', '2,702.10', '2,169.82', '135.11', '3'],
-  ['Niamh Kelly', '8918544FA', 'Showroom designer · Grade 3', '163', '2,958.45', '2,333.47', '147.92', '15.5'],
-  ['Paul Brennan', '8211390HA', 'Delivery driver · Grade 6', '163', '1,968.30', '1,690.18', '98.42', '10'],
-]
-export const PAY_PERIOD = 'September 2026'
-export const payslipFile = (name) => `Payslip_09-2026_${name.split(' ').reverse().join('-')}.pdf`
-
-export function payslipState(row, fileName) {
-  const [dip, cf, liv, ore, lordo, netto, tfr, ferie] = row
-  return {
-    p_dip: v(dip, fileName), p_cf: v(cf, fileName), p_mese: v(PAY_PERIOD, fileName), p_liv: v(liv, fileName),
-    p_ore: v(ore, fileName), p_lordo: v(lordo, fileName), p_netto: v(netto, fileName), p_tfr: v(tfr, fileName), p_ferie: v(ferie, fileName),
-  }
+export const LEASE = {
+  landlord: CO.lee.name, premises: '2nd floor, 8 Patrick Street, Cork T12 W8X1', folio: 'Folio CK45512L · office', start: '01/03/2026', end: '28/02/2032',
+  rent: 26400, instalment: 2200, deposit: 6600, indexation: 'CPI, yearly from the 2nd year', notice: '6 months (registered post or email)', stamp: 'Revenue stamp duty ID 4821-3T, 14/03/2026',
 }
-
-export const LEASES = [
-  { dossier: 'Showroom 41 Dominick Street · Galway', file: FILES.locazione, loc: CO.colle.name, imm: '41 Dominick Street Lower, Galway H91 X8C3', cat: 'Folio GY21874F · retail unit', dec: '01/03/2026', scad: '28/02/2032', can: '26,400.00', rata: '2,200.00 monthly in advance', dep: '6,600.00', istat: 'CPI, yearly from the 2nd year', prea: '6 months (registered post or email)', reg: 'Revenue stamp duty ID 4821-3T, 14/03/2026' },
-  { dossier: 'Store 8 Patrick Street · Cork', file: 'Lease_8-Patrick-Street_Cork.pdf', loc: 'Lee Estates Ltd', imm: '8 Patrick Street, Cork T12 W8X1', cat: 'Folio CK45512L · retail unit', dec: '01/09/2023', scad: '31/08/2029', can: '31,200.00', rata: '7,800.00 quarterly in advance', dep: '7,800.00', istat: 'CPI, yearly', prea: '6 months', reg: 'Revenue stamp duty ID 9310-3T, 22/09/2023' },
-  { dossier: 'Store 112 O’Connell Street · Limerick', file: 'Lease_112-OConnell-Street_Limerick.pdf', loc: 'Shannonside Properties Ltd', imm: '112 O’Connell Street, Limerick V94 E2P7', cat: 'Folio LK22103F · retail unit', dec: '15/01/2025', scad: '14/01/2031', can: '22,800.00', rata: '1,900.00 monthly in advance', dep: '5,700.00', istat: 'CPI, yearly', prea: '12 months', reg: 'Revenue stamp duty ID 1188-3T, 30/01/2025' },
-]
-
-export function leaseState(l) {
-  const f = l.file
-  return {
-    l_loc: v(l.loc, f, 1), l_cond: v(CLIENT.name, f, 1), l_imm: v(l.imm, f, 1), l_cat: v(l.cat, f, 1),
-    l_dec: v(l.dec, f, 1), l_scad: v(l.scad, f, 1), l_can: v(l.can, f, 1), l_rata: v(l.rata, f, 1),
-    l_dep: v(l.dep, f, 2), l_istat: v(l.istat, f, 2), l_prea: v(l.prea, f, 2), l_reg: v(l.reg, f, 2),
-  }
-}
-
-const SAAS = 'SaaS_agreement_NW-2025-018.pdf'
-const HAUL = 'Haulage_contract_2025.pdf'
-export const SUPPLY_CONTRACTS = [
-  { dossier: 'Meridian Metalworks', state: DOSSIER_MERIDIANE.state, files: DOSSIER_MERIDIANE.files, status: 'done' },
-  {
-    dossier: 'Nordwave Digital', status: 'done',
-    files: [SAAS, 'SLA_schedule_B.pdf', FILES.ftNordwave],
-    state: {
-      c_forn: v(CO.nordwave.name, SAAS), c_piva: v(CO.nordwave.vat, SAAS),
-      c_ogg: v('SaaS e-commerce platform, hosting and ongoing development', SAAS),
-      c_stip: v('03/03/2025', SAAS), c_scad: v('02/03/2028', SAAS, 2),
-      c_rinn: v('Yes, yearly (tacit)', SAAS, 2), c_prea: v('60 days', SAAS, 2),
-      c_val: v('24,840.00', SAAS, 3), c_pag: v('Bank transfer, 30 days', FILES.ftNordwave),
-      c_pen: v('Service credits if availability < 99.5%', 'SLA_schedule_B.pdf'), c_list: v(null), c_audit: v(null), c_iso: v(null),
-      c_foro: v('Courts of Ireland (Dublin)', SAAS, 4), c_ref: v('Irene Sullivan', SAAS, 4),
-      c_fatt: v('0093/2026 · €2,472.30', FILES.ftNordwave),
-    },
+const LEASES = [
+  { dossier: 'Cork branch · 8 Patrick Street', file: FILES.locazione, loc: LEASE.landlord, imm: LEASE.premises, cat: LEASE.folio, dec: LEASE.start, scad: LEASE.end, can: eur(LEASE.rent), rata: `${eur(LEASE.instalment)} monthly in advance`, dep: eur(LEASE.deposit), istat: LEASE.indexation, prea: LEASE.notice, reg: LEASE.stamp },
+  { dossier: 'Galway branch · Eyre Square', file: 'Lease_Galway-branch_Eyre-Square.pdf', loc: 'Hillcrest Property Ltd', imm: '15 Eyre Square, Galway H91 F2X4', cat: 'Folio GY21874F · office', dec: '01/09/2023', scad: '31/08/2029', can: '31,200.00', rata: '7,800.00 quarterly in advance', dep: '7,800.00', istat: 'CPI, yearly', prea: '6 months', reg: 'Revenue stamp duty ID 9310-3T, 22/09/2023' },
+  { dossier: 'Limerick branch · O’Connell Street', file: 'Lease_Limerick-branch_OConnell-Street.pdf', loc: 'Shannonside Properties Ltd', imm: '112 O’Connell Street, Limerick V94 E2P7', cat: 'Folio LK22103F · office', dec: '15/01/2025', scad: '14/01/2031', can: '22,800.00', rata: '1,900.00 monthly in advance', dep: '5,700.00', istat: 'CPI, yearly', prea: '12 months', reg: 'Revenue stamp duty ID 1188-3T, 30/01/2025' },
+].map((l) => ({
+  dossier: l.dossier, profileId: 'prof_locazione', files: [l.file],
+  state: {
+    l_loc: v(l.loc, l.file), l_cond: v(CLIENT.name, l.file), l_imm: v(l.imm, l.file), l_cat: v(l.cat, l.file), l_dec: v(l.dec, l.file), l_scad: v(l.scad, l.file),
+    l_can: v(l.can, l.file), l_rata: v(l.rata, l.file), l_dep: v(l.dep, l.file, 2), l_istat: v(l.istat, l.file, 2), l_prea: v(l.prea, l.file, 2), l_reg: v(l.reg, l.file, 2),
   },
-  {
-    dossier: 'Three Valleys Logistics', status: 'done',
-    files: [HAUL, 'Rate_card_2026.pdf', FILES.ftTrevalli, FILES.ddt],
-    state: {
-      c_forn: v(CO.trevalli.name, HAUL), c_piva: v(CO.trevalli.vat, HAUL),
-      c_ogg: v('Groupage freight across Ireland and booked-slot deliveries', HAUL),
-      c_stip: v('01/02/2025', HAUL), c_scad: v('31/01/2027', HAUL),
-      c_rinn: v('No', HAUL, 2), c_prea: v('—', null), c_val: v('28,000.00', HAUL),
-      c_pag: v('Direct debit, 30 days', FILES.ftTrevalli), c_pen: v('€50 per delivery outside the agreed window', HAUL, 2),
-      c_list: v('Fuel surcharge 6.5% (Oct 2026)', 'Rate_card_2026.pdf'), c_audit: v(null), c_iso: v(null),
-      c_foro: v('Courts of Ireland (Dublin)', HAUL, 3), c_ref: v('Mark Gallagher', HAUL, 3),
-      c_fatt: v('1127/2026 · €2,993.24', FILES.ftTrevalli),
-    },
-  },
-  {
-    dossier: 'Liffey Weaving Mills', status: 'running',
-    files: ['Framework_agreement_fabrics_2023.pdf', 'Extension_2026.pdf', 'Sample_price_list_AW26.pdf', 'Invoice_26-01984_Liffey-Weaving-Mills.pdf'],
-    progress: { docIndex: 2, docTotal: 4, pageIndex: 3, pageTotal: 7, docName: 'Sample_price_list_AW26.pdf', totalPagesProcessed: 9 },
-    state: {
-      c_forn: v(CO.brera.name, 'Framework_agreement_fabrics_2023.pdf'), c_piva: v(CO.brera.vat, 'Framework_agreement_fabrics_2023.pdf'),
-      c_ogg: v('Supply of upholstery and curtain fabrics', 'Framework_agreement_fabrics_2023.pdf'), c_stip: v('09/05/2023', 'Framework_agreement_fabrics_2023.pdf'),
-      c_scad: v('31/12/2026', 'Extension_2026.pdf'),
-    },
-  },
-  { dossier: 'Midland Powder Coating', status: 'queued', files: ['Toll_processing_contract_2024.pdf', 'Audit_report_2025.pdf'], state: {} },
-]
+}))
+const LEASE_ERROR = { dossier: 'Archive store Naas · 1998 scan', profileId: 'prof_locazione', files: ['Lease_archive-store_Naas_scan.pdf'], status: 'error', error: 'OCR: text unreadable on 4/4 pages (72 dpi scan). Upload a scan of at least 200 dpi.' }
 
-export const MAIN_SESSION_CHAT = [
-  { role: 'user', content: 'When is payment due and which IBAN should I pay into?' },
-  { role: 'assistant', content: 'Invoice INV 2026/0418 is payable by bank transfer at 60 days end of month, so by 30/11/2026.\nIBAN given by the supplier: IE29 AIBK 9311 5212 3456 78.' },
-  { role: 'user', content: 'Are there lines that don’t match purchase order PO-2026-311?' },
-  { role: 'assistant', content: 'The order quoted is PO-2026-311 of 28/08/2026. Besides the product lines, the invoice has two extra items:\n• Laser cutting to customer drawing — €1,150.00\n• Transport and packaging — €180.00\nCheck they were in the order: the rest (TV-80 frames, ST-12 brackets, M10 feet) matches quantities and unit prices.' },
-]
-
-export const LEASE_CHAT = [
-  { role: 'user', content: 'By when must I give notice if I want to leave at the end of the first term?' },
-  { role: 'assistant', content: 'The first term ends on 28/02/2032. The tenant may break the lease with 6 months’ notice by registered post or email (clause 4): the notice must arrive by 31/08/2031.' },
-  { role: 'user', content: 'How much do I pay per month, rent plus service charge?' },
-  { role: 'assistant', content: 'Rent: €2,200.00 per month (€26,400.00 a year, monthly in advance by the 5th).\nService charge: flat €150.00 per month payable by the tenant (clause 7).\nMonthly total: €2,350.00, plus CPI indexation from the second year.' },
-  { role: 'user', content: 'Does the security deposit earn interest?' },
-  { role: 'assistant', content: 'Yes. The €6,600.00 deposit (three months’ rent) earns statutory interest, paid to the tenant at the end of each lease year (clause 6).' },
-]
-
-// ─── Multi-year archives for the Summaries (charts per year) ──────────────────
-// Deterministic PRNG: re-seeding always gives the same numbers.
-function prng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296) }
-const pad = (n) => String(n).padStart(2, '0')
-
-// 2024–2025 invoices from the same suppliers (two per supplier a year).
-export function archiveInvoices() {
-  const rnd = prng(2024)
-  const out = []
-  const growth = { 2024: 0.82, 2025: 0.93 }
-  for (const year of [2024, 2025]) {
-    for (const [k, i] of INVOICES.entries()) {
-      for (const half of [0, 1]) {
-        const imp = num(i.imp) * growth[year] * (0.7 + rnd() * 0.6)
-        const iva = Math.round(imp * VAT_RATE) / 100
-        const month = half ? 7 + Math.floor(rnd() * 5) : 1 + Math.floor(rnd() * 5)
-        const day = 3 + Math.floor(rnd() * 24)
-        const dueMonth = month + 2 > 12 ? month - 10 : month + 2
-        const dueYear = month + 2 > 12 ? year + 1 : year
-        const n = `${String(100 + k * 37 + half * 211 + (year - 2024) * 503)}/${year}`
-        out.push({
-          ...i, dossier: `${i.dossier} · ${pad(month)}-${year}`, file: `Invoice_${n.replace('/', '-')}_${i.dossier.replace(/[^A-Za-z]+/g, '-')}.pdf`,
-          num: n, data: `${pad(day)}/${pad(month)}/${year}`, imp: eur(imp), iva: eur(iva), tot: eur(imp + iva),
-          scad: `${pad(Math.min(day, 28))}/${pad(dueMonth)}/${dueYear}`, oda: '',
-        })
-      }
-    }
-  }
-  return out
+export const CV = {
+  name: 'Claire Lambert', role: 'Senior Credit Risk Analyst', employer: CO.harbour.name, email: 'claire.lambert@example.org', phone: '+353 87 000 1234', city: 'Dublin',
+  years: '8', degree: 'MSc in Finance', skills: 'Credit modelling, IFRS 9, loan-book due diligence, Python, SQL, Power BI', languages: 'French C1, Spanish B2', notice: '30 days’ notice',
 }
 
-// Monthly HQ electricity bills (Jan 2025 – Aug 2026), seasonal consumption.
-export function monthlyBills() {
-  const kwh = [5480, 5120, 4710, 4020, 3880, 4470, 5210, 4390, 4150, 4380, 4960, 5390]
-  const out = []
-  for (let y = 2025; y <= 2026; y++) {
-    for (let m = 1; m <= 12; m++) {
-      if (y === 2026 && m > 8) break
-      // August 2026 = the sample PDF bill (4640 kWh, €1,486.22).
-      const aug26 = y === 2026 && m === 8
-      const cons = aug26 ? 4640 : Math.round(kwh[m - 1] * (y === 2026 ? 0.94 : 1))
-      const tot = aug26 ? 1486.22 : cons * (y === 2026 ? 0.3203 : 0.2961)
-      const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
-      const dm = m === 12 ? 1 : m + 1
-      const dy = m === 12 ? y + 1 : y
-      out.push({
-        dossier: `HQ electricity · ${pad(m)}-${y}`, file: aug26 ? FILES.bolletta : `Electricity_bill_${pad(m)}-${y}.pdf`,
-        inizio: `01/${pad(m)}/${y}`, per: `01/${pad(m)}/${y} – ${last}/${pad(m)}/${y}`, cons: String(cons), tot: eur(tot), scad: `25/${pad(dm)}/${dy}`,
-      })
-    }
-  }
-  return out
-}
-
-export function billState(b) {
-  const f = b.file
-  return {
-    u_forn: v(CO.energia.name, f), u_pod: v('10012345678', f), u_inizio: v(b.inizio, f), u_per: v(b.per, f),
-    u_cons: v(b.cons, f), u_pot: v('30', f), u_tot: v(b.tot, f), u_scad: v(b.scad, f),
-  }
-}
-
-// ─── Seed texts (job logs, relevance checks, batches, singles, history) ───────
+// ─── Seed texts (job logs, relevance checks) ──────────────────────────────────
 export const TEXT = {
   singlesFolder: 'Single_extractions',
   log: {
@@ -486,110 +520,130 @@ export const TEXT = {
     index: 'Vector index: 1 dossier indexed',
   },
   detected: {
-    prof_fatture: 'supplier invoice', prof_fornitura: 'supply contract with attachments', prof_locazione: 'commercial lease',
-    prof_ddt: 'delivery note', prof_cedolini: 'payslip', prof_cv: 'curriculum vitae', prof_preventivi: 'commercial quote', prof_utenze: 'electricity bill',
+    prof_mutui: 'mortgage file (offer, valuation, payslips)', prof_prestiti: 'business loan agreement', prof_portafoglio: 'portfolio statement',
+    prof_fornitura: 'vendor contract with attachments', prof_locazione: 'office lease', prof_fatture: 'supplier invoice', prof_cv: 'curriculum vitae',
   },
   okReason: 'profile keywords found in the content',
   okSummary: (n, profile) => `The text contains ${n}/${n} words of the «${profile}» profile: extraction goes ahead.`,
 }
 
-export const BATCHES = {
-  invoices: 'Supplier invoices · September 2026',
-  contracts: 'Supplier contracts · 2027 renewals',
-  payslips: 'Payslips · September 2026',
-  leases: 'Leases · HQ and stores',
-  archive: 'Supplier invoices · archive 2024–2025',
-  bills: 'Utilities · electricity bills 2025–2026',
-}
-
-// Out-of-place document in the invoice batch: the relevance check stops it.
-export const MISMATCH = {
-  dossier: 'Misc documents (to sort)',
-  error: 'Content not relevant to the "Supplier invoices" profile — detected: curriculum vitae (experience, education, skills). Check the profile or press "Proceed anyway".',
-  precheck: {
-    verdict: 'mismatch', mode: 'keywords', score: 0.0, threshold: 0.25, reason: 'no profile keyword in the content',
-    missing: ['invoice', 'net amount', 'VAT', 'total due'], detected: { type: 'curriculum vitae', keywords: ['experience', 'education', 'skills'] },
-    suggestion: { id: 'prof_cv', name: 'Candidate CVs' },
-    summary: 'No word of the «Supplier invoices» profile in the text; the content looks like «Candidate CVs». The job stays on hold until you choose: change profile or «Proceed anyway».',
-  },
-}
-
-export const LEASE_ERROR = {
-  dossier: 'Warehouse Naas · 1998 scan',
-  file: 'Lease_warehouse_Naas_scan.pdf',
-  error: 'OCR: text unreadable on 4/4 pages (72 dpi scan). Upload a scan of at least 200 dpi.',
-}
-
-const at = (file, valore) => ({ valore, fonte: { file, page: 1 } })
-export const SINGLES = {
-  meridiane: {
-    dossier: 'Supplier Meridian Metalworks',
-    previous: {
-      summary: 'First run on the framework agreement only: addendum and audit report uploaded later.',
-      values: {
-        c_forn: CO.meridiane.name, c_piva: CO.meridiane.vat, c_ogg: 'Supply of metal components for furniture', c_stip: '15/01/2024',
-        c_scad: '31/12/2026', c_rinn: 'Yes, yearly (tacit)', c_prea: '90 days', c_val: '120,000.00', c_pag: 'Bank transfer, 60 days end of month',
-        c_pen: '0.5% per working day, max 10%', c_foro: 'Courts of Ireland (Cork)', c_ref: 'Paul Reid',
-      },
-    },
-  },
-  cv: {
-    email: SARAH, dossier: 'Application · UX Designer',
-    state: {
-      v_nome: at(FILES.cv, 'Claire Lambert'), v_ruolo: at(FILES.cv, 'Senior UX Designer — Nordwave Digital Ltd'),
-      v_email: at(FILES.cv, 'claire.lambert@example.org'), v_tel: at(FILES.cv, '+353 87 000 1234'),
-      v_citta: at(FILES.cv, 'Dublin'), v_anni: at(FILES.cv, '8'),
-      v_studio: at(FILES.cv, 'MSc in Interaction Design'),
-      v_skill: at(FILES.cv, 'Figma, design systems, user research, prototyping, accessibility, HTML/CSS'),
-      v_lingue: at(FILES.cv, 'French C1, Spanish B2'), v_disp: at(FILES.cv, '30 days’ notice'),
-    },
-  },
-  quote: {
-    email: DEMO_USER, dossier: 'Archive digitisation quote',
-    state: {
-      o_num: at(FILES.preventivo, 'Q-2026-077'), o_data: at(FILES.preventivo, '06/10/2026'),
-      o_forn: at(FILES.preventivo, CO.alba.name), o_ogg: at(FILES.preventivo, 'Document archive digitisation'),
-      o_imp: at(FILES.preventivo, '7,500.00'), o_valid: at(FILES.preventivo, '05/11/2026'),
-      o_tempi: at(FILES.preventivo, '6 weeks from order confirmation'), o_pag: at(FILES.preventivo, '30% on order, balance on acceptance'),
-    },
-  },
-  energy: {
-    email: DAVID, dossier: 'HQ electricity · August 2026',
-    state: {
-      u_forn: at(FILES.bolletta, CO.energia.name), u_pod: at(FILES.bolletta, '10012345678'),
-      u_inizio: at(FILES.bolletta, '01/08/2026'), u_per: at(FILES.bolletta, '01/08/2026 – 31/08/2026'),
-      u_cons: at(FILES.bolletta, '4640'), u_pot: at(FILES.bolletta, '30'), u_tot: at(FILES.bolletta, '1,486.22'),
-      u_scad: at(FILES.bolletta, '25/09/2026'),
-    },
-  },
-}
-
-// Single Extractor history (sessions restorable with «Open»).
-export const SESSIONS = (H, D) => [
-  { file: FILES.ftMeridiane, pages: 1, ago: 35 * 60, chat: MAIN_SESSION_CHAT,
-    fields: [['Invoice number', 'INV 2026/0418'], ['Issue date', '12/09/2026'], ['Supplier', CO.meridiane.name], ['Supplier VAT no.', CO.meridiane.vat], ['Customer', CLIENT.name], ['Net amount', '5,770.00'], ['VAT amount', '1,327.10'], ['Invoice total', '7,097.10'], ['Payment due date', '30/11/2026'], ['Payment method', 'Bank transfer'], ['IBAN', 'IE29AIBK93115212345678'], ['Purchase order ref.', 'PO-2026-311 of 28/08/2026']] },
-  { file: FILES.locazione, pages: 2, ago: 3 * H, chat: LEASE_CHAT,
-    fields: [['Landlord', CO.colle.name], ['Tenant', CLIENT.name], ['Property address', '41 Dominick Street Lower, Galway H91 X8C3'], ['Land registry ref.', 'Folio GY21874F · retail unit'], ['Start date', '01/03/2026'], ['First term end', '28/02/2032'], ['Annual rent', '26,400.00'], ['Instalments', '2,200.00 monthly in advance'], ['Security deposit', '6,600.00'], ['Rent indexation', 'CPI, yearly from the 2nd year'], ['Break notice', '6 months (registered post or email)'], ['Stamp duty ref.', 'Revenue stamp duty ID 4821-3T, 14/03/2026']] },
-  { file: FILES.ddt, pages: 1, ago: 22 * H, chat: [],
-    fields: [['Delivery note no.', '2291'], ['Delivery note date', '22/09/2026'], ['Sender', CO.brera.name], ['Consignee', CLIENT.name], ['Delivery address', 'Unit 18, Weavers Park, Dublin 12, D12 X2K7'], ['Reason for transport', 'Sale'], ['Carrier', CO.trevalli.name], ['Packages', '14'], ['Gross weight (kg)', '412'], ['Freight terms', 'Prepaid']] },
-  { file: FILES.cedolino, pages: 1, ago: 2 * D, chat: [],
-    fields: [['Employee', 'Luke Ferris'], ['PPS number', '8813402TA'], ['Pay period', 'September 2026'], ['Role and grade', 'Sales associate · Grade 4'], ['Hours worked', '163'], ['Gross pay', '2,767.20'], ['Net pay', '2,214.57'], ['Employer pension contribution', '138.36'], ['Annual leave left (days)', '11.5']] },
-  { file: FILES.cv, pages: 1, ago: 2 * D + 5 * H, chat: [],
-    fields: [['Candidate', 'Claire Lambert'], ['Current role', 'Senior UX Designer'], ['Email', 'claire.lambert@example.org'], ['Phone', '+353 87 000 1234'], ['City', 'Dublin'], ['Years of experience', '8'], ['Highest qualification', 'MSc in Interaction Design'], ['Key skills', 'Figma, design systems, user research, prototyping'], ['Languages', 'French C1, Spanish B2'], ['Availability', '30 days’ notice']] },
-  { file: FILES.preventivo, pages: 1, ago: 3 * D, chat: [],
-    fields: [['Quote number', 'Q-2026-077'], ['Quote date', '06/10/2026'], ['Supplier', CO.alba.name], ['Subject', 'Document archive digitisation'], ['Net amount', '7,500.00'], ['Valid until', '05/11/2026'], ['Delivery time', '6 weeks'], ['Payment terms', '30% on order, balance on acceptance']] },
-  { file: FILES.bolletta, pages: 1, ago: 5 * D, chat: [],
-    fields: [['Supplier', CO.energia.name], ['MPRN / GPRN', '10012345678'], ['Billing period', '01/08/2026 – 31/08/2026'], ['Consumption (kWh)', '4640'], ['Contracted capacity (kVA)', '30'], ['Total due', '1,486.22'], ['Due date', '25/09/2026']] },
-]
-
 export const SETTINGS_TEXT = {
   qdrantCollection: 'documents_demo',
   polizzaPromptExtra: 'Amounts always in 1,234.56 format and dates DD/MM/YYYY.\nIf a value is not written in the document leave the field empty: better empty than invented.\nWith several documents, the value from the most recent document wins.',
-  polizzaVerificaCampi: 'Invoice total, Payment due date, IBAN',
+  polizzaVerificaCampi: 'Loan amount, Interest rate, Valuation',
   bulkExcludedFolderNames: '_drafts, Old_scans',
-  bulkExcludeKeywords: 'cancelled',
+  bulkExcludeKeywords: 'withdrawn',
   language: 'en',
 }
 
-// Summaries created through the app API by capture.mjs / video.mjs.
-export const SUMMARY_NAMES = { invoices: 'Supplier invoices · 2024–2026', energy: 'HQ electricity · 2025–2026' }
+// ─── Seed plan: batches and single extractions (read by seed.mjs) ─────────────
+const HOUR = 3600
+const DAY = 24 * HOUR
+const MORTGAGE_DOSSIER = 'Byrne & Kelly · 14 Oak Park, Galway'
+const mortgageFiles = [FILES.offer1, FILES.valuation, FILES.payslipA, FILES.payslipB, FILES.offer2]
+
+export const PLAN = {
+  activeProfileId: 'prof_fatture',
+  batches: [
+    {
+      key: 'mortgages', label: 'Mortgage files · October 2026', email: DEMO_USER, ago: 5 * HOUR, step: 160,
+      jobs: [
+        { dossier: 'Byrne & Kelly · Galway', profileId: 'prof_mutui', files: mortgageFiles, state: showcaseState(S.offer2, FILES.offer2) },
+        ...MORTGAGES,
+        { dossier: MISMATCH.dossier, profileId: 'prof_mutui', files: [FILES.cv], status: 'mismatch', error: MISMATCH.error, precheck: MISMATCH.precheck },
+      ],
+    },
+    { key: 'loans', label: 'Business loans · Q4 2026 review', email: DAVID, ago: 3 * HOUR, step: 300, jobs: LOANS },
+    { key: 'portQ3', label: 'Portfolio statements · Q3 2026', email: SARAH, ago: DAY + 4 * HOUR, step: 45, jobs: PORTFOLIOS.q3 },
+    {
+      key: 'invoices', label: 'Supplier invoices · September 2026', email: DEMO_USER, ago: 2 * DAY + 5 * HOUR, step: 140,
+      jobs: INVOICES.map((i) => ({ dossier: i.dossier, profileId: 'prof_fatture', files: [i.file], state: invoiceState(i) })),
+    },
+    { key: 'leases', label: 'Office leases · branches', email: DEMO_USER, ago: 6 * DAY + 7 * HOUR, step: 200, jobs: [...LEASES, LEASE_ERROR] },
+    { key: 'portArchive', label: 'Portfolio statements · 2024–2025', email: SARAH, ago: 12 * DAY + 3 * HOUR, step: 40, jobs: PORTFOLIOS.archive },
+  ],
+  singles: [
+    {
+      key: 'mortgage', email: DEMO_USER, dossier: MORTGAGE_DOSSIER, profileId: 'prof_mutui', files: mortgageFiles,
+      state: showcaseState(S.offer2, FILES.offer2), ago: 50 * 60,
+      runs: [{ ago: 4 * DAY, summary: 'First run before the revised offer arrived: initial offer of 03/08/2026 only.', values: flat(showcaseState(S.offer1, FILES.offer1)) }],
+    },
+    { key: 'vendor', email: DAVID, dossier: 'Vendor · Meridian Data Services', profileId: 'prof_fornitura', files: VENDOR.files, state: VENDOR.state, ago: 26 * HOUR },
+    {
+      key: 'cv', email: SARAH, dossier: 'Application · Credit Risk Analyst', profileId: 'prof_cv', files: [FILES.cv], ago: 5 * HOUR,
+      state: {
+        v_nome: v(CV.name, FILES.cv), v_ruolo: v(`${CV.role} — ${CV.employer}`, FILES.cv), v_email: v(CV.email, FILES.cv), v_tel: v(CV.phone, FILES.cv),
+        v_citta: v(CV.city, FILES.cv), v_anni: v(CV.years, FILES.cv), v_studio: v(CV.degree, FILES.cv), v_skill: v(CV.skills, FILES.cv),
+        v_lingue: v(CV.languages, FILES.cv), v_disp: v(CV.notice, FILES.cv),
+      },
+    },
+  ],
+}
+
+// ─── Single Extractor history (sessions restorable with «Open») ───────────────
+const OFFER_CHAT = [
+  { role: 'user', content: 'When does the fixed rate end, and what happens after?' },
+  { role: 'assistant', content: 'The rate of 3.70% is fixed for 5 years from drawdown. After that the loan moves to the lender’s standard variable rate, currently 4.40% (section 3).' },
+  { role: 'user', content: 'Is there an early repayment charge?' },
+  { role: 'assistant', content: 'Only during the fixed period: repaying early may trigger a breakage charge calculated on the remaining fixed term (condition 3). No charge applies once the loan is on the variable rate.' },
+]
+const FACILITY_CHAT = [
+  { role: 'user', content: 'When does the facility mature?' },
+  { role: 'assistant', content: 'The final maturity date is 15/03/2029 (clause 6). Repayments are quarterly and the facility amortises fully by that date (clause 5).' },
+  { role: 'user', content: 'What financial covenants does the borrower have?' },
+  { role: 'assistant', content: 'Two, tested quarterly on the last twelve months (clause 9):\n• Net debt/EBITDA ≤ 3.0x\n• Interest cover ≥ 4.0x\nA breach is an event of default unless waived in writing by the lender.' },
+  { role: 'user', content: 'What security does the bank hold?' },
+  { role: 'assistant', content: 'A first-ranking legal charge over the Kilkenny mill, plus personal guarantees from the directors limited to €200,000 (clause 8).' },
+]
+const LEASE_CHAT = [
+  { role: 'user', content: 'By when must we give notice to leave at the end of the first term?' },
+  { role: 'assistant', content: 'The first term ends on 28/02/2032. The tenant may break the lease with 6 months’ notice by registered post or email (clause 4): the notice must arrive by 31/08/2031.' },
+  { role: 'user', content: 'How much do we pay per month, rent plus service charge?' },
+  { role: 'assistant', content: 'Rent: €2,200.00 per month (€26,400.00 a year, monthly in advance by the 5th).\nService charge: flat €150.00 per month payable by the tenant (clause 7).\nMonthly total: €2,350.00, plus CPI indexation from the second year.' },
+]
+export const SESSIONS = (H, D) => [
+  { file: FILES.offer2, pages: 1, ago: 35 * 60, chat: OFFER_CHAT,
+    fields: [['Borrower(s)', S.borrowers], ['Property address', S.property], ['Purchase price', eur(S.price)], ['Loan amount', eur(S.loan)], ['Loan to value', pct((S.loan / S.valuation) * 100)], ['Rate type', S.offer2.rateType], ['Interest rate', `${S.offer2.rate.toFixed(2)}%`], ['Term', `${S.term} years`], ['Monthly repayment', eur(monthlyPayment(S.loan, S.offer2.rate, S.term))], ['Lender', S.lender], ['Offer valid until', S.offer2.validUntil]] },
+  { file: FILES.facility, pages: 2, ago: 3 * H, chat: FACILITY_CHAT,
+    fields: [['Borrower', CO.liffey.name], ['Lender', CO.harbour.name], ['Facility amount', eur(FACILITY.principal)], ['Interest rate', `3M Euribor + ${FACILITY.margin}`], ['Signing date', FACILITY.date], ['Final maturity', FACILITY.maturity], ['Repayment', 'Quarterly, amortising'], ['Security', FACILITY.security], ['Financial covenants', FACILITY.covenants], ['Purpose', FACILITY.purpose], ['Arrangement fee', eur(FACILITY.fee)]] },
+  { file: FILES.statement, pages: 1, ago: 22 * H, chat: [],
+    fields: [['Client', STATEMENT.client], ['Account number', STATEMENT.account], ['Mandate', STATEMENT.mandate], ['Custodian', STATEMENT.custodian], ['Statement date', STATEMENT.date], ['Portfolio value', eur(STATEMENT.value)], ['Cash', eur(STATEMENT.cash)], ['Equities', pct((STATEMENT.equity / STATEMENT.value) * 100)], ['Bonds', pct((STATEMENT.bonds / STATEMENT.value) * 100)], ['Dividends and coupons', eur(STATEMENT.dividends)], ['Fees', eur(STATEMENT.mgmtFee + STATEMENT.custodyFee)], ['Return YTD', pct(STATEMENT.ret)], ['Next review', STATEMENT.review]] },
+  { file: FILES.valuation, pages: 2, ago: 2 * D, chat: [],
+    fields: [['Property address', S.property], ['Valuation', eur(S.valuation)], ['Valuation date', S.valuationDate], ['Valuer', CO.valuer.name]] },
+  { file: FILES.payslipA, pages: 1, ago: 2 * D + 5 * H, chat: [],
+    fields: [['Employee', 'Aoife Byrne'], ['Employer', CO.brightwood.name], ['Pay period', 'September 2026'], ['Gross pay', '3,921.60'], ['Net pay', '3,214.57']] },
+  { file: FILES.locazione, pages: 2, ago: 3 * D, chat: LEASE_CHAT,
+    fields: [['Landlord', LEASE.landlord], ['Tenant', CLIENT.name], ['Premises address', LEASE.premises], ['Start date', LEASE.start], ['First term end', LEASE.end], ['Annual rent', eur(LEASE.rent)], ['Security deposit', eur(LEASE.deposit)], ['Break notice', LEASE.notice]] },
+  { file: FILES.cv, pages: 1, ago: 5 * D, chat: [],
+    fields: [['Candidate', CV.name], ['Current role', CV.role], ['Email', CV.email], ['City', CV.city], ['Years of experience', CV.years], ['Highest qualification', CV.degree], ['Key skills', CV.skills], ['Languages', CV.languages]] },
+]
+
+// ─── Video direction (video.mjs): which batches, dossiers and fields to show ──
+const fieldOf = (profileId, fieldId) => [profileId, fieldId]
+export const FILM = {
+  batches: { decision: 'mortgages', running: 'loans', archive: 'portArchive', latest: 'portQ3', errors: 'leases' },
+  singles: { dossier: 'mortgage', history: 'mortgage' },
+  decision: { firstRow: 'Byrne & Kelly · Galway', valueField: fieldOf('prof_mutui', 'm_loan'), relevanceWord: 'mortgage', mismatch: MISMATCH.dossier, suggestion: MISMATCH.precheck.suggestion.name },
+  runningRows: ['Corrib Hardware & Sons', 'Liffey Weaving Mills', 'Three Valleys Logistics'],
+  dossierFields: [fieldOf('prof_mutui', 'm_rate'), fieldOf('prof_mutui', 'm_valuation')],
+  historyFields: [fieldOf('prof_mutui', 'm_rate'), fieldOf('prof_mutui', 'm_payment')],
+  errorRow: LEASE_ERROR.dossier,
+  skippedFolder: 'Withdrawn',
+  summary: {
+    name: 'Client portfolios · 2024–2026', batches: ['portArchive', 'portQ3'], dateField: fieldOf('prof_portafoglio', 's_date'),
+    groupFieldId: 's_custodian', newName: 'Assets under management 2024–2026',
+  },
+  profiles: {
+    hover: ['prof_mutui', 'prof_prestiti', 'prof_portafoglio', 'prof_fornitura', 'prof_locazione'],
+    apply: 'prof_mutui', describe: ['m_income', 'm_ltv', 'm_rate'],
+    extractorFile: FILES.offer2, extractorField: fieldOf('prof_mutui', 'm_rate'),
+    chatFile: FILES.facility, chatHover: ['Net debt/EBITDA ≤ 3.0x', 'first-ranking legal charge'],
+  },
+  text: {
+    profilesList: 'One profile per document type: mortgages, loans, portfolios, contracts…',
+    sameEngine: 'The same engine reads mortgage offers…',
+    chatToo: '…and loan agreements — and answers questions about the text',
+    groupBy: 'Make it yours — for example, group by custodian',
+    skipped: 'Drafts and withdrawn applications stay out — by rules you set',
+  },
+}
