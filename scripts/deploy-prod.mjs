@@ -10,7 +10,7 @@
  *   node scripts/deploy-prod.mjs [--dry-run] [--feature m1,m2] [--skip-push]
  *        [--no-wait] [--wait-max 180] [--quiet-checks 3] [--quiet-interval 60]
  *        [--deploy-timeout 30] [--verify-timeout 10] [--grace 120]
- *        [--keep-pause] [--ignore-queue] [--allow-files] [--max-file-mb 5]
+ *        [--keep-pause] [--ignore-queue] [--allow-files] [--max-file-mb 5] [--now]
  *        [--config ~/.config/csa-coolify.env] [--branch test_branch]
  *
  * Va lanciato IN BACKGROUND (l'attesa può durare ore; un comando in primo piano
@@ -94,6 +94,10 @@ const SKIP_PUSH = has('skip-push')
 const NO_WAIT = has('no-wait')
 const KEEP_PAUSE = has('keep-pause')
 const IGNORE_QUEUE = has('ignore-queue')
+// --now: deploy anche con dossier del cliente in coda o in corso (scelta esplicita
+// dell'utente: il riavvio li riprende da soli, il dossier in lavorazione riparte dal
+// suo punto). Un caricamento in corso blocca lo stesso: il riavvio lo chiuderebbe.
+const NOW = has('now')
 const ALLOW_FILES = has('allow-files')
 const WAIT_MAX_MIN = num('wait-max', 180)
 const QUIET_CHECKS = num('quiet-checks', 3)
@@ -510,14 +514,14 @@ async function serverActivity() {
       warnings.push(`batch «${b.label}» in caricamento fermo da ${Math.round(ageMin / 60)} h: al riavvio l'app lo chiude${active ? ` e i suoi ${active} job partono` : ''}`)
       continue
     }
-    if (active) reasons.push(`batch «${b.label}»: ${b.running || 0} in corso, ${b.queued || 0} in coda`)
+    if (active) (NOW ? warnings : reasons).push(`batch «${b.label}»: ${b.running || 0} in corso, ${b.queued || 0} in coda${NOW ? ' (--now: il riavvio li riprende)' : ''}`)
   }
   // Pesante (ultimi 100 singoli con log e valori) ma è l'unica lettura che c'è:
   // si fa solo se i batch sono puliti.
   if (!reasons.length) {
     const { jobs = [] } = await appApi('/api/polizza/job')
     const single = jobs.filter((j) => j.status === 'running' || j.status === 'queued')
-    if (single.length) reasons.push(`${single.length} estrazioni singole/run di test attive (${single.slice(0, 3).map((j) => j.dossierName || String(j.jobId || '').slice(0, 8)).join(', ')}${single.length > 3 ? ', …' : ''})`)
+    if (single.length) (NOW ? warnings : reasons).push(`${single.length} estrazioni singole/run di test attive (${single.slice(0, 3).map((j) => j.dossierName || String(j.jobId || '').slice(0, 8)).join(', ')}${single.length > 3 ? ', …' : ''})`)
   }
   return { reasons, warnings }
 }
