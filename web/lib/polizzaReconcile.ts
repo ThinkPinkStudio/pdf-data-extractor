@@ -210,6 +210,8 @@ export async function reconcileBatch(batchId: string): Promise<void> {
     const settings: any = await getSettings()
     const dossiers = await listQueuedBatchDossiers(batchId, scope)
     result.dossiers = dossiers.length
+    result.before = dossiers.length
+    result.after = dossiers.length
     if (dossiers.length < 2) { await markBatchReconciled(batchId, { ...result, at: Math.floor(Date.now() / 1000) }); return }
     // 1. Lettura di TUTTI i file, ogni pagina (text layer + OCR delle scansioni).
     // Più dossier insieme (16/10/2026): un dossier alla volta lasciava fermi
@@ -374,9 +376,12 @@ export async function reconcileBatch(batchId: string): Promise<void> {
       logs.push(`[${new Date().toTimeString().slice(0, 8)}] Lettura preliminare (tutte le pagine): ${input.find((d) => d.id === r.id)?.files.length ?? 0} file, numeri di polizza trovati: ${r.numbers.length ? r.numbers.join(', ') : 'nessuno'}${r.notes.length ? ` — ${r.notes.join('; ')}` : ''}`)
       await updateJob(r.id, { logs })
     }
-    const { applied, touched } = await applyReconcilePlan(res.plan, pathOf, splits, { idle: !!scope, by: scope?.by || null })
+    const { applied, touched, removed, created } = await applyReconcilePlan(res.plan, pathOf, splits, { idle: !!scope, by: scope?.by || null })
     result.applied = applied
     result.touched = touched.length
+    result.removed = removed
+    result.created = created
+    result.after = dossiers.length - removed + created
     if (applied === 0 && (res.plan.length || splits.length)) {
       result.error = scope
         ? 'piano non applicato: un dossier coinvolto è stato rimesso in coda o annullato nel frattempo'

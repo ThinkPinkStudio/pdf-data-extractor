@@ -7,7 +7,7 @@ import type { BatchSummary, JobSnapshot } from '@/components/jobs/types'
 import { SINGLES_ID } from '@/components/jobs/types'
 import {
   BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, FILTER_LABEL_KEY, batchProcessed, batchStatus, countsFromBatch,
-  batchWhen, decisionCount, fmtDate, segmentsFromCounts, summarizeJobs,
+  batchWhen, decisionCount, fmtDate, reconcileCounter, segmentsFromCounts, summarizeJobs,
 } from '@/components/jobs/model'
 import { StackedBar } from '@/components/jobs/StackedBar'
 import { StatusPill } from '@/components/jobs/StatusPill'
@@ -282,6 +282,8 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle, onC
   const processed = batchProcessed(b)
   // Caricamento non chiuso: il batch non parte finché non lo si chiude.
   const uploadOpen = !virtual && b.upload_complete === false
+  const reconciling = !virtual && !uploadOpen && !!b.needs_reconcile && b.total > 0
+  const rc = !virtual && b.reconcile_result && !b.reconcile_result.error ? reconcileCounter(b.reconcile_result, b.total) : null
   // Data mostrata: l'ultimo lancio (chi e quando), non il caricamento, che resta nel tooltip.
   const when = batchWhen(Number(b.created_at) || 0, b.last_launch_at, b.last_launch_by, b.last_run_at)
   const uploaded = t('jobsDash.uploadedBy', { date: fmtDate(Number(b.created_at) || 0), by: b.email })
@@ -304,7 +306,9 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle, onC
         </div>
         {b.total > 0 && (uploadOpen
           ? <span className="jb-pill warn" style={{ flex: 'none' }}>{t('jobsDash.bUploadOpen')}</span>
-          : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`} style={{ flex: 'none' }}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
+          : reconciling
+            ? <span className="jb-pill info" style={{ flex: 'none' }}>{t('jobsDash.bReconciling')}</span>
+            : <span className={`jb-pill ${BATCH_STATE_PILL[state]}`} style={{ flex: 'none' }}>{t(BATCH_STATE_LABEL_KEY[state])}</span>)}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
@@ -318,6 +322,7 @@ function BatchCard({ b, href, subtitle, virtual, selected, active, onToggle, onC
           ))}
           {segments.length === 0 && <span className="jb-leg jb-leg-wrap">{virtual ? t('jobsDash.singlesEmpty') : t('jobsDash.bQueued')}</span>}
         </div>
+        {rc && <span className="jb-leg" title={fmtDate(b.reconcile_result!.at)}>{t('jobsDash.reconcileCounterShort', { before: rc.before, after: rc.after })}</span>}
       </div>
       {uploadOpen ? (
         <div className="jb-callout">

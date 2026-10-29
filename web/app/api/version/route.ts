@@ -124,6 +124,7 @@ const BUILD_FEATURES = [
   'chiudi-caricamento', // Caricamento non chiuso visibile e chiudibile da Elaborazioni; uscire da Cartella bulk col menu chiude il caricamento (23/10/2026, Lipari J - T fermo 26 ore)
   'riunione-toccati', // Riconciliazione robusta (un file illeggibile non la abbandona più, esito sul batch) + riunione dei GIÀ ELABORATI che rimette in coda solo i dossier uniti o divisi (25/10/2026, Lipari J - T)
   'codici-condivisi', // Riconciliazione: sotto «Polizza N.» il numero a destra del codice fiscale di una persona è un suo dato (Helvetia: codice professione); un numero nei documenti di ≥3 persone diverse è un codice condiviso; Separa + estrai (25/10/2026, Lipari J - T)
+  'contatore-riunione', // Pagina del batch e card: «Caricati N dossier → M dopo la riunione per numero di polizza» (uniti, nuovi dalle divisioni) e riquadro «riunione in corso» (29/10/2026)
 ]
 
 export async function GET() {

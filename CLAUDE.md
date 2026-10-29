@@ -2010,6 +2010,20 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   J-T cambia solo il gruppo Helvetia (`work/replay/jt2-replan-ab.mjs`). Bulk
   `split` + `rematch` accetta `extract` come il Riabbina.
 
+- **Contatore della riunione (29/10/2026, «_Vari Lipari»)**: l'utente credeva
+  che si estraesse prima di riunire; la riunione c'era (03:57, 140
+  unioni/divisioni su 1567 dossier, primo estratto alle 03:58) ma la riga era
+  poco visibile. Ora `reconcile_result` ha `before`/`removed`/`created`/`after`
+  (`applyReconcilePlan` conta i dossier svuotati e quelli creati) e la pagina del
+  batch mostra «Caricati N dossier → M dopo la riunione per numero di polizza · X
+  uniti ad altri, Y nuovi dalle divisioni» (esiti vecchi: «dopo» = dossier di
+  adesso); durante la riunione un riquadro dice che l'estrazione parte dopo; la
+  card della lista ha lo stesso contatore. «Massimo 16 campi» NON è un limite:
+  sulle auto con la tutela legale della circolazione 7 campi TL3 non esistono nei
+  documenti (regolazione ×3, franchigia, interessi, diritti, garanzie non
+  operanti): nei 143 dossier di Lipari A-I controllati a mano le auto hanno 11-12
+  valori veri su 23, il massimo assoluto è 18.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

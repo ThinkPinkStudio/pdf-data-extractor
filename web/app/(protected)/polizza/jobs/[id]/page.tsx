@@ -8,7 +8,7 @@ import type { DetailTab, FilterKey, JobSnapshot, ViewMode } from '@/components/j
 import { SINGLES_ID } from '@/components/jobs/types'
 import {
   BATCH_STATE_LABEL_KEY, BATCH_STATE_PILL, agoParts, batchStatus, batchWhen, countByFilter, filterOf, fmtDate,
-  orderWithTests, parseFilter, shortName, summarizeJobs,
+  orderWithTests, parseFilter, reconcileCounter, shortName, summarizeJobs, type ReconcileResultView,
 } from '@/components/jobs/model'
 import { useJobActions } from '@/components/jobs/useJobActions'
 import { KpiStrip } from '@/components/jobs/KpiStrip'
@@ -20,9 +20,6 @@ import { ActionMenu } from '@/components/jobs/ActionMenu'
 import { IcAlert, IcChevDown, IcDownload, IcPlay, IcQueue, IcRefresh, IcSearch, IcTable, IcTree, IcZip } from '@/components/jobs/Icons'
 import { useCloseUpload } from '@/components/jobs/useCloseUpload'
 import { useSummarySelection } from '@/components/summaries/useSummarySelection'
-
-// Esito dell'ultima riunione per numero di polizza (reconcile_result del batch).
-interface ReconcileResultView { at: number; scope: 'queued' | 'idle'; dossiers: number; failedFiles: number; applied: number; touched: number; error?: string | null }
 
 const VIEW_KEY = 'jobsView'
 const REASON_KEY = 'jobsReasonFull'
@@ -193,12 +190,6 @@ function BatchView() {
             )}
             {isSingles && <span>{t('jobsDash.singlesCardDesc')}</span>}
             {ago && <span>· {t('jobsDash.lastUpdate', { ago: t(ago.key, { n: ago.n }) })}</span>}
-            {rr && !rr.error && (
-              <span>· {rr.scope === 'idle'
-                ? t('jobsDash.reconcileDoneIdle', { date: fmtDate(rr.at), applied: rr.applied, touched: rr.touched })
-                : t('jobsDash.reconcileDoneQueued', { date: fmtDate(rr.at), applied: rr.applied, n: rr.dossiers })}
-                {rr.failedFiles > 0 && <> · {t('jobsDash.reconcileFailedFiles', { n: rr.failedFiles })}</>}</span>
-            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 'none', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -240,6 +231,27 @@ function BatchView() {
         </div>
       )}
 
+      {reconciling && (
+        <div className="jb-callout calm" role="status">
+          <span style={{ flex: '1 1 0' }}><b>{t('jobsDash.reconcilingTitle')}</b> {t('jobsDash.reconcilingText', { n: all.length })}</span>
+        </div>
+      )}
+      {rr && !rr.error && !reconciling && (() => {
+        const rc = reconcileCounter(rr, all.length)
+        return (
+          <div className="jb-callout calm" role="status">
+            <span style={{ flex: '1 1 0' }}>
+              <b>{t('jobsDash.reconcileCounter', { before: rc.before, after: rc.after })}</b>
+              {' · '}{rc.removed != null
+                ? t('jobsDash.reconcileCounterDetail', { removed: rc.removed, created: rc.created ?? 0 })
+                : t('jobsDash.reconcileCounterLegacy', { applied: rr.applied })}
+              {rr.scope === 'idle' && <> · {t('jobsDash.reconcileCounterTouched', { n: rr.touched })}</>}
+              {' · '}{fmtDate(rr.at)}
+              {rr.failedFiles > 0 && <> · {t('jobsDash.reconcileFailedFiles', { n: rr.failedFiles })}</>}
+            </span>
+          </div>
+        )
+      })()}
       {rr?.error && !reconciling && (
         <div className="jb-callout" role="status">
           <span className="jb-c-warn" style={{ display: 'inline-flex' }}><IcAlert /></span>

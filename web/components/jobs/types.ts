@@ -25,6 +25,9 @@ export interface BatchSummary {
   // FALSE = caricamento non chiuso: i dossier aspettano (un batch nuovo parte
   // solo a caricamento chiuso). Assente nel batch virtuale delle singole.
   upload_complete?: boolean
+  // Riunione per numero di polizza: in sospeso ed esito dell'ultima (ReconcileResultView).
+  needs_reconcile?: boolean
+  reconcile_result?: import('./model').ReconcileResultView | null
 }
 
 // Esito del controllo di pertinenza/operatività scritto dal worker (precheck).

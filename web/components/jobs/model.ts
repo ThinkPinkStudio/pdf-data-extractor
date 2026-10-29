@@ -280,6 +280,24 @@ export function splitName(j: JobSnapshot, batchLabel?: string | null): { name: s
   return { name: segments[segments.length - 1], path: segments.slice(0, -1).join(' / '), segments }
 }
 
+// CONTATORE DELLA RIUNIONE per numero di polizza (reconcile_result del batch):
+// dossier caricati → dopo unioni e divisioni (29/10/2026, richiesta dell'utente:
+// dalla pagina non si capiva se la riunione c'era stata prima dell'estrazione).
+// Gli esiti scritti prima non hanno il conteggio: «dopo» è il numero di adesso.
+export interface ReconcileResultView {
+  at: number; scope: 'queued' | 'idle'; dossiers: number; failedFiles: number; applied: number; touched: number
+  before?: number; removed?: number; created?: number; after?: number; error?: string | null
+}
+export function reconcileCounter(rr: ReconcileResultView, currentTotal: number): { before: number; after: number; removed: number | null; created: number | null } {
+  const before = Number(rr.before ?? rr.dossiers) || 0
+  return {
+    before,
+    after: rr.after != null ? Number(rr.after) : currentTotal,
+    removed: rr.removed != null ? Number(rr.removed) : null,
+    created: rr.created != null ? Number(rr.created) : null,
+  }
+}
+
 // DATA MOSTRATA di un batch: l'ultimo LANCIO (azione dell'utente, con chi l'ha
 // fatto) invece del caricamento; per i batch che non ne hanno uno registrato,
 // la fine dell'ultima elaborazione se è di dopo il caricamento. Così due batch

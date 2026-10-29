@@ -1185,6 +1185,13 @@ export interface ReconcileResult {
   failedFiles: number
   applied: number
   touched: number
+  // Contatore del batch: dossier prima della riunione (caricati), tolti perché uniti
+  // ad altri, nuovi dalle divisioni, e dopo (= prima − tolti + nuovi). Assenti negli
+  // esiti scritti prima del 29/10/2026.
+  before?: number
+  removed?: number
+  created?: number
+  after?: number
   error?: string | null
 }
 
@@ -1266,15 +1273,17 @@ export interface ReconcileSplit { job: string; idx: number; fileName: string; pa
  * (né in coda, né in corso, né annullati) e, nella STESSA transazione, quelli che
  * restano dopo unioni e divisioni tornano in coda da zero (pertinenza ed
  * estrazione, coi loro campi): i loro risultati valevano per i file di prima.
- * @returns unioni/divisioni applicate e dossier toccati rimasti (da elaborare)
+ * @returns unioni/divisioni applicate, dossier toccati rimasti (da elaborare), dossier
+ *   tolti perché svuotati dalle unioni e dossier nuovi creati (il contatore del batch)
  */
 export async function applyReconcilePlan(
   plan: ReconcileMerge[],
   pathOf: Record<string, string>,
   splits: ReconcileSplit[] = [],
   opts: { idle?: boolean; by?: string | null } = {},
-): Promise<{ applied: number; touched: string[] }> {
-  if (!plan.length && !splits.length) return { applied: 0, touched: [] }
+): Promise<{ applied: number; touched: string[]; removed: number; created: number }> {
+  const none = { applied: 0, touched: [] as string[], removed: 0, created: 0 }
+  if (!plan.length && !splits.length) return none
   const involved = [...new Set([
     ...plan.flatMap((m) => [...(m.target ? [m.target] : []), ...m.moves.map((x) => x.from)]),
     ...splits.map((x) => x.job),
@@ -1286,7 +1295,7 @@ export async function applyReconcilePlan(
       'SELECT id, status FROM polizza_jobs WHERE id = ANY($1) FOR UPDATE', [involved]
     )
     const movable = (status: string) => opts.idle ? IDLE_RECONCILE_STATUSES.includes(status) : status === 'queued'
-    if (st.length !== involved.length || st.some((r) => !movable(r.status))) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
+    if (st.length !== involved.length || st.some((r) => !movable(r.status))) { await client.query('ROLLBACK'); return none }
     const stamp = `[${new Date().toTimeString().slice(0, 8)}]`
     const touched = new Set(involved)
     const nextIdx = async (jobId: string): Promise<number> => {
@@ -1295,11 +1304,12 @@ export async function applyReconcilePlan(
     }
     // Dossier NUOVI: stesse impostazioni (profilo, campi, pre-controllo) del primo dossier da cui prendono file.
     const targets: string[] = []
+    const created = new Set<string>()
     for (const merge of plan) {
       if (merge.target) { targets.push(merge.target); continue }
       const { rows: src } = await client.query('SELECT * FROM polizza_jobs WHERE id = $1', [merge.moves[0]?.from])
       const job = src[0]
-      if (!job) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
+      if (!job) { await client.query('ROLLBACK'); return none }
       const id = randomUUID()
       const fieldDefs = Array.isArray(job.field_defs) ? job.field_defs : []
       await client.query(
@@ -1312,6 +1322,7 @@ export async function applyReconcilePlan(
           job.precheck && !opts.idle ? JSON.stringify(job.precheck) : null, now()],
       )
       touched.add(id)
+      created.add(id)
       targets.push(id)
     }
     // Parti dei PDF con più polizze: il file originale esce, le parti entrano dove vanno.
@@ -1319,7 +1330,7 @@ export async function applyReconcilePlan(
     const partLines = new Map<number, string[]>()
     for (const sp of splits) {
       const { rows } = await client.query<{ rel_path: string | null }>('DELETE FROM polizza_job_files WHERE job_id = $1 AND idx = $2 RETURNING rel_path', [sp.job, sp.idx])
-      if (!rows.length) { await client.query('ROLLBACK'); return { applied: 0, touched: [] } }
+      if (!rows.length) { await client.query('ROLLBACK'); return none }
       relOf.set(`${sp.job}#${sp.idx}`, rows[0].rel_path)
       const here: string[] = []
       for (const part of sp.parts) {
@@ -1361,9 +1372,10 @@ export async function applyReconcilePlan(
       )
     }
     const remaining: string[] = []
+    let removed = 0
     for (const id of touched) {
       const { rows: fs } = await client.query<{ idx: number; file_name: string }>('SELECT idx, file_name FROM polizza_job_files WHERE job_id = $1 ORDER BY idx', [id])
-      if (!fs.length) { await client.query('DELETE FROM polizza_jobs WHERE id = $1', [id]); continue }
+      if (!fs.length) { await client.query('DELETE FROM polizza_jobs WHERE id = $1', [id]); removed++; continue }
       remaining.push(id)
       await client.query('UPDATE polizza_job_files SET idx = -idx - 1 WHERE job_id = $1', [id])
       for (let i = 0; i < fs.length; i++) await client.query('UPDATE polizza_job_files SET idx = $1 WHERE job_id = $2 AND idx = $3', [i, id, -fs[i].idx - 1])
@@ -1387,7 +1399,7 @@ export async function applyReconcilePlan(
       await client.query('UPDATE batch_jobs SET notified_at = NULL WHERE id = (SELECT batch_id FROM polizza_jobs WHERE id = $1)', [remaining[0]])
     }
     await client.query('COMMIT')
-    return { applied: plan.length + splits.length, touched: remaining }
+    return { applied: plan.length + splits.length, touched: remaining, removed, created: created.size }
   } catch (e) {
     await client.query('ROLLBACK')
     throw e
