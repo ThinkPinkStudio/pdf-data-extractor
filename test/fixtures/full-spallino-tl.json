@@ -1,0 +1,111 @@
+{
+  "id": "spallino-tl",
+  "label": "SPALLINO LORENZO — Tutela legale DAS Drive 01469DAS00037 (veicolo GJ009XD), 16/12/2024-16/12/2025",
+  "fields": {
+    "N° Polizza": {
+      "value": "01469DAS00037",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "mode": "anyof",
+      "values": [
+        "DAS",
+        "D.A.S"
+      ]
+    },
+    "Contraente/Assicurato": {
+      "value": "SPALLINO LORENZO",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "SPLLNZ59S06L682T",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "VOLTA",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "16/12/2025",
+      "mode": "date",
+      "note": "quietanza di rinnovo 'Dal 16/12/25 al 16/12/26' (documento più recente)"
+    },
+    "Scadenza": {
+      "value": "16/12/2026",
+      "mode": "date"
+    },
+    "Frazionamento": {
+      "value": "Annuale",
+      "mode": "contains"
+    },
+    "Attività assicurata": {
+      "mode": "anyof",
+      "values": [
+        "Professionista",
+        "Altre Aree"
+      ]
+    },
+    "Massimale per sinistro tutela legale": {
+      "value": "25.000,00",
+      "mode": "amount"
+    },
+    "Massimale per anno tutela legale": {
+      "value": "illimitato",
+      "mode": "contains"
+    },
+    "Parametro regolazione ": {
+      "value": null,
+      "mode": "text"
+    },
+    "Importo preventivo parametro regolazione": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Tasso regolazione ‰ ": {
+      "value": null,
+      "mode": "text"
+    },
+    "Franchigia generica o minima": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Garanzie scelte/operanti": {
+      "value": "DAS DRIVE",
+      "mode": "contains"
+    },
+    "Garanzie non operanti": {
+      "value": null,
+      "mode": "text"
+    },
+    "Premio imponibile tutela legale": {
+      "value": "24,88",
+      "mode": "amount"
+    },
+    "Interessi di frazionamento": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Diritti": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Imposte": {
+      "value": "3,12",
+      "mode": "amount"
+    },
+    "Premio lordo totale tutela legale": {
+      "value": "28,00",
+      "mode": "amount"
+    },
+    "Tipologia tutela legale": {
+      "mode": "anyof",
+      "values": [
+        "mobilit",
+        "circolazione",
+        "vita privata"
+      ]
+    }
+  },
+  "nonVerificati": [],
+  "note": "Tutte e sei le caselle dei bisogni sono barrate nel profilo cliente. Rinnovo: quietanza n. 25144819 'Dal 16/12/25 al 16/12/26', NO TACITO RINNOVO, premio 24,88+3,12=28,00. Polizza originaria 16/12/2024-16/12/2025."
+}

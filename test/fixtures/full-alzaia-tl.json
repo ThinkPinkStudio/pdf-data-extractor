@@ -1,0 +1,109 @@
+{
+  "id": "alzaia-tl",
+  "label": "ALZAIA NAVIGLIO PAVESE 104 — Tutela legale DAS 0146905119, quietanza rinnovo 31/01/2026-31/01/2027",
+  "fields": {
+    "N° Polizza": {
+      "value": "0146905119",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "mode": "anyof",
+      "values": [
+        "DAS",
+        "D.A.S"
+      ]
+    },
+    "Contraente/Assicurato": {
+      "value": "ALZAIA NAV",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "80178220150",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "ALZAIA NAVIGLIO PAVESE 104",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "31/01/2026",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "31/01/2027",
+      "mode": "date"
+    },
+    "Frazionamento": {
+      "value": "Annuale",
+      "mode": "contains"
+    },
+    "Massimale per sinistro tutela legale": {
+      "value": "31.000,00",
+      "mode": "amount"
+    },
+    "Premio imponibile tutela legale": {
+      "value": "615,25",
+      "mode": "amount"
+    },
+    "Imposte": {
+      "value": "130,75",
+      "mode": "amount"
+    },
+    "Premio lordo totale tutela legale": {
+      "value": "746,00",
+      "mode": "amount"
+    },
+    "Garanzie scelte/operanti": {
+      "value": "Tutela Legale",
+      "mode": "contains"
+    },
+    "Tasso regolazione ‰ ": {
+      "value": null,
+      "mode": "text"
+    },
+    "Franchigia generica o minima": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Interessi di frazionamento": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Diritti": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Attività assicurata": {
+      "value": null,
+      "mode": "text",
+      "note": "la quietanza non lo riporta"
+    },
+    "Massimale per anno tutela legale": {
+      "value": null,
+      "mode": "amount",
+      "note": "la quietanza non lo riporta"
+    },
+    "Parametro regolazione ": {
+      "value": null,
+      "mode": "text",
+      "note": "la quietanza non lo riporta"
+    },
+    "Importo preventivo parametro regolazione": {
+      "value": null,
+      "mode": "amount",
+      "note": "la quietanza non lo riporta"
+    },
+    "Garanzie non operanti": {
+      "value": null,
+      "mode": "text",
+      "note": "la quietanza non lo riporta"
+    },
+    "Tipologia tutela legale": {
+      "value": null,
+      "mode": "text",
+      "note": "la quietanza non lo riporta"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Il fascicolo contiene SOLO la quietanza di rinnovo 2026 (1 pagina). Massimale 31.000,00 per sinistro (unica cifra); nessuna regolazione/franchigia/diritti in quietanza."
+}

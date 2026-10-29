@@ -1,0 +1,108 @@
+{
+  "id": "bolchini-tl",
+  "label": "BOLCHINI MARGHERITA — Tutela legale DAS Professionista 01469DAS00074, 28/04/2025-28/04/2026 semestrale",
+  "fields": {
+    "N° Polizza": {
+      "value": "01469DAS00074",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "mode": "anyof",
+      "values": [
+        "DAS",
+        "D.A.S"
+      ]
+    },
+    "Contraente/Assicurato": {
+      "value": "BOLCHINI MARGHERITA",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "10576980154",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "MUGELLO",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "28/04/2025",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "28/04/2026",
+      "mode": "date"
+    },
+    "Frazionamento": {
+      "value": "Semestrale",
+      "mode": "contains"
+    },
+    "Attività assicurata": {
+      "mode": "anyof",
+      "values": [
+        "Architetti",
+        "Servizi vari",
+        "Libero Professionista"
+      ]
+    },
+    "Massimale per sinistro tutela legale": {
+      "value": "25.000,00",
+      "mode": "amount"
+    },
+    "Massimale per anno tutela legale": {
+      "value": "Illimitato",
+      "mode": "contains"
+    },
+    "Parametro regolazione ": {
+      "value": "Fatturato",
+      "mode": "contains"
+    },
+    "Importo preventivo parametro regolazione": {
+      "value": "60.000,00",
+      "mode": "amount"
+    },
+    "Tasso regolazione ‰ ": {
+      "value": null,
+      "mode": "text"
+    },
+    "Franchigia generica o minima": {
+      "value": null,
+      "mode": "amount"
+    },
+    "Garanzie scelte/operanti": {
+      "value": "Tutela Legale Pacchetto Base",
+      "mode": "contains"
+    },
+    "Garanzie non operanti": {
+      "value": null,
+      "mode": "text"
+    },
+    "Premio imponibile tutela legale": {
+      "value": "201,22",
+      "mode": "amount"
+    },
+    "Diritti": {
+      "value": "0,00",
+      "mode": "amount"
+    },
+    "Imposte": {
+      "value": "42,78",
+      "mode": "amount"
+    },
+    "Premio lordo totale tutela legale": {
+      "value": "244,00",
+      "mode": "amount"
+    },
+    "Tipologia tutela legale": {
+      "value": "attività professionale",
+      "mode": "contains"
+    },
+    "Interessi di frazionamento": {
+      "value": null,
+      "mode": "amount",
+      "note": "il complessivo 5,84 (2,92×2) NON è stampato in nessun documento: ottenerlo richiede un calcolo, vietato dalle regole (mai calcolato) → vuoto [corretto 25/09/2026 dall'analisi degli errori in produzione]"
+    }
+  },
+  "nonVerificati": [],
+  "note": "Premio annuo 201,22 / 42,78 / 244,00; frazionamento semestrale con rate da 122,00 (interessi 2,92 per rata)."
+}

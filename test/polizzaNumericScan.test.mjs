@@ -509,16 +509,18 @@ test('FIX3: il 0,00 ODON da POLIZZA_BASE non sovrascrive rct_massimale_sinistro 
 // i "0,00" vengono scritti dal LLM: la guardia legge il `best` FINALE (LLM o
 // scan indistintamente) e svuota ciò che è spill o placeholder.
 
+// La natura si legge SOLO dalla descrizione (testa, prima dei due punti):
+// le label qui sono volutamente fuorvianti o vuote.
 const PM_FIELDS = [
-  { id: 'rct_massimale_sinistro', label: 'Massimale per sinistro', description: '' },
-  { id: 'rct_massimale_annuo', label: 'Massimale annuo', description: 'aggregato' },
-  { id: 'rct_massimale_persona', label: 'Massimale per persona', description: 'per ogni persona' },
-  { id: 'rct_massimale_prestatore', label: 'Massimale per prestatore', description: 'per ogni prestatore di lavoro' },
-  { id: 'rct_massimale_danni', label: 'Massimale danni materiali', description: 'per danni materiali' },
-  { id: 'rcp_massimale_sinistro', label: 'Massimale per sinistro RC Prodotti', description: '' },
-  { id: 'rcp_massimale_annuo', label: 'Massimale annuo RC Prodotti', description: 'aggregato' },
-  { id: 'rcp_scoperto_min_mondo', label: 'Scoperto attività giudiziale', description: 'scoperto' },
-  { id: 'rcp_scoperto_max_mondo', label: 'Incarichi giudiziari', description: 'scoperto' },
+  { id: 'rct_massimale_sinistro', label: 'X1', description: 'Massimale per sinistro: importo massimo per singolo sinistro, per i danni cagionati a terzi' },
+  { id: 'rct_massimale_annuo', label: 'X2', description: 'Massimale annuo aggregato: per periodo assicurativo. Se coincide col massimale per sinistro, riportalo comunque' },
+  { id: 'rct_massimale_persona', label: 'X3', description: 'Massimale per ogni persona: limite per persona' },
+  { id: 'rct_massimale_prestatore', label: 'X4', description: 'Massimale per ogni prestatore di lavoro' },
+  { id: 'rct_massimale_danni', label: 'X5', description: 'Massimale per danni materiali' },
+  { id: 'rcp_massimale_sinistro', label: 'X6', description: 'Massimale per sinistro RC Prodotti' },
+  { id: 'rcp_massimale_annuo', label: 'X7', description: 'Massimale annuo aggregato RC Prodotti' },
+  { id: 'rcp_scoperto_min_mondo', label: 'X8', description: 'Scoperto attività giudiziale' },
+  { id: 'rcp_scoperto_max_mondo', label: 'X9', description: 'Scoperto incarichi giudiziari' },
 ]
 
 test('guardPostMergeSpill: 7.500.000 su 9 campi di natura diversa → resta solo su per-sinistro/annuo, il resto svuotato', () => {
@@ -802,4 +804,17 @@ test('B2 guardFranchigiaScoperto: nessun campo franchigia definito in base → l
   const cleared = guardFranchigiaScoperto(best, onlyScoperto, diag)
   assert.equal(cleared, 1, 'senza campo franchigia dove va, lo scoperto non trattiene il valore')
   assert.ok(!('rct_massimale_prestatore' in best))
+})
+test('guardPostMergeSpill: la natura si legge dalla TESTA della descrizione — "per singolo sinistro … per i Danni cagionati" resta per-sinistro (RC V3) e sopravvive quando coincide con l\'annuo', () => {
+  const fields = [
+    { id: 'a', label: 'Massimale per sinistro', description: "Limite massimo di indennizzo per singolo sinistro della RC Professionale: è l'importo indicato al 'Punto 5. Massimale' del frontespizio (es. 2.500.000,00), per i Danni cagionati dagli Assicurati." },
+    { id: 'b', label: 'Massimale annuo', description: 'Massimale annuo aggregato della RC Professionale per il periodo assicurativo (es. 2.500.000,00). Se coincide col massimale per sinistro, riporta comunque l\'importo.' },
+    { id: 'c', label: 'Visto pesante / bonus edilizi', description: 'Massimale RC Prodotti per danni materiali (compresi gli animali) anche se appartenenti a più persone, es. 5.000.000,00' },
+  ]
+  const best = { a: { valore: '1.000.000,00' }, b: { valore: '1.000.000,00' }, c: { valore: '1.000.000,00' } }
+  const diag = []
+  guardPostMergeSpill(best, fields, diag)
+  assert.equal(best.a?.valore, '1.000.000,00', 'massimale per sinistro = annuo è il caso normale, non spill')
+  assert.equal(best.b?.valore, '1.000.000,00')
+  assert.ok(!('c' in best), 'la copia sul campo "danni" è spill')
 })
