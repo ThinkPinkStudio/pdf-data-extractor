@@ -140,7 +140,9 @@ export const DEFAULT_FIELDS = [
     options: [
       { value: '00001', label: '00001 — Assistenza' },
       { value: '00002', label: '00002 — Tutela legale' },
-      { value: '00003', label: '00003 — Assistenza + Tutela legale' }
+      { value: '00003', label: '00003 — Assistenza + Tutela legale' },
+      { value: '00005', label: '00005 — Pacchetto D – Assistenza stradale' },
+      { value: '00006', label: '00006 — Pacchetto D Plus – Assistenza stradale + Tutela legale' }
     ],
     flussoCol: 'CODICE CONFIGURAZIONE', trackCol: 'CODICE CONFIGURAZIONE', docx: null, enabled: true },
   { id: 'identificativo', label: 'Identificativo univoco', group: 'polizza', type: 'text', required: true, maxLength: 30, flussoCol: 'IDENTIFICATIVO UNIVOCO APPLICAZIONE', trackCol: 'IDENTIFICATIVO UNIVOCO APPLICAZIONE', docx: null, enabled: true },
@@ -206,5 +208,29 @@ export const DEFAULT_IDD = [
 export const DEFAULT_PREZZI = {
   '00001': { pacchetto: 'A', premio: '22,50' },
   '00002': { pacchetto: 'B', premio: '20,00' },
-  '00003': { pacchetto: 'C', premio: '39,00' }
+  '00003': { pacchetto: 'C', premio: '39,00' },
+  '00005': { pacchetto: 'D', premio: '40,00' },
+  '00006': { pacchetto: 'D Plus', premio: '65,00' }
+}
+
+/**
+ * Una configurazione salvata nel DB vince sui default: senza questo passo un
+ * codice configurazione aggiunto qui (00005, 00006) non arriverebbe mai a chi
+ * ha già salvato le Impostazioni. Aggiunge ai `prezzi` salvati le righe di
+ * default che mancano e alla select del codice configurazione le opzioni di
+ * default che mancano; ciò che è salvato (premi, etichette) non si tocca.
+ */
+export function withDefaultCodes(fields, prezzi) {
+  const outPrezzi = { ...(prezzi || {}) }
+  for (const [code, row] of Object.entries(DEFAULT_PREZZI)) {
+    if (!outPrezzi[code]) outPrezzi[code] = { ...row }
+  }
+  const defOptions = DEFAULT_FIELDS.find((f) => f.id === 'codice_configurazione').options
+  const outFields = (fields || []).map((f) => {
+    if (f.id !== 'codice_configurazione' || !Array.isArray(f.options)) return f
+    const have = new Set(f.options.map((o) => String(o.value)))
+    const missing = defOptions.filter((o) => !have.has(o.value))
+    return missing.length ? { ...f, options: [...f.options, ...missing.map((o) => ({ ...o }))] } : f
+  })
+  return { fields: outFields, prezzi: outPrezzi }
 }
