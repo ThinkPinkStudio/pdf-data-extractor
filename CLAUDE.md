@@ -2024,6 +2024,35 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   operanti): nei 143 dossier di Lipari A-I controllati a mano le auto hanno 11-12
   valori veri su 23, il massimo assoluto è 18.
 
+- **Sezione ANAGRAFICHE RSM (05/11/2026, preventivo 10 giornate accettato)**:
+  polizza collettiva rimborso spese mediche di Crédit Agricole Vita (cliente CSA).
+  Sezione separata `/rsm` (sidebar `rsm`, scheda nell'hub): Stato di rischio,
+  Registra variazioni, Promozioni, Movimenti e regolazione, Impostazioni. Regole
+  PURE in `web/lib/rsm/rules.js` (test `test/rsmRules.test.mjs`): codice fiscale
+  (cognome, nome, data di nascita ricavata e confrontata, omocodia, carattere di
+  controllo), premi a nucleo (Dirigenti, Funzionari: paga solo il titolare) o a
+  persona (Impiegati), quota associativa solo al titolare, entrata fino al 30/06 =
+  100% e dopo 50%, decorrenza = data richiesta se comunicata entro 30 giorni
+  altrimenti la comunicazione (forzabile), cessazione senza rimborso e coperta
+  fino a fine anno, promozione = uscita + entrata in pro-rata a GIORNI con
+  rimborso al netto del 2,5% (uno per nucleo dove il premio è a nucleo). Tutto
+  configurabile per programma (`rsm_programs.config`: un cliente per anno);
+  `rsm_members` salva SOLO fatti (date, legami, categoria), gli importi si
+  ricalcolano sempre: cambiare una regola vale anche per il passato (domanda del
+  cliente: «possiamo rimodificare la formula?»). Import del loro «Stato di
+  rischio» (fogli per categoria + «Variazioni …», promozioni legate per nucleo),
+  Excel di comunicazione letti per intestazione (codice del familiare scritto
+  nella colonna del titolare riconosciuto), mail per i dati errati (A: chi ha
+  mandato il file, Cc dalla config; mailto, .eml, copia), cessazione da mail
+  inserita a mano (incollando la mail si leggono CF e data), export Excel come il
+  loro file. Accesso: `config.editors` (vuoto = tutti), gli altri consultano.
+  Verificato sul loro file: premi a inizio anno Dirigenti 121.959 e Funzionari
+  327.612 come il file, rimborso della promozione 3.738,46 una volta sola. Nel
+  file del cliente il controllo CF trova 14 errori veri (carattere di controllo,
+  nomi invertiti, una nascita 2025 invece di 2000). Fase 2 (a parte): lettura
+  automatica delle mail, scheda storica, scadenzario, confronto con la compagnia,
+  rinnovo annuale con lo stato al 01/01, polizze vita.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente

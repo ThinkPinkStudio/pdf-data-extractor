@@ -1,6 +1,8 @@
 // Cataloghi di traduzione IT/EN per tutta l'app web. Chiavi a namespace per pagina.
 // Interpolazione con placeholder {var} (vedi I18nProvider.t).
 
+import { rsmMessages } from './rsmMessages'
+
 export type Lang = 'it' | 'en'
 
 export const messages: Record<Lang, Record<string, string>> = {
@@ -2920,3 +2922,7 @@ export const messages: Record<Lang, Record<string, string>> = {
     'rp.xls.partialDelta': 'incomplete totals',
   },
 }
+
+// Anagrafiche RSM: catalogo a parte (lib/i18n/rsmMessages.ts).
+Object.assign(messages.it, rsmMessages.it)
+Object.assign(messages.en, rsmMessages.en)

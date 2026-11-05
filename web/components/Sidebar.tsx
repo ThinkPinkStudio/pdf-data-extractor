@@ -120,7 +120,7 @@ const IconHome = () => (
 /* ─── Sezioni separate: ogni sezione ha il proprio menu e le proprie
        Impostazioni. La sidebar mostra SOLO il menu della sezione corrente. ── */
 type NavItem = { href: string; key: string; icon: React.ReactNode }
-type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'hub'
+type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'rsm' | 'hub'
 
 // Icone delle voci PDF Extractor: la LISTA (href + chiave) sta in
 // lib/navExtractor.ts, condivisa con gli switch delle Impostazioni tecniche.
@@ -164,11 +164,21 @@ const NAV_PREMIO: NavItem[] = [
   { href: '/premio', key: 'nav.pmCalcolo', icon: <IconTable /> },
 ]
 
+// Anagrafiche RSM (05/11/2026): polizza collettiva rimborso spese mediche.
+const NAV_RSM: NavItem[] = [
+  { href: '/rsm', key: 'nav.rsmStato', icon: <IconTable /> },
+  { href: '/rsm/variazioni', key: 'nav.rsmVariazioni', icon: <IconForm /> },
+  { href: '/rsm/promozioni', key: 'nav.rsmPromozioni', icon: <IconUser /> },
+  { href: '/rsm/movimenti', key: 'nav.rsmMovimenti', icon: <IconHistory /> },
+  { href: '/rsm/settings', key: 'nav.rsmSettings', icon: <IconSettings /> },
+]
+
 const NAV_HUB: NavItem[] = [
   { href: '/extractor', key: 'nav.secExtractor', icon: <IconPDF /> },
   { href: '/compare', key: 'nav.secCompare', icon: <IconCompare /> },
   { href: '/adesioni', key: 'nav.secAdesioni', icon: <IconForm /> },
   { href: '/premio', key: 'nav.secPremio', icon: <IconTable /> },
+  { href: '/rsm', key: 'nav.secRsm', icon: <IconUser /> },
 ]
 
 function sectionFor(pathname: string): Section {
@@ -176,6 +186,7 @@ function sectionFor(pathname: string): Section {
   if (pathname === '/compare' || pathname.startsWith('/compare/')) return 'compare'
   if (pathname === '/adesioni' || pathname.startsWith('/adesioni/')) return 'adesioni'
   if (pathname === '/premio' || pathname.startsWith('/premio/')) return 'premio'
+  if (pathname === '/rsm' || pathname.startsWith('/rsm/')) return 'rsm'
   return 'extractor'
 }
 
@@ -184,6 +195,7 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   compare: { name: 'Portafoglio Compare', subKey: 'nav.subCompare', nav: NAV_COMPARE },
   adesioni: { name: 'CSA Adesioni', subKey: 'nav.subAdesioni', nav: NAV_ADESIONI },
   premio: { name: 'Premio Lordo', subKey: 'nav.subPremio', nav: NAV_PREMIO },
+  rsm: { name: 'Anagrafiche RSM', subKey: 'nav.subRsm', nav: NAV_RSM },
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 

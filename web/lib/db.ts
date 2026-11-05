@@ -293,6 +293,57 @@ export async function initDb() {
   } catch (e) {
     console.error('[initDb] riepiloghi generali: tabella polizza_summaries non pronta:', e)
   }
+
+  // ANAGRAFICHE RSM (05/11/2026): polizza collettiva rimborso spese mediche.
+  // Un programma = un cliente per un anno (config: periodo, categorie con
+  // polizza e tariffe, regole di calcolo, destinatari della mail). Una riga di
+  // rsm_members = una persona coperta in UNA categoria: una promozione chiude
+  // la riga vecchia (exit_kind 'promozione') e ne apre una nuova con lo stesso
+  // promotion_id. Gli importi NON si salvano: si ricalcolano dalla config
+  // (lib/rsm/rules.js), così un cambio di regola vale anche per il passato.
+  try {
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS rsm_programs (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      year        INTEGER NOT NULL,
+      config      JSONB NOT NULL,
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS rsm_members (
+      id                TEXT PRIMARY KEY,
+      program_id        TEXT NOT NULL REFERENCES rsm_programs(id) ON DELETE CASCADE,
+      category          TEXT NOT NULL,
+      quiescente        BOOLEAN NOT NULL DEFAULT FALSE,
+      cf                TEXT NOT NULL,
+      cognome           TEXT NOT NULL DEFAULT '',
+      nome              TEXT NOT NULL DEFAULT '',
+      birth_date        TEXT,
+      legame            TEXT NOT NULL,
+      cf_titolare       TEXT,
+      entry_date        TEXT,
+      entry_kind        TEXT NOT NULL DEFAULT 'inclusione',
+      requested_date    TEXT,
+      communicated_date TEXT,
+      entry_forced      BOOLEAN NOT NULL DEFAULT FALSE,
+      exit_date         TEXT,
+      exit_kind         TEXT,
+      exit_communicated TEXT,
+      promotion_id      TEXT,
+      source            TEXT,
+      note              TEXT,
+      created_by        TEXT NOT NULL,
+      created_at        BIGINT NOT NULL,
+      updated_at        BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rsm_members_program ON rsm_members(program_id);
+    CREATE INDEX IF NOT EXISTS idx_rsm_members_cf ON rsm_members(program_id, cf);
+    `)
+  } catch (e) {
+    console.error('[initDb] anagrafiche RSM: tabelle non pronte:', e)
+  }
 }
 
 /**
