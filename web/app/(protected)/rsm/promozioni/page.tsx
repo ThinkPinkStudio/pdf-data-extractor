@@ -82,14 +82,13 @@ function RsmPromozioniPage() {
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
-  // Promozioni registrate: le righe in uscita raggruppate per promotion_id.
+  // Promozioni registrate: righe chiuse (exitPromotionId) e create (promotionId) per promozione.
   const done = useMemo(() => {
     const map = new Map<string, { out: Row[]; inn: Row[] }>()
     for (const r of rsm.rows) {
-      if (!r.promotionId) continue
-      if (!map.has(r.promotionId)) map.set(r.promotionId, { out: [], inn: [] })
-      if (r.exitKind === 'promozione') map.get(r.promotionId)!.out.push(r)
-      if (r.entryKind === 'promozione') map.get(r.promotionId)!.inn.push(r)
+      const add = (id: string) => { if (!map.has(id)) map.set(id, { out: [], inn: [] }); return map.get(id)! }
+      if (r.exitPromotionId && r.exitKind === 'promozione') add(r.exitPromotionId).out.push(r)
+      if (r.promotionId && r.entryKind === 'promozione') add(r.promotionId).inn.push(r)
     }
     return [...map.entries()].map(([id, g]) => {
       const head = g.out.find((r) => r.legame === 'TI') || g.inn.find((r) => r.legame === 'TI') || g.out[0] || g.inn[0]

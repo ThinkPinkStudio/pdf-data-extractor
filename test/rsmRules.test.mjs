@@ -183,8 +183,9 @@ test('stato di rischio: fogli al 01/01, variazioni, promozioni legate', () => {
   const inn = members.find((m) => m.category === 'dirigenti' && m.legame === 'TI')
   assert.equal(out.exitKind, 'promozione')
   assert.equal(inn.entryKind, 'promozione')
-  assert.equal(out.promotionId, inn.promotionId)
-  assert.equal(new Set(members.map((m) => m.promotionId)).size, 1, 'una promozione per nucleo')
+  assert.equal(out.exitPromotionId, inn.promotionId)
+  assert.equal(out.promotionId, undefined, 'la riga che esce non è «creata» da una promozione')
+  assert.equal(new Set(members.map((m) => m.promotionId || m.exitPromotionId)).size, 1, 'una promozione per nucleo')
   assert.equal(computeMember(c, out).rimborso, 3738.46)
   assert.ok(warnings.length === 0, warnings.join('\n'))
 })
@@ -223,7 +224,7 @@ test('import: promozione non segnata = anomalia da risolvere, mai indovinata', (
   const out = asPromo.members.find((m) => m.category === 'impiegati' && m.cf === 'RSSMRA85T10A562S')
   const inn = asPromo.members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S')
   assert.equal(out.exitKind, 'promozione')
-  assert.equal(out.promotionId, inn.promotionId)
+  assert.equal(out.exitPromotionId, inn.promotionId)
   assert.ok(computeMember(c, out).rimborso > 0, 'impiegati: rimborso pro-rata per persona')
   assert.equal(asPromo.members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, 'cessazione')
 
@@ -287,4 +288,36 @@ test('mail di cessazione: codici fiscali, date anche senza anno, .eml', () => {
   const e = emlToText(eml)
   assert.equal(e.date, '2026-10-08')
   assert.deepEqual(parseCessationText(e.text, 2026), [{ cf: 'RSSMRA85T10A562S', date: '2026-10-31' }])
+})
+
+test('revisione: uscite da file, import senza data o CF, riga iniziale spostata, uscita il giorno prima', () => {
+  const c = cfg2026()
+  // (2) uscita da file di chi è già cessato o senza data: errore sulla riga, mai un 400 per tutto il file
+  const existing = [{ id: 'm1', category: 'impiegati', cf: 'RSSMRA85T10A562S', cfTitolare: 'RSSMRA85T10A562S', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-01-01', exitDate: '2026-10-31', exitKind: 'cessazione' }]
+  const head = ['COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F.TITOLARE', 'LEGAME', 'CATEGORIA', 'AZIONE', 'DATA ENTRATA', 'DATA USCITA']
+  const prep = prepareCommunication(c, parseCommunicationRows([head,
+    ['Rossi', 'Mario', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', 'IMPIEGATI', 'U', null, '30/11/2026'],
+    ['Verdi', 'Giuseppe', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', 'IMPIEGATI', 'U', null, null]], 2026).rows, existing, '2026-11-05')
+  assert.ok(prep[0].hasError && prep[0].issues.some((i) => i.code === 'gia-uscito' && i.mail === false))
+  assert.ok(prep[1].issues.some((i) => i.code === 'uscita-data'))
+  // (4) una riga di inizio anno con la data spostata in avanti paga col semestre
+  assert.equal(computeMember(c, { category: 'impiegati', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-09-01' }).dovuto, 684)
+  // (3)(5)(6) import
+  const varHead = ['CATEGORIA', 'COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'AZIONE', 'PROMOZIONE']
+  const stHead = ['CATEGORIA', 'COGNOME', 'NOME', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'LEGAME', 'DATA ENTRATA']
+  const { members, warnings } = parseStatoWorkbook(c, {
+    FUNZIONARI: [stHead, ['FUNZIONARI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/01/2026'],
+      ['FUNZIONARI', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', '01/01/2026']],
+    'Variazioni FUNZIONARI': [varHead,
+      ['FUNZIONARI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', null, '28/02/2026', 'USCITA', 'SI'],
+      ['FUNZIONARI', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', null, null, 'USCITA', 'NO'],
+      ['', 'BIANCHI', 'ANNA', '', 'VRDGPP70A01H501S', 'FI', null, '30/04/2026', 'USCITA', 'NO']],
+    DIRIGENTI: [stHead],
+    'Variazioni DIRIGENTI': [varHead, ['DIRIGENTI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/03/2026', null, 'ENTRATA', 'SI']],
+  })
+  const out = members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S')
+  assert.equal(out.exitDate, '2026-03-01', 'uscita allineata all\'entrata: niente giorno scoperto')
+  assert.equal(members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, null, 'uscita senza data saltata')
+  assert.ok(warnings.some((w) => /uscita senza data/.test(w)))
+  assert.ok(warnings.some((w) => /uscita senza codice fiscale/.test(w)))
 })

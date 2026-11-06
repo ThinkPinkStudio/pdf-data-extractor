@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
+import NumInput from '@/components/rsm/NumInput'
 import { addDays } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
 import type { RsmCategory, RsmConfig } from '@/lib/rsm/types'
@@ -58,7 +59,7 @@ export default function RsmSettingsPage() {
 
   const setRule = (k: keyof RsmConfig['rules'], v: unknown) => setCfg((c) => c && { ...c, rules: { ...c.rules, [k]: v } })
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
-  const setTariff = (i: number, k: keyof RsmCategory['tariffs'], v: string) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v === '' ? 0 : Number(v.replace(',', '.')) } } : x)) })
+  const setTariff = (i: number, k: keyof RsmCategory['tariffs'], v: number) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v } } : x)) })
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setMsg(null)
@@ -82,7 +83,6 @@ export default function RsmSettingsPage() {
     run(async () => { await api(`/api/rsm/programs/${rsm.programId}`, 'DELETE'); try { localStorage.removeItem('rsmProgram') } catch { /* ignora */ } window.location.reload() }, t('rsm.set.deleted'))
   }
 
-  const num = (v: number | undefined) => (v ? String(v).replace('.', ',') : '')
   return (
     <div className="rsm">
       <RsmHeader rsm={rsm} title={t('rsm.set.title')} />
@@ -128,11 +128,11 @@ export default function RsmSettingsPage() {
                       <td><select value={c.mode} disabled={ro} onChange={(e) => setCat(i, { mode: e.target.value as RsmCategory['mode'] })} style={{ width: 120 }}>
                         <option value="nucleo">{t('rsm.set.nucleo')}</option><option value="persona">{t('rsm.set.persona')}</option>
                       </select></td>
-                      <td><input inputMode="decimal" value={num(c.tariffs.titolare)} disabled={ro} onChange={(e) => setTariff(i, 'titolare', e.target.value)} style={{ width: 90 }} /></td>
-                      <td><input inputMode="decimal" value={num(c.tariffs.quiescente)} disabled={ro} onChange={(e) => setTariff(i, 'quiescente', e.target.value)} style={{ width: 90 }} /></td>
-                      <td><input inputMode="decimal" value={num(c.tariffs.coniuge)} disabled={ro || c.mode === 'nucleo'} onChange={(e) => setTariff(i, 'coniuge', e.target.value)} style={{ width: 80 }} /></td>
-                      <td><input inputMode="decimal" value={num(c.tariffs.figlio)} disabled={ro || c.mode === 'nucleo'} onChange={(e) => setTariff(i, 'figlio', e.target.value)} style={{ width: 80 }} /></td>
-                      <td><input inputMode="decimal" value={num(c.quota)} disabled={ro} onChange={(e) => setCat(i, { quota: Number(e.target.value.replace(',', '.')) || 0 })} style={{ width: 70 }} /></td>
+                      <td><NumInput value={c.tariffs.titolare} disabled={ro} onChange={(n) => setTariff(i, 'titolare', n)} width={90} label={`${c.label} ${t('rsm.set.tTit')}`} /></td>
+                      <td><NumInput value={c.tariffs.quiescente} disabled={ro} onChange={(n) => setTariff(i, 'quiescente', n)} width={90} label={`${c.label} ${t('rsm.set.tQui')}`} /></td>
+                      <td><NumInput value={c.tariffs.coniuge} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'coniuge', n)} width={80} label={`${c.label} ${t('rsm.set.tCo')}`} /></td>
+                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td>
+                      <td><NumInput value={c.quota} disabled={ro} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       <td><input type="number" value={c.rank} disabled={ro} onChange={(e) => setCat(i, { rank: Number(e.target.value) })} style={{ width: 60 }} /></td>
                       <td>{!ro && cfg.categories.length > 1 && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => setCfg({ ...cfg, categories: cfg.categories.filter((_, j) => j !== i) })}>×</button>}</td>
                     </tr>
@@ -158,7 +158,7 @@ export default function RsmSettingsPage() {
                       <option value="giorni">{t('rsm.set.prDays')}</option><option value="mesi">{t('rsm.set.prMonths')}</option>
                     </select>
                   </label>
-                  <label className="rsm-field">{t('rsm.set.tax')}<input inputMode="decimal" value={String(cfg.rules.refundTaxPct).replace('.', ',')} disabled={ro} onChange={(e) => setRule('refundTaxPct', Number(e.target.value.replace(',', '.')) || 0)} style={{ width: 90 }} /></label>
+                  <label className="rsm-field">{t('rsm.set.tax')}<NumInput value={cfg.rules.refundTaxPct} disabled={ro} onChange={(n) => setRule('refundTaxPct', n)} /></label>
                 </div>
                 <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <input type="checkbox" checked={cfg.rules.coverUntilPeriodEnd} disabled={ro} onChange={(e) => setRule('coverUntilPeriodEnd', e.target.checked)} />{t('rsm.set.cover')}

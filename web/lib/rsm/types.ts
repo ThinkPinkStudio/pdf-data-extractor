@@ -58,7 +58,8 @@ export interface RsmMember {
   exitDate: string | null
   exitKind: 'cessazione' | 'promozione' | null
   exitCommunicated: string | null
-  promotionId: string | null
+  promotionId: string | null // promozione che ha creato la riga
+  exitPromotionId: string | null // promozione che l'ha chiusa
   source: string | null
   note: string | null
   createdBy: string

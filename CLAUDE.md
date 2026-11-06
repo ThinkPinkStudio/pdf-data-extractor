@@ -2109,6 +2109,21 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   promozione), pre-selezionata ma visibile e modificabile. App pensata per il
   computer: al telefono la barra laterale dell'intera app occupa lo schermo
   (vale per tutte le sezioni), al tablet la sezione regge.
+  **Revisione indipendente (07/11/2026), 11 difetti corretti**: DUE id di
+  promozione (`promotion_id` = chi ha creato la riga, `exit_promotion_id` =
+  chi l'ha chiusa, migrazione automatica in db.ts): con uno solo, Impiegato →
+  Funzionario → Dirigente e l'annullamento della seconda cancellava la
+  categoria di mezzo; ora annullare la prima è rifiutato finché esiste la
+  seconda (409 `later-exit`). Uscite da file già registrate o senza data =
+  errore sulla riga (prima un 400 bloccava tutto il file); import: uscite
+  senza data o senza codice fiscale saltate con avviso, uscita il giorno
+  prima dell'entrata per promozione allineata all'entrata; una riga di inizio
+  anno con la data spostata in avanti diventa inclusione (premio del
+  semestre); promozione di un quiescente = stesso premio dell'anteprima;
+  `clear-exit` solo sulle cessazioni, data di una promozione non modificabile;
+  campi numerici all'italiana (`NumInput`: «646,», «2,5», «9.146»); cambio
+  rapido di programma senza dati mescolati (`wanted` in useRsm); registro con
+  `seq` (ordine certo) e programma bloccato in `withOp`.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

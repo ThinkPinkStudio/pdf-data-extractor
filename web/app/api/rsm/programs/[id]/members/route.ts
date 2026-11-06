@@ -67,6 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const row = byId.get(id)
   if (!row) return fail(404, 'Riga non trovata', 'not-found')
   if (body.action === 'clear-exit') {
+    if (row.exitKind !== 'cessazione') return fail(409, 'Si annulla solo una cessazione: per una promozione usa «Annulla» nella pagina Promozioni.', 'not-cessation')
     const label = `Annullata la cessazione di ${who(row)}`
     const opId = await clearExit(params.id, id, g.email, label)
     await logAction({ email: g.email, action: 'rsm.members.clear-exit', resource: id, metadata: { opId } })
@@ -83,7 +84,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if ('legame' in p && c.legame) patch.legame = c.legame
     if ('cfTitolare' in p) patch.cfTitolare = c.cfTitolare
     if ('quiescente' in p) patch.quiescente = c.quiescente
-    if ('entryDate' in p && c.entryDate) { patch.entryDate = c.entryDate; patch.entryForced = !!p.entryForced }
+    if ('entryDate' in p && c.entryDate && c.entryDate !== row.entryDate) {
+      if (row.entryKind === 'promozione') return fail(409, 'La data di una promozione non si cambia qui: annulla la promozione e rifalla con la data giusta.', 'promotion')
+      patch.entryDate = c.entryDate
+      patch.entryForced = !!p.entryForced
+      // una data dopo l'inizio del periodo è un'inclusione (premio del semestre), non una riga di inizio anno
+      patch.entryKind = c.entryDate <= g.program.config.periodStart ? 'iniziale' : 'inclusione'
+    }
     if ('note' in p) patch.note = c.note
     const label = `Modifica di ${who(row)}`
     const r = await updateMember(params.id, id, patch, g.email, label)
@@ -102,7 +109,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const byId = new Map(all.map((m) => [m.id, m]))
   const ids = (body.ids || []).map(String).filter((x) => byId.has(x))
   if (!ids.length) return fail(404, 'Riga non trovata', 'not-found')
-  if (ids.some((x) => byId.get(x)!.promotionId)) return fail(409, 'Righe di una promozione: annulla la promozione invece di eliminarle.', 'promotion')
+  if (ids.some((x) => byId.get(x)!.promotionId || byId.get(x)!.exitPromotionId)) return fail(409, 'Righe di una promozione: annulla la promozione invece di eliminarle.', 'promotion')
   const label = `Eliminata la riga di ${who(byId.get(ids[0])!)}${ids.length > 1 ? ` e altre ${ids.length - 1}` : ''}`
   const r = await deleteMembers(params.id, ids, g.email, label)
   await logAction({ email: g.email, action: 'rsm.members.delete', resource: params.id, metadata: { ids, opId: r.opId } })

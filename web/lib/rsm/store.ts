@@ -13,7 +13,7 @@ interface MemberRow {
   id: string; program_id: string; category: string; quiescente: boolean; cf: string; cognome: string; nome: string
   birth_date: string | null; legame: string; cf_titolare: string | null; entry_date: string | null; entry_kind: string
   requested_date: string | null; communicated_date: string | null; entry_forced: boolean; exit_date: string | null
-  exit_kind: string | null; exit_communicated: string | null; promotion_id: string | null; source: string | null
+  exit_kind: string | null; exit_communicated: string | null; promotion_id: string | null; exit_promotion_id: string | null; source: string | null
   note: string | null; created_by: string; created_at: string; updated_at: string
 }
 
@@ -23,7 +23,7 @@ function toMember(r: MemberRow): RsmMember {
     nome: r.nome, birthDate: r.birth_date, legame: r.legame as RsmMember['legame'], cfTitolare: r.cf_titolare,
     entryDate: r.entry_date, entryKind: r.entry_kind as RsmMember['entryKind'], requestedDate: r.requested_date,
     communicatedDate: r.communicated_date, entryForced: r.entry_forced, exitDate: r.exit_date,
-    exitKind: r.exit_kind as RsmMember['exitKind'], exitCommunicated: r.exit_communicated, promotionId: r.promotion_id,
+    exitKind: r.exit_kind as RsmMember['exitKind'], exitCommunicated: r.exit_communicated, promotionId: r.promotion_id, exitPromotionId: r.exit_promotion_id,
     source: r.source, note: r.note, createdBy: r.created_by, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
   }
 }
@@ -81,7 +81,7 @@ export async function getMember(id: string): Promise<RsmMember | null> {
 
 export type NewMember = Omit<RsmMember, 'id' | 'programId' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-const COLS = 'id, program_id, category, quiescente, cf, cognome, nome, birth_date, legame, cf_titolare, entry_date, entry_kind, requested_date, communicated_date, entry_forced, exit_date, exit_kind, exit_communicated, promotion_id, source, note, created_by, created_at, updated_at'
+const COLS = 'id, program_id, category, quiescente, cf, cognome, nome, birth_date, legame, cf_titolare, entry_date, entry_kind, requested_date, communicated_date, entry_forced, exit_date, exit_kind, exit_communicated, promotion_id, exit_promotion_id, source, note, created_by, created_at, updated_at'
 const COL_LIST = COLS.split(', ')
 
 function values(id: string, programId: string, m: Partial<NewMember>, by: string, t: number) {
@@ -89,7 +89,7 @@ function values(id: string, programId: string, m: Partial<NewMember>, by: string
     id, programId, m.category, !!m.quiescente, m.cf || '', m.cognome || '', m.nome || '', m.birthDate || null,
     m.legame, m.cfTitolare || null, m.entryDate || null, m.entryKind || 'inclusione', m.requestedDate || null,
     m.communicatedDate || null, !!m.entryForced, m.exitDate || null, m.exitKind || null, m.exitCommunicated || null,
-    m.promotionId || null, m.source || null, m.note || null, by, t, t,
+    m.promotionId || null, m.exitPromotionId || null, m.source || null, m.note || null, by, t, t,
   ]
 }
 
@@ -133,6 +133,8 @@ async function withOp<T>(programId: string, kind: string, label: string, by: str
   const inserted: string[] = []
   try {
     await client.query('BEGIN')
+    // una modifica alla volta per programma: l'annullamento non sovrascrive mai un lavoro concorrente
+    await client.query('SELECT id FROM rsm_programs WHERE id = $1 FOR UPDATE', [programId])
     const ctx: OpCtx = {
       client: client as unknown as Client,
       async snap(ids) {
@@ -164,7 +166,7 @@ export async function listOps(programId: string, limit = 30): Promise<RsmOp[]> {
   const { rows } = await pool.query<{ id: string; kind: string; label: string; created_by: string; created_at: string; undone_at: string | null; undone_by: string | null; n: number }>(
     `SELECT id, kind, label, created_by, created_at, undone_at, undone_by,
             jsonb_array_length(before) + jsonb_array_length(inserted) AS n
-       FROM rsm_ops WHERE program_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+       FROM rsm_ops WHERE program_id = $1 ORDER BY seq DESC LIMIT $2`,
     [programId, limit],
   )
   return rows.map((r) => ({
@@ -184,7 +186,7 @@ export async function undoLastOp(programId: string, opId: string, by: string): P
     await client.query('BEGIN')
     await client.query('SELECT id FROM rsm_programs WHERE id = $1 FOR UPDATE', [programId])
     const { rows } = await client.query<{ id: string; label: string; before: MemberRow[]; inserted: string[]; undone_at: string | null }>(
-      `SELECT id, label, before, inserted, undone_at FROM rsm_ops WHERE program_id = $1 AND undone_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT id, label, before, inserted, undone_at FROM rsm_ops WHERE program_id = $1 AND undone_at IS NULL ORDER BY seq DESC LIMIT 1`,
       [programId],
     )
     const last = rows[0]
@@ -234,9 +236,8 @@ export async function replaceMembers(programId: string, members: Partial<NewMemb
     const t = now()
     const ids = members.map(() => uuidv4())
     await insertRaw(op.client, members.map((m, i) => {
-      let pid = m.promotionId
-      if (pid) { if (!pids.has(pid)) pids.set(pid, uuidv4()); pid = pids.get(pid) }
-      return values(ids[i], programId, { ...m, promotionId: pid }, by, t)
+      const map = (pid?: string | null) => { if (!pid) return null; if (!pids.has(pid)) pids.set(pid, uuidv4()); return pids.get(pid)! }
+      return values(ids[i], programId, { ...m, promotionId: map(m.promotionId), exitPromotionId: map(m.exitPromotionId) }, by, t)
     }))
     op.inserted(ids)
   })
@@ -245,12 +246,12 @@ export async function replaceMembers(programId: string, members: Partial<NewMemb
 
 /** Campi modificabili di una riga (correzioni, cessazione, decorrenza forzata). */
 export type MemberPatch = Partial<Pick<RsmMember,
-  'cognome' | 'nome' | 'cf' | 'birthDate' | 'legame' | 'cfTitolare' | 'quiescente' | 'entryDate' | 'entryForced'
+  'cognome' | 'nome' | 'cf' | 'birthDate' | 'legame' | 'cfTitolare' | 'quiescente' | 'entryDate' | 'entryForced' | 'entryKind'
   | 'exitDate' | 'exitKind' | 'exitCommunicated' | 'note'>>
 
 const PATCH_COLS: Record<keyof MemberPatch, string> = {
   cognome: 'cognome', nome: 'nome', cf: 'cf', birthDate: 'birth_date', legame: 'legame', cfTitolare: 'cf_titolare',
-  quiescente: 'quiescente', entryDate: 'entry_date', entryForced: 'entry_forced', exitDate: 'exit_date',
+  quiescente: 'quiescente', entryDate: 'entry_date', entryForced: 'entry_forced', entryKind: 'entry_kind', exitDate: 'exit_date',
   exitKind: 'exit_kind', exitCommunicated: 'exit_communicated', note: 'note',
 }
 
@@ -337,29 +338,34 @@ export async function promote(programId: string, memberIds: string[], toCategory
     if (rows.length !== memberIds.length) throw new Error('Alcune persone non sono più nel programma.')
     const t = now()
     await op.client.query(
-      `UPDATE rsm_members SET exit_date=$2, exit_kind='promozione', promotion_id=$3, updated_at=$4 WHERE id = ANY($1::text[])`,
+      `UPDATE rsm_members SET exit_date=$2, exit_kind='promozione', exit_promotion_id=$3, updated_at=$4 WHERE id = ANY($1::text[])`,
       [memberIds, date, promotionId, t],
     )
     const ids = rows.map(() => uuidv4())
     await insertRaw(op.client, rows.map(toMember).map((m, i) => values(ids[i], programId, {
-      category: toCategory, quiescente: false, cf: m.cf, cognome: m.cognome, nome: m.nome, birthDate: m.birthDate,
+      category: toCategory, quiescente: m.quiescente, cf: m.cf, cognome: m.cognome, nome: m.nome, birthDate: m.birthDate,
       legame: m.legame, cfTitolare: m.cfTitolare, entryDate: date, entryKind: 'promozione', requestedDate: date,
       communicatedDate: null, entryForced: false, exitDate: null, exitKind: null, exitCommunicated: null, promotionId,
-      source: 'Promozione', note,
+      exitPromotionId: null, source: 'Promozione', note,
     }, by, t)))
     op.inserted(ids)
   })
   return { opId, promotionId }
 }
 
-/** Annulla una promozione registrata: toglie le righe nuove e riapre quelle chiuse. */
+/**
+ * Annulla una promozione registrata: toglie le righe che ha creato e riapre
+ * quelle che ha chiuso. Le righe create non devono avere a loro volta
+ * un'uscita (lo controlla la route: prima si annulla la promozione successiva).
+ */
 export async function undoPromotion(programId: string, promotionId: string, by: string, label: string): Promise<string> {
   const { opId } = await withOp(programId, 'undo-promote', label, by, async (op) => {
-    const { rows } = await op.client.query<{ id: string }>('SELECT id FROM rsm_members WHERE program_id=$1 AND promotion_id=$2', [programId, promotionId])
+    const { rows } = await op.client.query<{ id: string }>(
+      'SELECT id FROM rsm_members WHERE program_id=$1 AND (promotion_id=$2 OR exit_promotion_id=$2)', [programId, promotionId])
     await op.snap(rows.map((r) => r.id))
     await op.client.query(`DELETE FROM rsm_members WHERE program_id=$1 AND promotion_id=$2 AND entry_kind='promozione'`, [programId, promotionId])
     await op.client.query(
-      `UPDATE rsm_members SET exit_date=NULL, exit_kind=NULL, promotion_id=NULL, updated_at=$3 WHERE program_id=$1 AND promotion_id=$2 AND exit_kind='promozione'`,
+      `UPDATE rsm_members SET exit_date=NULL, exit_kind=NULL, exit_promotion_id=NULL, updated_at=$3 WHERE program_id=$1 AND exit_promotion_id=$2`,
       [programId, promotionId, now()],
     )
   })

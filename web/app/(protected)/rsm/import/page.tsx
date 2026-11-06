@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
+import NumInput from '@/components/rsm/NumInput'
 import { defaultProgramConfig } from '@/lib/rsm/rules.js'
 import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
@@ -248,10 +249,9 @@ export default function RsmImportPage() {
                       const fv = f?.tariffs[k]
                       return (
                         <td>
-                          <input inputMode="decimal" aria-label={`${c.label} ${t(`rsm.set.t${k === 'titolare' ? 'Tit' : k === 'quiescente' ? 'Qui' : k === 'coniuge' ? 'Co' : 'Fi'}`)}`}
-                            value={v ? String(v).replace('.', ',') : ''} disabled={disabled}
-                            onChange={(e) => setCat(i, { tariffs: { ...c.tariffs, [k]: e.target.value === '' ? 0 : Number(e.target.value.replace(/\./g, '').replace(',', '.')) || 0 } })}
-                            style={{ width: 92, borderColor: inFile && k === 'titolare' && !v ? 'var(--c-error)' : undefined }} />
+                          <NumInput value={v} disabled={disabled} width={92} invalid={inFile && k === 'titolare' && !v}
+                            label={`${c.label} ${t(`rsm.set.t${k === 'titolare' ? 'Tit' : k === 'quiescente' ? 'Qui' : k === 'coniuge' ? 'Co' : 'Fi'}`)}`}
+                            onChange={(n) => setCat(i, { tariffs: { ...c.tariffs, [k]: n } })} />
                           {fv && fv !== v ? <button type="button" className="rsm-mini" style={{ marginTop: 4 }} onClick={() => setCat(i, { tariffs: { ...c.tariffs, [k]: fv } })}>{t('rsm.imp.fileVal', { v: eur(fv) })}</button> : null}
                         </td>
                       )
@@ -265,7 +265,7 @@ export default function RsmImportPage() {
                         </td>
                         <td>{t(c.mode === 'nucleo' ? 'rsm.set.nucleo' : 'rsm.set.persona')}</td>
                         {cell('titolare')}{cell('quiescente')}{cell('coniuge', c.mode === 'nucleo')}{cell('figlio', c.mode === 'nucleo')}
-                        <td><input inputMode="decimal" value={c.quota ? String(c.quota).replace('.', ',') : ''} onChange={(e) => setCat(i, { quota: Number(e.target.value.replace(',', '.')) || 0 })} style={{ width: 70 }} aria-label={`${c.label} ${t('rsm.set.quota')}`} /></td>
+                        <td><NumInput value={c.quota} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       </tr>
                     )
                   })}

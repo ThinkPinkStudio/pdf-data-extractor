@@ -4,7 +4,7 @@
 // da tutte le pagine della sezione. Gli importi si calcolano qui col modulo
 // delle regole, così cambiare la data «situazione al» non chiede nulla al server.
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { computeMember } from '@/lib/rsm/rules.js'
 import type { RsmCalc, RsmMember, RsmProgram } from '@/lib/rsm/types'
@@ -30,11 +30,16 @@ export function useRsm() {
     return j.programs as RsmProgram[]
   }, [])
 
+  // Il programma richiesto per ultimo: una risposta di un programma lasciato
+  // nel frattempo non deve sovrascrivere quello scelto adesso.
+  const wanted = useRef<string | null>(null)
   const load = useCallback(async (id: string) => {
+    wanted.current = id
     setLoading(true)
     try {
       const r = await fetch(`/api/rsm/programs/${id}`)
       const j = await r.json()
+      if (wanted.current !== id) return
       if (!r.ok) { setError(j.error || 'Errore'); setProgram(null); setMembers([]); return }
       setError(null)
       setProgram(j.program)
@@ -65,7 +70,8 @@ export function useRsm() {
 
   const reload = useCallback(async () => {
     await loadPrograms()
-    if (programId) await load(programId)
+    const id = wanted.current || programId
+    if (id) await load(id)
   }, [programId, load, loadPrograms])
 
   const rows: Row[] = useMemo(

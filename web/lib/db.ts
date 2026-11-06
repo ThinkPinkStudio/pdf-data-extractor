@@ -340,6 +340,14 @@ export async function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_rsm_members_program ON rsm_members(program_id);
     CREATE INDEX IF NOT EXISTS idx_rsm_members_cf ON rsm_members(program_id, cf);
+    -- Due id di promozione (07/11/2026, revisione): promotion_id = la promozione
+    -- che ha CREATO la riga (entry_kind 'promozione'), exit_promotion_id = quella
+    -- che l'ha CHIUSA. Con un id solo, una seconda promozione sovrascriveva la
+    -- prima e annullarla cancellava la categoria di mezzo.
+    ALTER TABLE rsm_members ADD COLUMN IF NOT EXISTS exit_promotion_id TEXT;
+    UPDATE rsm_members SET exit_promotion_id = promotion_id,
+           promotion_id = CASE WHEN entry_kind = 'promozione' THEN promotion_id ELSE NULL END
+     WHERE exit_kind = 'promozione' AND exit_promotion_id IS NULL AND promotion_id IS NOT NULL;
     -- Registro delle operazioni (06/11/2026): righe com'erano prima e id inseriti,
     -- per annullare l'ultima operazione esattamente.
     CREATE TABLE IF NOT EXISTS rsm_ops (
@@ -354,7 +362,10 @@ export async function initDb() {
       undone_at   BIGINT,
       undone_by   TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, created_at DESC);
+    -- Ordine certo delle operazioni (created_at è in secondi: due operazioni
+    -- nello stesso secondo uscivano in ordine casuale).
+    ALTER TABLE rsm_ops ADD COLUMN IF NOT EXISTS seq BIGSERIAL;
+    CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, seq DESC);
     `)
   } catch (e) {
     console.error('[initDb] anagrafiche RSM: tabelle non pronte:', e)

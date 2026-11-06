@@ -224,7 +224,7 @@ export default function RsmStatoPage() {
                               {r.exitKind === 'cessazione' && <button className="rsm-mini" disabled={busy} onClick={() => run(() => api(`/api/rsm/programs/${rsm.programId}/members`, 'PATCH', { action: 'clear-exit', id: r.id }), t('rsm.st.exitCleared'))}>{t('rsm.st.undoCease')}</button>}
                               {!fam && !r.exitKind && <Link className="rsm-mini btn" href={`/rsm/promozioni?m=${r.id}`}>{t('rsm.st.promote')}</Link>}
                               <button className="rsm-mini" onClick={() => setOpen({ id: r.id, kind: 'edit' })}>{t('rsm.edit')}</button>
-                              {!r.promotionId && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => remove(r)}>×</button>}
+                              {!r.promotionId && !r.exitPromotionId && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => remove(r)}>×</button>}
                             </div></td>
                           )}
                         </tr>

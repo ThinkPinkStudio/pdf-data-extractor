@@ -291,7 +291,7 @@ export function computeMember(cfg, m) {
   let calc = ''
   const entry = m.entryDate
   const cat = categoryOf(cfg, m.category)
-  if (m.entryKind === 'iniziale' || !entry || entry <= cfg.periodStart) {
+  if (!entry || entry <= cfg.periodStart) {
     calc = 'annuo intero'
   } else if (m.entryKind === 'promozione') {
     frazione = prorataFraction(cfg, entry)
@@ -496,7 +496,14 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
         promote: { memberId: tit.id, to: category, date: entryDate },
       })
     }
-    if (exit && r.cf && !active.find((m) => m.cf === r.cf)) issues.push({ code: 'non-trovato', level: 'error', text: 'Uscita di una persona che non risulta tra gli assicurati.' })
+    if (exit && r.cf) {
+      // si chiude solo una riga ancora aperta; una cessazione già registrata non si ripete
+      const openRow = (existing || []).find((m) => m.cf === r.cf && !m.exitKind)
+      const closed = (existing || []).find((m) => m.cf === r.cf && m.exitKind)
+      if (!openRow && closed) issues.push({ code: 'gia-uscito', level: 'error', mail: false, text: `Uscita già registrata dal ${fmtDate(closed.exitDate)}.` })
+      else if (!openRow) issues.push({ code: 'non-trovato', level: 'error', text: 'Uscita di una persona che non risulta tra gli assicurati.' })
+    }
+    if (exit && !r.exitDate && !r.entryDate) issues.push({ code: 'uscita-data', level: 'error', text: 'Data di uscita mancante.' })
     if (r.polizza && category) {
       const pol = (categoryOf(cfg, category) || {}).policy
       if (pol && cleanCf(pol) !== cleanCf(r.polizza)) issues.push({ code: 'polizza', level: 'warning', text: `Numero di polizza ${r.polizza} diverso da quello della categoria (${pol}).` })
@@ -646,6 +653,8 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   }
   for (const r of varRows.filter(isExit)) {
     const date = r.exitDate
+    if (!date) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza data, riga saltata (registrala dopo l'import).`); continue }
+    if (!r.cf) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza codice fiscale, riga saltata (non si sa chi chiudere).`); continue }
     const target = members.filter((m) => m.category === r.key && m.cf === r.cf && !m.exitDate && (!date || !m.entryDate || m.entryDate <= date))
       .sort((a, b) => (b.entryDate || '').localeCompare(a.entryDate || ''))[0]
     if (!target) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita di una persona non presente in ${r.key}, riga saltata.`); continue }
@@ -731,14 +740,18 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
       choice: choice || null,
     })
   }
-  // legame delle promozioni (ora coerenti): una per NUCLEO, si annullano insieme
+  // legame delle promozioni (ora coerenti): una per NUCLEO, si annullano insieme.
+  // exitPromotionId sulla riga che esce, promotionId su quella che entra. Se
+  // l'uscita è il giorno PRIMA dell'entrata, l'uscita si allinea all'entrata:
+  // niente giorno scoperto e rimborso dallo stesso giorno del pro-rata.
   const promoIds = new Map()
   for (const out of members.filter((m) => m.exitKind === 'promozione')) {
     const inn = pairOf.get(out)
+    if (inn && inn.entryKind === 'promozione' && inn.entryDate && out.exitDate !== inn.entryDate) out.exitDate = inn.entryDate
     const key = `${out.category}|${out.cfTitolare || out.cf}|${out.exitDate}`
     if (!promoIds.has(key)) promoIds.set(key, `promo-${promoIds.size + 1}`)
-    out.promotionId = promoIds.get(key)
-    if (inn && inn.entryKind === 'promozione') inn.promotionId = out.promotionId
+    out.exitPromotionId = promoIds.get(key)
+    if (inn && inn.entryKind === 'promozione') inn.promotionId = out.exitPromotionId
   }
   for (const inn of members.filter((m) => m.entryKind === 'promozione' && !m.promotionId)) {
     const key = `in|${inn.category}|${inn.cfTitolare || inn.cf}|${inn.entryDate}`

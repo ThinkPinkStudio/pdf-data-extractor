@@ -36,11 +36,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as { promotionId?: string }
   if (!body.promotionId) return fail(400, 'Promozione mancante', 'invalid')
-  const rows = (await listMembers(params.id)).filter((m) => m.promotionId === String(body.promotionId))
+  const pid = String(body.promotionId)
+  const rows = (await listMembers(params.id)).filter((m) => m.promotionId === pid || m.exitPromotionId === pid)
   const head = rows.find((m) => m.legame === 'TI') || rows[0]
   if (!head) return fail(404, 'Promozione non trovata', 'not-found')
+  // le righe create da questa promozione non devono avere una storia dopo
+  const later = rows.find((m) => m.promotionId === pid && m.entryKind === 'promozione' && m.exitKind)
+  if (later) return fail(409, `Dopo questa promozione ${later.cognome} ${later.nome} ha già un'uscita (${later.exitKind === 'promozione' ? 'un\'altra promozione' : 'una cessazione'}): annulla prima quella.`, 'later-exit')
   const label = `Annullata la promozione di ${head.cognome} ${head.nome}`
-  const opId = await undoPromotion(params.id, String(body.promotionId), g.email, label)
+  const opId = await undoPromotion(params.id, pid, g.email, label)
   await logAction({ email: g.email, action: 'rsm.promote.undo', resource: params.id, metadata: { promotionId: body.promotionId, opId } })
   return NextResponse.json({ ok: true, opId, label })
 }

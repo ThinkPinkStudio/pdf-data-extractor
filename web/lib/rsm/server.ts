@@ -56,6 +56,7 @@ export function cleanNewMember(m: Record<string, unknown>) {
     exitKind: (m.exitKind === 'cessazione' ? 'cessazione' : null) as 'cessazione' | null,
     exitCommunicated: d(m.exitCommunicated),
     promotionId: null,
+    exitPromotionId: null,
     source: s(m.source),
     note: s(m.note),
   }
