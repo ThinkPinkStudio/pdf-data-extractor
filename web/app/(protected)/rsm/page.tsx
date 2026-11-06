@@ -4,13 +4,14 @@
 // sotto il titolare, filtri per data di entrata e di uscita, cessazioni e
 // correzioni sulla riga, export Excel.
 import Link from 'next/link'
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmGate, RsmHeader, api, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
+import { CeasePanel, EditPanel } from '@/components/rsm/MemberPanels'
+import PersonPanel from '@/components/rsm/PersonPanel'
 import type { Row } from '@/components/rsm/useRsm'
-import { checkPerson, fmtDate, isCovered, statusAt } from '@/lib/rsm/rules.js'
-import type { RsmIssue } from '@/lib/rsm/types'
+import { fmtDate, isCovered, statusAt } from '@/lib/rsm/rules.js'
 
 type StateFilter = 'covered' | 'exited' | 'all'
 
@@ -32,6 +33,17 @@ export default function RsmStatoPage() {
   const [open, setOpen] = useState<{ id: string; kind: 'exit' | 'edit' } | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // Scheda della persona aperta (codice fiscale), anche dall'indirizzo ?p=…
+  const [person, setPerson] = useState<string | null>(null)
+  useEffect(() => { try { const p = new URLSearchParams(window.location.search).get('p'); if (p) setPerson(p) } catch { /* ignora */ } }, [])
+  function openPerson(cf: string | null) {
+    setPerson(cf)
+    try {
+      const u = new URL(window.location.href)
+      if (cf) u.searchParams.set('p', cf); else u.searchParams.delete('p')
+      window.history.replaceState(null, '', u.toString())
+    } catch { /* ignora */ }
+  }
 
   const cfg = rsm.program?.config
   const withState = useMemo(() => (cfg ? rsm.rows.map((r) => ({ ...r, st: statusAt(cfg, r, at) as string })) : []), [rsm.rows, cfg, at])
@@ -162,7 +174,7 @@ export default function RsmStatoPage() {
                       <Fragment key={r.id}>
                         <tr className={`${fam ? 'fam' : ''} ${isCovered(r.st) ? '' : 'off'}`}>
                           <td className="who">
-                            <div className="rsm-who">{r.cognome} {r.nome}{r.quiescente && !fam && <span className="rsm-pill off" style={{ marginLeft: 6 }}>{t('rsm.quiescente')}</span>}</div>
+                            <div className="rsm-who"><button className="rsm-who-btn" onClick={() => openPerson(r.cf)} title={t('rsm.ps.open')}>{r.cognome} {r.nome}</button>{r.quiescente && !fam && <span className="rsm-pill off" style={{ marginLeft: 6 }}>{t('rsm.quiescente')}</span>}</div>
                             <div className="rsm-cf">{r.cf}{!fam && !showFam && nFam ? ` · ${t('rsm.st.plusFam', { n: nFam })}` : ''}</div>
                           </td>
                           <td className="nowrap">{t(`rsm.leg.${r.legame}`)}</td>
@@ -204,78 +216,9 @@ export default function RsmStatoPage() {
             <span className="rsm-muted">{t('rsm.st.footerSum', { v: eur(total) })}</span>
           </div>
         </div>
+        {person && rsm.program && <PersonPanel rsm={rsm} cf={person} at={at} onClose={() => openPerson(null)} onOpen={(cf) => openPerson(cf)} onDone={(text) => setMsg({ ok: true, text })} />}
       </RsmGate>
       {panel}
-    </div>
-  )
-}
-
-function CeasePanel({ row, nucleus, busy, onCancel, onSave }: {
-  row: Row; nucleus: Row[]; busy: boolean; onCancel: () => void
-  onSave: (ids: string[], exitDate: string, comm: string, note: string) => void
-}) {
-  const { t } = useI18n()
-  const [date, setDate] = useState(today())
-  const [comm, setComm] = useState(today())
-  const [note, setNote] = useState('')
-  const others = row.legame === 'TI' ? nucleus.filter((x) => x.id !== row.id && !x.exitKind) : []
-  const [withFam, setWithFam] = useState(true)
-  const ids = [row.id, ...(withFam ? others.map((x) => x.id) : [])]
-  return (
-    <div className="rsm-panel">
-      <div className="rsm-box-title">{t('rsm.st.ceaseTitle', { name: `${row.cognome} ${row.nome}` })}</div>
-      <div className="rsm-row">
-        <label className="rsm-field w-date">{t('rsm.ceaseDate')}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-        <label className="rsm-field w-date">{t('rsm.mailDate')}<input type="date" value={comm} onChange={(e) => setComm(e.target.value)} /></label>
-        <label className="rsm-field" style={{ flex: 1, minWidth: 220 }}>{t('rsm.note')}<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('rsm.notePh')} /></label>
-      </div>
-      {others.length > 0 && (
-        <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input type="checkbox" checked={withFam} onChange={(e) => setWithFam(e.target.checked)} />{t('rsm.st.withFam', { n: others.length })}
-        </label>
-      )}
-      <div className="rsm-note">{t('rsm.st.ceaseHint')}</div>
-      <div className="rsm-row">
-        <button className="btn btn-primary" disabled={busy || !date} onClick={() => onSave(ids, date, comm, note)}>{t('rsm.st.ceaseSave', { n: ids.length })}</button>
-        <button className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
-      </div>
-    </div>
-  )
-}
-
-function EditPanel({ row, year, busy, onCancel, onSave }: { row: Row; year: number; busy: boolean; onCancel: () => void; onSave: (p: Record<string, unknown>) => void }) {
-  const { t } = useI18n()
-  const [f, setF] = useState({ cognome: row.cognome, nome: row.nome, cf: row.cf, birthDate: row.birthDate || '', entryDate: row.entryDate || '', note: row.note || '', quiescente: row.quiescente, cfTitolare: row.cfTitolare || '' })
-  const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
-  const issues = (checkPerson({ cognome: f.cognome, nome: f.nome, cf: f.cf, birthDate: f.birthDate || null }, year).issues as RsmIssue[]).filter((i) => i.level !== 'info')
-  return (
-    <div className="rsm-panel">
-      <div className="rsm-box-title">{t('rsm.st.editTitle', { name: `${row.cognome} ${row.nome}` })}</div>
-      <div className="rsm-row">
-        <label className="rsm-field">{t('rsm.col.surname')}<input value={f.cognome} onChange={(e) => set('cognome', e.target.value)} /></label>
-        <label className="rsm-field">{t('rsm.col.name')}<input value={f.nome} onChange={(e) => set('nome', e.target.value)} /></label>
-        <label className="rsm-field">{t('rsm.col.cf')}<input value={f.cf} onChange={(e) => set('cf', e.target.value.toUpperCase())} style={{ width: 200 }} /></label>
-        <label className="rsm-field w-date">{t('rsm.col.birth')}<input type="date" value={f.birthDate} onChange={(e) => set('birthDate', e.target.value)} /></label>
-        {row.legame !== 'TI' && <label className="rsm-field">{t('rsm.col.cfTit')}<input value={f.cfTitolare} onChange={(e) => set('cfTitolare', e.target.value.toUpperCase())} style={{ width: 200 }} /></label>}
-        <label className="rsm-field w-date">{t('rsm.col.entry')}<input type="date" value={f.entryDate} onChange={(e) => set('entryDate', e.target.value)} disabled={row.entryKind === 'promozione'} /></label>
-        {row.legame === 'TI' && (
-          <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center', height: 36 }}>
-            <input type="checkbox" checked={f.quiescente} onChange={(e) => set('quiescente', e.target.checked)} />{t('rsm.quiescente')}
-          </label>
-        )}
-      </div>
-      <label className="rsm-field">{t('rsm.note')}<input value={f.note} onChange={(e) => set('note', e.target.value)} /></label>
-      {f.entryDate !== (row.entryDate || '') && <div className="rsm-note">{t('rsm.st.forcedHint')}</div>}
-      {issues.map((i) => <div key={i.code} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
-      <div className="rsm-row">
-        <button className="btn btn-primary" disabled={busy} onClick={() => {
-          const patch: Record<string, unknown> = { cognome: f.cognome, nome: f.nome, cf: f.cf, birthDate: f.birthDate || null, note: f.note, quiescente: f.quiescente }
-          if (row.legame !== 'TI') patch.cfTitolare = f.cfTitolare
-          if (f.entryDate && f.entryDate !== row.entryDate) { patch.entryDate = f.entryDate; patch.entryForced = true }
-          onSave(patch)
-        }}>{t('rsm.save')}</button>
-        <button className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
-      </div>
     </div>
   )
 }

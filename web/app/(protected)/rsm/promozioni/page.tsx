@@ -3,6 +3,7 @@
 // Promozioni: il titolare e il suo nucleo escono dalla categoria di partenza
 // ed entrano nella nuova dal giorno della promozione (pro-rata in uscita e in
 // entrata), più l'elenco delle promozioni registrate con l'annullamento.
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
@@ -168,7 +169,7 @@ function RsmPromozioniPage() {
               <tbody>
                 {done.map((p) => (
                   <tr key={p.id}>
-                    <td><div className="rsm-who">{p.head.cognome} {p.head.nome}</div><div className="rsm-cf">{p.head.cf}</div></td>
+                    <td><div className="rsm-who"><Link className="rsm-who-btn" href={`/rsm?p=${p.head.cf}`}>{p.head.cognome} {p.head.nome}</Link></div><div className="rsm-cf">{p.head.cf}</div></td>
                     <td className="nowrap">{fmtDate(p.date)}</td>
                     <td className="nowrap">{p.from ? label(p.from) : '?'} → {p.to ? label(p.to) : '?'}</td>
                     <td>{p.n}</td>

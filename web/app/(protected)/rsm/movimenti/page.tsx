@@ -2,6 +2,7 @@
 
 // Movimenti e regolazione: entrate e uscite dell'anno filtrate per periodo,
 // tipo e categoria, con i totali per la regolazione del premio.
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
@@ -89,7 +90,7 @@ export default function RsmMovimentiPage() {
                   <tr key={i}>
                     <td className="nowrap">{fmtDate(e.date)}</td>
                     <td className="nowrap"><span className={`rsm-pill ${e.promo ? 'promo' : e.type === 'in' ? 'new' : 'off'}`}>{t(e.promo ? (e.type === 'in' ? 'rsm.mv.promoIn' : 'rsm.mv.promoOut') : e.type === 'in' ? 'rsm.var.entrata' : 'rsm.mv.cessazione')}</span></td>
-                    <td><div className="rsm-who">{e.r.cognome} {e.r.nome}</div><div className="rsm-cf">{e.r.cf}</div></td>
+                    <td><div className="rsm-who"><Link className="rsm-who-btn" href={`/rsm?p=${e.r.cf}`}>{e.r.cognome} {e.r.nome}</Link></div><div className="rsm-cf">{e.r.cf}</div></td>
                     <td className="nowrap">{t(`rsm.leg.${e.r.legame}`)}</td>
                     <td className="nowrap">{label(e.r.category)}</td>
                     <td className="num">{e.amount ? eur(e.amount) : '0,00'}<div className="rsm-sub">{e.type === 'in' ? e.r.c.calc : e.promo ? t('rsm.mv.refundNet') : t('rsm.mv.noRefund')}</div></td>
