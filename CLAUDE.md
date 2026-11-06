@@ -2067,6 +2067,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   con «Registra come promozione» che apre Promozioni già compilata. Produzione
   parte VUOTA: il primo import lo fanno gli operatori (tariffe a zero
   segnalate nella prova dell'import).
+  **Tariffe con un clic (06/11/2026)**: in Impostazioni «Copia tariffe e
+  regole» da un altro programma (di default l'anno prima: tariffe, quote,
+  polizze, regole nel modulo, poi Salva) e, nella prova dell'import, «Usa
+  tariffe e polizze del file» (`tariffsFromWorkbook`: la tabellina in fondo a
+  ogni foglio di categoria, «DIRIGENTI 9146», «CONIUGI/CONVIVENTI 646», e il
+  NR. POLIZZA più frequente). Un file con le date delle variazioni fuori
+  dall'anno del programma lo dice per primo (file dell'anno sbagliato).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

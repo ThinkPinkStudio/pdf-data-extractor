@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
 import { replaceMembers } from '@/lib/rsm/store'
 import type { NewMember } from '@/lib/rsm/store'
-import { annualPremium, parseStatoWorkbook } from '@/lib/rsm/rules.js'
+import { annualPremium, parseStatoWorkbook, tariffsFromWorkbook } from '@/lib/rsm/rules.js'
 import { fail, guard, readSheets } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
@@ -19,10 +19,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const file = form.get('file')
   if (!(file instanceof File)) return fail(400, 'File mancante', 'invalid')
   let parsed
+  let fileTariffs: Record<string, { tariffs: Record<string, number>; policy: string }> = {}
   try {
     let resolutions: Record<string, string> = {}
     try { resolutions = JSON.parse(String(form.get('resolutions') || '{}')) } catch { resolutions = {} }
-    parsed = parseStatoWorkbook(g.program.config, readSheets(Buffer.from(await file.arrayBuffer())), resolutions)
+    const sheets = readSheets(Buffer.from(await file.arrayBuffer()))
+    parsed = parseStatoWorkbook(g.program.config, sheets, resolutions)
+    fileTariffs = tariffsFromWorkbook(g.program.config, sheets) as typeof fileTariffs
   } catch (e) {
     return fail(400, `File non leggibile: ${(e as Error).message}`, 'unreadable')
   }
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (counts[c.key] && !annualPremium(g.program.config, c.key, 'TI', false)) warnings.unshift(`Tariffa del titolare di ${c.label} a zero: compila le tariffe nelle Impostazioni, altrimenti i premi risultano 0.`)
   }
   const open = parsed.anomalies.filter((a: { choice: string | null }) => !a.choice)
-  const body = { counts, warnings, anomalies: parsed.anomalies, total: parsed.members.length }
+  const body = { counts, warnings, anomalies: parsed.anomalies, total: parsed.members.length, tariffs: fileTariffs }
   if (String(form.get('confirm') || '') !== '1') return NextResponse.json({ dryRun: true, ...body })
   if (open.length) return NextResponse.json({ error: `Ci sono ${open.length} anomalie del file a cui rispondere prima di importare.`, code: 'anomalies', dryRun: true, ...body }, { status: 409 })
   const members = parsed.members.map((m) => ({ ...m, source: `${m.source} (${file.name})` })) as unknown as Partial<NewMember>[]

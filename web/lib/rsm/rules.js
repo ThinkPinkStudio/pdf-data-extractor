@@ -614,13 +614,20 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   }
   // 2) variazioni: prima le entrate, poi le uscite (chi esce può essere entrato in corso d'anno)
   const varRows = []
+  let outOfPeriod = 0, datedRows = 0
   for (const name of names.filter((n) => /^VARIAZ/i.test(n.trim()))) {
     const key = catOfSheet(name)
     if (!key) continue
     const p = parseCommunicationRows(sheets[name], refYear)
     if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
     const promoCol = p.header.map.promozione
-    for (const r of p.rows) varRows.push({ ...r, key, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
+    for (const r of p.rows) {
+      varRows.push({ ...r, key, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
+      for (const d of [r.entryDate, r.exitDate].filter(Boolean)) {
+        datedRows++
+        if (d < cfg.periodStart || d >= cfg.periodEnd) outOfPeriod++
+      }
+    }
   }
   const isExit = (r) => /USC/.test(r.azione) || r.azione === 'U' || (!!r.exitDate && !r.entryDate)
   for (const r of varRows.filter((x) => !isExit(x))) {
@@ -645,6 +652,12 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     target.exitDate = date
     target.exitKind = r.promo ? 'promozione' : 'cessazione'
     if (r.note) target.note = [target.note, r.note].filter(Boolean).join(' · ')
+  }
+  // Variazioni con date fuori dall'anno del programma: quasi sempre il file di
+  // un altro anno. Lo si dice per primo, prima delle conseguenze (uscite non
+  // trovate, promozioni zoppe).
+  if (outOfPeriod) {
+    warnings.unshift(`${outOfPeriod} date di entrata o uscita su ${datedRows} nelle variazioni sono fuori dal periodo del programma (${fmtDate(cfg.periodStart)} – ${fmtDate(addDays(cfg.periodEnd, -1))}): controlla che il file sia dell'anno giusto.`)
   }
   // 3) promozioni: uscita da una categoria ed entrata in un'altra della STESSA
   // persona lo stesso giorno (o il giorno dopo). Se le due righe non dicono
@@ -726,4 +739,44 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     inn.promotionId = promoIds.get(key)
   }
   return { members, warnings, anomalies }
+}
+
+/**
+ * Tariffe e numeri di polizza scritti nel file dello stato di rischio: in ogni
+ * foglio di categoria la tabellina in fondo («DIRIGENTI 9146», «DIRIGENTI
+ * QUIESCENTI 10123», «CONIUGI/CONVIVENTI 646», «FIGLI 558»: etichetta nella
+ * prima colonna, importo nella terza) e il numero di polizza più frequente
+ * della colonna NR. POLIZZA. Solo valori trovati; l'operatore li conferma.
+ */
+export function tariffsFromWorkbook(cfg, sheets) {
+  const out = {}
+  for (const name of Object.keys(sheets).filter((n) => !/^VARIAZ/i.test(n.trim()))) {
+    const key = normCategory(name, cfg.categories).key
+    if (!key) continue
+    const rows = sheets[name] || []
+    const tariffs = {}
+    for (const r of rows) {
+      const label = normHead(r && r[0])
+      const v = r && typeof r[2] === 'number' ? r[2] : Number(String((r && r[2]) ?? '').replace(/\./g, '').replace(',', '.'))
+      if (!label || !(v > 0) || v > 100000) continue
+      if (/^CONIUG|^CONVIV/.test(label)) tariffs.coniuge = v
+      else if (/^FIGL/.test(label)) tariffs.figlio = v
+      else if (normCategory(label, cfg.categories).key === key) {
+        if (/QUIESC/.test(label)) tariffs.quiescente = v
+        else tariffs.titolare = v
+      }
+    }
+    const h = findHeader(rows)
+    let policy = ''
+    if (h && h.map.polizza != null) {
+      const freq = new Map()
+      for (const r of rows.slice(h.row + 1)) {
+        const p = cellStr(r && r[h.map.polizza])
+        if (/^\d{5,}$/.test(p)) freq.set(p, (freq.get(p) || 0) + 1)
+      }
+      policy = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+    }
+    if (Object.keys(tariffs).length || policy) out[key] = { tariffs, policy }
+  }
+  return out
 }

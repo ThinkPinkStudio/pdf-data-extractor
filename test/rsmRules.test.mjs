@@ -11,7 +11,7 @@ import {
   normDate, daysBetween, days360, decodeCf, surnameCode, nameCode, checkPerson,
   defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
   parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
-  parseStatoWorkbook, normCategory,
+  parseStatoWorkbook, normCategory, tariffsFromWorkbook,
 } from '../web/lib/rsm/rules.js'
 
 function cfg2026() {
@@ -242,4 +242,21 @@ test('variazioni: inclusione di chi è già in un\'altra categoria = promozione 
   assert.ok(issue && prep[0].hasError)
   assert.deepEqual(issue.promote, { memberId: 'm1', to: 'funzionari', date: '2026-09-01' })
   assert.equal(buildErrorMail({ fileName: 'x.xlsx', rows: prep }).count, 0, 'errore interno: niente mail')
+})
+
+test('tariffe e polizze lette dal file dello stato di rischio', () => {
+  const c = defaultProgramConfig(2026)
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'LEGAME']
+  const sheets = {
+    IMPIEGATI: [head,
+      ['C.A. VITA', 'IMPIEGATI', '90/01', '8635', '11341763', 'ROSSI', 'MARIO', null, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI'],
+      ['C.A. VITA', 'IMPIEGATI', '90/02', '8635', '11341763', 'VERDI', 'GIUSEPPE', null, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI'],
+      [], ['IMPIEGATI', 2, 1348], ['CONIUGI/CONVIVENTI', 1, 646], ['FIGLI', 0, 558]],
+    DIRIGENTI: [head, ['DIRIGENTI', 13, 9146], ['DIRIGENTI QUIESCENTI', 1, 10123]],
+    'Variazioni IMPIEGATI': [[null, 'C.A. Vita', null, null, null, 'Regolazione', 'Premio']],
+  }
+  assert.deepEqual(tariffsFromWorkbook(c, sheets), {
+    impiegati: { tariffs: { titolare: 1348, coniuge: 646, figlio: 558 }, policy: '11341763' },
+    dirigenti: { tariffs: { titolare: 9146, quiescente: 10123 }, policy: '' },
+  })
 })

@@ -10,7 +10,7 @@ import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import { addDays } from '@/lib/rsm/rules.js'
 import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
-interface ImportResult { dryRun: boolean; total: number; counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>; warnings: string[]; anomalies: RsmAnomaly[] }
+interface ImportResult { dryRun: boolean; total: number; counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>; warnings: string[]; anomalies: RsmAnomaly[]; tariffs: Record<string, { tariffs: RsmCategory['tariffs']; policy: string }> }
 
 export default function RsmSettingsPage() {
   const { t } = useI18n()
@@ -38,6 +38,39 @@ export default function RsmSettingsPage() {
   }, [rsm.program])
 
   const ro = !!rsm.program && !rsm.editor
+  // «Copia dall'anno precedente»: un altro programma, di default quello dell'anno prima.
+  const others = (rsm.programs || []).filter((p) => p.id !== rsm.programId)
+  const [copySrc, setCopySrc] = useState('')
+  useEffect(() => {
+    const prev = others.find((p) => p.year === year - 1) || others.sort((a, b) => b.year - a.year)[0]
+    setCopySrc(prev?.id || '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rsm.programs, rsm.programId, year])
+
+  /** Mette nel modulo (non salva) tariffe, quote, polizze e regole di un altro programma. */
+  function copyFrom(id: string) {
+    const src = others.find((p) => p.id === id)
+    if (!src || !cfg) return
+    const byKey = new Map(src.config.categories.map((c) => [c.key, c]))
+    const categories = cfg.categories.map((c) => {
+      const o = byKey.get(c.key)
+      return o ? { ...c, tariffs: { ...o.tariffs }, quota: o.quota, mode: o.mode, policy: o.policy, rank: o.rank } : c
+    })
+    for (const o of src.config.categories) if (!categories.some((c) => c.key === o.key)) categories.push({ ...o, tariffs: { ...o.tariffs } })
+    setCfg({ ...cfg, categories, rules: { ...src.config.rules } })
+    setMsg({ ok: true, text: t('rsm.set.copied', { name: src.name }) })
+  }
+
+  /** Mette nel modulo le tariffe e i numeri di polizza letti nel file dello stato di rischio. */
+  function useFileTariffs() {
+    if (!cfg || !imp) return
+    setCfg({ ...cfg, categories: cfg.categories.map((c) => {
+      const f = imp.tariffs[c.key]
+      if (!f) return c
+      return { ...c, tariffs: { ...c.tariffs, ...f.tariffs }, policy: f.policy || c.policy }
+    }) })
+    setMsg({ ok: true, text: t('rsm.set.fileTariffsUsed') })
+  }
   const setRule = (k: keyof RsmConfig['rules'], v: unknown) => setCfg((c) => c && { ...c, rules: { ...c.rules, [k]: v } })
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
   const setTariff = (i: number, k: keyof RsmCategory['tariffs'], v: string) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v === '' ? 0 : Number(v.replace(',', '.')) } } : x)) })
@@ -102,7 +135,17 @@ export default function RsmSettingsPage() {
           </div>
 
           <div className="rsm-box">
-            <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.set.cats')}</div><span className="rsm-note">{t('rsm.set.catsHint')}</span></div>
+            <div className="rsm-box-head">
+              <div><div className="rsm-box-title">{t('rsm.set.cats')}</div><span className="rsm-note">{t('rsm.set.catsHint')}</span></div>
+              {!ro && others.length > 0 && (
+                <div className="rsm-row" style={{ alignItems: 'center' }}>
+                  <select aria-label={t('rsm.set.copyFrom')} value={copySrc} onChange={(e) => setCopySrc(e.target.value)} style={{ height: 34, width: 240, fontSize: 12.5, padding: '0 8px' }}>
+                    {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <button className="btn btn-secondary" disabled={!copySrc} onClick={() => copyFrom(copySrc)}>{t('rsm.set.copyBtn')}</button>
+                </div>
+              )}
+            </div>
             <div className="rsm-box-body rsm-scroll">
               <table className="rsm-cats">
                 <thead><tr>
@@ -185,11 +228,22 @@ export default function RsmSettingsPage() {
                 </div>
                 {imp && (
                   <div className="rsm-panel">
+                    {Object.keys(imp.tariffs || {}).length > 0 && (
+                      <div className="rsm-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span className="rsm-muted">{t('rsm.set.fileTariffs')} {Object.entries(imp.tariffs).map(([k, f]) => {
+                          const lab = cfg.categories.find((c) => c.key === k)?.label || k
+                          const tt = [f.tariffs.titolare, f.tariffs.quiescente && `${t('rsm.set.tQui').toLowerCase()} ${f.tariffs.quiescente}`, f.tariffs.coniuge && `${t('rsm.set.tCo').toLowerCase()} ${f.tariffs.coniuge}`, f.tariffs.figlio && `${t('rsm.set.tFi').toLowerCase()} ${f.tariffs.figlio}`].filter(Boolean).join(' / ')
+                          return `${lab} ${tt}${f.policy ? ` (pol. ${f.policy})` : ''}`
+                        }).join(' · ')}</span>
+                        <button className="btn btn-secondary" onClick={useFileTariffs}>{t('rsm.set.useFileTariffs')}</button>
+                      </div>
+                    )}
                     <div className="rsm-sum">
                       {Object.entries(imp.counts).map(([k, c]) => (
                         <span key={k}>{cfg.categories.find((x) => x.key === k)?.label || k}: <b>{c.righe}</b> {t('rsm.set.impRows', { t: c.titolari, e: c.entrate, u: c.uscite })}</span>
                       ))}
                     </div>
+                    {imp.warnings.filter((w) => /fuori dal periodo|Tariffa del titolare/.test(w)).map((w, i) => <div key={`top${i}`} className="rsm-issue error">{w}</div>)}
                     {imp.warnings.length > 0 && (
                       <details>
                         <summary className="rsm-muted">{t('rsm.set.impWarn', { n: imp.warnings.length })}</summary>
