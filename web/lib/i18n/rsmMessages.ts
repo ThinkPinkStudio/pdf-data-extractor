@@ -12,6 +12,8 @@ export const rsmMessages: Record<'it' | 'en', Record<string, string>> = {
     'nav.rsmMovimenti': 'Movimenti e regolazione',
     'nav.rsmSettings': 'Impostazioni',
 
+    'set.rsmVisible': 'Sezione «Anagrafiche RSM» nella pagina iniziale',
+    'set.rsmVisibleHint': 'Spenta: la scheda non compare nella pagina iniziale; le pagine restano raggiungibili da /rsm per le prove.',
     'rsm.program': 'Programma',
     'rsm.readOnly': 'Sola consultazione',
     'rsm.readOnlyLong': 'Sola consultazione: puoi vedere i dati ma non registrare variazioni. Chiedi a chi gestisce il programma.',
@@ -280,6 +282,8 @@ export const rsmMessages: Record<'it' | 'en', Record<string, string>> = {
     'nav.rsmMovimenti': 'Movements and adjustment',
     'nav.rsmSettings': 'Settings',
 
+    'set.rsmVisible': '«Medical plan members» section on the home page',
+    'set.rsmVisibleHint': 'Off: the card is not shown on the home page; the pages stay reachable at /rsm for testing.',
     'rsm.program': 'Programme',
     'rsm.readOnly': 'Read only',
     'rsm.readOnlyLong': 'Read only: you can see the data but not record changes. Ask whoever manages the programme.',

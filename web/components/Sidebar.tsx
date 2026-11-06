@@ -199,7 +199,7 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email, navHidden }: { email: string; navHidden?: string[] }) {
+export default function Sidebar({ email, navHidden, rsmVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
@@ -209,7 +209,8 @@ export default function Sidebar({ email, navHidden }: { email: string; navHidden
   const meta = SECTION_META[section]
   // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
   const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
-  const NAV = visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav
+  // Anagrafiche RSM fuori dal menu delle sezioni finché non la si accende (Impostazioni tecniche).
+  const NAV = (visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav).filter((i) => rsmVisible || section !== 'hub' || i.href !== '/rsm')
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.

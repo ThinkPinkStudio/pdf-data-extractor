@@ -12,11 +12,16 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   // lato server, così la sidebar nasce già giusta senza fetch né sfarfallio.
   // La pagina delle impostazioni fa router.refresh() dopo il salvataggio.
   let navHidden: string[] = []
-  try { navHidden = (await getSettings()).navHiddenExtractor || [] } catch { navHidden = [] }
+  let rsmVisible = false
+  try {
+    const st = await getSettings()
+    navHidden = st.navHiddenExtractor || []
+    rsmVisible = !!st.rsmVisible
+  } catch { navHidden = [] }
 
   return (
     <div className="app-shell">
-      <Sidebar email={session.email} navHidden={navHidden} />
+      <Sidebar email={session.email} navHidden={navHidden} rsmVisible={rsmVisible} />
       <main className="main-content">{children}</main>
     </div>
   )
