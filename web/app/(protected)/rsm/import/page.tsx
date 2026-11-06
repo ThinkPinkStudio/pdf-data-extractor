@@ -148,7 +148,9 @@ export default function RsmImportPage() {
     const j = await r.json()
     if (!r.ok) throw new Error(j.error || 'Errore')
     if (confirm) return j as Dry
-    setDry(j); setChoices({}); setReplaceOk(false)
+    setDry(j); setReplaceOk(false)
+    // risposte proposte dalle note del file: pre-selezionate, l'operatore le vede e può cambiarle
+    setChoices(Object.fromEntries((j.anomalies as RsmAnomaly[]).filter((a) => a.suggest).map((a) => [a.key, a.suggest as string])))
     return j as Dry
   }
 
@@ -309,6 +311,7 @@ export default function RsmImportPage() {
                   <div key={a.key} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 10, borderBottom: '1px solid var(--c-separator)' }}>
                     <div style={{ fontSize: 13 }}>{a.text}</div>
                     {a.people.length > 1 && <div className="rsm-sub">{t('rsm.set.anomPeople', { p: a.people.join(', ') })}</div>}
+                    {a.suggest && <div className="rsm-sub" style={{ color: 'var(--c-info)' }}>{t('rsm.imp.suggested', { o: t(`rsm.imp.opt.${a.suggest}`), n: a.suggestNote || '' })}</div>}
                     <div className="rsm-row" role="radiogroup" aria-label={a.text}>
                       {a.options.map((o) => (
                         <label key={o} className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

@@ -200,7 +200,7 @@ test('import: promozione non segnata = anomalia da risolvere, mai indovinata', (
       ['C.A. VITA', 'IMPIEGATI', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'M', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', '', 'TI', '01/01/2026']],
     'Variazioni IMPIEGATI': [[null], varHead,
       // il cliente ha dimenticato PROMOZIONE = SI sulle uscite del nucleo
-      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO'],
+      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO', 'ESCLUSO DAL 01/03/2026 PASSAGGIO IN POL. FUNZIONARI'],
       ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', null, 'CO', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO'],
       // uscita con PROMOZIONE = SI ma nessuna entrata altrove
       ['C.A. VITA', 'IMPIEGATO', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', null, 'TI', null, '31/05/2026', 0, 0, 0, 0, ' USCITA ', 'SI']],
@@ -214,6 +214,8 @@ test('import: promozione non segnata = anomalia da risolvere, mai indovinata', (
   const nonSeg = first.anomalies.find((a) => a.type === 'non-segnata')
   assert.equal(nonSeg.people.length, 2, 'un\'anomalia per nucleo')
   assert.match(nonSeg.text, /l'uscita da Impiegati non è segnata/)
+  assert.equal(nonSeg.suggest, 'promozione', 'proposta dalla nota del file')
+  assert.equal(first.anomalies.find((a) => a.type === 'senza-entrata').suggest, null, 'senza nota nessuna proposta')
   const senza = first.anomalies.find((a) => a.type === 'senza-entrata')
 
   const asPromo = parseStatoWorkbook(c, sheets(), { [nonSeg.key]: 'promozione', [senza.key]: 'cessazione' })

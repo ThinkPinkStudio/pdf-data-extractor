@@ -718,8 +718,15 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     } else {
       text = `${head.cognome} ${head.nome} entra in ${catLabel(g.to)} dal ${fmtDate(g.date)} con PROMOZIONE = SI, ma non esce da nessun'altra categoria. È una nuova inclusione segnata come promozione per errore?`
     }
+    // Proposta dalle NOTE del file («ESCLUSO DAL 01/03/2026 PASSAGGIO IN POL.
+    // FUNZIONARI»): pre-seleziona la risposta, che l'operatore conferma o cambia.
+    const notes = [...new Set(g.rows.flatMap((r) => [r.exit && r.exit.note, r.entry && r.entry.note]).filter(Boolean))].join(' · ')
+    let suggest = null
+    if (/PASSAGG|PROMO[SZ]|NOMIN/i.test(notes)) suggest = 'promozione'
+    else if (/CESSAZ|DIMISS|LICENZ|PENSION/i.test(notes) && g.type !== 'senza-uscita') suggest = g.type === 'non-segnata' ? 'separati' : 'cessazione'
     anomalies.push({
       key: g.key, type: g.type, from: g.from, to: g.to, date: g.date, cf: g.cf, people, text,
+      suggest, suggestNote: suggest ? notes : null,
       options: g.type === 'non-segnata' ? ['promozione', 'separati'] : g.type === 'senza-entrata' ? ['cessazione', 'promozione'] : ['inclusione', 'promozione'],
       choice: choice || null,
     })

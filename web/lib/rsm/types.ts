@@ -97,6 +97,8 @@ export interface RsmAnomaly {
   text: string
   options: string[]
   choice: string | null
+  suggest: string | null // risposta proposta dalle note del file
+  suggestNote: string | null
 }
 
 /** Riga di un file di comunicazione pronta per la registrazione (prepareCommunication). */
