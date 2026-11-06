@@ -232,6 +232,29 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);
     CREATE INDEX IF NOT EXISTS idx_adesioni_status ON adesioni_records(status);
 
+    -- CSA Adesioni Infortuni (06/11/2026): adesioni alla polizza infortuni
+    -- conducenti AIG. Numero IAH0015842/NNN assegnato al salvataggio (unico);
+    -- status pending → sent quando il BDX parte per email.
+    CREATE TABLE IF NOT EXISTS infortuni_records (
+      id             TEXT PRIMARY KEY,
+      numero         TEXT NOT NULL UNIQUE,
+      status         TEXT NOT NULL DEFAULT 'pending',
+      saved_by       TEXT,
+      cognome        TEXT,
+      nome           TEXT,
+      codice_fiscale TEXT,
+      targa          TEXT,
+      opzione        TEXT,
+      data_adesione  TEXT,
+      data_scadenza  TEXT,
+      data           JSONB NOT NULL DEFAULT '{}',
+      sent_at        BIGINT,
+      sent_to        TEXT,
+      created_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+    CREATE INDEX IF NOT EXISTS idx_infortuni_status ON infortuni_records(status);
+
     -- Utenti della web app (accesso "sulla fiducia" con email di dominio approvato).
     -- password_hash è mantenuto per compatibilità con gli account legacy, ma il
     -- login NON lo usa più: basta l'email nel dominio autorizzato.

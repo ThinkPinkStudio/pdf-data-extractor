@@ -48,6 +48,14 @@ const IconRsm = () => (
   </svg>
 )
 
+const IconInfortuni = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <line x1="12" y1="8" x2="12" y2="14" />
+    <line x1="9" y1="11" x2="15" y2="11" />
+  </svg>
+)
+
 interface Section {
   href: string
   icon: React.ReactNode
@@ -59,11 +67,12 @@ const SECTIONS: Section[] = [
   { href: '/extractor', icon: <IconExtractor />, titleKey: 'nav.secExtractor', descKey: 'hub.extractorDesc' },
   { href: '/compare', icon: <IconCompare />, titleKey: 'nav.secCompare', descKey: 'hub.compareDesc' },
   { href: '/adesioni', icon: <IconAdesioni />, titleKey: 'nav.secAdesioni', descKey: 'hub.adesioniDesc' },
+  { href: '/infortuni', icon: <IconInfortuni />, titleKey: 'nav.secInfortuni', descKey: 'hub.infortuniDesc' },
   { href: '/premio', icon: <IconPremio />, titleKey: 'nav.secPremio', descKey: 'hub.premioDesc' },
   { href: '/rsm', icon: <IconRsm />, titleKey: 'nav.secRsm', descKey: 'hub.rsmDesc' },
 ]
 
-export default function HubClient({ rsmVisible }: { rsmVisible: boolean }) {
+export default function HubClient({ rsmVisible, infortuniVisible }: { rsmVisible: boolean; infortuniVisible: boolean }) {
   const { t } = useI18n()
 
   return (
@@ -80,7 +89,7 @@ export default function HubClient({ rsmVisible }: { rsmVisible: boolean }) {
           gap: 20,
         }}
       >
-        {SECTIONS.filter((s) => rsmVisible || s.href !== '/rsm').map((s) => (
+        {SECTIONS.filter((s) => (rsmVisible || s.href !== '/rsm') && (infortuniVisible || s.href !== '/infortuni')).map((s) => (
           <Link key={s.href} href={s.href} className="hub-card">
             <span className="hub-card-icon">{s.icon}</span>
             <span className="hub-card-title">{t(s.titleKey)}</span>

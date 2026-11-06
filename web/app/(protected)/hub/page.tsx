@@ -1,10 +1,15 @@
 import { getSettings } from '@/lib/settingsStore'
 import HubClient from './HubClient'
 
-// La sezione Anagrafiche RSM compare solo se accesa in Impostazioni tecniche
-// (`rsmVisible`, spenta di default finché non è pronta).
+// Le sezioni Anagrafiche RSM e CSA Adesioni Infortuni compaiono solo se accese
+// in Impostazioni tecniche (`rsmVisible`, `infortuniVisible`, spente di default).
 export default async function HubPage() {
   let rsmVisible = false
-  try { rsmVisible = !!(await getSettings()).rsmVisible } catch { rsmVisible = false }
-  return <HubClient rsmVisible={rsmVisible} />
+  let infortuniVisible = false
+  try {
+    const st = await getSettings()
+    rsmVisible = !!st.rsmVisible
+    infortuniVisible = !!st.infortuniVisible
+  } catch { rsmVisible = false }
+  return <HubClient rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} />
 }

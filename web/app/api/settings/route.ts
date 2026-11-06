@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     // Tabelle delle scansioni: Ollama e modello per tabelle (GLM-OCR).
     'polizzaTableOcrUrl', 'polizzaTableOcrModel',
     // Voci di menu nascoste nella sidebar PDF Extractor (Impostazioni tecniche).
-    'navHiddenExtractor', 'rsmVisible',
+    'navHiddenExtractor', 'rsmVisible', 'infortuniVisible',
     'extractions', 'profiles', 'bulkExcludedFolderNames', 'bulkIncludeKeywords', 'bulkExcludeKeywords',
     'qdrantUrl', 'qdrantApiKey', 'qdrantCollection', 'embeddingModel',
     'compareMatchKeys', 'compareFuzzyEnabled', 'compareFuzzyMinOverlap', 'compareFuzzyIgnoreWords',

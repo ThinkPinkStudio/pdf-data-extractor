@@ -40,6 +40,7 @@ interface Settings {
   // Voci del menu PDF Extractor nascoste nella sidebar (href).
   navHiddenExtractor?: string[]
   rsmVisible?: boolean
+  infortuniVisible?: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -151,6 +152,10 @@ export default function SettingsTechnicalPage() {
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--c-separator)' }}>
             <Toggle checked={!!s.rsmVisible} onChange={(v) => up('rsmVisible', v)} label={t('set.rsmVisible')} />
             <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.rsmVisibleHint')}</p>
+            <div style={{ marginTop: 10 }}>
+              <Toggle checked={!!s.infortuniVisible} onChange={(v) => up('infortuniVisible', v)} label={t('set.infortuniVisible')} />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.infortuniVisibleHint')}</p>
+            </div>
           </div>
         </div>
 

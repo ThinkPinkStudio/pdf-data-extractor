@@ -2,6 +2,7 @@
 // Interpolazione con placeholder {var} (vedi I18nProvider.t).
 
 import { rsmMessages } from './rsmMessages'
+import { infortuniMessages } from './infortuniMessages'
 
 export type Lang = 'it' | 'en'
 
@@ -2926,3 +2927,7 @@ export const messages: Record<Lang, Record<string, string>> = {
 // Anagrafiche RSM: catalogo a parte (lib/i18n/rsmMessages.ts).
 Object.assign(messages.it, rsmMessages.it)
 Object.assign(messages.en, rsmMessages.en)
+
+// CSA Adesioni Infortuni: catalogo a parte (lib/i18n/infortuniMessages.ts).
+Object.assign(messages.it, infortuniMessages.it)
+Object.assign(messages.en, infortuniMessages.en)

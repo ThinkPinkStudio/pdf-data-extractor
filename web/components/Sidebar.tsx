@@ -120,7 +120,7 @@ const IconHome = () => (
 /* ─── Sezioni separate: ogni sezione ha il proprio menu e le proprie
        Impostazioni. La sidebar mostra SOLO il menu della sezione corrente. ── */
 type NavItem = { href: string; key: string; icon: React.ReactNode }
-type Section = 'extractor' | 'compare' | 'adesioni' | 'premio' | 'rsm' | 'hub'
+type Section = 'extractor' | 'compare' | 'adesioni' | 'infortuni' | 'premio' | 'rsm' | 'hub'
 
 // Icone delle voci PDF Extractor: la LISTA (href + chiave) sta in
 // lib/navExtractor.ts, condivisa con gli switch delle Impostazioni tecniche.
@@ -160,6 +160,13 @@ const NAV_ADESIONI: NavItem[] = [
   { href: '/adesioni/contacts', key: 'nav.contacts', icon: <IconUser /> },
 ]
 
+// CSA Adesioni Infortuni (06/11/2026): polizza infortuni conducenti AIG.
+const NAV_INFORTUNI: NavItem[] = [
+  { href: '/infortuni', key: 'nav.infNew', icon: <IconForm /> },
+  { href: '/infortuni/archivio', key: 'nav.infArchive', icon: <IconHistory /> },
+  { href: '/infortuni/settings', key: 'nav.infSettings', icon: <IconSettings /> },
+]
+
 const NAV_PREMIO: NavItem[] = [
   { href: '/premio', key: 'nav.pmCalcolo', icon: <IconTable /> },
 ]
@@ -178,6 +185,7 @@ const NAV_HUB: NavItem[] = [
   { href: '/extractor', key: 'nav.secExtractor', icon: <IconPDF /> },
   { href: '/compare', key: 'nav.secCompare', icon: <IconCompare /> },
   { href: '/adesioni', key: 'nav.secAdesioni', icon: <IconForm /> },
+  { href: '/infortuni', key: 'nav.secInfortuni', icon: <IconForm /> },
   { href: '/premio', key: 'nav.secPremio', icon: <IconTable /> },
   { href: '/rsm', key: 'nav.secRsm', icon: <IconUser /> },
 ]
@@ -186,6 +194,7 @@ function sectionFor(pathname: string): Section {
   if (pathname === '/hub') return 'hub'
   if (pathname === '/compare' || pathname.startsWith('/compare/')) return 'compare'
   if (pathname === '/adesioni' || pathname.startsWith('/adesioni/')) return 'adesioni'
+  if (pathname === '/infortuni' || pathname.startsWith('/infortuni/')) return 'infortuni'
   if (pathname === '/premio' || pathname.startsWith('/premio/')) return 'premio'
   if (pathname === '/rsm' || pathname.startsWith('/rsm/')) return 'rsm'
   return 'extractor'
@@ -195,12 +204,13 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   extractor: { name: 'PDF Extractor', subKey: 'nav.subExtractor', nav: NAV_EXTRACTOR },
   compare: { name: 'Portafoglio Compare', subKey: 'nav.subCompare', nav: NAV_COMPARE },
   adesioni: { name: 'CSA Adesioni', subKey: 'nav.subAdesioni', nav: NAV_ADESIONI },
+  infortuni: { name: 'CSA Adesioni Infortuni', subKey: 'nav.subInfortuni', nav: NAV_INFORTUNI },
   premio: { name: 'Premio Lordo', subKey: 'nav.subPremio', nav: NAV_PREMIO },
   rsm: { name: 'Anagrafiche RSM', subKey: 'nav.subRsm', nav: NAV_RSM },
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email, navHidden, rsmVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean }) {
+export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean; infortuniVisible?: boolean }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
@@ -211,7 +221,7 @@ export default function Sidebar({ email, navHidden, rsmVisible }: { email: strin
   // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
   const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
   // Anagrafiche RSM fuori dal menu delle sezioni finché non la si accende (Impostazioni tecniche).
-  const NAV = (visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav).filter((i) => rsmVisible || section !== 'hub' || i.href !== '/rsm')
+  const NAV = (visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav).filter((i) => section !== 'hub' || ((rsmVisible || i.href !== '/rsm') && (infortuniVisible || i.href !== '/infortuni')))
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.
