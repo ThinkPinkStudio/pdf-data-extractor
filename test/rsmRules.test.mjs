@@ -11,7 +11,7 @@ import {
   normDate, daysBetween, days360, decodeCf, surnameCode, nameCode, checkPerson,
   defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
   parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
-  parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear,
+  parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear, parseCessationText, emlToText,
 } from '../web/lib/rsm/rules.js'
 
 function cfg2026() {
@@ -272,4 +272,19 @@ test('anno di polizza letto dal file, prima di avere un programma', () => {
     ['C.A. VITA', '', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/03/2027', null],
     ['C.A. VITA', '', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', '01/09/2027', null]] }), 2027)
   assert.equal(workbookYear({ Foglio1: [['niente']] }), null)
+})
+
+test('mail di cessazione: codici fiscali, date anche senza anno, .eml', () => {
+  // data prima del codice e senza anno, come nelle mail dell'ufficio personale
+  assert.deepEqual(parseCessationText('cessazione di Rossi Mario in data 4.10\nCf: RSSMRA85T10A562S\nSocietà: CAV', 2026),
+    [{ cf: 'RSSMRA85T10A562S', date: '2026-10-04' }])
+  // due persone, ognuna con la sua data dopo il codice; l'orario della mail non è una data
+  const two = parseCessationText('Inviato 29/10/2026 11:31\n> ROSSI MARIO CF:RSSMRA85T10A562S data cessazione 25.11.2026\n> BIANCHI LAURA CF BNCLRA90A41F205I data cessazione 30.11.2026', 2026)
+  assert.deepEqual(two, [{ cf: 'RSSMRA85T10A562S', date: '2026-11-25' }, { cf: 'BNCLRA90A41F205I', date: '2026-11-30' }])
+  const body = Buffer.from('Ciao, cessa Rossi Mario CF RSSMRA85T10A562S il 31.10.2026', 'utf8').toString('base64')
+  const eml = ['From: hr@example.com', 'Subject: CESSAZIONE', 'Date: Thu, 8 Oct 2026 08:53:49 +0000', 'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary="b1"', '', '--b1', 'Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', body, '--b1--', ''].join('\r\n')
+  const e = emlToText(eml)
+  assert.equal(e.date, '2026-10-08')
+  assert.deepEqual(parseCessationText(e.text, 2026), [{ cf: 'RSSMRA85T10A562S', date: '2026-10-31' }])
 })

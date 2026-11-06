@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, api, eur, saveBlob, today, useFlash, useRsm } from '@/components/rsm/useRsm'
-import type { Rsm } from '@/components/rsm/useRsm'
+import type { Rsm, Row } from '@/components/rsm/useRsm'
 import {
-  buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, fmtDate, isCovered, mailIssues, normDate, statusAt,
+  buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, emlToText, fmtDate, isCovered, mailIssues, parseCessationText, statusAt,
 } from '@/lib/rsm/rules.js'
 import type { RsmCalc, RsmIssue, RsmPreparedRow } from '@/lib/rsm/types'
 
@@ -43,18 +43,22 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<File[]>([])
   const [received, setReceived] = useState(today())
-  const [sender, setSender] = useState('')
+  const senders = useMemo(() => { try { return JSON.parse(localStorage.getItem(SENDERS_KEY) || '[]') as string[] } catch { return [] } }, [])
+  // Chi manda i file è quasi sempre la stessa persona: si propone l'ultimo mittente.
+  const [sender, setSender] = useState(senders[0] || '')
   const [results, setResults] = useState<FileResult[] | null>(null)
   const [busy, setBusy] = useState(false)
+  const [drag, setDrag] = useState(false)
   const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
-  const senders = useMemo(() => { try { return JSON.parse(localStorage.getItem(SENDERS_KEY) || '[]') as string[] } catch { return [] } }, [])
 
-  async function read() {
+  /** Si legge appena arrivano i file; cambiando la data di ricezione si rilegge (decorrenza). */
+  async function read(list: File[] = files, comm: string = received) {
+    if (!list.length || !comm) return
     setBusy(true); setMsg(null); setResults(null)
     try {
       const fd = new FormData()
-      files.forEach((f) => fd.append('files', f))
-      fd.append('communicated', received)
+      list.forEach((f) => fd.append('files', f))
+      fd.append('communicated', comm)
       const r = await fetch(`/api/rsm/programs/${rsm.programId}/parse`, { method: 'POST', body: fd })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
@@ -85,7 +89,8 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
         return { ...e.member, entryForced: !!r.forced, source: `${(results || []).find((f) => f.rows.includes(r))?.name || 'Excel'} riga ${r.rowNumber}${sender ? ` · da ${sender}` : ''}` }
       })
       const j = await api(`/api/rsm/programs/${rsm.programId}/members`, 'POST', { members, source: 'Excel' })
-      setMsg({ ok: true, text: t('rsm.var.registered', { e: j.entries, u: j.exits }), opId: j.opId })
+      const key = j.entries && j.exits ? 'rsm.var.registered' : j.exits ? 'rsm.var.registeredOut' : 'rsm.var.registeredIn'
+      setMsg({ ok: true, text: t(key, { e: j.entries, u: j.exits }), opId: j.opId })
       setResults((rs) => rs && rs.map((f) => ({ ...f, rows: f.rows.filter((r) => !r.sel) })))
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -96,16 +101,26 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
       <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.var.excelTitle')}</div><span className="rsm-note">{t('rsm.var.excelHint')}</span></div>
       <div className="rsm-box-body">
         <div className="rsm-row">
-          <label className="rsm-field" style={{ minWidth: 260 }}>{t('rsm.var.files')}
-            <input ref={inputRef} type="file" multiple accept=".xlsx,.xls" onChange={(e) => setFiles(Array.from(e.target.files || []))} style={{ height: 'auto', padding: 6 }} />
-          </label>
-          <label className="rsm-field w-date">{t('rsm.var.received')}<input type="date" value={received} onChange={(e) => setReceived(e.target.value)} /></label>
-          <label className="rsm-field" style={{ minWidth: 240 }}>{t('rsm.var.sender')}
+          <label className="rsm-field w-date">{t('rsm.var.received')}<input type="date" value={received} onChange={(e) => { setReceived(e.target.value); if (files.length && e.target.value) read(files, e.target.value) }} /></label>
+          <label className="rsm-field" style={{ minWidth: 260 }}>{t('rsm.var.sender')}
             <input type="email" list="rsm-senders" value={sender} onChange={(e) => setSender(e.target.value)} placeholder="nome@azienda.it" />
             <datalist id="rsm-senders">{senders.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
-          <button className="btn btn-primary" disabled={!files.length || !received || busy || !rsm.editor} onClick={read}>{busy ? <span className="spinner" /> : t('rsm.var.read')}</button>
         </div>
+        <div
+          className={`rsm-drop${drag ? ' on' : ''}`} style={{ minHeight: 96 }}
+          role="button" tabIndex={0} aria-disabled={!rsm.editor}
+          onClick={() => rsm.editor && inputRef.current?.click()}
+          onKeyDown={(e) => { if (rsm.editor && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); inputRef.current?.click() } }}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); if (!rsm.editor) return; const l = Array.from(e.dataTransfer.files || []); setFiles(l); read(l) }}
+        >
+          {busy ? <span className="spinner" /> : files.length
+            ? <><b>{files.map((f) => f.name).join(', ')}</b><span className="rsm-note">{t('rsm.var.dropAgain')}</span></>
+            : <><b>{t('rsm.var.drop')}</b><span className="rsm-note">{t('rsm.var.dropHint')}</span></>}
+        </div>
+        <input ref={inputRef} type="file" multiple accept=".xlsx,.xls" hidden onChange={(e) => { const l = Array.from(e.target.files || []); setFiles(l); read(l); e.target.value = '' }} />
         {flashNode}
         {results && results.map((f, fi) => (
           <div key={f.name + fi} className="rsm-box">
@@ -220,70 +235,100 @@ function ErrorMail({ fileName, received, rows, sender, cc, signature }: { fileNa
 function CeaseSection({ rsm }: { rsm: Rsm }) {
   const { t } = useI18n()
   const cfg = rsm.program!.config
-  const [q, setQ] = useState('')
-  const [pick, setPick] = useState<string | null>(null)
-  const [date, setDate] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [text, setText] = useState('')
   const [comm, setComm] = useState(today())
   const [note, setNote] = useState('')
+  const [pick, setPick] = useState<string | null>(null) // ricerca a mano
+  const [dates, setDates] = useState<Record<string, string>>({}) // data per codice fiscale
   const [withFam, setWithFam] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [drag, setDrag] = useState(false)
   const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
   const open = rsm.rows.filter((r) => !r.exitKind && (isCovered(statusAt(cfg, r, today())) || statusAt(cfg, r, today()) === 'futuro'))
 
-  // Testo della mail incollato: si cercano codice fiscale e data di cessazione.
-  function onPaste(text: string) {
-    setQ(text)
-    const cf = /\b[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]\b/i.exec(text)?.[0]
-    const d = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/.exec(text)?.[1]
-    if (cf) {
-      const hit = open.find((r) => r.cf === cleanCf(cf))
-      if (hit) { setPick(hit.id); setQ(cleanCf(cf)) }
-    }
-    if (d) { const iso = normDate(d, rsm.program!.year); if (iso) setDate(iso) }
+  // Persone trovate nel testo della mail (codice fiscale + data di cessazione).
+  const found = useMemo(() => parseCessationText(text, rsm.program!.year) as { cf: string; date: string | null }[], [text, rsm.program])
+  const needle = !found.length ? text.trim().toUpperCase() : ''
+  const hits = needle.length >= 2 ? open.filter((r) => `${r.cognome} ${r.nome} ${r.cf}`.includes(needle)).slice(0, 8) : []
+  const manual = pick ? rsm.rows.find((r) => r.id === pick) || null : null
+  const targets = manual ? [{ cf: manual.cf, date: null as string | null }] : found
+  const famOf = (r: Row) => (r.legame === 'TI' ? open.filter((x) => x.category === r.category && x.cfTitolare === r.cf && x.id !== r.id) : [])
+
+  async function loadEml(f: File) {
+    const raw = await f.text()
+    const e = emlToText(raw) as { text: string; date: string | null }
+    setText(e.text); setPick(null); setDates({})
+    if (e.date) setComm(e.date)
+    if (!note) setNote(t('rsm.var.mailNote', { d: fmtDate(e.date) || '' }))
   }
 
-  const needle = q.trim().toUpperCase()
-  const hits = needle.length >= 2 ? open.filter((r) => `${r.cognome} ${r.nome} ${r.cf}`.includes(needle)).slice(0, 8) : []
-  const sel = rsm.rows.find((r) => r.id === pick) || null
-  const fam = sel && sel.legame === 'TI' ? open.filter((r) => r.category === sel.category && r.cfTitolare === sel.cf && r.id !== sel.id) : []
-
-  async function save() {
-    if (!sel) return
+  async function save(list: { row: Row; date: string }[]) {
     setBusy(true); setMsg(null)
     try {
-      const ids = [sel.id, ...(withFam ? fam.map((r) => r.id) : [])]
-      const j = await api(`/api/rsm/programs/${rsm.programId}/members`, 'PATCH', { action: 'exit', ids, exitDate: date, exitCommunicated: comm, note })
-      setMsg({ ok: true, text: t('rsm.var.ceased', { name: `${sel.cognome} ${sel.nome}`, n: ids.length }), opId: j.opId })
-      setPick(null); setQ(''); setDate(''); setNote('')
+      let last: { opId?: string } = {}
+      for (const { row, date } of list) {
+        const ids = [row.id, ...(withFam ? famOf(row).map((x) => x.id) : [])]
+        last = await api(`/api/rsm/programs/${rsm.programId}/members`, 'PATCH', { action: 'exit', ids, exitDate: date, exitCommunicated: comm, note })
+      }
+      setMsg({ ok: true, text: t('rsm.var.ceasedN', { n: list.length, names: list.map((x) => `${x.row.cognome} ${x.row.nome}`).join(', ') }), opId: list.length === 1 ? last.opId : undefined })
+      setText(''); setPick(null); setDates({}); setNote('')
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
+
+  const ready = targets.map((x) => {
+    const row = open.find((r) => r.cf === x.cf && r.legame === 'TI') || open.find((r) => r.cf === x.cf) || null
+    return { ...x, row, date: dates[x.cf] ?? x.date ?? '' }
+  })
+  const savable = ready.filter((x) => x.row && x.date) as { cf: string; row: Row; date: string }[]
 
   return (
     <div className="rsm-box">
       <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.var.ceaseTitle')}</div></div>
       <div className="rsm-box-body">
         <label className="rsm-field">{t('rsm.var.ceaseSearch')}
-          <textarea rows={2} value={q} onChange={(e) => { onPaste(e.target.value); setPick(null) }} placeholder={t('rsm.var.ceaseSearchPh')} />
+          <textarea rows={3} value={text} placeholder={t('rsm.var.ceaseSearchPh')}
+            className={drag ? 'rsm-drop-on' : undefined}
+            onChange={(e) => { setText(e.target.value); setPick(null); setDates({}) }}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); setDrag(false); loadEml(f) } }} />
         </label>
-        {!sel && hits.map((r) => (
+        <div className="rsm-row" style={{ alignItems: 'center' }}>
+          <button className="rsm-mini" onClick={() => fileRef.current?.click()}>{t('rsm.var.openEml')}</button>
+          <span className="rsm-note">{t('rsm.var.emlHint')}</span>
+          <input ref={fileRef} type="file" accept=".eml,message/rfc822,.txt" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) loadEml(f); e.target.value = '' }} />
+        </div>
+        {!found.length && !manual && hits.map((r) => (
           <button key={r.id} className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => setPick(r.id)}>
             {r.cognome} {r.nome} · {r.cf} · {cfg.categories.find((c) => c.key === r.category)?.label} · {t(`rsm.leg.${r.legame}`)}
           </button>
         ))}
-        {sel && (
+        {ready.length > 0 && (
           <div className="rsm-panel">
-            <div><b>{sel.cognome} {sel.nome}</b> <span className="rsm-cf">{sel.cf}</span> · {cfg.categories.find((c) => c.key === sel.category)?.label}</div>
+            {ready.map((x) => (
+              <div key={x.cf} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', paddingBottom: 8, borderBottom: '1px solid var(--c-separator)' }}>
+                <div style={{ flex: '1 1 220px' }}>
+                  {x.row
+                    ? <><b>{x.row.cognome} {x.row.nome}</b> <span className="rsm-cf">{x.cf}</span><div className="rsm-sub">{cfg.categories.find((c) => c.key === x.row!.category)?.label} · {t(`rsm.leg.${x.row.legame}`)}{famOf(x.row).length ? ` · ${t('rsm.st.plusFam', { n: famOf(x.row).length })}` : ''}</div></>
+                    : (() => {
+                      const gone = rsm.rows.find((r) => r.cf === x.cf && r.exitKind)
+                      return <><b>{gone ? `${gone.cognome} ${gone.nome} ` : ''}</b><span className="rsm-cf">{x.cf}</span>
+                        <div className="rsm-issue warning">{gone ? t(gone.exitKind === 'promozione' ? 'rsm.var.alreadyPromoted' : 'rsm.var.alreadyCeased', { d: fmtDate(gone.exitDate) }) : t('rsm.var.notInsured')}</div></>
+                    })()}
+                </div>
+                {x.row && <label className="rsm-field w-date">{t('rsm.ceaseDate')}<input type="date" value={x.date} onChange={(e) => setDates((d) => ({ ...d, [x.cf]: e.target.value }))} /></label>}
+              </div>
+            ))}
             <div className="rsm-row">
-              <label className="rsm-field w-date">{t('rsm.ceaseDate')}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
               <label className="rsm-field w-date">{t('rsm.mailDate')}<input type="date" value={comm} onChange={(e) => setComm(e.target.value)} /></label>
+              <label className="rsm-field" style={{ flex: 1, minWidth: 200 }}>{t('rsm.note')}<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('rsm.notePh')} /></label>
             </div>
-            <label className="rsm-field">{t('rsm.note')}<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('rsm.notePh')} /></label>
-            {fam.length > 0 && <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={withFam} onChange={(e) => setWithFam(e.target.checked)} />{t('rsm.st.withFam', { n: fam.length })}</label>}
+            {savable.some((x) => famOf(x.row).length) && <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={withFam} onChange={(e) => setWithFam(e.target.checked)} />{t('rsm.var.withFamAll')}</label>}
             <div className="rsm-note">{t('rsm.st.ceaseHint')}</div>
             <div className="rsm-row">
-              <button className="btn btn-primary" disabled={!date || busy || !rsm.editor} onClick={save}>{t('rsm.var.ceaseSave')}</button>
-              <button className="btn btn-secondary" onClick={() => setPick(null)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" disabled={!savable.length || busy || !rsm.editor} onClick={() => save(savable)}>{t('rsm.var.ceaseSaveN', { n: savable.length })}</button>
+              <button className="btn btn-secondary" onClick={() => { setText(''); setPick(null); setDates({}) }}>{t('common.cancel')}</button>
             </div>
           </div>
         )}
@@ -365,8 +410,8 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
           <label className="rsm-field w-date">{t('rsm.var.forcedDate')}<input type="date" value={f.forced} onChange={(e) => set('forced', e.target.value)} /></label>
         </div>
         <label className="rsm-field">{t('rsm.note')}<input value={f.note} onChange={(e) => set('note', e.target.value)} /></label>
-        {dec.date && <div className="rsm-muted">{t(`rsm.var.dec.${dec.reason}`, { d: fmtDate(dec.date), days: cfg.rules.notifyDays })}{calc ? ` · ${t('rsm.var.premiumIs', { v: eur(calc.dovuto), c: calc.calc })}` : ''}</div>}
-        {issues.map((i) => <div key={i.code} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
+        {dec.date && decodeCf(f.cf).valid && <div className="rsm-muted">{t(`rsm.var.dec.${dec.reason}`, { d: fmtDate(dec.date), days: cfg.rules.notifyDays })}{calc ? ` · ${t('rsm.var.premiumIs', { v: eur(calc.dovuto), c: calc.calc })}` : ''}</div>}
+        {f.cf.trim() && issues.map((i) => <div key={i.code} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
         {otherCat && otherTit && <IssueLine issue={{ code: 'altra-categoria', level: 'error', mail: false, text: t('rsm.var.otherCat', { cat: cfg.categories.find((c) => c.key === otherCat.category)?.label || otherCat.category }), promote: { memberId: otherTit.id, to: category, date: dec.date } }} />}
         <div className="rsm-row"><button className="btn btn-primary" disabled={!ok || busy || !rsm.editor} onClick={save}>{t('rsm.var.add')}</button></div>
         {flashNode}

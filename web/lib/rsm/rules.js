@@ -816,3 +816,88 @@ export function workbookYear(sheets) {
     .flatMap((r) => [r.entryDate, r.exitDate]).filter(Boolean).map((d) => +d.slice(0, 4))
   return mode(years(vars)) ?? mode(years(names.filter((n) => !vars.includes(n))))
 }
+
+/* ─── Mail di cessazione ─────────────────────────────────────────────────── */
+
+const decodeB64 = (s) => (typeof Buffer !== 'undefined'
+  ? Buffer.from(s, 'base64').toString('utf8')
+  : new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s+/g, '')), (c) => c.charCodeAt(0))))
+
+function decodeQP(s) {
+  const bytes = []
+  const src = s.replace(/=\r?\n/g, '')
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === '=' && /^[0-9A-F]{2}$/i.test(src.slice(i + 1, i + 3))) { bytes.push(parseInt(src.slice(i + 1, i + 3), 16)); i += 2 }
+    else bytes.push(src.charCodeAt(i) & 0xff)
+  }
+  return new TextDecoder().decode(Uint8Array.from(bytes))
+}
+
+const stripHtml = (h) => h.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n')
+  .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
+  .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/[ \t]+/g, ' ')
+
+/**
+ * Testo leggibile e data di una mail salvata (.eml): la prima parte di testo
+ * (o l'HTML ripulito), decodificata da base64 o quoted-printable.
+ */
+export function emlToText(raw) {
+  const src = String(raw || '').replace(/\r\n/g, '\n')
+  const headEnd = src.indexOf('\n\n')
+  const head = headEnd >= 0 ? src.slice(0, headEnd) : src
+  const dateHdr = /^Date:\s*(.+)$/mi.exec(head)?.[1]
+  let date = null
+  if (dateHdr) { const d = new Date(dateHdr); if (!isNaN(d.getTime())) date = isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate()) }
+  const subject = /^Subject:\s*(.+)$/mi.exec(head)?.[1] || ''
+  // parti MIME: la prima text/plain, altrimenti la prima text/html
+  const parts = []
+  const re = /Content-Type:\s*text\/(plain|html)[^\n]*\n((?:[^\n]+\n)*?)\n([\s\S]*?)(?=\n--[^\n]+|$)/gi
+  let m
+  while ((m = re.exec(src))) parts.push({ kind: m[1].toLowerCase(), headers: m[2], body: m[3] })
+  const pick = parts.find((p) => p.kind === 'plain') || parts.find((p) => p.kind === 'html')
+  let body = pick ? pick.body : (headEnd >= 0 ? src.slice(headEnd + 2) : '')
+  const enc = pick ? /Content-Transfer-Encoding:\s*([\w-]+)/i.exec(pick.headers)?.[1]?.toLowerCase() : /^Content-Transfer-Encoding:\s*([\w-]+)/mi.exec(head)?.[1]?.toLowerCase()
+  try {
+    if (enc === 'base64') body = decodeB64(body)
+    else if (enc === 'quoted-printable') body = decodeQP(body)
+  } catch { /* testo com'è */ }
+  if ((pick && pick.kind === 'html') || /<html|<div|<p[\s>]/i.test(body)) body = stripHtml(body)
+  return { text: `${subject}\n${body}`.replace(/\n{3,}/g, '\n\n').trim(), date }
+}
+
+const CF_RE = /\b[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]\b/gi
+
+/**
+ * Persone e date di cessazione in un testo di mail: ogni codice fiscale con
+ * la data più vicina che lo segue (o lo precede) nello stesso paragrafo;
+ * date anche senza anno («in data 4.10» = anno del programma). Se c'è un solo
+ * codice e una sola data nel testo, vanno insieme.
+ */
+export function parseCessationText(text, refYear) {
+  const src = String(text || '')
+  const dates = []
+  const dre = /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/g
+  let m
+  while ((m = dre.exec(src))) {
+    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : refYear
+    const iso = y ? isoOf(y, +m[2], +m[1]) : null
+    // niente orari («06:58») né pezzi di codice fiscale o telefoni
+    if (iso && !/\d/.test(src[m.index - 1] || '') && !/[:\d]/.test(src[m.index + m[0].length] || '')) dates.push({ at: m.index, iso })
+  }
+  const out = []
+  const seen = new Set()
+  for (const c of src.matchAll(CF_RE)) {
+    const cf = cleanCf(c[0])
+    if (seen.has(cf)) continue
+    seen.add(cf)
+    const at = c.index
+    const paraStart = Math.max(src.lastIndexOf('\n\n', at), src.lastIndexOf('>', at), 0)
+    const nextCf = src.slice(at + 16).search(CF_RE)
+    const paraEnd = nextCf >= 0 ? at + 16 + nextCf : src.length
+    const after = dates.find((d) => d.at > at && d.at < paraEnd)
+    const before = [...dates].reverse().find((d) => d.at < at && d.at >= paraStart)
+    out.push({ cf, date: (after || before || null)?.iso || null })
+  }
+  if (out.length === 1 && !out[0].date && dates.length === 1) out[0].date = dates[0].iso
+  return out
+}

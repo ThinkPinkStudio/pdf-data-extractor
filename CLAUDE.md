@@ -2095,6 +2095,20 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   ripristino esatto (provato: promozione e re-import tornano alla stessa
   impronta). «Annulla» nel messaggio dopo ogni operazione (`useFlash`) e nel
   «Registro operazioni» in Movimenti.
+  **Comodità (06/11/2026, prova d'uso completa)**: Stato di rischio con
+  colonne ordinabili (il nucleo resta sotto il titolare), intestazione ferma,
+  etichetta «da controllare» sui codici fiscali che non tornano e filtro
+  «Solo dati da controllare»; Registra variazioni con zona di trascinamento e
+  lettura immediata (rilettura se cambia la data di ricezione), mittente
+  proposto dall'ultimo usato; cessazioni da mail: si incolla il testo o si
+  trascina il .eml (`emlToText`: base64/quoted-printable/HTML, data
+  dall'intestazione) e `parseCessationText` trova ogni codice fiscale con la
+  sua data, anche senza anno («in data 4.10»), più persone per mail, chi è
+  già uscito o non assicurato detto chiaramente. Le anomalie dell'import
+  hanno la risposta PROPOSTA dalle note del file («PASSAGGIO IN POL.» →
+  promozione), pre-selezionata ma visibile e modificabile. App pensata per il
+  computer: al telefono la barra laterale dell'intera app occupa lo schermo
+  (vale per tutte le sezioni), al tablet la sezione regge.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

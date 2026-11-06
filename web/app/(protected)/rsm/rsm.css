@@ -109,3 +109,7 @@
 @media (max-width: 600px) { .rsm-facts { grid-template-columns: 1fr; } .rsm-timeline li { grid-template-columns: 1fr; } }
 .rsm-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; border-radius: 4px; }
 .rsm-sort:hover { color: var(--c-text-primary); }
+.rsm-field textarea.rsm-drop-on { border-color: var(--c-accent); background: var(--c-accent-faint); }
+/* Tabella lunga: scorre dentro il riquadro con l'intestazione ferma */
+.rsm-scroll.tall { max-height: calc(100vh - 230px); min-height: 320px; overflow: auto; }
+.rsm-scroll.tall .rsm-table thead th { position: sticky; top: 0; z-index: 2; background: var(--c-bg-card); }
