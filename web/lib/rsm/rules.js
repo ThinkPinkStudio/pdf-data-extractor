@@ -484,6 +484,18 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
     }
     const dup = r.cf ? active.find((m) => m.cf === r.cf && m.category === category) : null
     if (!exit && dup) issues.push({ code: 'doppione', level: 'warning', text: 'Persona già assicurata in questa categoria.' })
+    // Già coperta in un'ALTRA categoria: non è un'inclusione ma (quasi sempre)
+    // una promozione, che va registrata come tale (uscita + entrata insieme).
+    // Errore interno: blocca la riga, ma non finisce nella mail a chi manda il file.
+    const other = !exit && r.cf && category ? active.find((m) => m.cf === r.cf && m.category !== category && !m.exitKind) : null
+    if (other) {
+      const tit = other.legame === 'TI' ? other : (existing || []).find((m) => m.category === other.category && m.cf === other.cfTitolare && m.legame === 'TI' && !m.exitKind) || other
+      issues.push({
+        code: 'altra-categoria', level: 'error', mail: false,
+        text: `Già assicurato/a come ${(categoryOf(cfg, other.category) || {}).label || other.category}: se è una promozione registrala da «Promozioni» (esce da una categoria ed entra nell'altra insieme al nucleo); se ha cessato, registra prima la cessazione.`,
+        promote: { memberId: tit.id, to: category, date: entryDate },
+      })
+    }
     if (exit && r.cf && !active.find((m) => m.cf === r.cf)) issues.push({ code: 'non-trovato', level: 'error', text: 'Uscita di una persona che non risulta tra gli assicurati.' })
     if (r.polizza && category) {
       const pol = (categoryOf(cfg, category) || {}).policy
@@ -510,15 +522,17 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
  * Mail pronta da inviare a chi ha trasmesso il file, con le righe che hanno
  * errori. Solo gli errori: gli avvisi restano a chi registra.
  */
+export const mailIssues = (r) => r.issues.filter((i) => i.level === 'error' && i.mail !== false)
+
 export function buildErrorMail({ fileName, receivedOn, rows, to, cc, signature }) {
-  const bad = rows.filter((r) => r.hasError)
+  const bad = rows.filter((r) => mailIssues(r).length)
   const lines = bad.map((r) => {
     const who = `${String(r.cognome || '').toUpperCase()} ${String(r.nome || '').toUpperCase()}`.trim() || '(senza nome)'
-    const errs = r.issues.filter((i) => i.level === 'error').map((i) => `   - ${i.text}`).join('\n')
+    const errs = mailIssues(r).map((i) => `   - ${i.text}`).join('\n')
     return `• ${who} (riga ${r.rowNumber})\n${errs}`
   })
   const subject = `Verifica dati – ${fileName || 'comunicazione inclusioni'}`
-  const ok = rows.length - bad.length
+  const ok = rows.filter((r) => !r.hasError).length
   const body = [
     'Buongiorno,',
     '',
@@ -526,7 +540,7 @@ export function buildErrorMail({ fileName, receivedOn, rows, to, cc, signature }
     '',
     ...lines,
     '',
-    bad.length === rows.length
+    ok === 0
       ? 'Vi chiediamo di controllarli e di inviarci il file corretto.'
       : `Vi chiediamo di controllarli e di inviarci il file corretto per queste righe. ${ok === 1 ? 'L\'altra riga del file è stata registrata' : `Le altre ${ok} righe del file sono state registrate`} regolarmente.`,
     '',
@@ -568,7 +582,7 @@ const yes = (v) => /^S[IÌ]$/i.test(String(v ?? '').trim())
  * righe di copertura da registrare e gli avvisi. Le promozioni si legano per
  * codice fiscale e data tra l'uscita di una categoria e l'entrata in un'altra.
  */
-export function parseStatoWorkbook(cfg, sheets) {
+export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const refYear = +cfg.periodStart.slice(0, 4)
   const members = []
   const warnings = []
@@ -632,21 +646,84 @@ export function parseStatoWorkbook(cfg, sheets) {
     target.exitKind = r.promo ? 'promozione' : 'cessazione'
     if (r.note) target.note = [target.note, r.note].filter(Boolean).join(' · ')
   }
-  // 3) legame delle promozioni: stessa persona, uscita da una categoria ed entrata in un'altra lo stesso giorno
-  // Una promozione per NUCLEO: titolare e familiari che escono lo stesso giorno
-  // dalla stessa categoria condividono l'id (si annullano insieme).
+  // 3) promozioni: uscita da una categoria ed entrata in un'altra della STESSA
+  // persona lo stesso giorno (o il giorno dopo). Se le due righe non dicono
+  // entrambe PROMOZIONE = SI è un errore del file: non si indovina, si chiede
+  // (`anomalies`) se è una promozione non segnata o una cessazione seguita da
+  // un'entrata. Lo stesso per una promozione senza la sua controparte.
+  const resolve = resolutions || {}
+  const catLabel = (k) => (categoryOf(cfg, k) || {}).label || k
+  const exits = members.filter((m) => m.exitDate)
+  const entries = members.filter((m) => m.entryKind !== 'iniziale' && m.entryDate)
+  const pairOf = new Map()
+  for (const e of exits) {
+    const i = entries.find((x) => x.cf === e.cf && x.category !== e.category && !pairOf.has(x)
+      && (x.entryDate === e.exitDate || x.entryDate === addDays(e.exitDate, 1)))
+    if (i) { pairOf.set(e, i); pairOf.set(i, e) }
+  }
+  const groups = new Map()
+  const add = (type, nucleusRow, row, info) => {
+    const key = `${type}|${info.from || ''}|${info.to || ''}|${nucleusRow.cfTitolare || nucleusRow.cf}|${info.date}`
+    if (!groups.has(key)) groups.set(key, { key, type, ...info, cf: nucleusRow.cfTitolare || nucleusRow.cf, rows: [] })
+    groups.get(key).rows.push(row)
+  }
+  for (const e of exits) {
+    const i = pairOf.get(e)
+    if (i) {
+      if (e.exitKind === 'promozione' && i.entryKind === 'promozione') continue
+      add('non-segnata', e, { exit: e, entry: i }, {
+        from: e.category, to: i.category, date: i.entryDate,
+        exitPromo: e.exitKind === 'promozione', entryPromo: i.entryKind === 'promozione',
+      })
+    } else if (e.exitKind === 'promozione') {
+      add('senza-entrata', e, { exit: e }, { from: e.category, to: null, date: e.exitDate })
+    }
+  }
+  for (const i of entries) {
+    if (i.entryKind === 'promozione' && !pairOf.has(i)) add('senza-uscita', i, { entry: i }, { from: null, to: i.category, date: i.entryDate })
+  }
+  const anomalies = []
+  for (const g of groups.values()) {
+    const choice = resolve[g.key]
+    const promo = choice === 'promozione'
+    if (g.type === 'non-segnata' && (choice === 'promozione' || choice === 'separati')) {
+      for (const r of g.rows) { r.exit.exitKind = promo ? 'promozione' : 'cessazione'; r.entry.entryKind = promo ? 'promozione' : 'inclusione' }
+    } else if (g.type === 'senza-entrata' && (choice === 'promozione' || choice === 'cessazione')) {
+      if (!promo) for (const r of g.rows) r.exit.exitKind = 'cessazione'
+    } else if (g.type === 'senza-uscita' && (choice === 'promozione' || choice === 'inclusione')) {
+      if (!promo) for (const r of g.rows) r.entry.entryKind = 'inclusione'
+    }
+    const people = g.rows.map((r) => r.exit || r.entry).map((m) => `${m.cognome} ${m.nome}`)
+    const head = g.rows.map((r) => r.exit || r.entry).find((m) => m.legame === 'TI') || (g.rows[0].exit || g.rows[0].entry)
+    let text
+    if (g.type === 'non-segnata') {
+      const side = !g.exitPromo && !g.entryPromo ? 'né l\'uscita né l\'entrata sono segnate'
+        : !g.exitPromo ? `l'uscita da ${catLabel(g.from)} non è segnata` : `l'entrata in ${catLabel(g.to)} non è segnata`
+      text = `${head.cognome} ${head.nome} esce da ${catLabel(g.from)} ed entra in ${catLabel(g.to)} dal ${fmtDate(g.date)}, ma ${side} come PROMOZIONE. È una promozione non aggiornata o una cessazione seguita da una nuova entrata?`
+    } else if (g.type === 'senza-entrata') {
+      text = `${head.cognome} ${head.nome} esce da ${catLabel(g.from)} dal ${fmtDate(g.date)} con PROMOZIONE = SI, ma non entra in nessun'altra categoria. È una cessazione segnata come promozione per errore?`
+    } else {
+      text = `${head.cognome} ${head.nome} entra in ${catLabel(g.to)} dal ${fmtDate(g.date)} con PROMOZIONE = SI, ma non esce da nessun'altra categoria. È una nuova inclusione segnata come promozione per errore?`
+    }
+    anomalies.push({
+      key: g.key, type: g.type, from: g.from, to: g.to, date: g.date, cf: g.cf, people, text,
+      options: g.type === 'non-segnata' ? ['promozione', 'separati'] : g.type === 'senza-entrata' ? ['cessazione', 'promozione'] : ['inclusione', 'promozione'],
+      choice: choice || null,
+    })
+  }
+  // legame delle promozioni (ora coerenti): una per NUCLEO, si annullano insieme
   const promoIds = new Map()
   for (const out of members.filter((m) => m.exitKind === 'promozione')) {
-    const inn = members.find((m) => m.entryKind === 'promozione' && m.cf === out.cf && m.entryDate === out.exitDate && m.category !== out.category && !m.promotionId)
+    const inn = pairOf.get(out)
     const key = `${out.category}|${out.cfTitolare || out.cf}|${out.exitDate}`
     if (!promoIds.has(key)) promoIds.set(key, `promo-${promoIds.size + 1}`)
-    const id = promoIds.get(key)
-    out.promotionId = id
-    if (inn) inn.promotionId = id
-    else warnings.push(`${out.cognome} ${out.nome}: uscita per promozione dal ${fmtDate(out.exitDate)} senza l'entrata corrispondente in un'altra categoria.`)
+    out.promotionId = promoIds.get(key)
+    if (inn && inn.entryKind === 'promozione') inn.promotionId = out.promotionId
   }
   for (const inn of members.filter((m) => m.entryKind === 'promozione' && !m.promotionId)) {
-    warnings.push(`${inn.cognome} ${inn.nome}: entrata per promozione dal ${fmtDate(inn.entryDate)} senza l'uscita corrispondente; registrata come promozione.`)
+    const key = `in|${inn.category}|${inn.cfTitolare || inn.cf}|${inn.entryDate}`
+    if (!promoIds.has(key)) promoIds.set(key, `promo-${promoIds.size + 1}`)
+    inn.promotionId = promoIds.get(key)
   }
-  return { members, warnings }
+  return { members, warnings, anomalies }
 }

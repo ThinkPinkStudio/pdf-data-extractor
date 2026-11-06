@@ -2,12 +2,13 @@
 
 // Registra variazioni: Excel di inclusione (lettura, controlli, mail per i
 // dati errati, conferma), cessazioni comunicate via mail e inserimenti a mano.
+import Link from 'next/link'
 import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, api, eur, saveBlob, today, useRsm } from '@/components/rsm/useRsm'
 import type { Rsm } from '@/components/rsm/useRsm'
 import {
-  buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, fmtDate, isCovered, normDate, statusAt,
+  buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, fmtDate, isCovered, mailIssues, normDate, statusAt,
 } from '@/lib/rsm/rules.js'
 import type { RsmCalc, RsmIssue, RsmPreparedRow } from '@/lib/rsm/types'
 
@@ -140,7 +141,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
                           <td className="num">{e.calc ? <>{eur(e.calc.dovuto)}<div className="rsm-sub">{e.calc.calc}</div></> : '—'}</td>
                           <td style={{ minWidth: 260 }}>
                             {r.issues.length === 0 ? <span className="rsm-pill ok">{t('rsm.var.ok')}</span>
-                              : (r.issues as RsmIssue[]).map((i, k) => <div key={k} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
+                              : (r.issues as RsmIssue[]).map((i, k) => <IssueLine key={k} issue={i} />)}
                           </td>
                         </tr>
                       )
@@ -149,7 +150,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
                 </table>
               </div>
             )}
-            {!f.error && f.rows.some((r) => r.hasError) && <ErrorMail fileName={f.name} received={received} rows={f.rows} sender={sender} cc={cfg.mail?.cc || ''} signature={cfg.mail?.signature || ''} />}
+            {!f.error && f.rows.some((r) => mailIssues(r).length > 0) && <ErrorMail fileName={f.name} received={received} rows={f.rows} sender={sender} cc={cfg.mail?.cc || ''} signature={cfg.mail?.signature || ''} />}
           </div>
         ))}
         {results && all.length > 0 && (
@@ -159,6 +160,23 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Un controllo; se la persona è già in un'altra categoria, il passaggio a Promozioni già compilato. */
+function IssueLine({ issue }: { issue: RsmIssue }) {
+  const { t } = useI18n()
+  const p = issue.promote
+  return (
+    <div className={`rsm-issue ${issue.level}`}>
+      {issue.text}
+      {p && (
+        <div style={{ marginTop: 4 }}>
+          <Link className="rsm-mini btn" href={`/rsm/promozioni?m=${p.memberId}&to=${p.to}${p.date ? `&d=${p.date}` : ''}`}>{t('rsm.var.asPromotion')}</Link>
+        </div>
+      )}
+      {issue.mail === false && issue.level === 'error' && <div className="rsm-sub">{t('rsm.var.notInMail')}</div>}
     </div>
   )
 }
@@ -297,7 +315,9 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
   const calc = dec.date ? (computeMember(cfg, member) as RsmCalc) : null
   const issues = (check.issues as RsmIssue[]).filter((i) => i.level !== 'info')
   const titMissing = f.legame !== 'TI' && !tit
-  const ok = !!dec.date && !issues.some((i) => i.level === 'error') && !titMissing && decodeCf(f.cf).valid
+  const otherCat = cleanCf(f.cf) ? rsm.rows.find((r) => r.cf === cleanCf(f.cf) && !r.exitKind && r.category !== category) : null
+  const otherTit = otherCat ? (otherCat.legame === 'TI' ? otherCat : rsm.rows.find((r) => r.category === otherCat.category && r.cf === otherCat.cfTitolare && r.legame === 'TI' && !r.exitKind) || otherCat) : null
+  const ok = !!dec.date && !issues.some((i) => i.level === 'error') && !titMissing && !otherCat && decodeCf(f.cf).valid
 
   async function save() {
     setBusy(true); setMsg(null)
@@ -347,6 +367,7 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
         <label className="rsm-field">{t('rsm.note')}<input value={f.note} onChange={(e) => set('note', e.target.value)} /></label>
         {dec.date && <div className="rsm-muted">{t(`rsm.var.dec.${dec.reason}`, { d: fmtDate(dec.date), days: cfg.rules.notifyDays })}{calc ? ` · ${t('rsm.var.premiumIs', { v: eur(calc.dovuto), c: calc.calc })}` : ''}</div>}
         {issues.map((i) => <div key={i.code} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
+        {otherCat && otherTit && <IssueLine issue={{ code: 'altra-categoria', level: 'error', mail: false, text: t('rsm.var.otherCat', { cat: cfg.categories.find((c) => c.key === otherCat.category)?.label || otherCat.category }), promote: { memberId: otherTit.id, to: category, date: dec.date } }} />}
         <div className="rsm-row"><button className="btn btn-primary" disabled={!ok || busy || !rsm.editor} onClick={save}>{t('rsm.var.add')}</button></div>
         {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
       </div>

@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
 import { replaceMembers } from '@/lib/rsm/store'
 import type { NewMember } from '@/lib/rsm/store'
-import { parseStatoWorkbook } from '@/lib/rsm/rules.js'
+import { annualPremium, parseStatoWorkbook } from '@/lib/rsm/rules.js'
 import { fail, guard, readSheets } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
 
 // Import dello stato di rischio del cliente (fogli per categoria + fogli
 // «Variazioni …»). Senza confirm=1 è una prova: conteggi e avvisi. Con
-// confirm=1 SOSTITUISCE tutte le righe del programma.
+// confirm=1 SOSTITUISCE tutte le righe del programma, ma solo quando ogni
+// anomalia del file (promozioni non segnate o senza controparte) ha una
+// risposta in `resolutions` (JSON { chiave: scelta }): il programma non indovina.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
@@ -18,7 +20,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!(file instanceof File)) return fail(400, 'File mancante', 'invalid')
   let parsed
   try {
-    parsed = parseStatoWorkbook(g.program.config, readSheets(Buffer.from(await file.arrayBuffer())))
+    let resolutions: Record<string, string> = {}
+    try { resolutions = JSON.parse(String(form.get('resolutions') || '{}')) } catch { resolutions = {} }
+    parsed = parseStatoWorkbook(g.program.config, readSheets(Buffer.from(await file.arrayBuffer())), resolutions)
   } catch (e) {
     return fail(400, `File non leggibile: ${(e as Error).message}`, 'unreadable')
   }
@@ -31,9 +35,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (m.exitDate) c.uscite++
   }
   if (!parsed.members.length) return fail(400, 'Nessun assicurato trovato: servono fogli con il nome delle categorie (es. «IMPIEGATI», «Variazioni IMPIEGATI»).', 'empty')
-  if (String(form.get('confirm') || '') !== '1') return NextResponse.json({ dryRun: true, counts, warnings: parsed.warnings, total: parsed.members.length })
+  // Tariffe a zero: i premi uscirebbero a 0 (programma nuovo non ancora compilato).
+  const warnings = [...parsed.warnings]
+  for (const c of g.program.config.categories) {
+    if (counts[c.key] && !annualPremium(g.program.config, c.key, 'TI', false)) warnings.unshift(`Tariffa del titolare di ${c.label} a zero: compila le tariffe nelle Impostazioni, altrimenti i premi risultano 0.`)
+  }
+  const open = parsed.anomalies.filter((a: { choice: string | null }) => !a.choice)
+  const body = { counts, warnings, anomalies: parsed.anomalies, total: parsed.members.length }
+  if (String(form.get('confirm') || '') !== '1') return NextResponse.json({ dryRun: true, ...body })
+  if (open.length) return NextResponse.json({ error: `Ci sono ${open.length} anomalie del file a cui rispondere prima di importare.`, code: 'anomalies', dryRun: true, ...body }, { status: 409 })
   const members = parsed.members.map((m) => ({ ...m, source: `${m.source} (${file.name})` })) as unknown as Partial<NewMember>[]
   await replaceMembers(params.id, members, g.email)
-  await logAction({ email: g.email, action: 'rsm.import', resource: params.id, metadata: { file: file.name, total: members.length, warnings: parsed.warnings.length } })
-  return NextResponse.json({ dryRun: false, counts, warnings: parsed.warnings, total: members.length })
+  await logAction({ email: g.email, action: 'rsm.import', resource: params.id, metadata: { file: file.name, total: members.length, warnings: warnings.length, anomalies: parsed.anomalies.map((a: { key: string; choice: string | null }) => [a.key, a.choice]) } })
+  return NextResponse.json({ dryRun: false, ...body })
 }

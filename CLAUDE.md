@@ -2052,6 +2052,21 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   nomi invertiti, una nascita 2025 invece di 2000). Fase 2 (a parte): lettura
   automatica delle mail, scheda storica, scadenzario, confronto con la compagnia,
   rinnovo annuale con lo stato al 01/01, polizze vita.
+  **Promozioni incoerenti = domanda, mai indovinate (06/11/2026, regola
+  dell'utente)**: nell'import, uscita da una categoria ed entrata in un'altra
+  della stessa persona lo stesso giorno (o il giorno dopo) senza PROMOZIONE = SI
+  su entrambe le righe, o una promozione senza controparte, è un'ANOMALIA per
+  nucleo (`parseStatoWorkbook(…, resolutions)` → `anomalies`): l'import (409
+  `anomalies`) non parte finché l'operatore non sceglie «promozione» o
+  «cessazione + nuova entrata» («cessazione»/«inclusione» per le promozioni
+  zoppe). Nel file del cliente: gli 8 nuclei Impiegati → Funzionari del
+  01/03 con l'uscita a NO. Nell'uso quotidiano l'errore non può nascere: le
+  promozioni si registrano solo da «Promozioni» (uscita + entrata insieme), e
+  un Excel di inclusione di chi è già coperto in un'altra categoria blocca la
+  riga (`altra-categoria`, errore interno escluso dalla mail, `mail: false`)
+  con «Registra come promozione» che apre Promozioni già compilata. Produzione
+  parte VUOTA: il primo import lo fanno gli operatori (tariffe a zero
+  segnalate nella prova dell'import).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

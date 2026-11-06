@@ -188,3 +188,58 @@ test('stato di rischio: fogli al 01/01, variazioni, promozioni legate', () => {
   assert.equal(computeMember(c, out).rimborso, 3738.46)
   assert.ok(warnings.length === 0, warnings.join('\n'))
 })
+
+test('import: promozione non segnata = anomalia da risolvere, mai indovinata', () => {
+  const c = cfg2026()
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', " ETA' ", 'SESSO', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'TITOLARE NUCLEO', 'LEGAME', 'DATA ENTRATA']
+  const varHead = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', "ETA'", 'C.F. ASSICURATO', 'C.F. TITOLARE', 'NUCLEO', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'RATEO LORDO', 'QUOTA ASSOCIATIVA', 'RATEO COMPLESSIVO', 'RIMBORSO', 'AZIONE', 'PROMOZIONE', 'NOTE']
+  const sheets = () => ({
+    IMPIEGATI: [head,
+      ['C.A. VITA', 'IMPIEGATI', '', '', '', 'ROSSI', 'MARIO', null, 0, 'M', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', '', 'TI', '01/01/2026'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'F', 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', '', 'CO', '01/01/2026'],
+      ['C.A. VITA', 'IMPIEGATI', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'M', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', '', 'TI', '01/01/2026']],
+    'Variazioni IMPIEGATI': [[null], varHead,
+      // il cliente ha dimenticato PROMOZIONE = SI sulle uscite del nucleo
+      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', null, 'CO', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO'],
+      // uscita con PROMOZIONE = SI ma nessuna entrata altrove
+      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', null, 'TI', null, '31/05/2026', 0, 0, 0, 0, ' USCITA ', 'SI']],
+    FUNZIONARI: [head],
+    'Variazioni FUNZIONARI': [[null], varHead,
+      ['C.A. VITA', 'FUNZIONARI', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', '01/03/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', null, 'CO', '01/03/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI']],
+  })
+  const first = parseStatoWorkbook(c, sheets())
+  assert.deepEqual(first.anomalies.map((a) => a.type).sort(), ['non-segnata', 'senza-entrata'])
+  const nonSeg = first.anomalies.find((a) => a.type === 'non-segnata')
+  assert.equal(nonSeg.people.length, 2, 'un\'anomalia per nucleo')
+  assert.match(nonSeg.text, /l'uscita da Impiegati non è segnata/)
+  const senza = first.anomalies.find((a) => a.type === 'senza-entrata')
+
+  const asPromo = parseStatoWorkbook(c, sheets(), { [nonSeg.key]: 'promozione', [senza.key]: 'cessazione' })
+  assert.ok(asPromo.anomalies.every((a) => a.choice))
+  const out = asPromo.members.find((m) => m.category === 'impiegati' && m.cf === 'RSSMRA85T10A562S')
+  const inn = asPromo.members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S')
+  assert.equal(out.exitKind, 'promozione')
+  assert.equal(out.promotionId, inn.promotionId)
+  assert.ok(computeMember(c, out).rimborso > 0, 'impiegati: rimborso pro-rata per persona')
+  assert.equal(asPromo.members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, 'cessazione')
+
+  const separate = parseStatoWorkbook(c, sheets(), { [nonSeg.key]: 'separati', [senza.key]: 'promozione' })
+  assert.equal(separate.members.find((m) => m.category === 'impiegati' && m.cf === 'RSSMRA85T10A562S').exitKind, 'cessazione')
+  assert.equal(separate.members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S').entryKind, 'inclusione')
+})
+
+test('variazioni: inclusione di chi è già in un\'altra categoria = promozione da registrare, non nella mail', () => {
+  const c = cfg2026()
+  const existing = [{ id: 'm1', category: 'impiegati', cf: 'RSSMRA85T10A562S', cfTitolare: 'RSSMRA85T10A562S', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-01-01', exitDate: null, exitKind: null }]
+  const rows = [
+    ['COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F.TITOLARE', 'LEGAME', 'CATEGORIA', 'DATA ENTRATA'],
+    ['Rossi', 'Mario', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', 'FUNZIONARI', '01/09/2026'],
+  ]
+  const prep = prepareCommunication(c, parseCommunicationRows(rows, 2026).rows, existing, '2026-09-05')
+  const issue = prep[0].issues.find((i) => i.code === 'altra-categoria')
+  assert.ok(issue && prep[0].hasError)
+  assert.deepEqual(issue.promote, { memberId: 'm1', to: 'funzionari', date: '2026-09-01' })
+  assert.equal(buildErrorMail({ fileName: 'x.xlsx', rows: prep }).count, 0, 'errore interno: niente mail')
+})

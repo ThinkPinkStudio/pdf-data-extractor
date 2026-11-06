@@ -77,7 +77,27 @@ export interface RsmCalc {
   calc: string
 }
 
-export interface RsmIssue { code: string; level: 'error' | 'warning' | 'info'; text: string }
+export interface RsmIssue {
+  code: string
+  level: 'error' | 'warning' | 'info'
+  text: string
+  mail?: false // errore interno: blocca la riga ma non va nella mail a chi ha mandato il file
+  promote?: { memberId: string; to: string; date: string | null } // da registrare come promozione
+}
+
+/** Anomalia dell'import: il file non dice in modo coerente se è una promozione. */
+export interface RsmAnomaly {
+  key: string
+  type: 'non-segnata' | 'senza-entrata' | 'senza-uscita'
+  from: string | null
+  to: string | null
+  date: string
+  cf: string
+  people: string[]
+  text: string
+  options: string[]
+  choice: string | null
+}
 
 /** Riga di un file di comunicazione pronta per la registrazione (prepareCommunication). */
 export interface RsmPreparedRow {

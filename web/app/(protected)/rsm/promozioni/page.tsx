@@ -49,7 +49,16 @@ function RsmPromozioniPage() {
 
   useEffect(() => {
     const m = params.get('m')
-    if (m && !titId) { const r = rsm.rows.find((x) => x.id === m); if (r) choose(r) }
+    if (m && !titId) {
+      const r = rsm.rows.find((x) => x.id === m)
+      if (r) {
+        choose(r)
+        // arrivo da Registra variazioni: categoria e data già note
+        const to = params.get('to'), d = params.get('d')
+        if (to && cfg?.categories.some((c) => c.key === to)) setTo(to)
+        if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDate(d)
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, rsm.rows])
 

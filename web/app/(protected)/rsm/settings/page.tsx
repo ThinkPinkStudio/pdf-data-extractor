@@ -8,9 +8,9 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import { addDays } from '@/lib/rsm/rules.js'
-import type { RsmCategory, RsmConfig } from '@/lib/rsm/types'
+import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
-interface ImportResult { dryRun: boolean; total: number; counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>; warnings: string[] }
+interface ImportResult { dryRun: boolean; total: number; counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>; warnings: string[]; anomalies: RsmAnomaly[] }
 
 export default function RsmSettingsPage() {
   const { t } = useI18n()
@@ -25,6 +25,8 @@ export default function RsmSettingsPage() {
   const [nw, setNw] = useState({ name: '', year: new Date().getFullYear(), copyFrom: '' })
   const [file, setFile] = useState<File | null>(null)
   const [imp, setImp] = useState<ImportResult | null>(null)
+  // Risposte dell'operatore alle anomalie del file (promozioni incoerenti).
+  const [choices, setChoices] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!rsm.program) return
@@ -64,10 +66,12 @@ export default function RsmSettingsPage() {
       const fd = new FormData()
       fd.append('file', file)
       if (confirm) fd.append('confirm', '1')
+      fd.append('resolutions', JSON.stringify(choices))
       const r = await fetch(`/api/rsm/programs/${rsm.programId}/import`, { method: 'POST', body: fd })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
       setImp(j)
+      if (!confirm) setChoices({})
       if (!j.dryRun) { setMsg({ ok: true, text: t('rsm.set.imported', { n: j.total }) }); await rsm.reload() }
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
@@ -176,7 +180,7 @@ export default function RsmSettingsPage() {
               <div className="rsm-box-body">
                 <p className="rsm-muted" style={{ margin: 0 }}>{t('rsm.set.importHint')}</p>
                 <div className="rsm-row">
-                  <input type="file" accept=".xlsx,.xls" onChange={(e) => { setFile(e.target.files?.[0] || null); setImp(null) }} style={{ width: 'auto', padding: 6 }} />
+                  <input type="file" accept=".xlsx,.xls" onChange={(e) => { setFile(e.target.files?.[0] || null); setImp(null); setChoices({}) }} style={{ width: 'auto', padding: 6 }} />
                   <button className="btn btn-secondary" disabled={!file || busy} onClick={() => importFile(false)}>{t('rsm.set.importCheck')}</button>
                 </div>
                 {imp && (
@@ -192,7 +196,28 @@ export default function RsmSettingsPage() {
                         {imp.warnings.map((w, i) => <div key={i} className="rsm-issue warning">{w}</div>)}
                       </details>
                     )}
-                    {imp.dryRun && <div className="rsm-row"><button className="btn btn-primary" disabled={busy} onClick={() => importFile(true)}>{t('rsm.set.importGo')}</button><span className="rsm-note">{t('rsm.set.importNote')}</span></div>}
+                    {imp.anomalies.length > 0 && imp.dryRun && (
+                      <div className="rsm-box">
+                        <div className="rsm-box-head"><div className="rsm-box-title" style={{ color: 'var(--c-warning)' }}>{t('rsm.set.anomTitle', { n: imp.anomalies.length })}</div><span className="rsm-note">{t('rsm.set.anomHint')}</span></div>
+                        <div className="rsm-box-body">
+                          {imp.anomalies.map((a) => (
+                            <div key={a.key} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 10, borderBottom: '1px solid var(--c-separator)' }}>
+                              <div style={{ fontSize: 13 }}>{a.text}</div>
+                              {a.people.length > 1 && <div className="rsm-sub">{t('rsm.set.anomPeople', { p: a.people.join(', ') })}</div>}
+                              <div className="rsm-row" role="radiogroup" aria-label={a.text}>
+                                {a.options.map((o) => (
+                                  <label key={o} className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <input type="radio" name={a.key} checked={choices[a.key] === o} onChange={() => setChoices((c) => ({ ...c, [a.key]: o }))} />
+                                    {t(`rsm.set.anom.${a.type}.${o}`)}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {imp.dryRun && <div className="rsm-row"><button className="btn btn-primary" disabled={busy || imp.anomalies.some((a) => !choices[a.key])} onClick={() => importFile(true)}>{t('rsm.set.importGo')}</button><span className="rsm-note">{t('rsm.set.importNote')}</span></div>}
                   </div>
                 )}
               </div>
