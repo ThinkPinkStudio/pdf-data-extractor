@@ -8,7 +8,7 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
-import { RsmHeader, api, eur, useRsm } from '@/components/rsm/useRsm'
+import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
 import { defaultProgramConfig } from '@/lib/rsm/rules.js'
 import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
@@ -44,6 +44,7 @@ export default function RsmImportPage() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [done, setDone] = useState<Dry | null>(null)
+  const { setFlash, node: flashNode } = useFlash(rsm)
   const programs = rsm.programs || []
   const editable = programs.filter((p) => p.editor)
 
@@ -154,8 +155,9 @@ export default function RsmImportPage() {
   async function doImport() {
     setBusy(true); setErr(null)
     try {
-      const j = await runDry(target, choices, true)
+      const j = await runDry(target, choices, true) as Dry & { opId?: string }
       setDone(j)
+      setFlash({ ok: true, text: t('rsm.imp.done', { n: j.total }), opId: j.opId })
       await rsm.reload()
       setStep(4)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -351,7 +353,7 @@ export default function RsmImportPage() {
 
       {step === 4 && done && (
         <div className="rsm-box"><div className="rsm-box-body">
-          <div className="rsm-box-title" style={{ color: 'var(--c-success)' }}>{t('rsm.imp.done', { n: done.total })}</div>
+          {flashNode}
           <div className="rsm-sum">{Object.entries(done.counts).map(([k, c]) => <span key={k}>{label(k)}: <b>{c.righe}</b></span>)}</div>
           <div className="rsm-row">
             <Link className="btn btn-primary" href="/rsm">{t('rsm.imp.toStato')}</Link>

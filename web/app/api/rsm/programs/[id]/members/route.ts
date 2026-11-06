@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
-import { clearExit, deleteMembers, getMember, insertMembers, listMembers, renameTitolare, setExit, updateMember } from '@/lib/rsm/store'
+import { clearExit, deleteMembers, listMembers, registerChanges, setExit, updateMember } from '@/lib/rsm/store'
 import type { MemberPatch } from '@/lib/rsm/store'
+import { fmtDate } from '@/lib/rsm/rules.js'
 import { cleanNewMember, fail, guard } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
 
 const iso = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
+const who = (m: { cognome: string; nome: string }) => `${m.cognome} ${m.nome}`.trim()
+const plus = (n: number) => (n > 1 ? ` (${n} persone)` : '')
 
-// POST { members: [...] }: registra entrate (righe dei file confermate,
+// POST { members: [...], source? }: registra entrate (righe dei file confermate,
 // inserimenti a mano) e uscite comunicate in un file (azione U: chiude la riga
-// esistente della persona invece di crearne una).
+// aperta della persona). Tutto in UNA operazione annullabile.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
@@ -25,20 +28,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const c = cleanNewMember(m)
     if (!c.cf || !c.legame) return fail(400, 'Ogni riga deve avere codice fiscale e legame', 'invalid')
     if (c.exitKind === 'cessazione' && !c.entryDate) {
-      // uscita da file: chiude la riga aperta della persona
       const open = existing.filter((x) => x.cf === c.cf && !x.exitKind)
-      if (!open.length || !c.exitDate) return fail(400, `Uscita di ${c.cognome} ${c.nome}: persona non trovata tra gli assicurati`, 'not-found')
+      if (!open.length || !c.exitDate) return fail(400, `Uscita di ${who(c)}: persona non trovata tra gli assicurati`, 'not-found')
       exits.push({ ids: open.map((x) => x.id), date: c.exitDate, comm: c.exitCommunicated || c.communicatedDate, note: c.note })
       continue
     }
     if (!cats.has(c.category)) return fail(400, `Categoria «${c.category}» non prevista dal programma`, 'invalid')
-    if (!c.entryDate) return fail(400, `Data di entrata mancante per ${c.cognome} ${c.nome}`, 'invalid')
+    if (!c.entryDate) return fail(400, `Data di entrata mancante per ${who(c)}`, 'invalid')
     entries.push({ ...c, legame: c.legame, source: c.source || body.source || 'Inserimento' })
   }
-  if (entries.length) await insertMembers(params.id, entries, g.email)
-  for (const x of exits) await setExit(x.ids, x.date, x.comm, x.note)
-  await logAction({ email: g.email, action: 'rsm.members.add', resource: params.id, metadata: { entries: entries.length, exits: exits.length, source: body.source || null } })
-  return NextResponse.json({ entries: entries.length, exits: exits.length })
+  const label = raw.length === 1 && entries.length === 1
+    ? `Inclusione di ${who(entries[0])} dal ${fmtDate(entries[0].entryDate)}`
+    : `Registrate ${entries.length} entrate e ${exits.length} uscite${body.source ? ` (${body.source})` : ''}`
+  const opId = await registerChanges(params.id, entries, exits, g.email, label)
+  await logAction({ email: g.email, action: 'rsm.members.add', resource: params.id, metadata: { entries: entries.length, exits: exits.length, source: body.source || null, opId } })
+  return NextResponse.json({ entries: entries.length, exits: exits.length, opId, label })
 }
 
 // PATCH { action: 'exit', ids, exitDate, exitCommunicated?, note? }   cessazione
@@ -48,21 +52,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-  const mine = new Set((await listMembers(params.id)).map((m) => m.id))
+  const all = await listMembers(params.id)
+  const byId = new Map(all.map((m) => [m.id, m]))
   if (body.action === 'exit') {
-    const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter((x) => mine.has(x))
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter((x) => byId.has(x))
     const date = iso(body.exitDate)
     if (!ids.length || !date) return fail(400, 'Persone e data di cessazione obbligatorie', 'invalid')
-    const n = await setExit(ids, date, iso(body.exitCommunicated), body.note ? String(body.note) : null)
-    await logAction({ email: g.email, action: 'rsm.members.exit', resource: params.id, metadata: { ids, date } })
-    return NextResponse.json({ updated: n })
+    const label = `Cessazione di ${who(byId.get(ids[0])!)}${plus(ids.length)} dal ${fmtDate(date)}`
+    const r = await setExit(params.id, ids, date, iso(body.exitCommunicated), body.note ? String(body.note) : null, g.email, label)
+    await logAction({ email: g.email, action: 'rsm.members.exit', resource: params.id, metadata: { ids, date, opId: r.opId } })
+    return NextResponse.json({ updated: r.updated, opId: r.opId, label })
   }
   const id = String(body.id || '')
-  if (!mine.has(id)) return fail(404, 'Riga non trovata', 'not-found')
+  const row = byId.get(id)
+  if (!row) return fail(404, 'Riga non trovata', 'not-found')
   if (body.action === 'clear-exit') {
-    const m = await clearExit(id)
-    await logAction({ email: g.email, action: 'rsm.members.clear-exit', resource: id })
-    return NextResponse.json({ member: m })
+    const label = `Annullata la cessazione di ${who(row)}`
+    const opId = await clearExit(params.id, id, g.email, label)
+    await logAction({ email: g.email, action: 'rsm.members.clear-exit', resource: id, metadata: { opId } })
+    return NextResponse.json({ opId, label })
   }
   if (body.action === 'update') {
     const p = (body.patch || {}) as Record<string, unknown>
@@ -77,14 +85,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if ('quiescente' in p) patch.quiescente = c.quiescente
     if ('entryDate' in p && c.entryDate) { patch.entryDate = c.entryDate; patch.entryForced = !!p.entryForced }
     if ('note' in p) patch.note = c.note
-    const before = await getMember(id)
-    if (before && before.legame === 'TI' && patch.cf && patch.cf !== before.cf) {
-      patch.cfTitolare = patch.cf
-      await renameTitolare(params.id, before.category, before.cf, patch.cf)
-    }
-    const m = await updateMember(id, patch)
-    await logAction({ email: g.email, action: 'rsm.members.update', resource: id, metadata: { fields: Object.keys(patch) } })
-    return NextResponse.json({ member: m })
+    const label = `Modifica di ${who(row)}`
+    const r = await updateMember(params.id, id, patch, g.email, label)
+    await logAction({ email: g.email, action: 'rsm.members.update', resource: id, metadata: { fields: Object.keys(patch), opId: r.opId } })
+    return NextResponse.json({ member: r.member, opId: r.opId, label })
   }
   return fail(400, 'Azione non prevista', 'invalid')
 }
@@ -95,10 +99,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as { ids?: string[] }
   const all = await listMembers(params.id)
-  const mine = new Set(all.map((m) => m.id))
-  const ids = (body.ids || []).map(String).filter((x) => mine.has(x))
-  if (all.some((m) => ids.includes(m.id) && m.promotionId)) return fail(409, 'Righe di una promozione: annulla la promozione invece di eliminarle.', 'promotion')
-  const n = await deleteMembers(ids)
-  await logAction({ email: g.email, action: 'rsm.members.delete', resource: params.id, metadata: { ids } })
-  return NextResponse.json({ deleted: n })
+  const byId = new Map(all.map((m) => [m.id, m]))
+  const ids = (body.ids || []).map(String).filter((x) => byId.has(x))
+  if (!ids.length) return fail(404, 'Riga non trovata', 'not-found')
+  if (ids.some((x) => byId.get(x)!.promotionId)) return fail(409, 'Righe di una promozione: annulla la promozione invece di eliminarle.', 'promotion')
+  const label = `Eliminata la riga di ${who(byId.get(ids[0])!)}${ids.length > 1 ? ` e altre ${ids.length - 1}` : ''}`
+  const r = await deleteMembers(params.id, ids, g.email, label)
+  await logAction({ email: g.email, action: 'rsm.members.delete', resource: params.id, metadata: { ids, opId: r.opId } })
+  return NextResponse.json({ deleted: r.deleted, opId: r.opId, label })
 }

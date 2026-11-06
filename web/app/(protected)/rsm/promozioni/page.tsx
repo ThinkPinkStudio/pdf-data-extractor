@@ -8,7 +8,7 @@ import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
-import { RsmGate, RsmHeader, api, eur, today, useRsm } from '@/components/rsm/useRsm'
+import { RsmGate, RsmHeader, api, eur, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import type { Row } from '@/components/rsm/useRsm'
 import { fmtDate, isCovered, previewPromotion, statusAt } from '@/lib/rsm/rules.js'
 import type { RsmCalc } from '@/lib/rsm/types'
@@ -30,7 +30,7 @@ function RsmPromozioniPage() {
   const [date, setDate] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
 
   const rankOf = (k: string) => cfg?.categories.find((c) => c.key === k)?.rank ?? 0
   const tit = rsm.rows.find((r) => r.id === titId) || null
@@ -75,8 +75,8 @@ function RsmPromozioniPage() {
   async function save() {
     setBusy(true); setMsg(null)
     try {
-      await api(`/api/rsm/programs/${rsm.programId}/promote`, 'POST', { memberIds: ids, toCategory: to, date, note })
-      setMsg({ ok: true, text: t('rsm.pr.done', { name: `${tit!.cognome} ${tit!.nome}`, to: label(to), d: fmtDate(date) }) })
+      const j = await api(`/api/rsm/programs/${rsm.programId}/promote`, 'POST', { memberIds: ids, toCategory: to, date, note })
+      setMsg({ ok: true, text: t('rsm.pr.done', { name: `${tit!.cognome} ${tit!.nome}`, to: label(to), d: fmtDate(date) }), opId: j.opId })
       setTitId(null); setIds([]); setDate(''); setNote('')
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -103,14 +103,14 @@ function RsmPromozioniPage() {
 
   async function undo(id: string, name: string) {
     if (!(await ask(t('rsm.pr.undoAsk', { name }), { danger: true, okLabel: t('rsm.pr.undo') }))) return
-    try { await api(`/api/rsm/programs/${rsm.programId}/promote`, 'DELETE', { promotionId: id }); await rsm.reload(); setMsg({ ok: true, text: t('rsm.pr.undone') }) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
+    try { const j = await api(`/api/rsm/programs/${rsm.programId}/promote`, 'DELETE', { promotionId: id }); await rsm.reload(); setMsg({ ok: true, text: t('rsm.pr.undone'), opId: j.opId }) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
   }
 
   return (
     <div className="rsm">
       <RsmHeader rsm={rsm} title={t('rsm.pr.title')} />
       <RsmGate rsm={rsm}>
-        {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
+        {flashNode}
         <p className="rsm-muted" style={{ margin: 0, maxWidth: 820 }}>{t('rsm.pr.intro', { m: cfg?.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: String(cfg?.rules.refundTaxPct ?? 0).replace('.', ',') })}</p>
         <div className="rsm-box">
           <div className="rsm-box-body">

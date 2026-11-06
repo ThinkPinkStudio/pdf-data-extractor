@@ -2086,6 +2086,15 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   tutte», avvisi minori chiusi, conferma esplicita se sostituisce righe già
   registrate. Niente si salva prima dell'ultimo passo, tranne il programma e
   le sue tariffe al passaggio 2 → 3.
+  **Scheda persona e Annulla (06/11/2026)**: clic sul nome apre la scheda
+  (`components/rsm/PersonPanel.tsx`, ?p=<CF>): controlli del codice fiscale,
+  stato alla data, nucleo, storico con fonte/nota/decorrenza/chi, azioni.
+  Ogni modifica passa da `withOp` (store.ts): in una transazione registra in
+  `rsm_ops` le righe com'erano prima e gli id inseriti; si annulla SOLO
+  l'ultima operazione non annullata (`undoLastOp`, 409 `not-last`), con
+  ripristino esatto (provato: promozione e re-import tornano alla stessa
+  impronta). «Annulla» nel messaggio dopo ogni operazione (`useFlash`) e nel
+  «Registro operazioni» in Movimenti.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

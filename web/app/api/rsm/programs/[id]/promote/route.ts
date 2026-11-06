@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
 import { listMembers, promote, undoPromotion } from '@/lib/rsm/store'
-import { statusAt, isCovered } from '@/lib/rsm/rules.js'
+import { fmtDate, statusAt, isCovered } from '@/lib/rsm/rules.js'
 import { fail, guard } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
@@ -24,9 +24,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!rows.length || rows.length !== ids.length) return fail(400, 'Persone non trovate', 'invalid')
   if (rows.some((m) => m.category === to.key)) return fail(400, 'Le persone sono già in quella categoria', 'invalid')
   if (rows.some((m) => !isCovered(statusAt(cfg, m, date)) || m.exitKind)) return fail(409, 'Una delle persone non è in copertura a quella data o ha già un\'uscita registrata', 'not-active')
-  const pid = await promote(params.id, ids, to.key, date, body.note ? String(body.note) : null, g.email)
-  await logAction({ email: g.email, action: 'rsm.promote', resource: params.id, metadata: { ids, to: to.key, date, promotionId: pid } })
-  return NextResponse.json({ promotionId: pid })
+  const head = rows.find((m) => m.legame === 'TI') || rows[0]
+  const label = `Promozione di ${head.cognome} ${head.nome}${rows.length > 1 ? ` (${rows.length} persone)` : ''} a ${to.label} dal ${fmtDate(date)}`
+  const r = await promote(params.id, ids, to.key, date, body.note ? String(body.note) : null, g.email, label)
+  await logAction({ email: g.email, action: 'rsm.promote', resource: params.id, metadata: { ids, to: to.key, date, promotionId: r.promotionId, opId: r.opId } })
+  return NextResponse.json({ promotionId: r.promotionId, opId: r.opId, label })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
@@ -34,7 +36,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as { promotionId?: string }
   if (!body.promotionId) return fail(400, 'Promozione mancante', 'invalid')
-  await undoPromotion(params.id, String(body.promotionId))
-  await logAction({ email: g.email, action: 'rsm.promote.undo', resource: params.id, metadata: { promotionId: body.promotionId } })
-  return NextResponse.json({ ok: true })
+  const rows = (await listMembers(params.id)).filter((m) => m.promotionId === String(body.promotionId))
+  const head = rows.find((m) => m.legame === 'TI') || rows[0]
+  if (!head) return fail(404, 'Promozione non trovata', 'not-found')
+  const label = `Annullata la promozione di ${head.cognome} ${head.nome}`
+  const opId = await undoPromotion(params.id, String(body.promotionId), g.email, label)
+  await logAction({ email: g.email, action: 'rsm.promote.undo', resource: params.id, metadata: { promotionId: body.promotionId, opId } })
+  return NextResponse.json({ ok: true, opId, label })
 }

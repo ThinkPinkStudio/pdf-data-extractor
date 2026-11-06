@@ -17,7 +17,7 @@ const PILL: Record<string, string> = { attivo: 'ok', cessazione: 'warn', uscito:
 interface Ev { date: string; key: string; title: string; amount: string; lines: string[]; tone: string }
 
 export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
-  rsm: Rsm; cf: string; at: string; onClose: () => void; onOpen: (cf: string) => void; onDone: (text: string) => void
+  rsm: Rsm; cf: string; at: string; onClose: () => void; onOpen: (cf: string) => void; onDone: (text: string, opId?: string) => void
 }) {
   const { t } = useI18n()
   const cfg = rsm.program!.config
@@ -81,7 +81,10 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setErr(null)
-    try { await fn(); setMode(null); await rsm.reload(); onDone(ok) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try {
+      const j = (await fn()) as { opId?: string; label?: string } | undefined
+      setMode(null); await rsm.reload(); onDone(j?.label || ok, j?.opId)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
   const fam = nucleus.filter((r) => r.id !== current.id)

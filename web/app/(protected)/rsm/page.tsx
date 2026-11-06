@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
-import { RsmGate, RsmHeader, api, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
+import { RsmGate, RsmHeader, api, downloadExport, eur, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import { CeasePanel, EditPanel } from '@/components/rsm/MemberPanels'
 import PersonPanel from '@/components/rsm/PersonPanel'
 import type { Row } from '@/components/rsm/useRsm'
@@ -31,7 +31,7 @@ export default function RsmStatoPage() {
   const [stateF, setStateF] = useState<StateFilter>('covered')
   const [showFam, setShowFam] = useState(true)
   const [open, setOpen] = useState<{ id: string; kind: 'exit' | 'edit' } | null>(null)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
   const [busy, setBusy] = useState(false)
   // Scheda della persona aperta (codice fiscale), anche dall'indirizzo ?p=…
   const [person, setPerson] = useState<string | null>(null)
@@ -90,10 +90,15 @@ export default function RsmStatoPage() {
   const total = visible.reduce((s, r) => s + r.c.dovuto - r.c.rimborso, 0)
   const catLabel = (k: string) => cfg?.categories.find((c) => c.key === k)?.label || k
 
-  async function run(fn: () => Promise<unknown>, okText: string) {
+  async function run(fn: () => Promise<{ opId?: string; label?: string } | unknown>, okText: string) {
     setBusy(true)
     setMsg(null)
-    try { await fn(); setMsg({ ok: true, text: okText }); setOpen(null); await rsm.reload() } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+    try {
+      const j = (await fn()) as { opId?: string; label?: string } | undefined
+      setMsg({ ok: true, text: j?.label || okText, opId: j?.opId })
+      setOpen(null)
+      await rsm.reload()
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
   async function remove(r: Row) {
@@ -118,7 +123,7 @@ export default function RsmStatoPage() {
         )}
       </RsmHeader>
       <RsmGate rsm={rsm}>
-        {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
+        {flashNode}
         <div className="rsm-kpis">
           {kpis.map((k) => (
             <div key={k.c.key} className="rsm-kpi">
@@ -216,7 +221,7 @@ export default function RsmStatoPage() {
             <span className="rsm-muted">{t('rsm.st.footerSum', { v: eur(total) })}</span>
           </div>
         </div>
-        {person && rsm.program && <PersonPanel rsm={rsm} cf={person} at={at} onClose={() => openPerson(null)} onOpen={(cf) => openPerson(cf)} onDone={(text) => setMsg({ ok: true, text })} />}
+        {person && rsm.program && <PersonPanel rsm={rsm} cf={person} at={at} onClose={() => openPerson(null)} onOpen={(cf) => openPerson(cf)} onDone={(text, opId) => setMsg({ ok: true, text, opId })} />}
       </RsmGate>
       {panel}
     </div>

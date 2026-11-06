@@ -155,3 +155,36 @@ export async function api(url: string, method: string, body?: unknown) {
   if (!r.ok) throw new Error(j.error || 'Errore')
   return j
 }
+
+/* ─── Messaggio dopo un'operazione, con «Annulla» ───────────────────────── */
+
+export interface Flash { ok: boolean; text: string; opId?: string }
+
+/**
+ * Messaggio di esito. Se l'operazione è registrata (opId), offre «Annulla»:
+ * il server la annulla solo se è ancora l'ultima del programma.
+ */
+export function useFlash(rsm: Rsm) {
+  const { t } = useI18n()
+  const [flash, setFlash] = useState<Flash | null>(null)
+  const [busy, setBusy] = useState(false)
+  async function undo() {
+    if (!flash?.opId || !rsm.programId) return
+    setBusy(true)
+    try {
+      const j = await api(`/api/rsm/programs/${rsm.programId}/ops`, 'POST', { opId: flash.opId })
+      await rsm.reload()
+      setFlash({ ok: true, text: t('rsm.op.undone', { l: j.label }) })
+    } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+  const node = flash ? (
+    <div className={`alert ${flash.ok ? 'alert-success' : 'alert-error'}`} role="status" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <span>{flash.text}</span>
+      <span style={{ display: 'flex', gap: 6 }}>
+        {flash.opId && rsm.editor && <button className="rsm-mini" disabled={busy} onClick={undo}>{t('rsm.op.undo')}</button>}
+        <button className="rsm-mini" aria-label={t('rsm.close')} onClick={() => setFlash(null)}>×</button>
+      </span>
+    </div>
+  ) : null
+  return { flash, setFlash, node }
+}

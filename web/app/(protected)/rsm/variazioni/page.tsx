@@ -5,7 +5,7 @@
 import Link from 'next/link'
 import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
-import { RsmGate, RsmHeader, api, eur, saveBlob, today, useRsm } from '@/components/rsm/useRsm'
+import { RsmGate, RsmHeader, api, eur, saveBlob, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import type { Rsm } from '@/components/rsm/useRsm'
 import {
   buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, fmtDate, isCovered, mailIssues, normDate, statusAt,
@@ -46,7 +46,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
   const [sender, setSender] = useState('')
   const [results, setResults] = useState<FileResult[] | null>(null)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
   const senders = useMemo(() => { try { return JSON.parse(localStorage.getItem(SENDERS_KEY) || '[]') as string[] } catch { return [] } }, [])
 
   async function read() {
@@ -85,7 +85,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
         return { ...e.member, entryForced: !!r.forced, source: `${(results || []).find((f) => f.rows.includes(r))?.name || 'Excel'} riga ${r.rowNumber}${sender ? ` · da ${sender}` : ''}` }
       })
       const j = await api(`/api/rsm/programs/${rsm.programId}/members`, 'POST', { members, source: 'Excel' })
-      setMsg({ ok: true, text: t('rsm.var.registered', { e: j.entries, u: j.exits }) })
+      setMsg({ ok: true, text: t('rsm.var.registered', { e: j.entries, u: j.exits }), opId: j.opId })
       setResults((rs) => rs && rs.map((f) => ({ ...f, rows: f.rows.filter((r) => !r.sel) })))
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -106,7 +106,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
           </label>
           <button className="btn btn-primary" disabled={!files.length || !received || busy || !rsm.editor} onClick={read}>{busy ? <span className="spinner" /> : t('rsm.var.read')}</button>
         </div>
-        {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
+        {flashNode}
         {results && results.map((f, fi) => (
           <div key={f.name + fi} className="rsm-box">
             <div className="rsm-box-head">
@@ -227,7 +227,7 @@ function CeaseSection({ rsm }: { rsm: Rsm }) {
   const [note, setNote] = useState('')
   const [withFam, setWithFam] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
   const open = rsm.rows.filter((r) => !r.exitKind && (isCovered(statusAt(cfg, r, today())) || statusAt(cfg, r, today()) === 'futuro'))
 
   // Testo della mail incollato: si cercano codice fiscale e data di cessazione.
@@ -252,8 +252,8 @@ function CeaseSection({ rsm }: { rsm: Rsm }) {
     setBusy(true); setMsg(null)
     try {
       const ids = [sel.id, ...(withFam ? fam.map((r) => r.id) : [])]
-      await api(`/api/rsm/programs/${rsm.programId}/members`, 'PATCH', { action: 'exit', ids, exitDate: date, exitCommunicated: comm, note })
-      setMsg({ ok: true, text: t('rsm.var.ceased', { name: `${sel.cognome} ${sel.nome}`, n: ids.length }) })
+      const j = await api(`/api/rsm/programs/${rsm.programId}/members`, 'PATCH', { action: 'exit', ids, exitDate: date, exitCommunicated: comm, note })
+      setMsg({ ok: true, text: t('rsm.var.ceased', { name: `${sel.cognome} ${sel.nome}`, n: ids.length }), opId: j.opId })
       setPick(null); setQ(''); setDate(''); setNote('')
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -287,7 +287,7 @@ function CeaseSection({ rsm }: { rsm: Rsm }) {
             </div>
           </div>
         )}
-        {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
+        {flashNode}
       </div>
     </div>
   )
@@ -301,7 +301,7 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
   const empty = { cognome: '', nome: '', cf: '', birthDate: '', legame: 'TI', category: cfg.categories[0]?.key || '', quiescente: false, cfTitolare: '', requested: '', comm: today(), forced: '', note: '' }
   const [f, setF] = useState(empty)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const { setFlash: setMsg, node: flashNode } = useFlash(rsm)
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const tit = f.legame !== 'TI' ? rsm.rows.find((r) => r.cf === cleanCf(f.cfTitolare) && r.legame === 'TI' && !r.exitKind) : null
   const category = tit ? tit.category : f.category
@@ -322,8 +322,8 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
   async function save() {
     setBusy(true); setMsg(null)
     try {
-      await api(`/api/rsm/programs/${rsm.programId}/members`, 'POST', { members: [{ ...member, source: 'Inserimento a mano' }] })
-      setMsg({ ok: true, text: t('rsm.var.added', { name: `${f.cognome} ${f.nome}`.toUpperCase() }) })
+      const j = await api(`/api/rsm/programs/${rsm.programId}/members`, 'POST', { members: [{ ...member, source: 'Inserimento a mano' }] })
+      setMsg({ ok: true, text: t('rsm.var.added', { name: `${f.cognome} ${f.nome}`.toUpperCase() }), opId: j.opId })
       setF(empty)
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -369,7 +369,7 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
         {issues.map((i) => <div key={i.code} className={`rsm-issue ${i.level}`}>{i.text}</div>)}
         {otherCat && otherTit && <IssueLine issue={{ code: 'altra-categoria', level: 'error', mail: false, text: t('rsm.var.otherCat', { cat: cfg.categories.find((c) => c.key === otherCat.category)?.label || otherCat.category }), promote: { memberId: otherTit.id, to: category, date: dec.date } }} />}
         <div className="rsm-row"><button className="btn btn-primary" disabled={!ok || busy || !rsm.editor} onClick={save}>{t('rsm.var.add')}</button></div>
-        {msg && <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`}>{msg.text}</div>}
+        {flashNode}
       </div>
     </div>
   )

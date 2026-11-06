@@ -340,6 +340,21 @@ export async function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_rsm_members_program ON rsm_members(program_id);
     CREATE INDEX IF NOT EXISTS idx_rsm_members_cf ON rsm_members(program_id, cf);
+    -- Registro delle operazioni (06/11/2026): righe com'erano prima e id inseriti,
+    -- per annullare l'ultima operazione esattamente.
+    CREATE TABLE IF NOT EXISTS rsm_ops (
+      id          TEXT PRIMARY KEY,
+      program_id  TEXT NOT NULL REFERENCES rsm_programs(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      before      JSONB NOT NULL DEFAULT '[]',
+      inserted    JSONB NOT NULL DEFAULT '[]',
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      undone_at   BIGINT,
+      undone_by   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, created_at DESC);
     `)
   } catch (e) {
     console.error('[initDb] anagrafiche RSM: tabelle non pronte:', e)

@@ -3,9 +3,9 @@
 // Movimenti e regolazione: entrate e uscite dell'anno filtrate per periodo,
 // tipo e categoria, con i totali per la regolazione del premio.
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
-import { RsmGate, RsmHeader, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
+import { RsmGate, RsmHeader, api, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
 import type { Row } from '@/components/rsm/useRsm'
 import { addDays, fmtDate } from '@/lib/rsm/rules.js'
 
@@ -21,6 +21,22 @@ export default function RsmMovimentiPage() {
   const [kind, setKind] = useState<Kind>('all')
   const [cat, setCat] = useState('all')
   const [err, setErr] = useState<string | null>(null)
+  // Registro delle operazioni: l'ultima non annullata si può annullare.
+  const [ops, setOps] = useState<{ id: string; label: string; createdBy: string; createdAt: number; undoneAt: number | null; undoneBy: string | null }[]>([])
+  const [opMsg, setOpMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const loadOps = useCallback(async () => {
+    if (!rsm.programId) return
+    try { setOps((await api(`/api/rsm/programs/${rsm.programId}/ops`, 'GET')).ops) } catch { setOps([]) }
+  }, [rsm.programId])
+  useEffect(() => { loadOps() }, [loadOps, rsm.members])
+  async function undo(id: string) {
+    try {
+      const j = await api(`/api/rsm/programs/${rsm.programId}/ops`, 'POST', { opId: id })
+      setOpMsg({ ok: true, text: t('rsm.op.undone', { l: j.label }) })
+      await rsm.reload()
+    } catch (e) { setOpMsg({ ok: false, text: (e as Error).message }) }
+  }
+  const lastOpen = ops.find((o) => !o.undoneAt)?.id
 
   const events = useMemo(() => {
     const out: Ev[] = []
@@ -96,6 +112,25 @@ export default function RsmMovimentiPage() {
                     <td className="num">{e.amount ? eur(e.amount) : '0,00'}<div className="rsm-sub">{e.type === 'in' ? e.r.c.calc : e.promo ? t('rsm.mv.refundNet') : t('rsm.mv.noRefund')}</div></td>
                     <td className="nowrap">{fmtDate(e.comm)}</td>
                     <td className="rsm-sub" style={{ maxWidth: 280 }}>{e.r.source || ''}{e.r.note ? ` · ${e.r.note}` : ''}<div>{e.r.createdBy}</div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+        </div>
+        <div className="rsm-box">
+          <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.op.title')}</div><span className="rsm-note">{t('rsm.op.hint')}</span></div>
+          {opMsg && <div className="rsm-box-body"><div className={`alert ${opMsg.ok ? 'alert-success' : 'alert-error'}`}>{opMsg.text}</div></div>}
+          {ops.length === 0 ? <div className="rsm-empty">{t('rsm.op.none')}</div> : (
+            <div className="rsm-scroll"><table className="rsm-table">
+              <thead><tr><th>{t('rsm.op.when')}</th><th>{t('rsm.op.what')}</th><th>{t('rsm.op.who')}</th><th /></tr></thead>
+              <tbody>
+                {ops.map((o) => (
+                  <tr key={o.id} className={o.undoneAt ? 'off' : ''}>
+                    <td className="nowrap">{new Date(o.createdAt * 1000).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td>{o.label}{o.undoneAt && <div className="rsm-sub">{t('rsm.op.undoneBy', { u: o.undoneBy || '', d: new Date(o.undoneAt * 1000).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) })}</div>}</td>
+                    <td className="rsm-sub">{o.createdBy}</td>
+                    <td>{rsm.editor && o.id === lastOpen && <div className="rsm-actions"><button className="rsm-mini" onClick={() => undo(o.id)}>{t('rsm.op.undo')}</button></div>}</td>
                   </tr>
                 ))}
               </tbody>

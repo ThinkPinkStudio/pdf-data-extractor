@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (String(form.get('confirm') || '') !== '1') return NextResponse.json({ dryRun: true, ...body })
   if (open.length) return NextResponse.json({ error: `Ci sono ${open.length} anomalie del file a cui rispondere prima di importare.`, code: 'anomalies', dryRun: true, ...body }, { status: 409 })
   const members = parsed.members.map((m) => ({ ...m, source: `${m.source} (${file.name})` })) as unknown as Partial<NewMember>[]
-  await replaceMembers(params.id, members, g.email)
-  await logAction({ email: g.email, action: 'rsm.import', resource: params.id, metadata: { file: file.name, total: members.length, warnings: warnings.length, anomalies: parsed.anomalies.map((a: { key: string; choice: string | null }) => [a.key, a.choice]) } })
-  return NextResponse.json({ dryRun: false, ...body })
+  const opId = await replaceMembers(params.id, members, g.email, `Import dello stato di rischio: ${members.length} righe (${file.name})`)
+  await logAction({ email: g.email, action: 'rsm.import', resource: params.id, metadata: { file: file.name, total: members.length, warnings: warnings.length, opId, anomalies: parsed.anomalies.map((a: { key: string; choice: string | null }) => [a.key, a.choice]) } })
+  return NextResponse.json({ dryRun: false, ...body, opId })
 }
