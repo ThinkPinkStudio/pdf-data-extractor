@@ -119,7 +119,10 @@ export function RsmGate({ rsm, children }: { rsm: Rsm; children: React.ReactNode
     return (
       <div className="rsm-box"><div className="rsm-empty">
         <p>{t('rsm.noProgram')}</p>
-        <Link className="btn btn-primary" href="/rsm/settings">{t('rsm.goSettings')}</Link>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Link className="btn btn-primary" href="/rsm/import">{t('rsm.noProgramImport')}</Link>
+          <Link className="btn btn-secondary" href="/rsm/settings">{t('rsm.goSettings')}</Link>
+        </div>
       </div></div>
     )
   }

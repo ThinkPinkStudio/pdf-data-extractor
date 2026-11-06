@@ -780,3 +780,32 @@ export function tariffsFromWorkbook(cfg, sheets) {
   }
   return out
 }
+
+/**
+ * Anno di polizza del file dello stato di rischio, prima di avere un
+ * programma: la data d'inizio scritta in testa ai fogli «Variazioni …»
+ * («Regolazione Premio 1/1/26 – 1/1/27»), altrimenti l'anno più frequente
+ * delle date di entrata e uscita delle variazioni, altrimenti quello delle
+ * entrate dei fogli di stato. null se il file non ha date.
+ */
+export function workbookYear(sheets) {
+  const mode = (ys) => {
+    const f = new Map()
+    for (const y of ys) f.set(y, (f.get(y) || 0) + 1)
+    return [...f.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? null
+  }
+  const names = Object.keys(sheets)
+  const vars = names.filter((n) => /^VARIAZ/i.test(n.trim()))
+  const heads = []
+  for (const n of vars) {
+    const h = findHeader(sheets[n] || [])
+    for (const row of (sheets[n] || []).slice(0, h ? h.row : 1)) {
+      const first = (row || []).map((c) => normDate(c)).find(Boolean)
+      if (first) { heads.push(+first.slice(0, 4)); break }
+    }
+  }
+  if (heads.length) return mode(heads)
+  const years = (list) => list.flatMap((n) => parseCommunicationRows(sheets[n] || []).rows || [])
+    .flatMap((r) => [r.entryDate, r.exitDate]).filter(Boolean).map((d) => +d.slice(0, 4))
+  return mode(years(vars)) ?? mode(years(names.filter((n) => !vars.includes(n))))
+}

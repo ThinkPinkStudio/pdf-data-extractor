@@ -146,7 +146,7 @@ export default function RsmStatoPage() {
             </div>
           </div>
           <div className="rsm-scroll">
-            {visible.length === 0 ? <div className="rsm-empty">{rsm.rows.length ? t('rsm.st.noMatch') : t('rsm.st.empty')}</div> : (
+            {visible.length === 0 ? <div className="rsm-empty">{rsm.rows.length ? t('rsm.st.noMatch') : <>{t('rsm.st.empty')}{rsm.editor && <div style={{ marginTop: 12 }}><Link className="btn btn-primary" href="/rsm/import">{t('rsm.noProgramImport')}</Link></div>}</>}</div> : (
               <table className="rsm-table">
                 <thead><tr>
                   <th>{t('rsm.col.insured')}</th><th>{t('rsm.col.legame')}</th>{cat === 'all' && <th>{t('rsm.category')}</th>}

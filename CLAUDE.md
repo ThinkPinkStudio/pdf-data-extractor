@@ -2074,6 +2074,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   ogni foglio di categoria, «DIRIGENTI 9146», «CONIUGI/CONVIVENTI 646», e il
   NR. POLIZZA più frequente). Un file con le date delle variazioni fuori
   dall'anno del programma lo dice per primo (file dell'anno sbagliato).
+  **Import GUIDATO in tre passi (06/11/2026)**: pagina `/rsm/import` (voce di
+  menu e stati vuoti; l'import delle Impostazioni rimanda lì). 1) si sceglie
+  il file: `POST /api/rsm/inspect` (senza programma) legge anno di polizza
+  (`workbookYear`: data in testa ai fogli «Variazioni …», poi l'anno più
+  frequente delle variazioni), categorie, tariffe e polizze; 2) programma
+  dell'anno proposto (o uno nuovo creato lì, nome dall'ultimo programma con
+  l'anno cambiato), tariffe già compilate dal file dove mancano, valori del
+  file diversi offerti con un clic, «Copia da» l'anno prima; 3) prova
+  dell'import: conteggi, avvisi gravi in alto, anomalie con «Rispondi a
+  tutte», avvisi minori chiusi, conferma esplicita se sostituisce righe già
+  registrate. Niente si salva prima dell'ultimo passo, tranne il programma e
+  le sue tariffe al passaggio 2 → 3.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

@@ -170,6 +170,7 @@ const NAV_RSM: NavItem[] = [
   { href: '/rsm/variazioni', key: 'nav.rsmVariazioni', icon: <IconForm /> },
   { href: '/rsm/promozioni', key: 'nav.rsmPromozioni', icon: <IconUser /> },
   { href: '/rsm/movimenti', key: 'nav.rsmMovimenti', icon: <IconHistory /> },
+  { href: '/rsm/import', key: 'nav.rsmImport', icon: <IconBatch /> },
   { href: '/rsm/settings', key: 'nav.rsmSettings', icon: <IconSettings /> },
 ]
 

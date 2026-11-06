@@ -11,7 +11,7 @@ import {
   normDate, daysBetween, days360, decodeCf, surnameCode, nameCode, checkPerson,
   defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
   parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
-  parseStatoWorkbook, normCategory, tariffsFromWorkbook,
+  parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear,
 } from '../web/lib/rsm/rules.js'
 
 function cfg2026() {
@@ -259,4 +259,15 @@ test('tariffe e polizze lette dal file dello stato di rischio', () => {
     impiegati: { tariffs: { titolare: 1348, coniuge: 646, figlio: 558 }, policy: '11341763' },
     dirigenti: { tariffs: { titolare: 9146, quiescente: 10123 }, policy: '' },
   })
+})
+
+test('anno di polizza letto dal file, prima di avere un programma', () => {
+  const varHead = ['AZIENDA', 'CATEGORIA', 'COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA']
+  // intestazione «Regolazione Premio 1/1/26 – 1/1/27» sopra le colonne
+  assert.equal(workbookYear({ 'Variazioni IMPIEGATI': [[null, 'C.A. Vita', 'Regolazione', 'Premio', new Date(2026, 0, 1), '-', new Date(2027, 0, 1)], varHead] }), 2026)
+  // senza intestazione: l'anno più frequente delle variazioni
+  assert.equal(workbookYear({ 'Variazioni FUNZIONARI': [varHead,
+    ['C.A. VITA', '', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/03/2027', null],
+    ['C.A. VITA', '', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', '01/09/2027', null]] }), 2027)
+  assert.equal(workbookYear({ Foglio1: [['niente']] }), null)
 })
