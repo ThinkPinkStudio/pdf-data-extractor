@@ -1,0 +1,16 @@
+{
+  "id": "eulip-locale",
+  "label": "Fascicolo EULIP locale (HDI Global, polizza 30010/30012)",
+  "fields": {
+    "1ec23911-3e7d-5549-b2e2-be3db9d06ee8": { "value": "110-76206280-30012", "mode": "contains" },
+    "36b66bf8-bb9f-5c0e-a947-3d3858349b54": { "value": "HDI Global SE", "mode": "contains" },
+    "45c1347c-0b2e-52e8-96c7-7787644858d3": { "value": "EULIP", "mode": "contains" },
+    "6f260040-ae1d-56d8-a185-1eb178e384fb": { "value": "00151510344", "mode": "vat" },
+    "eb8525bc-e808-56a2-aa3d-cefb25da2b6f": { "value": "VIA NOBEL", "mode": "contains" },
+    "4dc720d8-8237-5084-b288-fd32bd1d19c6": { "value": "15/04/2022", "mode": "date" },
+    "22408456-185d-5803-b489-02af1a084911": { "value": "31/12/2023", "mode": "date" },
+    "b9c59183-72a3-5aa1-b34c-1df8e80f28f3": { "value": "24.600,00", "mode": "amount" },
+    "37ab743b-316e-58a4-8fe4-3112bc6d2139": { "value": "5.473,50", "mode": "amount" },
+    "545374de-c000-5905-8c62-d36f9fdf7f43": { "value": "30.073,50", "mode": "amount" }
+  }
+}

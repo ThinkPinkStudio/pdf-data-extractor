@@ -1,0 +1,72 @@
+{
+  "id": "eulip-locale",
+  "label": "EULIP (HDI Global, polizza 110-76869667-30010 dopo voltura) — verità dai documenti più recenti (quietanza 2025, App.1 30010)",
+  "fields": {
+    "N° Polizza": {
+      "value": "110-76869667-30010",
+      "mode": "exact"
+    },
+    "Compagnia": {
+      "value": "HDI",
+      "mode": "contains"
+    },
+    "Contraente/Assicurato": {
+      "value": "EULIP",
+      "mode": "contains"
+    },
+    "P. IVA / Cod. Fiscale": {
+      "value": "03078910340",
+      "mode": "vat"
+    },
+    "Indirizzo": {
+      "value": "VIA NOBEL",
+      "mode": "contains"
+    },
+    "Decorrenza": {
+      "value": "31/12/2024",
+      "mode": "date"
+    },
+    "Scadenza": {
+      "value": "31/12/2025",
+      "mode": "date"
+    },
+    "Attività assicurata": {
+      "value": "olii e grassi vegetali",
+      "mode": "contains"
+    },
+    "Parametro regolazione (RCTO)": {
+      "value": "Fatturato",
+      "mode": "contains"
+    },
+    "Tasso regolazione ‰ (RCTO)": {
+      "value": "0,410",
+      "mode": "amount"
+    },
+    "Premio imponibile (RCTO)": {
+      "value": "24.600,00",
+      "mode": "amount"
+    },
+    "Imposta (RCT RCO)": {
+      "value": "5.473,50",
+      "mode": "amount"
+    },
+    "Premio totale (RCT RCO)": {
+      "value": "30.073,50",
+      "mode": "amount"
+    }
+  },
+  "nonVerificati": [
+    "Agenzia",
+    "Massimale per sinistro (RCT)",
+    "Massimale per persona (RCT)",
+    "Massimale danni materiali (RCT)",
+    "Massimale unico RCT",
+    "Massimale RCO per sinistro",
+    "Massimale per prestatore (RCO)",
+    "Massimale RCO unico",
+    "Importo preventivo parametro (RCTO)",
+    "Franchigia generica o minima RCT",
+    "Franchigia Inquinamento accidentale RCT"
+  ],
+  "note": "Polizza HDI 'Liability' ramo RC Prodotti: la tabella limiti riporta solo RC PRODOTTI (5.000.000 sinistro/persona/anno) e l'aggregato RCT/O/P; i massimali RCT/RCO del profilo non sono determinabili con certezza dal testo. Preventivo del parametro non esplicitato (anticipato 16.400 su 240 gg ⇒ 24.600 annui)."
+}

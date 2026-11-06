@@ -209,3 +209,111 @@ test('OCR: il massimale del documento scansionato 2025 vince sul testo 2023', ()
   assert.equal(shouldReplaceValue('31/12/2023', visionDate), true)  // 2025 > 2023 → sostituisce
   assert.equal(shouldReplaceValue('31/12/2025', '31/12/2023'), false) // e non torna indietro
 })
+
+test('normalizeDateValue: anno a due cifre (quietanze "Dal 31/01/26 al 31/01/27") e anni impossibili', () => {
+  assert.equal(normalizeDateValue('31/01/26'), '31/01/2026')
+  assert.equal(normalizeDateValue('31.01.26'), '31/01/2026')
+  assert.equal(normalizeDateValue('01/01/99'), '01/01/1999')
+  // "31/01/2631": il modello completava l'anno a 4 cifre con le cifre successive del testo
+  assert.equal(normalizeDateValue('31/01/2631'), null)
+  assert.equal(normalizeDateValue('31/01/0026'), null)
+  assert.equal(normalizeDateValue('16/12/2024'), '16/12/2024')
+})
+
+test('latestDateExcludingEmission: anno a 2 cifre solo in righe di periodo, mai da numeri di telefono o codici', () => {
+  assert.equal(latestDateExcludingEmission('Premio dovuto per il periodo\nDal              al 16/12/25 16/12/26'), '16/12/2026')
+  assert.equal(latestDateExcludingEmission('Tel. 045 8372611 - Fax 045 8300010\ncodice 00/84/90 sez. I'), null)
+  assert.equal(latestDateExcludingEmission('DECORRENZA 04/06/2025 SCADENZA 04/06/2026'), '04/06/2026')
+  assert.equal(latestDateExcludingEmission('pratica 12/34/26 e riferimento 99/99/2026'), null, 'giorno/mese fuori calendario non sono date')
+})
+
+// ─── Anno a 2 cifre: la parola di periodo deve essere LEGATA alla data ──────
+// Il piè di pagina di ogni documento DAS («Aut. D.M. del 26.11.59 n.3646
+// Società appartenente al Gruppo Generali») ha la parola "al" nella riga: con
+// la vecchia regola "riga di periodo" il 26.11.59 diventava 26/11/2059 e le
+// due scansioni firmate SPALLINO TL aprivano la cascata (decorrenza/scadenza
+// della polizza 2024 invece del rinnovo 2025-2026).
+
+// Riga del piè di pagina DAS: griglia pdf.js e due letture OCR (tesseract.js)
+// delle scansioni firmate SPALLINO TL.
+const DAS_FOOTER_PDFJS = '     Sede e Direzione Generale: 37135 Verona - Via Enrico Fermi, 9/B Aut. D.M. del 26.11.59 n.3646 Società appartenente al Gruppo Generali,'
+const DAS_FOOTER_OCR_1 = '        Sede e Direzione Genergle: 27135 Verona - Vie Enrico Fermi, 2/8 Aut O.M. del 26.11.59 à.3646        Sorciatà appartenente al Gruppo Generali,'
+const DAS_FOOTER_OCR_2 = "           Sede Tei. 045 e Direzione 8372611 Generolo: - Fox 045 37135 5300010 Verona - Vio Enrico Fermi, 9/8 Aut. Cadice DM. Fiscote deli 26.11.59 è Reg, Imprese n.1546 VR n. 00220930234 Società iscritto all'Albo appartenente dai qruppi al Gruppo assicurativi Genaroli, aln. 026"
+
+test('latestDateExcludingEmission: il piè di pagina DAS "del 26.11.59 … appartenente al Gruppo" non data il documento (né pdf.js né OCR)', () => {
+  assert.equal(latestDateExcludingEmission(DAS_FOOTER_PDFJS), null)
+  assert.equal(latestDateExcludingEmission(DAS_FOOTER_OCR_1), null)
+  assert.equal(latestDateExcludingEmission(DAS_FOOTER_OCR_2), null)
+  // Scansione della polizza 2024 (OCR): il piè di pagina non la rende "del 2059"
+  const scan = 'DECORRENZA          SCADENZA\n(16/12/2024 _j16/12/2025__ | Annuale\n' + DAS_FOOTER_OCR_1
+  assert.equal(latestDateExcludingEmission(scan), '16/12/2025')
+})
+
+test('latestDateExcludingEmission: rinnovo DAS datato dal suo periodo, parola di periodo subito prima della data', () => {
+  // SPALLINO TL, RINNOVO 2025_2026 (griglia pdf.js, due righe della stessa quietanza)
+  const rinnovo = [
+    '        Dal 16/12/25 al 16/12/26    ANNUALE          01469',
+    DAS_FOOTER_PDFJS,
+    '          dal 16/12/25     al 16/12/26           ANNUALE         €  24,88        €  3,12         €  28,00',
+  ].join('\n')
+  assert.equal(latestDateExcludingEmission(rinnovo), '16/12/2026')
+  // ALZAIA TL: "dalle ore 24 del … alle ore 24 del …"
+  assert.equal(latestDateExcludingEmission('dalle ore 24 del 31/01/26 alle ore 24 del 31/01/27'), '31/01/2027')
+  // una sola data, legata alla parola che la precede
+  assert.equal(latestDateExcludingEmission('Scadenza: 16/12/26'), '16/12/2026')
+  // periodo col trattino: la prima data è legata a "Periodo", la seconda alla coppia crescente
+  assert.equal(latestDateExcludingEmission('Periodo 16/12/25 - 16/12/26'), '16/12/2026')
+})
+
+test('latestDateExcludingEmission: la parola di periodo altrove nella riga non conta, la coppia deve essere crescente', () => {
+  // "al" lontano dalla data (stesso schema del piè di pagina DAS)
+  assert.equal(latestDateExcludingEmission('Aut. del 16.12.26 n.100 appartenente al Gruppo'), null)
+  // intestazione di una mail senza parole di periodo
+  assert.equal(latestDateExcludingEmission('01/07/26,14:54                          Zimbra: Re:RC PROFESSIONALE GG&P quotazioni'), null)
+  // coppia DECRESCENTE unita dal trattino: nessun periodo
+  assert.equal(latestDateExcludingEmission('16/12/26 - 16/12/25'), null)
+  // "effetto" è una parola di periodo; gli anni a 4 cifre restano liberi come prima
+  assert.equal(latestDateExcludingEmission('con effetto 31/03/26'), '31/03/2026')
+  assert.equal(latestDateExcludingEmission('appartenente al Gruppo 31/12/2025'), '31/12/2025')
+})
+
+test('latestDateExcludingEmission: le righe sull\'IMPRESA e i timbri con l\'orario non datano il documento', () => {
+  // SONZOGNI TL, REGOLAZIONE 2015 (scansione): il piè di pagina ARAG letto
+  // dall'OCR come 2045 apriva la cascata
+  const reg2015 = [
+    'Si provvede ad effettuare la regolazione del premio per il periodo 31/12/2014 - 31/12/2015',
+    'Le rate semestrali successive dal 30/06/2016 vengono fissate come segue:',
+    "ISeritta in dala 20/08/2045 all'Albo Vama [mpreze:di EOLO ta; ARAG",
+  ].join('\n')
+  assert.equal(latestDateExcludingEmission(reg2015), '30/06/2016')
+  // visura camerale: la durata della società non è un periodo di copertura
+  assert.equal(latestDateExcludingEmission('Data atto di costituzione: 12/03/1985\ndurata della società Data termine: 31/12/2050\nDal 31/12/2024 al 31/12/2025'), '31/12/2025')
+  assert.equal(latestDateExcludingEmission('Impresa autorizzata con D.M. del 18/12/2099'), null)
+  // timbro di stampa ITAS «[prnt gg/mm/aaaa hh:mm]», anche con «;» dall'OCR
+  assert.equal(latestDateExcludingEmission('[prd][prnt 13/04/2026 19:15] pagina 2 di 4\nDecorrenza 13/01/2025 Scadenza 13/01/2026'), '13/01/2026')
+  assert.equal(latestDateExcludingEmission('{prat 28/04/2028 13:50) {P ]'), null)
+  assert.equal(latestDateExcludingEmission('[prnt 13/01/2026 19;15]'), null)
+  // l'orario PRIMA della data (decorrenza alle ore 24:00) non è un timbro
+  assert.equal(latestDateExcludingEmission('Scadenza alle ore 24:00 31/12/2026'), '31/12/2026')
+})
+
+test('latestDateExcludingEmission: «in data <data>» è la data di un evento, non un periodo', () => {
+  assert.equal(latestDateExcludingEmission('Il presente documento è stato redatto in data 15/09/2025\nDecorrenza 31/12/2024'), '31/12/2024')
+  assert.equal(latestDateExcludingEmission('Pagina 9 di 44 stampata in data 03/12/2024'), null)
+  assert.equal(latestDateExcludingEmission('Pata In data: 26/08/2028 UU'), null)
+  assert.equal(latestDateExcludingEmission('il pagamento è stato effettuato in data 29.06.2026'), null)
+})
+
+test('latestDateExcludingEmission (ocr): vale la data in una riga di periodo o ripetuta, non la lettura storpiata isolata', () => {
+  const copia = [
+    'POLIZZA N. 207008347   Decorrenza 15/09/2025   Scadenza 15/09/2026',
+    'KS2_RCA_POL 85112 306 207008347 15/09/2078 Stampala 15/99/2025 16 07 PIF RA Pagina 3 di 4',
+    'paoina 3 dia NONO | N ATA 29/01/2028',
+  ].join('\n')
+  assert.equal(latestDateExcludingEmission(copia), '15/09/2078', 'senza l\'opzione: la regola di sempre')
+  assert.equal(latestDateExcludingEmission(copia, { ocr: true }), '15/09/2026')
+  // ripetuta su due pagine senza parola di periodo: confermata
+  assert.equal(latestDateExcludingEmission('Totale 900,00 30/06/2026\nfirma 30/06/2026', { ocr: true }), '30/06/2026')
+  // nessuna data confermata: la regola di sempre
+  assert.equal(latestDateExcludingEmission('foglio 12/03/2024', { ocr: true }), '12/03/2024')
+})

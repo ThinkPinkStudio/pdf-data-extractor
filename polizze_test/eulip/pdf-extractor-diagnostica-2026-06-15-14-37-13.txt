@@ -1,0 +1,49 @@
+PDF Data Extractor — Report diagnostica di rete (forense)
+6/15/2026, 4:37:15 PM
+Sistema: darwin arm64 · App v1.0.37 · Electron 28.3.3 · Chrome 120.0.6099.291 · Node 18.18.2
+────────────────────────────────────────────────────────
+VERDETTO: all-ok
+Tutti gli strati di rete funzionano: DNS, TCP, TLS e HTTP verso api.anthropic.com sono OK (HTTP 404).
+────────────────────────────────────────────────────────
+Provider: Anthropic · Host: api.anthropic.com
+Avvio: 2026-06-15T14:36:33.003Z · Fine: 2026-06-15T14:36:33.781Z
+
+[DNS]  OK · 3ms · IP: 2607:6bc0::10, 160.79.104.10 · server DNS: 2620:134:b054:100::59, 2620:134:b054:100::58, 192.168.1.1
+[TCP]  OK · 29ms · 2607:6bc0::10:443
+[TLS]  OK · 66ms · TLSv1.3 · TLS_AES_128_GCM_SHA256
+       Emittente root: GlobalSign nv-sa
+       cert[0] subject CN=api.anthropic.com O=—
+               issuer  CN=WE1 O=Google Trust Services
+               fp256=19:0C:41:26:7E:20:EA:A5:CA:23:19:96:72:24:9C:9C:CC:90:D0:43:99:5E:22:63:31:1E:C3:81:68:55:B8:D9 · valido fino a Aug 24 18:45:51 2026 GMT
+       cert[1] subject CN=WE1 O=Google Trust Services
+               issuer  CN=GTS Root R4 O=Google Trust Services LLC
+               fp256=1D:FC:16:05:FB:AD:35:8D:8B:C8:44:F7:6D:15:20:3F:AC:9C:A5:C1:A7:9F:D4:85:7F:FA:F2:86:4F:BE:BF:96 · valido fino a Feb 20 14:00:00 2029 GMT
+       cert[2] subject CN=GTS Root R4 O=Google Trust Services LLC
+               issuer  CN=GlobalSign Root CA O=GlobalSign nv-sa
+               fp256=76:B2:7B:80:A5:80:27:DC:3C:F1:DA:68:DA:C1:70:10:ED:93:99:7D:0B:60:3E:2F:AD:BE:85:01:24:93:B5:A7 · valido fino a Jan 28 00:00:42 2028 GMT
+       cert[3] subject CN=GlobalSign Root CA O=GlobalSign nv-sa
+               issuer  CN=GlobalSign Root CA O=GlobalSign nv-sa
+               fp256=EB:D4:10:40:E4:BB:3E:C7:42:C9:E3:81:D3:1E:F2:A4:1A:48:B6:68:5C:96:E7:CE:F3:C1:DF:6C:D4:33:1C:99 · valido fino a Jan 28 12:00:00 2028 GMT
+[HTTP] OK · 235ms · HTTP 404
+
+[PROXY] resolveProxy: DIRECT · usingProxy=false
+        env: HTTP_PROXY=— HTTPS_PROXY=— NO_PROXY=—
+
+[CONTROLLI] confronto a tre vie:
+        OK    Connettività neutra (HTTP 204) · HTTP 204 · 133ms
+        OK    Endpoint cloud alternativo (Cloudflare) · HTTP 200 · 129ms
+        OK    Secondo cloud API (OpenAI) · HTTP 401 · 440ms
+────────────────────────────────────────────────────────
+CHECK RAPIDI:
+PDF Data Extractor — Report diagnostica
+15/6/2026, 16:37:13
+Sistema: macOS arm64 · App v1.0.37 · Electron 28.3.3
+Provider AI: Anthropic
+
+[OK] Sistema e versione app — macOS arm64 · App v1.0.37 · Electron 28.3.3 · Chrome 120.0.6099.291
+[OK] Connessione a internet — Il sistema risulta online.
+[OK] Provider AI attivo — Provider configurato: Anthropic.
+[OK] API key impostata — API key presente.
+[OK] Rete / proxy / TLS verso api.anthropic.com — Endpoint raggiungibile: rete, proxy e TLS funzionano.
+[OK] Autenticazione (API key valida) — Credenziali accettate dal provider.
+[OK] Modello impostato — Modello: claude-haiku-4-5-20251001.
