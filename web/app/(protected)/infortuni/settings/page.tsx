@@ -102,6 +102,23 @@ export default function InfortuniSettingsPage() {
         </div>
 
         <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('inf.set.docs')}</h2>
+          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 12 }}>{t('inf.set.docsHint')}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {([
+              ['showRagioneSociale', 'inf.set.swRagione', 'inf.set.swRagioneHint', false],
+              ['showFranchigiaSpese', 'inf.set.swFranchigia', 'inf.set.swFranchigiaHint', true],
+              ['questionarioNumero', 'inf.set.swNumero', 'inf.set.swNumeroHint', true],
+            ] as const).map(([key, lab, hint, def]) => (
+              <label key={key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="checkbox" style={{ marginTop: 3 }} checked={config[key] ?? def} onChange={(e) => up({ [key]: e.target.checked })} />
+                <span><span style={{ fontSize: 13, fontWeight: 600 }}>{t(lab)}</span><br /><span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t(hint)}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('inf.set.mail')}</h2>
           <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 12 }}>{t('inf.set.mailHint')}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px 16px' }}>

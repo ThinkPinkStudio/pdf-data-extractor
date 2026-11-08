@@ -42,7 +42,7 @@ export function certificateHtml(rec: Rec, config: InfortuniConfig, images: { log
         <ul>
           <li>Morte del conducente da infortunio con massimale <u>${esc(o.morte)}€</u></li>
           <li>Invalidità Permanente da infortunio con massimale <u>${esc(o.invalidita)}€</u> (franchigia ${esc(o.franchigia)})</li>
-          <li>Rimborso spese mediche da infortunio <u>${esc(o.speseMediche)}€</u>${o.franchigiaSpese ? ` (franchigia ${esc(o.franchigiaSpese)}€)` : ''}</li>
+          <li>Rimborso spese mediche da infortunio <u>${esc(o.speseMediche)}€</u>${o.franchigiaSpese && config.showFranchigiaSpese !== false ? ` (franchigia ${esc(o.franchigiaSpese)}€)` : ''}</li>
         </ul>
       </div>`
   }
@@ -88,7 +88,7 @@ export function certificateHtml(rec: Rec, config: InfortuniConfig, images: { log
       <tr><td class="cap" colspan="2">ANAGRAFICA – DATI DELL’ADERENTE/ ASSICURATO</td></tr>
       ${row('Nome', rec.nome)}
       ${row('Cognome', rec.cognome)}
-      ${row('Ragione Sociale', rec.ragione_sociale)}
+      ${row('Ragione Sociale', config.showRagioneSociale ? rec.ragione_sociale : '')}
       <tr><th>Data di Nascita</th><td>${date(rec.data_nascita)}</td></tr>
       ${row('Codice Fiscale/ P. IVA', rec.codice_fiscale)}
       ${row('Mail/PEC', rec.email)}
@@ -162,10 +162,10 @@ export const CERTIFICATE_FOOTER = `<div style="width:100%;font-family:Arial,'Lib
 
 /* ─── Questionario delle richieste ed esigenze ─────────────────────────── */
 
-export function questionnaireHtml(rec: Rec): string {
+export function questionnaireHtml(rec: Rec, config: InfortuniConfig): string {
   const answers = rec.questionario || {}
   const opt = (q: string, v: 'SI' | 'NO') => `<div class="ans"><span class="dot">${answers[q] === v ? '&#9679;' : '&#9675;'}</span> ${v === 'SI' ? 'SI;' : 'NO.'}</div>`
-  const who = [rec.cognome, rec.nome].filter(Boolean).join(' ') || rec.ragione_sociale || ''
+  const who = [rec.cognome, rec.nome].filter(Boolean).join(' ') || (config.showRagioneSociale ? rec.ragione_sociale : '') || ''
   return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Questionario ${esc(rec.numero)}</title><style>
     ${BASE_CSS}
     body { font-family: Arial, "Liberation Sans", Helvetica, sans-serif; font-size: 10pt; line-height: 1.35; }
@@ -186,7 +186,7 @@ export function questionnaireHtml(rec: Rec): string {
       <tr><td>Cognome e Nome/Ragione sociale</td><td><b>${esc(who)}</b></td></tr>
       <tr><td>Codice fiscale/Partita IVA</td><td><b>${esc(rec.codice_fiscale)}</b></td></tr>
     </table>
-    <div class="num">Certificato di adesione N° ${esc(rec.numero)}</div>
+    ${config.questionarioNumero !== false ? `<div class="num">Certificato di adesione N° ${esc(rec.numero)}</div>` : ''}
     <div class="sec" style="margin-top:22px">INDIVIDUAZIONE DELLE RICHIESTE ED ESIGENZE ASSICURATIVE</div>
     ${QUESTIONS.map((q: { id: string; text: string }, i: number) => `<div class="q">${i + 1}. ${esc(q.text)}</div>${opt(q.id, 'SI')}${opt(q.id, 'NO')}`).join('')}
     <p style="margin-top:28px">Il Contraente approva e conferma le risposte sopra riportate.</p>
@@ -228,7 +228,7 @@ export async function documentsZip(records: Rec[], config: InfortuniConfig): Pro
     for (const rec of records) {
       const base = docBaseName(rec)
       zip.file(`${base}_Certificato.pdf`, await printPdf(browser, certificateHtml(rec, config, images), CERTIFICATE_FOOTER))
-      zip.file(`${base}_Questionario.pdf`, await printPdf(browser, questionnaireHtml(rec), QUESTIONNAIRE_FOOTER))
+      zip.file(`${base}_Questionario.pdf`, await printPdf(browser, questionnaireHtml(rec, config), QUESTIONNAIRE_FOOTER))
     }
   } finally {
     await browser.close()

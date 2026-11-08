@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 
 export type InfRecord = Record<string, unknown> & { questionario?: Record<string, string> }
 export interface InfOption { key: string; name: string; premio: string; imposte: string; morte: string; invalidita: string; franchigia: string; speseMediche: string; franchigiaSpese: string }
-export interface InfConfig { polizzaCollettiva: string; options: InfOption[]; pagamento: string; mailTo: string; mailCc: string; mailSubject: string }
+export interface InfConfig { polizzaCollettiva: string; options: InfOption[]; pagamento: string; mailTo: string; mailCc: string; mailSubject: string; showRagioneSociale?: boolean; showFranchigiaSpese?: boolean; questionarioNumero?: boolean }
 
 type Field = { id: string; type: string; required?: boolean }
 const byId = (id: string) => (FIELDS as Field[]).find((f) => f.id === id) as Field
@@ -89,6 +89,12 @@ export default function InfortuniForm({ config, record, errors, onChange }: {
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>{t(`inf.g.${g.key}`)}</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 16px' }}>
             {g.ids.map(input)}
+            {g.key === 'cliente' && config.showRagioneSociale && (
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="label" htmlFor="inf-ragione_sociale">{t('inf.f.ragione_sociale')}</label>
+                <input id="inf-ragione_sociale" value={String(record.ragione_sociale ?? '')} onChange={(e) => set('ragione_sociale', e.target.value)} />
+              </div>
+            )}
           </div>
         </div>
       ))}

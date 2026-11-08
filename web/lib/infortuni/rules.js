@@ -30,6 +30,10 @@ export function defaultConfig() {
     options: DEFAULT_OPTIONS.map((o) => ({ ...o })),
     // Il certificato del cliente dice «tramite […]»: da completare in Impostazioni.
     pagamento: '',
+    // Interruttori delle voci in sospeso col cliente (Impostazioni → Certificato e questionario).
+    showRagioneSociale: false, // campo facoltativo «Ragione sociale» nel modulo e nel certificato
+    showFranchigiaSpese: true, // «(franchigia 100€)» sulle spese mediche del certificato
+    questionarioNumero: true, // riga «Certificato di adesione N°» sul questionario
     mailTo: '',
     mailCc: '',
     mailSubject: 'CSA Adesioni Infortuni — BDX inclusioni',
