@@ -3,6 +3,7 @@
 
 import { rsmMessages } from './rsmMessages'
 import { infortuniMessages } from './infortuniMessages'
+import { vitaMessages } from './vitaMessages'
 
 export type Lang = 'it' | 'en'
 
@@ -2931,3 +2932,7 @@ Object.assign(messages.en, rsmMessages.en)
 // CSA Adesioni Infortuni: catalogo a parte (lib/i18n/infortuniMessages.ts).
 Object.assign(messages.it, infortuniMessages.it)
 Object.assign(messages.en, infortuniMessages.en)
+
+// Polizza Vita: catalogo a parte (lib/i18n/vitaMessages.ts).
+Object.assign(messages.it, vitaMessages.it)
+Object.assign(messages.en, vitaMessages.en)

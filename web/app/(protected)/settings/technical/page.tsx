@@ -41,6 +41,7 @@ interface Settings {
   navHiddenExtractor?: string[]
   rsmVisible?: boolean
   infortuniVisible?: boolean
+  vitaVisible?: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -155,6 +156,8 @@ export default function SettingsTechnicalPage() {
             <div style={{ marginTop: 10 }}>
               <Toggle checked={!!s.infortuniVisible} onChange={(v) => up('infortuniVisible', v)} label={t('set.infortuniVisible')} />
               <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.infortuniVisibleHint')}</p>
+              <Toggle checked={!!s.vitaVisible} onChange={(v) => up('vitaVisible', v)} label={t('set.vitaVisible')} />
+              <p style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 6 }}>{t('set.vitaVisibleHint')}</p>
             </div>
           </div>
         </div>

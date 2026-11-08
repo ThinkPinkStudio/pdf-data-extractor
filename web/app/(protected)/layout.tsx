@@ -14,16 +14,18 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   let navHidden: string[] = []
   let rsmVisible = false
   let infortuniVisible = false
+  let vitaVisible = false
   try {
     const st = await getSettings()
     navHidden = st.navHiddenExtractor || []
     rsmVisible = !!st.rsmVisible
     infortuniVisible = !!st.infortuniVisible
+    vitaVisible = !!st.vitaVisible
   } catch { navHidden = [] }
 
   return (
     <div className="app-shell">
-      <Sidebar email={session.email} navHidden={navHidden} rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} />
+      <Sidebar email={session.email} navHidden={navHidden} rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} vitaVisible={vitaVisible} />
       <main className="main-content">{children}</main>
     </div>
   )

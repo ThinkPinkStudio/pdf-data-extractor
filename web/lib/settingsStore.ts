@@ -131,6 +131,7 @@ export interface WebSettings {
   // Sezione CSA Adesioni Infortuni visibile nella pagina iniziale (06/11/2026:
   // spenta finché non la si accende; le pagine /infortuni restano raggiungibili).
   infortuniVisible?: boolean
+  vitaVisible?: boolean
   // Regola di validità "polizza vera" (storica: marcatori a parole, default
   // attiva dal 12/09). Dal 26/09/2026 NON ha più effetto: la presenza della
   // polizza si verifica SEMPRE col modello (regola dell'utente: «SENZA UNA
@@ -218,7 +219,7 @@ const isClaudeModel = (m?: string) => /^claude-/i.test(m || '')
 const isGptModel = (m?: string) => /^(gpt-|o\d)/i.test(m || '')
 const isCloudModel = (m?: string) => isClaudeModel(m) || isGptModel(m)
 
-const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled', 'polizzaRequireValidPolicy', 'rsmVisible', 'infortuniVisible'])
+const BOOL_KEYS = new Set(['polizzaOcrEnabled', 'polizzaWholeDossier', 'polizzaPerField', 'polizzaConstrainedJson', 'polizzaStagedCascade', 'polizzaAutoVerify', 'polizzaArchivio', 'polizzaGrounding', 'compareFuzzyEnabled', 'compareFuzzyBroadEnabled', 'polizzaRequireValidPolicy', 'rsmVisible', 'infortuniVisible', 'vitaVisible'])
 // Chiavi memorizzate come JSON (array/oggetti) nella tabella settings (value TEXT).
 const JSON_KEYS = new Set([
   'polizzaFields', 'polizzaProfiles', 'extractions', 'profiles', 'navHiddenExtractor',
@@ -300,6 +301,7 @@ export async function getSettings(): Promise<WebSettings> {
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     rsmVisible: bool('rsmVisible', false),
     infortuniVisible: bool('infortuniVisible', true),
+    vitaVisible: bool('vitaVisible', false),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',

@@ -120,7 +120,7 @@ const IconHome = () => (
 /* ─── Sezioni separate: ogni sezione ha il proprio menu e le proprie
        Impostazioni. La sidebar mostra SOLO il menu della sezione corrente. ── */
 type NavItem = { href: string; key: string; icon: React.ReactNode }
-type Section = 'extractor' | 'compare' | 'adesioni' | 'infortuni' | 'premio' | 'rsm' | 'hub'
+type Section = 'extractor' | 'compare' | 'adesioni' | 'infortuni' | 'premio' | 'rsm' | 'vita' | 'hub'
 
 // Icone delle voci PDF Extractor: la LISTA (href + chiave) sta in
 // lib/navExtractor.ts, condivisa con gli switch delle Impostazioni tecniche.
@@ -171,6 +171,15 @@ const NAV_PREMIO: NavItem[] = [
   { href: '/premio', key: 'nav.pmCalcolo', icon: <IconTable /> },
 ]
 
+// Polizza Vita (08/11/2026): collettiva vita Amundi / Crédit Agricole Vita.
+const NAV_VITA: NavItem[] = [
+  { href: '/vita', key: 'nav.vitaStato', icon: <IconTable /> },
+  { href: '/vita/sanitaria', key: 'nav.vitaSanitaria', icon: <IconShield /> },
+  { href: '/vita/movimenti', key: 'nav.vitaMovimenti', icon: <IconHistory /> },
+  { href: '/vita/rinnovo', key: 'nav.vitaRinnovo', icon: <IconCalendar /> },
+  { href: '/vita/settings', key: 'nav.vitaSettings', icon: <IconSettings /> },
+]
+
 // Anagrafiche RSM (05/11/2026): polizza collettiva rimborso spese mediche.
 const NAV_RSM: NavItem[] = [
   { href: '/rsm', key: 'nav.rsmStato', icon: <IconTable /> },
@@ -188,6 +197,7 @@ const NAV_HUB: NavItem[] = [
   { href: '/infortuni', key: 'nav.secInfortuni', icon: <IconForm /> },
   { href: '/premio', key: 'nav.secPremio', icon: <IconTable /> },
   { href: '/rsm', key: 'nav.secRsm', icon: <IconUser /> },
+  { href: '/vita', key: 'nav.secVita', icon: <IconShield /> },
 ]
 
 function sectionFor(pathname: string): Section {
@@ -197,6 +207,7 @@ function sectionFor(pathname: string): Section {
   if (pathname === '/infortuni' || pathname.startsWith('/infortuni/')) return 'infortuni'
   if (pathname === '/premio' || pathname.startsWith('/premio/')) return 'premio'
   if (pathname === '/rsm' || pathname.startsWith('/rsm/')) return 'rsm'
+  if (pathname === '/vita' || pathname.startsWith('/vita/')) return 'vita'
   return 'extractor'
 }
 
@@ -207,10 +218,11 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   infortuni: { name: 'CSA Adesioni Infortuni', subKey: 'nav.subInfortuni', nav: NAV_INFORTUNI },
   premio: { name: 'Premio Lordo', subKey: 'nav.subPremio', nav: NAV_PREMIO },
   rsm: { name: 'Anagrafiche RSM', subKey: 'nav.subRsm', nav: NAV_RSM },
+  vita: { name: 'Polizza Vita', subKey: 'nav.subVita', nav: NAV_VITA },
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean; infortuniVisible?: boolean }) {
+export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible, vitaVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean; infortuniVisible?: boolean; vitaVisible?: boolean }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
@@ -221,7 +233,7 @@ export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible
   // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
   const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
   // Anagrafiche RSM fuori dal menu delle sezioni finché non la si accende (Impostazioni tecniche).
-  const NAV = (visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav).filter((i) => section !== 'hub' || ((rsmVisible || i.href !== '/rsm') && (infortuniVisible || i.href !== '/infortuni')))
+  const NAV = (visible ? meta.nav.filter((i) => visible.has(i.href)) : meta.nav).filter((i) => section !== 'hub' || ((rsmVisible || i.href !== '/rsm') && (infortuniVisible || i.href !== '/infortuni') && (vitaVisible || i.href !== '/vita')))
 
   // Voce di nav "attiva" = il prefisso più lungo che corrisponde al path corrente,
   // per evitare che es. /polizza e /polizza/bulk risultino entrambi evidenziati.

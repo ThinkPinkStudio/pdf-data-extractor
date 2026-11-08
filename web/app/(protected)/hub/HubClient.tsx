@@ -70,9 +70,10 @@ const SECTIONS: Section[] = [
   { href: '/infortuni', icon: <IconInfortuni />, titleKey: 'nav.secInfortuni', descKey: 'hub.infortuniDesc' },
   { href: '/premio', icon: <IconPremio />, titleKey: 'nav.secPremio', descKey: 'hub.premioDesc' },
   { href: '/rsm', icon: <IconRsm />, titleKey: 'nav.secRsm', descKey: 'hub.rsmDesc' },
+  { href: '/vita', icon: <IconRsm />, titleKey: 'nav.secVita', descKey: 'hub.vitaDesc' },
 ]
 
-export default function HubClient({ rsmVisible, infortuniVisible }: { rsmVisible: boolean; infortuniVisible: boolean }) {
+export default function HubClient({ rsmVisible, infortuniVisible, vitaVisible }: { rsmVisible: boolean; infortuniVisible: boolean; vitaVisible: boolean }) {
   const { t } = useI18n()
 
   return (
@@ -89,7 +90,7 @@ export default function HubClient({ rsmVisible, infortuniVisible }: { rsmVisible
           gap: 20,
         }}
       >
-        {SECTIONS.filter((s) => (rsmVisible || s.href !== '/rsm') && (infortuniVisible || s.href !== '/infortuni')).map((s) => (
+        {SECTIONS.filter((s) => (rsmVisible || s.href !== '/rsm') && (infortuniVisible || s.href !== '/infortuni') && (vitaVisible || s.href !== '/vita')).map((s) => (
           <Link key={s.href} href={s.href} className="hub-card">
             <span className="hub-card-icon">{s.icon}</span>
             <span className="hub-card-title">{t(s.titleKey)}</span>
