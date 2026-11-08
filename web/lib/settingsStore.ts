@@ -299,7 +299,7 @@ export async function getSettings(): Promise<WebSettings> {
     polizzaRequireValidPolicy: bool('polizzaRequireValidPolicy', true),
     navHiddenExtractor: json<string[]>('navHiddenExtractor') || [],
     rsmVisible: bool('rsmVisible', false),
-    infortuniVisible: bool('infortuniVisible', false),
+    infortuniVisible: bool('infortuniVisible', true),
     extractions: json<GenericField[]>('extractions'),
     profiles: json<GenericProfile[]>('profiles'),
     bulkExcludedFolderNames: map.bulkExcludedFolderNames ?? '',
