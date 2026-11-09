@@ -392,12 +392,56 @@ export function findHeader(rows) {
 const cellStr = (v) => (v == null ? '' : v instanceof Date ? v.toISOString() : String(v)).replace(/\s+/g, ' ').trim()
 
 /**
+ * Le colonne di `map` reggono su un foglio SENZA riga d'intestazione? Si guardano
+ * le prime righe piene: dove la mappa dice «codice fiscale» deve esserci un codice
+ * fiscale e dove dice «legame» un legame riconoscibile. Serve per i fogli che il
+ * cliente manda senza intestazione (foglio IMPIEGATI del rinnovo 2026).
+ */
+export function headerFits(rows, map) {
+  if (map == null || map.cfAss == null || map.cognome == null) return false
+  let seen = 0, ok = 0
+  for (let i = 0; i < rows.length && seen < 8; i++) {
+    const r = rows[i] || []
+    if (!r.some((c) => c != null && String(c).trim() !== '')) continue
+    seen++
+    const cf = cleanCf(r[map.cfAss])
+    const leg = map.legame == null ? 'TI' : normLegame(r[map.legame])
+    if (/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST]/.test(cf) && leg) ok++
+  }
+  return seen > 0 && ok >= Math.max(1, Math.ceil(seen * 0.7))
+}
+
+/**
  * Righe di un file di comunicazione («File per comunicazioni teste»):
  * intestazione cercata per nome, righe senza cognome né codice fiscale
  * saltate (legenda in fondo). Valori grezzi, normalizzati ma non controllati.
+ * `fallbackMap`: colonne di un altro foglio dello stesso file, usate quando la
+ * riga d'intestazione manca del tutto e il tracciato combacia.
  */
-export function parseCommunicationRows(rows, refYear) {
+export function headerOrFallback(rows, fallbackMap) {
   const h = findHeader(rows)
+  if (h) return h
+  if (fallbackMap && headerFits(rows, fallbackMap)) return { row: -1, map: fallbackMap, fromFallback: true }
+  return null
+}
+
+/**
+ * Colonne del foglio con l'intestazione più completa: tracciato di riferimento del
+ * file. `only` limita la ricerca ai fogli dello stesso tipo (stato o variazioni),
+ * che nel file del cliente hanno colonne diverse.
+ */
+export function referenceHeader(sheets, only) {
+  let map = null, sheet = ''
+  for (const name of Object.keys(sheets || {})) {
+    if (only && !only(name)) continue
+    const h = findHeader(sheets[name] || [])
+    if (h && (!map || Object.keys(h.map).length > Object.keys(map).length)) { map = h.map; sheet = name }
+  }
+  return { map, sheet }
+}
+
+export function parseCommunicationRows(rows, refYear, fallbackMap) {
+  const h = headerOrFallback(rows, fallbackMap)
   if (!h) return { error: 'Intestazione non trovata: serve una riga con COGNOME e NOME.', rows: [] }
   const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
   const out = []
@@ -595,12 +639,22 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const warnings = []
   const catOfSheet = (name) => normCategory(String(name).replace(/^VARIAZIONI\s*/i, ''), cfg.categories).key
   const names = Object.keys(sheets)
+  // Tracciato di riferimento: le colonne del foglio con l'intestazione più completa.
+  // Servono ai fogli che il cliente manda SENZA riga d'intestazione (IMPIEGATI del
+  // file di rinnovo 2026): stesse colonne, nello stesso ordine.
+  const isVar = (n) => /^VARIAZ/i.test(String(n).trim())
+  const refStato = referenceHeader(sheets, (n) => !isVar(n))
+  const refVar = referenceHeader(sheets, isVar)
+  const usedFallback = (name, p, ref) => {
+    if (p.header && p.header.fromFallback) warnings.push(`Foglio «${name}»: manca la riga di intestazione, ho letto le colonne come nel foglio «${ref.sheet}». Controlla i nomi nell'anteprima.`)
+  }
   // 1) fogli di stato al 01/01
   for (const name of names.filter((n) => !/^VARIAZ/i.test(n.trim()))) {
     const key = catOfSheet(name)
     if (!key) continue
-    const p = parseCommunicationRows(sheets[name], refYear)
+    const p = parseCommunicationRows(sheets[name], refYear, refStato.map)
     if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
+    usedFallback(name, p, refStato)
     const quiescTit = new Map()
     for (const r of p.rows) {
       if (r.legame === 'TI') quiescTit.set(r.cf, normCategory(r.categoria, cfg.categories).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente]))
@@ -618,6 +672,21 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
         exitDate: null, exitKind: null, source: `Stato di rischio, foglio «${name}» riga ${r.rowNumber}`, note: r.note || '',
       })
     }
+    // Numero di polizza diverso da quello della categoria: lo segnaliamo, non lo correggiamo.
+    const cat = categoryOf(cfg, key)
+    const expected = cat && cat.policy ? String(cat.policy).trim() : ''
+    if (expected) {
+      const odd = new Map()
+      for (const r of p.rows) {
+        const num = String(r.polizza || '').trim()
+        if (!/^\d{5,}$/.test(num) || num === expected) continue
+        if (!odd.has(num)) odd.set(num, [])
+        odd.get(num).push(r.rowNumber)
+      }
+      for (const [num, rr] of odd) {
+        warnings.push(`«${name}»: ${rr.length === 1 ? 'una riga ha' : `${rr.length} righe hanno`} il numero di polizza ${num} invece di ${expected} (${cat.label}). ${rr.length === 1 ? 'Riga' : 'Righe'} ${rr.slice(0, 6).join(', ')}${rr.length > 6 ? '…' : ''}.`)
+      }
+    }
   }
   // 2) variazioni: prima le entrate, poi le uscite (chi esce può essere entrato in corso d'anno)
   const varRows = []
@@ -625,8 +694,9 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   for (const name of names.filter((n) => /^VARIAZ/i.test(n.trim()))) {
     const key = catOfSheet(name)
     if (!key) continue
-    const p = parseCommunicationRows(sheets[name], refYear)
+    const p = parseCommunicationRows(sheets[name], refYear, refVar.map)
     if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
+    usedFallback(name, p, refVar)
     const promoCol = p.header.map.promozione
     for (const r of p.rows) {
       varRows.push({ ...r, key, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
@@ -770,6 +840,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
  */
 export function tariffsFromWorkbook(cfg, sheets) {
   const out = {}
+  const ref = referenceHeader(sheets, (n) => !/^VARIAZ/i.test(String(n).trim()))
   for (const name of Object.keys(sheets).filter((n) => !/^VARIAZ/i.test(n.trim()))) {
     const key = normCategory(name, cfg.categories).key
     if (!key) continue
@@ -786,7 +857,7 @@ export function tariffsFromWorkbook(cfg, sheets) {
         else tariffs.titolare = v
       }
     }
-    const h = findHeader(rows)
+    const h = headerOrFallback(rows, ref.map)
     let policy = ''
     if (h && h.map.polizza != null) {
       const freq = new Map()

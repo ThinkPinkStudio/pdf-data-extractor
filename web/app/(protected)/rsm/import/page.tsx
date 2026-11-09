@@ -24,7 +24,9 @@ interface Dry {
 type TKey = keyof RsmCategory['tariffs']
 const TKEYS: TKey[] = ['titolare', 'quiescente', 'coniuge', 'figlio']
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
-const TOP = /fuori dal periodo|Tariffa del titolare/
+// Avvisi da mostrare SUBITO, non fra quelli minori: riguardano come il file è stato
+// letto o numeri che non tornano con il programma, non il singolo dato di una persona.
+const TOP = /fuori dal periodo|Tariffa del titolare|intestazione|numero di polizza/
 
 export default function RsmImportPage() {
   const { t } = useI18n()

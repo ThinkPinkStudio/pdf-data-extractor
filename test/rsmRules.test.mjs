@@ -12,6 +12,7 @@ import {
   defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
   parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
   parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear, parseCessationText, emlToText,
+  headerFits, referenceHeader,
 } from '../web/lib/rsm/rules.js'
 
 function cfg2026() {
@@ -320,4 +321,61 @@ test('revisione: uscite da file, import senza data o CF, riga iniziale spostata,
   assert.equal(members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, null, 'uscita senza data saltata')
   assert.ok(warnings.some((w) => /uscita senza data/.test(w)))
   assert.ok(warnings.some((w) => /uscita senza codice fiscale/.test(w)))
+})
+
+/* ─── File di rinnovo del cliente: stesso tracciato, senza premi ─────────── */
+
+// Colonne del file che l'Azienda rimanda a fine anno (nessuna colonna di premio).
+const RENEW_HEAD = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', "ETA'", 'SESSO', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'TITOLARE NUCLEO', 'LEGAME', 'DATA ENTRATA', 'QUIESCENTE', 'NOTE']
+const renewRow = (cat, pol, cognome, nome, cf, cfTit, legame, titolare) =>
+  ['C.A. VITA', cat, '90/01', 8637, pol, cognome, nome, null, 0, 'M', cf, cfTit, titolare || ' ', legame, '01/01/2026', 'NO', null]
+
+test('rinnovo: un foglio SENZA riga di intestazione si legge con le colonne degli altri', () => {
+  const c = cfg2026()
+  const sheets = {
+    DIRIGENTI: [RENEW_HEAD, renewRow('DIRIGENTI', '11341612', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI')],
+    // come nel file del cliente: la prima riga è già un dato
+    IMPIEGATI: [
+      renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI'),
+      renewRow('', '11341763', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'BNCLRA90A41F205I', 'CO', 'BIANCHI LAURA'),
+    ],
+  }
+  const { members, warnings } = parseStatoWorkbook(c, sheets)
+  assert.equal(members.length, 3, 'il foglio senza intestazione non si perde')
+  assert.equal(members.filter((m) => m.category === 'impiegati').length, 2)
+  assert.ok(warnings.some((w) => /IMPIEGATI.*intestazione/.test(w)), 'lo dice all\'operatore')
+  // i numeri di polizza si leggono anche dal foglio senza intestazione
+  assert.equal(tariffsFromWorkbook(c, sheets).impiegati.policy, '11341763')
+})
+
+test('un foglio senza intestazione si legge solo se le colonne combaciano davvero', () => {
+  const { map } = referenceHeader({ DIRIGENTI: [RENEW_HEAD] })
+  assert.ok(headerFits([renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI')], map))
+  // colonne sfalsate: il codice fiscale non è dove la mappa dice
+  assert.equal(headerFits([['C.A. VITA', 'IMPIEGATI', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I']], map), false)
+  assert.equal(headerFits([], map), false)
+  // senza tracciato di riferimento non si inventa niente
+  const sheets = { IMPIEGATI: [renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI')] }
+  const r = parseStatoWorkbook(cfg2026(), sheets)
+  assert.equal(r.members.length, 0)
+  assert.ok(r.warnings.some((w) => /Intestazione non trovata/.test(w)))
+})
+
+test('numero di polizza diverso da quello della categoria: si segnala', () => {
+  const c = cfg2026()
+  c.categories.find((x) => x.key === 'dirigenti').policy = '11341612'
+  const sheets = {
+    DIRIGENTI: [RENEW_HEAD,
+      renewRow('DIRIGENTI', '11341612', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI'),
+      renewRow('DIRIGENTI', '11341755', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI')],
+  }
+  const { members, warnings } = parseStatoWorkbook(c, sheets)
+  assert.equal(members.length, 2, 'si importano comunque: il dato è del cliente')
+  const w = warnings.find((x) => /11341755/.test(x))
+  assert.ok(w, warnings.join('\n'))
+  assert.ok(/invece di 11341612/.test(w) && /Riga 3/.test(w))
+  // con la polizza non ancora configurata (primo import) non si dice nulla
+  const c2 = cfg2026()
+  c2.categories.forEach((x) => { x.policy = '' })
+  assert.equal(parseStatoWorkbook(c2, sheets).warnings.filter((x) => /polizza/.test(x)).length, 0)
 })
