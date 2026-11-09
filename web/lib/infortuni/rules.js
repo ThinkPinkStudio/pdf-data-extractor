@@ -50,6 +50,23 @@ export function withDefaults(saved) {
 
 export const optionOf = (config, key) => (config.options || []).find((o) => o.key === String(key || '').toLowerCase()) || null
 
+/**
+ * Tariffa fissata al momento dell'adesione (numero di polizza collettiva,
+ * opzioni con premi e massimali): una modifica successiva delle Impostazioni
+ * (tariffe dell'anno dopo) non cambia premio, certificato e BDX delle
+ * adesioni già fatte. Si salva nel record come `tariffa`.
+ */
+export function tariffOf(config) {
+  return { polizzaCollettiva: config.polizzaCollettiva, options: (config.options || []).map((o) => ({ ...o })) }
+}
+
+/** Configurazione con cui leggere un'adesione: la sua tariffa, se c'è, sopra quella attuale. */
+export function configForRecord(config, rec) {
+  const t = rec && rec.tariffa
+  if (!t || !Array.isArray(t.options) || !t.options.length) return config
+  return { ...config, polizzaCollettiva: t.polizzaCollettiva || config.polizzaCollettiva, options: t.options }
+}
+
 /* ─── Campi: le colonne del BDX, nell'ordine del file ──────────────────── */
 
 // `col` è l'intestazione ESATTA del file «BDX Inclusioni CSA» (riga 2).
@@ -151,7 +168,7 @@ export function validateAdesione(rec, config, refYear = new Date().getFullYear()
     if (f.type === 'date' && val(f.id) && !isIsoDate(val(f.id))) errors[f.id] = 'Data non valida'
   }
   if (val('email') && !EMAIL_RE.test(val('email'))) errors.email = 'Indirizzo email non valido'
-  if (val('opzione') && !optionOf(config, val('opzione'))) errors.opzione = 'Opzione non prevista'
+  if (val('opzione') && !optionOf(configForRecord(config, r), val('opzione'))) errors.opzione = 'Opzione non prevista'
   if (isIsoDate(val('data_adesione')) && isIsoDate(val('data_scadenza')) && val('data_scadenza') <= val('data_adesione')) {
     errors.data_scadenza = 'La scadenza deve essere dopo la data di adesione'
   }
@@ -179,14 +196,21 @@ export function validateAdesione(rec, config, refYear = new Date().getFullYear()
   return { errors, warnings, valid: Object.keys(errors).length === 0 }
 }
 
-/** Record pulito da salvare: codici in maiuscolo, premio dall'opzione. */
+/**
+ * Record pulito da salvare: codici in maiuscolo, premio dall'opzione della
+ * tariffa dell'adesione (quella del record se c'è, altrimenti l'attuale, che
+ * viene fissata nel record).
+ */
 export function normalizeAdesione(rec, config) {
   const r = { ...(rec || {}) }
   for (const f of FIELDS) if (typeof r[f.id] === 'string') r[f.id] = r[f.id].trim()
+  if (typeof r.ragione_sociale === 'string') r.ragione_sociale = r.ragione_sociale.trim()
   r.codice_fiscale = cleanCode(r.codice_fiscale)
   r.targa = cleanCode(r.targa)
   r.opzione = String(r.opzione || '').toLowerCase()
-  const opt = optionOf(config, r.opzione)
+  const cfg = configForRecord(config, r)
+  r.tariffa = tariffOf(cfg)
+  const opt = optionOf(cfg, r.opzione)
   r.premio = opt ? opt.premio : ''
   r.questionario = { ...(r.questionario || {}) }
   return r
@@ -201,7 +225,7 @@ export { nextIdentificativo as nextNumber }
 
 /** Valori di una riga del BDX nell'ordine di FIELDS (date come Date UTC, premio numero). */
 export function bdxRow(rec, config) {
-  const opt = optionOf(config, rec.opzione)
+  const opt = optionOf(configForRecord(config, rec), rec.opzione)
   return FIELDS.map((f) => {
     const v = rec[f.id]
     if (f.type === 'date') return isIsoDate(v) ? new Date(`${v}T00:00:00Z`) : (v || null)
@@ -209,6 +233,11 @@ export function bdxRow(rec, config) {
     if (f.id === 'premio') { const n = parseEuro(opt ? opt.premio : v); return Number.isFinite(n) ? n : null }
     return v == null || v === '' ? null : String(v)
   })
+}
+
+/** Data di oggi in Italia (AAAA-MM-GG): dopo mezzanotte l'UTC è ancora ieri. */
+export function todayRome(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
 }
 
 /** Nome file sicuro per i documenti di un'adesione. */

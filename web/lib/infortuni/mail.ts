@@ -13,7 +13,8 @@ export async function sendBdx(p: { config: InfortuniConfig; file: { filename: st
   if (!to.length) throw new Error('Nessun destinatario: impostalo in CSA Adesioni Infortuni → Impostazioni')
   const { smtp } = await getAdesioniFullSettings()
   if (!smtp.host) throw new Error('Server di posta non configurato: impostalo in CSA Adesioni → Impostazioni (SMTP)')
-  const from = smtp.from || smtp.user
+  const from = String(smtp.from || smtp.user || '').trim()
+  if (!from) throw new Error('Mittente non configurato: imposta il mittente o l\'utente SMTP in CSA Adesioni → Impostazioni')
   const when = new Date().toLocaleString('it-IT', { timeZone: 'Europe/Rome' })
   const subject = String(p.config.mailSubject || '').trim() || 'CSA Adesioni Infortuni — BDX inclusioni'
   const text = `In allegato il BDX delle inclusioni alla polizza infortuni collettiva ${p.config.polizzaCollettiva}: ${p.count} ${p.count === 1 ? 'adesione' : 'adesioni'}.\n\nInviato da ${p.user} il ${when}.`

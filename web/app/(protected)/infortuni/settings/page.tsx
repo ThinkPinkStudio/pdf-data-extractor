@@ -5,7 +5,7 @@ import type { InfConfig, InfOption } from '@/components/infortuni/InfortuniForm'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const OPTION_COLS: { key: keyof InfOption; label: string; width?: number }[] = [
-  { key: 'name', label: 'inf.set.optName', width: 110 },
+  { key: 'name', label: 'inf.set.optName', width: 90 },
   { key: 'premio', label: 'inf.set.optPremio' },
   { key: 'imposte', label: 'inf.set.optImposte' },
   { key: 'morte', label: 'inf.set.optMorte' },
@@ -51,12 +51,8 @@ export default function InfortuniSettingsPage() {
     }
   }
 
-  const label = (text: string, hint?: string) => (
-    <>
-      <label className="label">{text}</label>
-      {hint && <span style={{ fontSize: 11, color: 'var(--c-text-muted)', display: 'block', marginBottom: 4 }}>{hint}</span>}
-    </>
-  )
+  const label = (text: string) => <label className="label">{text}</label>
+  const hint = (text: string) => <span style={{ fontSize: 11, color: 'var(--c-text-muted)', display: 'block', marginTop: 4 }}>{text}</span>
 
   return (
     <>
@@ -68,16 +64,19 @@ export default function InfortuniSettingsPage() {
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>{t('inf.set.policy')}</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px 16px' }}>
             <div className="form-group">
-              {label(t('inf.set.polizzaCollettiva'), t('inf.set.polizzaHint'))}
+              {label(t('inf.set.polizzaCollettiva'))}
               <input value={config.polizzaCollettiva} onChange={(e) => up({ polizzaCollettiva: e.target.value })} style={{ fontFamily: 'var(--font-mono)' }} />
+              {hint(t('inf.set.polizzaHint'))}
             </div>
             <div className="form-group">
-              {label(t('inf.set.nextNumber'), t('inf.set.nextNumberHint'))}
+              {label(t('inf.set.nextNumber'))}
               <input value={nextNumber} onChange={(e) => { setNextNumber(e.target.value); setMsg(null) }} style={{ fontFamily: 'var(--font-mono)' }} />
+              {hint(t('inf.set.nextNumberHint'))}
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              {label(t('inf.set.pagamento'), t('inf.set.pagamentoHint'))}
+              {label(t('inf.set.pagamento'))}
               <input value={config.pagamento} onChange={(e) => up({ pagamento: e.target.value })} placeholder="[…]" />
+              {hint(t('inf.set.pagamentoHint'))}
             </div>
           </div>
         </div>
@@ -86,13 +85,13 @@ export default function InfortuniSettingsPage() {
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('inf.set.options')}</h2>
           <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 12 }}>{t('inf.set.optionsHint')}</p>
           <table>
-            <thead><tr>{OPTION_COLS.map((c) => <th key={c.key} style={{ whiteSpace: 'nowrap' }}>{t(c.label)}</th>)}</tr></thead>
+            <thead><tr>{OPTION_COLS.map((c) => <th key={c.key} style={{ fontSize: 10 }}>{t(c.label)}</th>)}</tr></thead>
             <tbody>
               {config.options.map((o, i) => (
                 <tr key={o.key}>
                   {OPTION_COLS.map((c) => (
                     <td key={c.key}>
-                      <input value={String(o[c.key] ?? '')} onChange={(e) => upOpt(i, c.key, e.target.value)} style={{ width: c.width || 96 }} aria-label={`${o.name} ${t(c.label)}`} />
+                      <input value={String(o[c.key] ?? '')} onChange={(e) => upOpt(i, c.key, e.target.value)} style={{ width: '100%', minWidth: c.width || 64 }} aria-label={`${o.name} ${t(c.label)}`} />
                     </td>
                   ))}
                 </tr>

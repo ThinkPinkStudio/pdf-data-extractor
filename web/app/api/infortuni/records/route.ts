@@ -22,7 +22,8 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { record?: Record<string, unknown> }
   if (!body.record) return NextResponse.json({ error: 'Adesione mancante', code: 'missing' }, { status: 400 })
   const config = await getConfig()
-  const record = normalizeAdesione(body.record, config)
+  // Nuova adesione: la tariffa è sempre quella attuale (mai quella mandata dal browser).
+  const record = normalizeAdesione({ ...body.record, tariffa: undefined }, config)
   const { valid, errors } = validateAdesione(record, config)
   if (!valid) return NextResponse.json({ error: 'Dati non validi', code: 'invalid', errors }, { status: 400 })
   const row = await createRecord(session.email, record)

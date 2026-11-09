@@ -56,12 +56,18 @@ export async function getNextNumber(): Promise<string> {
   return rows[0]?.value || DEFAULT_FIRST_NUMBER
 }
 
-/** Imposta il prossimo numero (es. per riprendere la serie da un numero dato). */
-export async function setNextNumber(next: string): Promise<string> {
+/** Controlla un nuovo «prossimo numero» senza salvarlo (errore leggibile). */
+export async function checkNextNumber(next: string): Promise<string> {
   const val = String(next || '').trim()
   if (!/\d$/.test(val)) throw new Error('Il numero deve finire con delle cifre (es. IAH0015842/001)')
   const { rows } = await pool.query('SELECT 1 FROM infortuni_records WHERE numero = $1', [val])
   if (rows.length) throw new Error(`Il numero ${val} è già usato da un'adesione`)
+  return val
+}
+
+/** Imposta il prossimo numero (es. per riprendere la serie da un numero dato). */
+export async function setNextNumber(next: string): Promise<string> {
+  const val = await checkNextNumber(next)
   await pool.query(
     'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
     [NUMBER_KEY, val]

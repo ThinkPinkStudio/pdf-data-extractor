@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import InfortuniForm, { Warnings, downloadBlob, fileNameOf, type InfConfig, type InfRecord } from '@/components/infortuni/InfortuniForm'
-import { defaultConfig, validateAdesione, normalizeAdesione, optionOf, fmtDate, splitAddresses } from '@/lib/infortuni/rules.js'
+import { defaultConfig, validateAdesione, normalizeAdesione, optionOf, fmtDate, splitAddresses, configForRecord } from '@/lib/infortuni/rules.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Row {
@@ -23,6 +23,10 @@ interface Row {
   data: InfRecord
 }
 type Filter = 'all' | 'pending' | 'sent'
+
+// Colonna delle azioni fissa a destra: su schermi stretti la tabella scorre
+// ma Modifica/Elimina restano visibili.
+const STICKY: CSSProperties = { position: 'sticky', right: 0, background: 'var(--c-bg-card)', boxShadow: '-8px 0 8px -8px rgba(0,0,0,0.25)' }
 
 export default function InfortuniArchivePage() {
   const t = useT()
@@ -95,7 +99,8 @@ export default function InfortuniArchivePage() {
   }
 
   async function del(r: Row) {
-    if (!(await ask(t('inf.arc.confirmDelete', { n: r.numero, who: `${r.cognome} ${r.nome}` }), { danger: true }))) return
+    const text = t('inf.arc.confirmDelete', { n: r.numero, who: `${r.cognome} ${r.nome}` }) + (r.status === 'sent' ? `\n\n${t('inf.arc.confirmDeleteSent')}` : '')
+    if (!(await ask(text, { danger: true }))) return
     await run(async () => {
       const res = await fetch(`/api/infortuni/records/${r.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Errore')
@@ -130,7 +135,7 @@ export default function InfortuniArchivePage() {
       <p className="view-subtitle">{t('inf.arc.subtitle')}</p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load(q, filter)} placeholder={t('inf.arc.search')} style={{ flex: 1, minWidth: 240 }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') reload() }} placeholder={t('inf.arc.search')} style={{ flex: 1, minWidth: 240 }} />
         {([['all', t('inf.arc.all')], ['pending', t('inf.arc.pending')], ['sent', t('inf.arc.sent')]] as [Filter, string][]).map(([f, label]) => (
           <button key={f} className={`btn ${filter === f ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 13, padding: '6px 12px' }} onClick={() => { setFilter(f); setSel(new Set()) }}>{label}</button>
         ))}
@@ -155,7 +160,7 @@ export default function InfortuniArchivePage() {
               <tr>
                 <th><input type="checkbox" checked={allShown} onChange={toggleAll} aria-label={t('inf.arc.all')} /></th>
                 <th>{t('inf.arc.colNumero')}</th><th>{t('inf.arc.colCliente')}</th><th>{t('inf.arc.colCf')}</th><th>{t('inf.arc.colTarga')}</th>
-                <th>{t('inf.arc.colOpzione')}</th><th>{t('inf.arc.colAdesione')}</th><th>{t('inf.arc.colScadenza')}</th><th>{t('inf.arc.colStato')}</th><th>{t('inf.arc.colBy')}</th><th></th>
+                <th>{t('inf.arc.colOpzione')}</th><th>{t('inf.arc.colAdesione')}</th><th>{t('inf.arc.colScadenza')}</th><th>{t('inf.arc.colStato')}</th><th style={STICKY}></th>
               </tr>
             </thead>
             <tbody>
@@ -163,15 +168,14 @@ export default function InfortuniArchivePage() {
                 <tr key={r.id} style={editing?.id === r.id ? { background: 'var(--c-accent-faint)' } : undefined}>
                   <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.numero} ${r.cognome} ${r.nome}`} /></td>
                   <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{r.numero}</td>
-                  <td>{r.cognome} {r.nome}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{r.cognome} {r.nome}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.codice_fiscale}</td>
                   <td>{r.targa}</td>
                   <td>{(optionOf(config, r.opzione) as { name: string } | null)?.name || r.opzione}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.data_adesione)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.data_scadenza)}</td>
                   <td><Status row={r} t={t} /></td>
-                  <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{r.saved_by || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
+                  <td style={{ whiteSpace: 'nowrap', ...STICKY }}>
                     <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setEditing({ ...r, data: { ...r.data, questionario: { ...(r.data.questionario || {}) } } }); setErrors({}) }}>{t('inf.arc.edit')}</button>
                     <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px', marginLeft: 6 }} onClick={() => del(r)} disabled={busy}>{t('inf.arc.delete')}</button>
                   </td>
@@ -188,7 +192,12 @@ export default function InfortuniArchivePage() {
             <h2 style={{ fontSize: 16, fontWeight: 700 }}>{t('inf.arc.editTitle', { n: editing.numero })}</h2>
             <button className="btn btn-secondary" onClick={() => setEditing(null)}>{t('inf.arc.close')}</button>
           </div>
-          <InfortuniForm config={config} record={editing.data} errors={errors} onChange={(d) => setEditing({ ...editing, data: d })} />
+          {editing.status === 'sent' && (
+            <div className="alert" style={{ marginBottom: 14, border: '1px solid var(--c-warning)', borderLeftWidth: 4, color: 'var(--c-text-primary)' }}>
+              {t('inf.arc.editSent', { d: editing.sent_at ? new Date(editing.sent_at * 1000).toLocaleDateString('it-IT') : '' })}
+            </div>
+          )}
+          <InfortuniForm config={configForRecord(config, editing.data) as InfConfig} record={editing.data} errors={errors} onChange={(d) => setEditing({ ...editing, data: d })} />
           <Warnings items={editWarnings} title={t('inf.warnTitle')} />
           <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={saveEdit} disabled={busy}>{t('inf.arc.saveEdit')}</button>
         </div>
@@ -200,8 +209,9 @@ export default function InfortuniArchivePage() {
 function Status({ row, t }: { row: Row; t: (k: string, v?: Record<string, string | number>) => string }) {
   const sent = row.status === 'sent'
   const d = sent && row.sent_at ? new Date(row.sent_at * 1000).toLocaleDateString('it-IT') : ''
+  const tip = [sent && row.sent_to ? t('inf.arc.tipSentTo', { to: row.sent_to }) : '', row.saved_by ? t('inf.arc.tipBy', { by: row.saved_by }) : ''].filter(Boolean).join('\n')
   return (
-    <span title={sent ? row.sent_to || '' : ''} style={{
+    <span title={tip} style={{
       fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
       color: sent ? 'var(--c-text-muted)' : 'var(--c-accent)',
       background: sent ? 'var(--c-bg-card-alt)' : 'var(--c-accent-faint)',

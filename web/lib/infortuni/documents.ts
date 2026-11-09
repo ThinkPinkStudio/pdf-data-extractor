@@ -6,7 +6,7 @@
 // (certificateHtml, questionnaireHtml: test senza browser); renderPdf stampa.
 import { readFileSync, existsSync } from 'fs'
 import JSZip from 'jszip'
-import { fmtDate, optionOf, shortEuro, QUESTIONS, docBaseName } from './rules.js'
+import { fmtDate, optionOf, shortEuro, QUESTIONS, docBaseName, configForRecord } from './rules.js'
 import { infortuniAssetPath } from './bdx'
 import type { Rec } from './store'
 import type { InfortuniConfig } from './store'
@@ -30,7 +30,9 @@ const BASE_CSS = `
 
 /* ─── Certificato di adesione ──────────────────────────────────────────── */
 
-export function certificateHtml(rec: Rec, config: InfortuniConfig, images: { logo?: string; firma?: string } = {}): string {
+export function certificateHtml(rec: Rec, current: InfortuniConfig, images: { logo?: string; firma?: string } = {}): string {
+  // Premi e massimali della tariffa dell'adesione, interruttori attuali.
+  const config = configForRecord(current, rec) as InfortuniConfig
   const opt = optionOf(config, rec.opzione)
   const row = (label: string, value: unknown) => `<tr><th>${esc(label)}</th><td>${esc(value)}</td></tr>`
   const optionBlock = (o: InfortuniConfig['options'][number]) => {

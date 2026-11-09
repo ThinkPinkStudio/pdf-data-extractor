@@ -19,8 +19,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const { id } = params
   const body = (await req.json().catch(() => ({}))) as { record?: Record<string, unknown> }
   if (!body.record) return NextResponse.json({ error: 'Adesione mancante', code: 'missing' }, { status: 400 })
+  const cur = await getRecord(id)
+  if (!cur) return NextResponse.json({ error: 'Non trovata', code: 'not-found' }, { status: 404 })
   const config = await getConfig()
-  const record = normalizeAdesione(body.record, config)
+  // Una correzione tiene la tariffa dell'adesione (quella del DB, non del browser).
+  const record = normalizeAdesione({ ...body.record, tariffa: cur.data?.tariffa }, config)
   const { valid, errors } = validateAdesione(record, config)
   if (!valid) return NextResponse.json({ error: 'Dati non validi', code: 'invalid', errors }, { status: 400 })
   const row = await updateRecord(id, record)

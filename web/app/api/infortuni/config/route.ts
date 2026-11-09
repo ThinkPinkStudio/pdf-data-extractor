@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
-import { getConfig, saveConfig, getNextNumber, setNextNumber } from '@/lib/infortuni/store'
+import { getConfig, saveConfig, getNextNumber, setNextNumber, checkNextNumber } from '@/lib/infortuni/store'
 
 export const runtime = 'nodejs'
 
@@ -17,9 +17,13 @@ export async function PUT(req: NextRequest) {
   if (!session.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = (await req.json().catch(() => ({}))) as { config?: unknown; nextNumber?: string }
   try {
-    const config = body.config ? await saveConfig(body.config) : await getConfig()
+    // Il numero si controlla PRIMA di salvare: con un numero sbagliato non si
+    // salva niente (prima la configurazione restava salvata a metà).
     const cur = await getNextNumber()
-    const nextNumber = body.nextNumber && body.nextNumber.trim() !== cur ? await setNextNumber(body.nextNumber) : cur
+    const changeNumber = !!body.nextNumber && body.nextNumber.trim() !== cur
+    if (changeNumber) await checkNextNumber(body.nextNumber as string)
+    const config = body.config ? await saveConfig(body.config) : await getConfig()
+    const nextNumber = changeNumber ? await setNextNumber(body.nextNumber as string) : cur
     await logAction({ email: session.email, action: 'infortuni.config.save', metadata: { nextNumber } })
     return NextResponse.json({ config, nextNumber })
   } catch (e) {

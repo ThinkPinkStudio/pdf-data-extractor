@@ -4,7 +4,7 @@
 // la formattazione della riga 3 (date, euro).
 import path from 'path'
 import ExcelJS from 'exceljs'
-import { bdxRow, FIELDS } from './rules.js'
+import { bdxRow, FIELDS, todayRome } from './rules.js'
 import type { Rec } from './store'
 
 export function infortuniAssetPath(...parts: string[]): string {
@@ -40,6 +40,5 @@ export async function buildBdx(records: Rec[], config: Parameters<typeof bdxRow>
 }
 
 export function bdxFileName(date = new Date()): string {
-  const d = date.toISOString().slice(0, 10)
-  return `BDX Inclusioni CSA ${d}.xlsx`
+  return `BDX Inclusioni CSA ${todayRome(date)}.xlsx`
 }

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import {
   FIELDS, QUESTIONS, DEFAULT_FIRST_NUMBER, defaultConfig, withDefaults, optionOf,
   nextNumber, defaultScadenza, validateAdesione, normalizeAdesione, bdxRow,
-  parseEuro, shortEuro, splitAddresses, docBaseName,
+  parseEuro, shortEuro, splitAddresses, docBaseName, configForRecord, todayRome,
 } from '../web/lib/infortuni/rules.js'
 import { decodeCf } from '../web/lib/rsm/rules.js'
 
@@ -126,4 +126,28 @@ test('interruttori dei punti da confermare: default e persistenza nella configur
   assert.equal(c.showRagioneSociale, true)
   assert.equal(c.showFranchigiaSpese, true)
   assert.equal(c.questionarioNumero, false)
+})
+
+test('tariffa fissata all\'adesione: le tariffe nuove non cambiano premio e BDX delle vecchie', () => {
+  const r = normalizeAdesione(ok(), config)
+  assert.equal(r.tariffa.options.find((o) => o.key === 'premium').premio, '60,00')
+  const nuova = withDefaults({ options: config.options.map((o) => ({ ...o, premio: o.key === 'premium' ? '70,00' : o.premio })) })
+  // correzione dopo il cambio tariffa: premio e opzioni restano quelli dell'adesione
+  const corretta = normalizeAdesione({ ...r, nome: 'Mario' }, nuova)
+  assert.equal(corretta.premio, '60,00')
+  assert.equal(bdxRow({ ...corretta, numero: 'X/1' }, nuova)[13], 60)
+  assert.equal(configForRecord(nuova, corretta).options.find((o) => o.key === 'premium').premio, '60,00')
+  // nuova adesione (senza tariffa): quella attuale
+  assert.equal(normalizeAdesione({ ...ok(), tariffa: undefined }, nuova).premio, '70,00')
+  // opzione tolta dalle Impostazioni: la vecchia adesione resta valida
+  const senzaTop = withDefaults({ options: config.options.filter((o) => o.key !== 'top') })
+  const top = normalizeAdesione({ ...ok(), opzione: 'top' }, config)
+  assert.equal(validateAdesione(top, senzaTop, 2026).valid, true)
+  // record di prima (senza tariffa): configurazione attuale
+  assert.equal(configForRecord(nuova, { opzione: 'premium' }), nuova)
+})
+
+test('data del file BDX in ora italiana', () => {
+  assert.equal(todayRome(new Date('2026-11-08T23:30:00Z')), '2026-11-09')
+  assert.equal(todayRome(new Date('2026-07-01T10:00:00Z')), '2026-07-01')
 })
