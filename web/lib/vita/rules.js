@@ -7,19 +7,20 @@ export const DEFAULT_RULES = {
   multiplier: 2.5, // capitale = 2,5 × RAL
   keyFigureCapital: 1400000, // figura chiave: capitale fisso
   noDocUpTo: 400000, // fino a qui nessun documento sanitario
-  visitUpTo: 800000, // fino a qui basta il rapporto di visita medica
+  visitUpTo: 800000, // con il rapporto di visita (e l'ok C.A. Vita) il capitale arriva a qui; oltre servono accertamenti o check-up
   checkupMonths: 6, // validità del check-up per la fascia oltre
   rights: 1.03, // diritti per assicurato
   minAge: 18,
   deathMaxAge: 80, // garanzia morte
   ipMaxAge: 70, // invalidità permanente da malattia
-  trackExtra: false, // oltre visupTo: accertamenti/check-up obbligatori (il file non li segue)
   refundBasis: 'start', // esclusioni: 'start' = tasso e capitale pagati a inizio anno, 'exit' = età al giorno di uscita
 }
 
 export const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100
 
 // ROUNDUP(x, 2) di Excel, senza gli errori di virgola mobile (341,03 resta 341,03).
+// Solo per importi positivi: su un negativo arrotonderebbe verso lo zero (i rimborsi
+// passano da round2).
 export function roundUp2(x) {
   const v = x * 100
   const r = Math.round(v)
@@ -31,10 +32,26 @@ const dayNum = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split('-').
 export const daysBetween = (a, b) => dayNum(b) - dayNum(a)
 export function fmtDate(iso) { if (!iso) return ''; const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${d}/${m}/${y}` }
 
-/** Età computabile come nel file: ROUND((data − nascita − 2) / 365,25). */
+/**
+ * Età computabile (regola della polizza): anni compiuti se alla decorrenza non sono
+ * trascorsi più di sei mesi dall'ultimo compleanno, altrimenti l'età da compiere
+ * (compiuti + 1). Coincide con ROUND((data − nascita − 2)/365,25) del file su tutte
+ * le 308 righe del 2026.
+ */
 export function ageAt(birthISO, atISO) {
   if (!birthISO || !atISO) return null
-  return Math.round((daysBetween(birthISO, atISO) - 2) / 365.25)
+  const [by, bm, bd] = String(birthISO).slice(0, 10).split('-').map(Number)
+  const [ay, am, ad] = String(atISO).slice(0, 10).split('-').map(Number)
+  let years = ay - by
+  if (am < bm || (am === bm && ad < bd)) years--
+  // ultimo compleanno e sei mesi dopo (il 29/02 cade il 28/02 negli anni non bisestili)
+  const ly = by + years
+  const mm = bm + 6
+  const sy = ly + (mm > 12 ? 1 : 0)
+  const sm = ((mm - 1) % 12) + 1
+  const dim = new Date(Date.UTC(sy, sm, 0)).getUTCDate()
+  const sixISO = `${sy}-${String(sm).padStart(2, '0')}-${String(Math.min(bd, dim)).padStart(2, '0')}`
+  return String(atISO).slice(0, 10) > sixISO ? years + 1 : years
 }
 
 /** Tasso ‰ per età dalla tabella { età: tasso }; null se l'età non c'è. */
@@ -64,27 +81,65 @@ export function medicalBand(target, rules = DEFAULT_RULES) {
 }
 
 /**
- * Capitale assicurato. `doc` = { visit: bool (rapporto fornito), ok: bool (ok C.A. Vita), extra: bool }.
- * Finché la documentazione richiesta non c'è, il capitale resta al massimo senza documenti;
- * la differenza è la scopertura (sempre positiva).
+ * Capitale assicurato. `doc` = { visit: bool (rapporto di visita fornito), extra: bool
+ * (accertamenti sanitari o check-up degli ultimi 6 mesi), ok: bool (ok di C.A. Vita
+ * sul livello raggiunto) }. Senza documenti il capitale resta a 400.000; con il
+ * rapporto di visita (e l'ok della compagnia) sale a 800.000 al massimo; per arrivare
+ * al capitale previsto servono il rapporto di visita PIÙ accertamenti o check-up,
+ * sempre con l'ok della compagnia. La differenza è la scopertura (mai negativa).
  */
 export function capitalOf({ ral, keyFigure }, doc = {}, rules = DEFAULT_RULES) {
   const target = round2(keyFigure ? rules.keyFigureCapital : (ral || 0) * rules.multiplier)
-  const band = medicalBand(target, rules)
-  let covered = band === 'nessuna' || (doc.visit && doc.ok)
-  if (covered && band === 'visita+accertamenti' && rules.trackExtra && !doc.extra) covered = false
-  const capital = covered ? target : rules.noDocUpTo
+  // Alla figura chiave la documentazione si chiede sempre, anche se il suo capitale
+  // fosse sotto la prima soglia (il valore si cambia dalle Impostazioni).
+  let band = medicalBand(target, rules)
+  if (keyFigure && band === 'nessuna') band = 'visita'
+  let capital = target
+  if (band !== 'nessuna') {
+    const visitOk = !!(doc.visit && doc.ok)
+    // Il tetto non alza mai il capitale sopra quello previsto (figura chiave con capitale basso).
+    const upTo = (max) => Math.min(target, max)
+    // Il rapporto di visita è sempre necessario: gli accertamenti si aggiungono, non lo sostituiscono.
+    if (band === 'visita') capital = visitOk ? target : upTo(rules.noDocUpTo)
+    else capital = visitOk && doc.extra ? target : visitOk ? upTo(rules.visitUpTo) : upTo(rules.noDocUpTo)
+  }
   return { target, band, capital: round2(capital), scopertura: round2(target - capital) }
 }
 
-/** Premio annuo: netto = capitale × tasso ‰ × (1 + sovrappremio %); lordo = netto + diritti, per eccesso al centesimo. */
+/**
+ * Che cosa manca per arrivare al capitale previsto:
+ * 'visita' (rapporto di visita medica), 'ok' (risposta di C.A. Vita su quanto inviato),
+ * 'accertamenti' (accertamenti sanitari o check-up, oltre la visita già accettata),
+ * null se non manca nulla.
+ */
+export function missingDoc({ band, doc = {} }) {
+  if (band === 'nessuna') return null
+  if (!doc.visit) return 'visita'
+  if (!doc.ok) return 'ok'
+  if (band === 'visita+accertamenti' && !doc.extra) return 'accertamenti'
+  return null
+}
+
+/**
+ * Premio annuo: netto = capitale × tasso ‰ × (1 + sovrappremio %); lordo = netto +
+ * diritti, arrotondato per eccesso al centesimo (ROUNDUP di Excel).
+ * `sovrPct` è in PERCENTUALE (25 = +25%): nel file del cliente la colonna SOVRAPREMI
+ * contiene una frazione (0,25), quindi all'import va moltiplicata per 100.
+ */
 export function premiumOf(capital, rate, sovrPct = 0, rules = DEFAULT_RULES) {
   if (rate == null) return { net: null, rights: rules.rights, gross: null }
   const net = round2((capital * rate / 1000) * (1 + (sovrPct || 0) / 100))
   return { net, rights: rules.rights, gross: roundUp2(net + rules.rights) }
 }
 
-/** Frazione d'anno dal giorno del movimento al 31/12 (giorni / 365). */
+/**
+ * Frazione d'anno dal giorno del movimento al 31/12 (giorni / 365), come YEARFRAC
+ * base 3 del file del cliente: il 31/12 non è contato, quindi un movimento del 01/01
+ * vale 364/365 e uno del 31/12 vale 0. Chi è in copertura dal primo giorno dell'anno
+ * non è un movimento: sta nello stato di rischio e paga il premio annuo pieno.
+ * Una data fuori dall'anno va rifiutata prima di arrivare qui (`days` resterebbe
+ * negativo o sopra 365, mentre la frazione è limitata a 0..1).
+ */
 export function prorata(dateISO, yearEndISO) {
   const f = daysBetween(dateISO, yearEndISO) / 365
   return Math.max(0, Math.min(1, f))

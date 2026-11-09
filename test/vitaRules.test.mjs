@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   DEFAULT_RULES, ageAt, rateFor, coverage, medicalBand, capitalOf, premiumOf, roundUp2,
-  prorata, movementOf, computeInsured, makeCf,
+  prorata, movementOf, computeInsured, makeCf, missingDoc,
 } from '../web/lib/vita/rules.js'
 import { decodeCf, checkPerson } from '../web/lib/rsm/rules.js'
 import { VITA_RATES_2026 as RATES } from '../web/lib/vita/rates2026.ts'
@@ -69,13 +69,45 @@ test('fasce sanitarie e capitale ridotto senza documenti', () => {
   assert.equal(capitalOf({ ral: 160000.1 }, {}).capital, 400000)
 })
 
-test('oltre 800.000: con trackExtra servono anche gli accertamenti', () => {
-  const rules = { ...DEFAULT_RULES, trackExtra: true }
-  const base = { ral: 310000.21, keyFigure: true }
-  assert.equal(capitalOf(base, { visit: true, ok: true, extra: false }, rules).capital, 400000)
-  assert.equal(capitalOf(base, { visit: true, ok: true, extra: true }, rules).capital, 1400000)
-  // come il file: senza trackExtra basta il rapporto
-  assert.equal(capitalOf(base, { visit: true, ok: true }).capital, 1400000)
+test('oltre 800.000: la visita porta a 800.000, accertamenti o check-up al capitale previsto', () => {
+  const base = { ral: 310000.21, keyFigure: true } // capitale previsto 1.400.000
+  assert.equal(capitalOf(base, {}).capital, 400000)
+  assert.equal(capitalOf(base, { visit: true, ok: false }).capital, 400000)
+  assert.equal(capitalOf(base, { visit: true, ok: true }).capital, 800000)
+  assert.equal(capitalOf(base, { visit: true, ok: true }).scopertura, 600000)
+  assert.equal(capitalOf(base, { visit: true, extra: true, ok: true }).capital, 1400000)
+  assert.equal(capitalOf(base, { visit: true, extra: true, ok: false }).capital, 400000)
+  // gli accertamenti non sostituiscono il rapporto di visita
+  assert.equal(capitalOf(base, { extra: true, ok: true }).capital, 400000)
+  // figura chiave con RAL bassa: la documentazione si chiede comunque
+  assert.equal(capitalOf({ ral: 50000, keyFigure: true }, {}).capital, 400000)
+})
+
+test('alla figura chiave i documenti si chiedono anche con un capitale sotto la prima soglia', () => {
+  const rules = { ...DEFAULT_RULES, keyFigureCapital: 300000 }
+  const senza = capitalOf({ ral: 30000, keyFigure: true }, {}, rules)
+  assert.equal(senza.band, 'visita')
+  assert.equal(senza.capital, 300000) // il tetto non alza mai il capitale sopra il previsto
+  assert.equal(senza.scopertura, 0)
+  // chi non è figura chiave con lo stesso capitale non deve nulla
+  assert.equal(capitalOf({ ral: 120000, keyFigure: false }, {}, rules).band, 'nessuna')
+})
+
+test('che cosa manca, per la mail all\'Azienda', () => {
+  assert.equal(missingDoc({ band: 'nessuna', doc: {} }), null)
+  assert.equal(missingDoc({ band: 'visita', doc: {} }), 'visita')
+  assert.equal(missingDoc({ band: 'visita', doc: { visit: true } }), 'ok')
+  assert.equal(missingDoc({ band: 'visita', doc: { visit: true, ok: true } }), null)
+  assert.equal(missingDoc({ band: 'visita+accertamenti', doc: { visit: true, ok: true } }), 'accertamenti')
+  assert.equal(missingDoc({ band: 'visita+accertamenti', doc: { visit: true, extra: true, ok: true } }), null)
+  assert.equal(missingDoc({ band: 'visita+accertamenti', doc: { extra: true, ok: true } }), 'visita')
+})
+
+test('età computabile: compiuta fino a sei mesi dal compleanno, altrimenti da compiere', () => {
+  assert.equal(ageAt('1972-02-16', '2026-01-01'), 54) // 53 compiuti, ultimo compleanno 16/02/2025, oltre i sei mesi → 54
+  assert.equal(ageAt('1980-07-01', '2026-01-01'), 45) // esattamente sei mesi dal compleanno: resta 45
+  assert.equal(ageAt('1980-07-01', '2026-01-02'), 46)
+  assert.equal(ageAt('1980-12-31', '2026-01-01'), 45)
 })
 
 test('garanzie per età: morte + IPT fino a 70, solo morte fino a 80', () => {

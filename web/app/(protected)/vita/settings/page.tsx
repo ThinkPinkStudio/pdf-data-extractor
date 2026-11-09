@@ -2,7 +2,7 @@
 
 // Tassi e regole della polizza vita: tutto ciò che può cambiare nel tempo si
 // modifica da qui, senza interventi sul programma.
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { COMPANIES, RATES, RULES, eur, rate4 } from '@/lib/vita/demo'
 import { VitaHeader } from '@/components/vita/VitaUi'
 
@@ -45,7 +45,7 @@ export default function VitaSettingsPage() {
               <label className="rsm-field">Rapporto di visita fino a<input defaultValue={eur(RULES.visitUpTo)} style={{ width: 150 }} /></label>
               <label className="rsm-field">Validità check-up (mesi)<input defaultValue={RULES.checkupMonths} style={{ width: 110 }} /></label>
             </div>
-            <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" style={{ height: 16, width: 16 }} />Oltre 800.000 servono anche accertamenti o check-up</label>
+            <p className="rsm-note">Senza documenti il capitale resta a 400.000. Con il rapporto di visita (e l&apos;ok di C.A. Vita) arriva a 800.000; con accertamenti o check-up (e l&apos;ok) al capitale previsto.</p>
           </div>
         </div>
 
@@ -77,11 +77,11 @@ export default function VitaSettingsPage() {
         <div className="rsm-box-head"><span className="rsm-box-title">Tassi per età (‰)</span><div className="rsm-row"><button className="btn btn-secondary">Importa dal foglio TASSI</button></div></div>
         <div className="rsm-scroll tall" style={{ maxHeight: 360 }}>
           <table className="rsm-table">
-            <thead><tr>{[0, 1, 2].map((i) => <><th key={`a${i}`}>Età</th><th key={`b${i}`} className="num">Tasso ‰</th></>)}</tr></thead>
+            <thead><tr>{[0, 1, 2].map((i) => <Fragment key={i}><th>Età</th><th className="num">Tasso ‰</th></Fragment>)}</tr></thead>
             <tbody>
               {Array.from({ length: Math.ceil(ages.length / 3) }).map((_, row) => (
                 <tr key={row}>
-                  {[0, 1, 2].map((c) => { const a = ages[row + c * Math.ceil(ages.length / 3)]; return a === undefined ? <><td key={`x${c}`} /><td key={`y${c}`} /></> : <><td key={`x${c}`} className="num" style={{ textAlign: 'left' }}>{a}</td><td key={`y${c}`} className="num">{rate4(RATES[a])}</td></> })}
+                  {[0, 1, 2].map((c) => { const a = ages[row + c * Math.ceil(ages.length / 3)]; return a === undefined ? <Fragment key={c}><td /><td /></Fragment> : <Fragment key={c}><td className="num" style={{ textAlign: 'left' }}>{a}</td><td className="num">{rate4(RATES[a])}</td></Fragment> })}
                 </tr>
               ))}
             </tbody>

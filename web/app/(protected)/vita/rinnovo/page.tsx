@@ -18,15 +18,19 @@ export default function VitaRinnovoPage() {
     const flags: { tone: string; text: string }[] = []
     if (n == null) flags.push({ tone: 'err', text: 'RAL non comunicata' })
     if (next) {
-      if (r.band === 'nessuna' && next.band !== 'nessuna') flags.push({ tone: 'warn', text: next.band === 'visita' ? 'Supera 400.000: serve il rapporto di visita' : 'Supera 800.000: servono anche gli accertamenti' })
-      if (next.cover !== r.cover) flags.push({ tone: next.cover === 'FUORI COPERTURA' ? 'err' : 'warn', text: next.cover === 'SOLO CASO MORTE' ? 'Compie 71 anni: solo caso morte' : next.cover === 'FUORI COPERTURA' ? 'Oltre gli 80 anni: esce dalla copertura' : 'Cambia la garanzia' })
+      // Una fascia sanitaria più alta vuole documenti nuovi, anche partendo da «visita».
+      const level = (b: string) => (b === 'nessuna' ? 0 : b === 'visita' ? 1 : 2)
+      if (level(next.band) > level(r.band)) flags.push({ tone: 'warn', text: next.band === 'visita' ? 'Supera 400.000: serve il rapporto di visita' : 'Supera 800.000: servono accertamenti o check-up' })
+      if (next.cover !== r.cover) flags.push({ tone: next.cover === 'FUORI COPERTURA' ? 'err' : 'warn', text: next.cover === 'SOLO CASO MORTE' ? 'Compie 71 anni: solo caso morte' : next.cover === 'FUORI COPERTURA' ? 'Oltre gli 80 anni: da segnalare al cliente' : 'Cambia la garanzia' })
     }
     return { r, n, next, flags }
   }), [])
   const changed = rows.filter((x) => x.flags.length > 0)
-  const premNow = rows.reduce((s, x) => s + (x.r.gross || 0), 0)
-  const premNext = rows.reduce((s, x) => s + (x.next?.gross || 0), 0)
   const missing = rows.filter((x) => x.n == null).length
+  // Il confronto vale solo per chi ha la RAL 2027: con quelle mancanti sembrerebbe un calo.
+  const withRal = rows.filter((x) => x.next)
+  const premNow = withRal.reduce((s, x) => s + (x.r.gross || 0), 0)
+  const premNext = withRal.reduce((s, x) => s + (x.next?.gross || 0), 0)
 
   return (
     <div className="rsm">
@@ -50,7 +54,7 @@ export default function VitaRinnovoPage() {
       </div>
 
       <div className="rsm-kpis">
-        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(premNext)}</div><div className="rsm-kpi-line">2026: {eur(premNow)} · {premNext >= premNow ? '+' : '−'}{eur(Math.abs(premNext - premNow))}</div></div>
+        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(premNext)}</div><div className="rsm-kpi-line">2026: {eur(premNow)} · {premNext >= premNow ? '+' : '−'}{eur(Math.abs(premNext - premNow))}{missing > 0 ? ` · ${withRal.length} di ${rows.length} assicurati` : ''}</div></div>
         <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Da guardare</span></div><div className="rsm-kpi-num" style={{ color: changed.length ? 'var(--c-warning)' : undefined }}>{changed.length}</div><div className="rsm-kpi-line">cambiano fascia, garanzia o mancano dati</div></div>
         <div className="rsm-kpi"><div className="rsm-kpi-top"><span>RAL mancanti</span></div><div className="rsm-kpi-num" style={{ color: missing ? 'var(--c-error)' : undefined }}>{missing}</div><div className="rsm-kpi-line">da chiedere prima di rinnovare</div></div>
       </div>

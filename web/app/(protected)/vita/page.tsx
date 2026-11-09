@@ -4,7 +4,7 @@
 // Amundi Real Estate), capitale, tasso, premio, garanzie e stato della
 // documentazione sanitaria. Scheda dell'assicurato nel pannello laterale.
 import { useMemo, useState } from 'react'
-import { COMPANIES, ROWS, TODAY, eur, fmtDate, rate4, statusAt } from '@/lib/vita/demo'
+import { COMPANIES, ROWS, TODAY, YEAR_START, eur, fmtDate, movements, rate4, statusAt } from '@/lib/vita/demo'
 import { CompanyTabs, CoverPill, DocPill, PersonPanel, VitaHeader } from '@/components/vita/VitaUi'
 import type { CompanyTab } from '@/components/vita/VitaUi'
 
@@ -16,6 +16,8 @@ export default function VitaStatoPage() {
   const [open, setOpen] = useState<string | null>(null)
 
   const covered = useMemo(() => ROWS.filter((r) => statusAt(r, TODAY) === 'attivo'), [])
+  // Rateo dell'anno di chi è entrato dopo il 01/01: il premio in colonna è quello pieno.
+  const prorataIn = useMemo(() => new Map(movements().filter((m) => m.kind === 'INCLUSIONE').map((m) => [m.row.id, m])), [])
   const counts = { sgr: covered.filter((r) => r.company === 'sgr').length, re: covered.filter((r) => r.company === 're').length, all: covered.length }
   const list = useMemo(() => ROWS
     .filter((r) => (showExited ? true : statusAt(r, TODAY) === 'attivo'))
@@ -28,7 +30,9 @@ export default function VitaStatoPage() {
   const capTot = scope.reduce((s, r) => s + r.capital, 0)
   const premTot = scope.reduce((s, r) => s + (r.gross || 0), 0)
   const reduced = scope.filter((r) => r.scopertura > 0).length
-  const noCover = scope.filter((r) => r.cover !== 'MORTE + IPT').length
+  const noRate = scope.filter((r) => r.rate == null).length
+  const onlyDeath = scope.filter((r) => r.cover === 'SOLO CASO MORTE').length
+  const outOfCover = scope.filter((r) => r.cover === 'FUORI COPERTURA').length
   const current = open ? ROWS.find((r) => r.id === open) || null : null
 
   return (
@@ -40,10 +44,10 @@ export default function VitaStatoPage() {
       </VitaHeader>
 
       <div className="rsm-kpis">
-        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>In copertura</span><span>{tab === 'all' ? 'tutte le polizze' : `pol. ${COMPANIES[tab].policy}`}</span></div><div className="rsm-kpi-num">{scope.length}</div><div className="rsm-kpi-line">{noCover} con la sola garanzia caso morte</div></div>
+        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>In copertura</span><span>{tab === 'all' ? 'tutte le polizze' : `pol. ${COMPANIES[tab].policy}`}</span></div><div className="rsm-kpi-num">{scope.length}</div><div className="rsm-kpi-line">{onlyDeath} con la sola garanzia caso morte{outOfCover > 0 ? `, ${outOfCover} oltre gli 80 anni` : ''}</div></div>
         <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitali assicurati</span></div><div className="rsm-kpi-num">{eur(capTot)}</div><div className="rsm-kpi-line">media {eur(capTot / Math.max(1, scope.length))}</div></div>
-        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(premTot)}</div><div className="rsm-kpi-line">netto + diritti, a ogni decorrenza</div></div>
-        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitale ridotto a 400.000</span></div><div className="rsm-kpi-num" style={{ color: reduced ? 'var(--c-warning)' : undefined }}>{reduced}</div><div className="rsm-kpi-line">documentazione sanitaria mancante</div></div>
+        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(premTot)}</div><div className="rsm-kpi-line">premio pieno di chi è in copertura; i ratei dell&apos;anno sono in Movimenti{noRate > 0 ? ` · ${noRate} senza tasso in tabella` : ''}</div></div>
+        <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitale sotto il previsto</span></div><div className="rsm-kpi-num" style={{ color: reduced ? 'var(--c-warning)' : undefined }}>{reduced}</div><div className="rsm-kpi-line">documentazione sanitaria incompleta</div></div>
       </div>
 
       <CompanyTabs value={tab} onChange={setTab} counts={counts} />
@@ -55,7 +59,7 @@ export default function VitaStatoPage() {
             <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={onlyReduced} onChange={(e) => setOnlyReduced(e.target.checked)} style={{ height: 16, width: 16 }} />Solo con capitale ridotto</label>
             <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={showExited} onChange={(e) => setShowExited(e.target.checked)} style={{ height: 16, width: 16 }} />Mostra anche gli usciti</label>
           </div>
-          <span className="rsm-muted">{list.length} assicurati</span>
+          <span className="rsm-muted">{list.length} {list.length === 1 ? 'riga' : 'righe'}{showExited ? ` · ${list.filter((r) => statusAt(r, TODAY) === 'attivo').length} in copertura` : ''}</span>
         </div>
         <div className="rsm-scroll">
           <table className="rsm-table">
@@ -69,9 +73,9 @@ export default function VitaStatoPage() {
                   <td className="num">{eur(r.ral)}</td>
                   <td className="num">{eur(r.capital)}{r.scopertura > 0 && <div className="rsm-sub" style={{ color: 'var(--c-error)' }}>non coperti {eur(r.scopertura)}</div>}</td>
                   <td className="num">{rate4(r.rate)}</td>
-                  <td className="num">{eur(r.gross)}{r.sovrPct > 0 && <div className="rsm-sub">sovrappremio {r.sovrPct}%</div>}</td>
+                  <td className="num">{r.rate == null ? <span className="rsm-sub">da concordare</span> : eur(r.gross)}{r.sovrPct > 0 && <div className="rsm-sub">sovrappremio {r.sovrPct}%</div>}{r.entry > YEAR_START && prorataIn.has(r.id) && <div className="rsm-sub">dal {fmtDate(r.entry)}: {eur(prorataIn.get(r.id)!.gross)}</div>}</td>
                   <td><CoverPill cover={r.cover} /></td>
-                  <td><DocPill r={r} />{statusAt(r, TODAY) !== 'attivo' && <div className="rsm-sub">uscito il {fmtDate(r.exit)}</div>}</td>
+                  <td><DocPill r={r} />{statusAt(r, TODAY) === 'uscito' && <div className="rsm-sub">uscito il {fmtDate(r.exit)}</div>}{statusAt(r, TODAY) === 'futuro' && <div className="rsm-sub">in copertura dal {fmtDate(r.entry)}</div>}</td>
                 </tr>
               ))}
             </tbody>
