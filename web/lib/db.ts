@@ -393,6 +393,77 @@ export async function initDb() {
   } catch (e) {
     console.error('[initDb] anagrafiche RSM: tabelle non pronte:', e)
   }
+
+  // POLIZZA VITA (10/11/2026): collettiva vita di Amundi SGR e Amundi Real Estate.
+  // Un programma = un anno (config: periodo, contraenti con la loro polizza, regole,
+  // TASSI per età — che cambiano ogni anno — destinatari della mail). Una riga di
+  // vita_insured = una persona su UNA polizza: un passaggio fra contraenti chiude la
+  // riga vecchia (exit_kind 'passaggio') e ne apre una nuova con lo stesso
+  // transfer_id. Come per l'RSM gli importi NON si salvano: capitale, premio e
+  // rimborso si ricalcolano da RAL, documentazione e tassi (lib/vita/rules.js).
+  try {
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS vita_programs (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      year        INTEGER NOT NULL,
+      config      JSONB NOT NULL,
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vita_insured (
+      id                TEXT PRIMARY KEY,
+      program_id        TEXT NOT NULL REFERENCES vita_programs(id) ON DELETE CASCADE,
+      company           TEXT NOT NULL,
+      cf                TEXT NOT NULL,
+      cognome           TEXT NOT NULL DEFAULT '',
+      nome              TEXT NOT NULL DEFAULT '',
+      birth_date        TEXT,
+      level             TEXT NOT NULL DEFAULT '',
+      ral               NUMERIC NOT NULL DEFAULT 0,
+      key_figure        BOOLEAN NOT NULL DEFAULT FALSE,
+      sovr_pct          NUMERIC NOT NULL DEFAULT 0,
+      doc_visit         BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_extra         BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_ok            BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_checkup_date  TEXT,
+      reminded_on       TEXT,
+      entry_date        TEXT,
+      entry_kind        TEXT NOT NULL DEFAULT 'inclusione',
+      communicated_date TEXT,
+      exit_date         TEXT,
+      exit_kind         TEXT,
+      exit_communicated TEXT,
+      transfer_id       TEXT,
+      exit_transfer_id  TEXT,
+      next_ral          NUMERIC,
+      source            TEXT,
+      note              TEXT,
+      created_by        TEXT NOT NULL,
+      created_at        BIGINT NOT NULL,
+      updated_at        BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_vita_insured_program ON vita_insured(program_id);
+    CREATE INDEX IF NOT EXISTS idx_vita_insured_cf ON vita_insured(program_id, cf);
+    CREATE TABLE IF NOT EXISTS vita_ops (
+      id          TEXT PRIMARY KEY,
+      program_id  TEXT NOT NULL REFERENCES vita_programs(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      before      JSONB NOT NULL DEFAULT '[]',
+      inserted    JSONB NOT NULL DEFAULT '[]',
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      seq         BIGSERIAL,
+      undone_at   BIGINT,
+      undone_by   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_vita_ops_program ON vita_ops(program_id, seq DESC);
+    `)
+  } catch (e) {
+    console.error('[initDb] polizza vita: tabelle non pronte:', e)
+  }
 }
 
 /**

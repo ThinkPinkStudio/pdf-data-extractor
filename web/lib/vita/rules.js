@@ -192,3 +192,173 @@ export function makeCf(cognome, nome, birthISO, sex, belfiore) {
   body.split('').forEach((c, i) => { sum += i % 2 === 0 ? ODD[c] : (/[0-9]/.test(c) ? Number(c) : c.charCodeAt(0) - 65) })
   return body + String.fromCharCode(65 + (sum % 26))
 }
+
+/* ─── Lettura dei file Excel del cliente ────────────────────────────────── */
+
+const normHead = (v) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+const cellStr = (v) => (v == null ? '' : v instanceof Date ? v.toISOString() : String(v)).replace(/\s+/g, ' ').trim()
+const yes = (v) => /^S[IÌ]?$/i.test(cellStr(v))
+const CF_RE = /^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/
+
+/** Data da una cella Excel (Date, seriale o testo gg/mm/aaaa). */
+export function cellDate(v) {
+  if (v == null || v === '') return null
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+  if (typeof v === 'number' && isFinite(v) && v > 1 && v < 80000) {
+    const d = new Date(Math.round((v - 25569) * 86400000))
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  }
+  const s = String(v).trim()
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s)
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2, '0')}-${String(+m[3]).padStart(2, '0')}`
+  m = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/.exec(s)
+  if (m) return `${m[3]}-${String(+m[2]).padStart(2, '0')}-${String(+m[1]).padStart(2, '0')}`
+  return null
+}
+
+/** Numero da una cella (1.234,56 all'italiana o già numero). */
+export function cellNum(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null
+  const s = cellStr(v).replace(/[€\s]/g, '')
+  if (!s) return null
+  const n = Number(s.replace(/\./g, '').replace(',', '.'))
+  return isFinite(n) ? n : null
+}
+
+const HEADS = [
+  ['azienda', /^AZIENDA|^SOCIETA|^CONTRAENTE/],
+  ['polizza', /^(NR|N|NUMERO) POLIZZA/],
+  ['cognome', /^COGNOME/],
+  ['nome', /^NOME/],
+  ['cf', /^(CODICE FISCALE|C ?F)/],
+  ['livello', /^LIVELLO/],
+  ['nascita', /NASCITA/],
+  ['inserimento', /^DATA INSERIMENTO|^DATA (DI )?ENTRATA|^DECORRENZA/],
+  ['sovr', /^SOVRAPREMI/],
+  ['figura', /^FIGURA CHIAVE/],
+  ['visita', /^RAPPORTO DI VISITA MEDICA FORNITO/],
+  ['ok', /^OK C A VITA/],
+  ['note', /^NOTE/],
+]
+
+/**
+ * Intestazione del foglio: riga con COGNOME e NOME e mappa colonna → campo.
+ * La RAL ha una regola sua: nei file del cliente ci sono più colonne «RAL …»
+ * («RAL ANNUA 2025» e «RAL 2026 FULL TIME» nel file di fine anno), e quella buona
+ * è la colonna che nomina l'anno chiesto. `ralYear` la sceglie; senza anno si
+ * prende l'unica, o l'ultima.
+ */
+export function findVitaHeader(rows, ralYear) {
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const cells = (rows[i] || []).map(normHead)
+    if (!cells.includes('COGNOME') || !cells.includes('NOME')) continue
+    const map = {}
+    cells.forEach((h, col) => {
+      for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
+    })
+    // «LIVELLO 11/2025» è lo storico, non il livello di adesso: tiene il primo «LIVELLO» puro
+    const plain = cells.findIndex((h) => h === 'LIVELLO')
+    if (plain >= 0) map.livello = plain
+    const rals = cells.map((h, col) => ({ h, col })).filter((x) => /^RAL/.test(x.h))
+    if (rals.length) {
+      const byYear = ralYear ? rals.find((x) => x.h.includes(String(ralYear))) : null
+      map.ral = (byYear || rals[rals.length - 1]).col
+      map.ralHead = (byYear || rals[rals.length - 1]).h
+    }
+    return { row: i, map }
+  }
+  return null
+}
+
+/**
+ * Assicurati da un file del cliente (sia il nostro «Elenco assicurati VITA» sia
+ * l'«Anagrafiche Vita e IPT» che l'Azienda rimanda a fine anno). Un foglio per
+ * contraente; il contraente si riconosce dal numero di polizza, poi dal nome
+ * nella colonna AZIENDA, poi dal nome del foglio. Gli importi del file non si
+ * leggono: si ricalcolano.
+ */
+export function parseVitaWorkbook(cfg, sheets, opts = {}) {
+  const year = +String(cfg.periodStart).slice(0, 4)
+  const ralYear = opts.ralYear || year
+  const insured = []
+  const warnings = []
+  const companies = cfg.companies || []
+  const byPolicy = new Map(companies.filter((c) => c.policy).map((c) => [String(c.policy).trim(), c.key]))
+  const norm = (s) => normHead(s).replace(/ /g, '')
+  const findCompany = (polizza, azienda, sheet) => {
+    const p = byPolicy.get(String(polizza || '').trim())
+    if (p) return p
+    for (const c of companies) if (azienda && norm(c.name) === norm(azienda)) return c.key
+    for (const c of companies) if (sheet && norm(c.name) === norm(sheet)) return c.key
+    for (const c of companies) if (azienda && norm(azienda).includes(norm(c.name))) return c.key
+    for (const c of companies) if (sheet && norm(sheet).includes(norm(c.name))) return c.key
+    return null
+  }
+
+  // I fogli delle MOVIMENTAZIONI non sono lo stato: le entrate e le uscite si
+  // registrano una per una, con la loro data. Un foglio senza nemmeno un codice
+  // fiscale (TASSI, legende) non è un foglio di persone: si salta in silenzio.
+  const hasCf = (rows) => rows.some((r) => (r || []).some((c) => CF_RE.test(String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''))))
+  for (const name of Object.keys(sheets)) {
+    if (/^(MOVIMENT|VARIAZ)/i.test(String(name).trim())) continue
+    const rows = sheets[name] || []
+    const h = findVitaHeader(rows, ralYear)
+    if (!h) {
+      if (hasCf(rows)) warnings.push(`Foglio «${name}»: intestazione non trovata (serve una riga con COGNOME e NOME); saltato.`)
+      continue
+    }
+    if (h.map.ral == null) warnings.push(`Foglio «${name}»: nessuna colonna RAL, i capitali non si possono calcolare.`)
+    else if (!String(h.map.ralHead || '').includes(String(ralYear))) warnings.push(`Foglio «${name}»: nessuna colonna «RAL ${ralYear}», ho usato «${h.map.ralHead}».`)
+    const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
+    let unknown = 0, noCf = 0
+    for (let i = h.row + 1; i < rows.length; i++) {
+      const r = rows[i] || []
+      const cf = cellStr(get(r, 'cf')).toUpperCase().replace(/[^A-Z0-9]/g, '')
+      const cognome = cellStr(get(r, 'cognome'))
+      if (!cf && !cognome) continue
+      // Righe di servizio in fondo al foglio («TOTALI», «Assicurati: 308»): senza un
+      // codice fiscale che regga non è una persona.
+      if (!CF_RE.test(cf)) { if (cellNum(get(r, 'ral'))) noCf++; continue }
+      const company = findCompany(cellStr(get(r, 'polizza')), cellStr(get(r, 'azienda')), name)
+      if (!company) { unknown++; continue }
+      const entry = cellDate(get(r, 'inserimento'))
+      const nascita = cellDate(get(r, 'nascita'))
+      const sovr = cellNum(get(r, 'sovr')) || 0
+      insured.push({
+        company,
+        cf,
+        cognome: cognome.toUpperCase(),
+        nome: cellStr(get(r, 'nome')).toUpperCase(),
+        birthDate: nascita,
+        level: cellStr(get(r, 'livello')),
+        ral: cellNum(get(r, 'ral')) || 0,
+        keyFigure: yes(get(r, 'figura')),
+        // Nel file la colonna SOVRAPREMI è una FRAZIONE (0,25 = +25%): qui si tiene in percentuale.
+        sovrPct: Math.abs(sovr) > 0 && Math.abs(sovr) <= 1 ? sovr * 100 : sovr,
+        doc: { visit: yes(get(r, 'visita')), ok: yes(get(r, 'ok')), extra: false, checkupDate: null },
+        remindedOn: null,
+        entryDate: entry && entry > cfg.periodStart ? entry : cfg.periodStart,
+        entryKind: entry && entry > cfg.periodStart ? 'inclusione' : 'iniziale',
+        communicatedDate: null,
+        exitDate: null, exitKind: null, exitCommunicated: null, transferId: null, exitTransferId: null,
+        nextRal: null,
+        source: `${name} riga ${i + 1}`,
+        note: cellStr(get(r, 'note')),
+        rowNumber: i + 1,
+        sheet: name,
+      })
+    }
+    if (noCf) warnings.push(`Foglio «${name}»: ${noCf} ${noCf === 1 ? 'riga ha' : 'righe hanno'} una RAL ma nessun codice fiscale valido; saltate.`)
+    if (unknown) warnings.push(`Foglio «${name}»: ${unknown} righe senza un contraente riconoscibile (numero di polizza e azienda non corrispondono a nessuno dei contraenti del programma); saltate.`)
+  }
+  return { insured, warnings }
+}
+
+/** Solo codice fiscale → RAL dell'anno indicato, per il rinnovo. */
+export function parseVitaRal(cfg, sheets, ralYear) {
+  const { insured, warnings } = parseVitaWorkbook(cfg, sheets, { ralYear })
+  /** @type {Record<string, number>} */
+  const byCf = {}
+  for (const p of insured) if (p.cf && p.ral > 0) byCf[p.cf] = p.ral
+  return { byCf, n: Object.keys(byCf).length, warnings }
+}

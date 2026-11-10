@@ -175,6 +175,7 @@ const NAV_PREMIO: NavItem[] = [
 const NAV_VITA: NavItem[] = [
   { href: '/vita', key: 'nav.vitaStato', icon: <IconTable /> },
   { href: '/vita/sanitaria', key: 'nav.vitaSanitaria', icon: <IconShield /> },
+  { href: '/vita/import', key: 'nav.vitaImport', icon: <IconBatch /> },
   { href: '/vita/movimenti', key: 'nav.vitaMovimenti', icon: <IconHistory /> },
   { href: '/vita/rinnovo', key: 'nav.vitaRinnovo', icon: <IconCalendar /> },
   { href: '/vita/settings', key: 'nav.vitaSettings', icon: <IconSettings /> },
