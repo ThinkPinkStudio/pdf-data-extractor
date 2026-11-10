@@ -1,12 +1,27 @@
 'use client'
 
-// Import dello stato di rischio dal file dell'Azienda, in due passi: si sceglie
-// il file e si vede che cosa ne capisce il programma, poi si conferma. Niente
-// viene salvato prima della conferma.
+// Import guidato dello stato di rischio, in tre passi, pensato perché lo facciano
+// gli operatori da soli per QUALSIASI anno (il 2027 che verrà, o il 2017 per
+// avere lo storico): si sceglie il file, il programma dell'anno si propone o si
+// crea con contraenti, polizze e tassi presi dal file, poi si controlla e si
+// importa. Niente viene salvato prima dell'ultimo passo, tranne il programma e
+// le sue impostazioni al passaggio 2 → 3.
 import Link from 'next/link'
 import { useRef, useState } from 'react'
-import { VitaGate, VitaHeader, eur, useFlash, useVita } from '@/components/vita/useVita'
+import { VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
+import { defaultVitaConfig } from '@/lib/vita/types'
+import type { VitaConfig } from '@/lib/vita/types'
 
+interface Inspect {
+  sheets: string[]
+  years: number[]
+  companies: { name: string; policy: string; sheet: string }[]
+  rates: Record<string, number>
+  ratesFrom: string
+  ratesN: number
+  ratesMin: number | null
+  ratesMax: number | null
+}
 interface Dry {
   n: number
   perCompany: Record<string, number>
@@ -16,123 +31,308 @@ interface Dry {
   replaces?: number
 }
 
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
+const n2 = (v: string) => Number(String(v).replace(/\./g, '').replace(',', '.')) || 0
+
 export default function VitaImportPage() {
   const vita = useVita()
-  const cfg = vita.cfg
+  const [step, setStep] = useState(1)
   const [file, setFile] = useState<File | null>(null)
+  const [insp, setInsp] = useState<Inspect | null>(null)
+  const [year, setYear] = useState(new Date().getFullYear())
+  const [target, setTarget] = useState<string>('new')
+  const [name, setName] = useState('')
+  const [cfg, setCfg] = useState<VitaConfig | null>(null)
   const [dry, setDry] = useState<Dry | null>(null)
   const [busy, setBusy] = useState(false)
   const [understood, setUnderstood] = useState(false)
   const [drag, setDrag] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const { setFlash, node: flashNode } = useFlash(vita)
 
-  async function send(confirm: boolean, f = file) {
-    if (!f || !vita.programId) return
-    setBusy(true)
+  const editable = (vita.programs || []).filter((p) => p.editor)
+
+  /** Configurazione di partenza: quella del programma scelto, o una nuova col file. */
+  function draftFor(targetId: string, y: number, ins: Inspect): VitaConfig {
+    const base = targetId === 'new'
+      ? defaultVitaConfig(y)
+      : clone(editable.find((p) => p.id === targetId)!.config)
+    // Contraenti e polizze dal file, dove mancano
+    if (ins.companies.length) {
+      const used = new Set<string>()
+      base.companies = base.companies.map((c, i) => {
+        const f = ins.companies[i]
+        if (!f || used.has(f.sheet)) return c
+        used.add(f.sheet)
+        return { ...c, name: c.name || f.name, policy: c.policy || f.policy }
+      })
+      // Contraenti in più nel file (una terza società): si aggiungono
+      for (const f of ins.companies) {
+        if (used.has(f.sheet)) continue
+        if (base.companies.some((c) => c.policy && c.policy === f.policy)) continue
+        if (base.companies.length >= ins.companies.length) break
+        base.companies.push({ key: `c${base.companies.length + 1}`, name: f.name, policy: f.policy })
+      }
+    }
+    // Tassi dal file: senza, restano quelli copiati o quelli di base
+    if (ins.ratesN > 0) base.rates = { ...ins.rates }
+    return base
+  }
+
+  async function pick(f: File | null) {
+    if (!f) return
+    setFile(f); setErr(null); setBusy(true); setDry(null)
     try {
       const fd = new FormData()
       fd.append('file', f)
-      if (confirm) fd.append('confirm', '1')
-      const r = await fetch(`/api/vita/programs/${vita.programId}/import`, { method: 'POST', body: fd })
-      const j = await r.json()
+      const r = await fetch('/api/vita/inspect', { method: 'POST', body: fd })
+      const j = (await r.json()) as Inspect & { error?: string }
       if (!r.ok) throw new Error(j.error || 'Errore')
-      if (confirm) {
-        await vita.reload()
-        setDry(null); setFile(null); setUnderstood(false)
-        if (fileRef.current) fileRef.current.value = ''
-        setFlash({ ok: true, text: j.label || `Caricati ${j.n} assicurati`, opId: j.opId })
-      } else setDry(j)
-    } catch (e) { setFlash({ ok: false, text: (e as Error).message }); setDry(null) } finally { setBusy(false) }
+      // L'anno del file: il più alto nominato dalle colonne RAL («RAL 2026 FULL TIME»).
+      const y = j.years.length ? j.years[j.years.length - 1] : new Date().getFullYear()
+      const same = editable.find((p) => p.year === y)
+      const tgt = same ? same.id : 'new'
+      const last = [...(vita.programs || [])].sort((a, b) => b.year - a.year)[0]
+      setInsp(j); setYear(y); setTarget(tgt)
+      setName(last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `Polizza Vita ${y}`)
+      setCfg(draftFor(tgt, y, j))
+      setStep(2)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  function pick(f: File | null) {
-    setFile(f); setDry(null); setUnderstood(false)
-    if (f) send(false, f)
+  function changeTarget(id: string) {
+    setTarget(id)
+    const p = editable.find((x) => x.id === id)
+    const y = p ? p.year : year
+    if (p) setYear(y)
+    if (insp) setCfg(draftFor(id, y, insp))
+  }
+
+  function changeYear(y: number) {
+    setYear(y)
+    const same = editable.find((p) => p.year === y)
+    const tgt = same ? same.id : 'new'
+    setTarget(tgt)
+    if (insp) setCfg(draftFor(tgt, y, insp))
+    const last = [...(vita.programs || [])].sort((a, b) => b.year - a.year)[0]
+    setName(last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `Polizza Vita ${y}`)
+  }
+
+  function copyFrom(id: string) {
+    const src = editable.find((p) => p.id === id)
+    if (!src || !cfg) return
+    setCfg({ ...cfg, rules: clone(src.config.rules), rates: clone(src.config.rates), companies: clone(src.config.companies), mail: clone(src.config.mail), editors: src.config.editors })
+  }
+
+  const setCompany = (i: number, patch: Partial<VitaConfig['companies'][number]>) =>
+    setCfg((c) => (c ? { ...c, companies: c.companies.map((x, j) => (j === i ? { ...x, ...patch } : x)) } : c))
+  const setRule = (k: keyof VitaConfig['rules'], v: number) => setCfg((c) => (c ? { ...c, rules: { ...c.rules, [k]: v } } : c))
+
+  /** Passo 2 → 3: qui il programma si crea (o si aggiorna) davvero. */
+  async function toCheck() {
+    if (!cfg || !file) return
+    setBusy(true); setErr(null)
+    try {
+      let id = target
+      if (target === 'new') {
+        const j = await api('/api/vita/programs', 'POST', { name: name.trim() || `Polizza Vita ${year}`, year })
+        id = j.program.id
+      }
+      await api(`/api/vita/programs/${id}`, 'PUT', { name: target === 'new' ? name.trim() || `Polizza Vita ${year}` : undefined, year, config: cfg })
+      await vita.reload()
+      vita.setProgramId(id)
+      setTarget(id)
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch(`/api/vita/programs/${id}/import`, { method: 'POST', body: fd })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Errore')
+      setDry(j); setStep(3)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  async function confirm() {
+    if (!file || target === 'new') return
+    setBusy(true); setErr(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('confirm', '1')
+      const r = await fetch(`/api/vita/programs/${target}/import`, { method: 'POST', body: fd })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Errore')
+      await vita.reload()
+      setFlash({ ok: true, text: j.label || `Caricati ${j.n} assicurati`, opId: j.opId })
+      setStep(1); setFile(null); setInsp(null); setDry(null); setCfg(null); setUnderstood(false)
+      if (fileRef.current) fileRef.current.value = ''
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
   const gravi = dry ? dry.warnings.filter((w) => /RAL|tassi|contraente|intestazione/i.test(w)) : []
   const altri = dry ? dry.warnings.filter((w) => !gravi.includes(w)) : []
+  const noRates = cfg ? Object.keys(cfg.rates).length === 0 : false
+  const prev = [...editable].filter((p) => p.year !== year).sort((a, b) => Math.abs(a.year - year) - Math.abs(b.year - year))[0]
 
   return (
     <div className="rsm">
       <VitaHeader vita={vita} title="Importa lo stato di rischio">
         <Link className="btn btn-secondary" href="/vita">Vai allo stato di rischio</Link>
       </VitaHeader>
+      {flashNode}
+      {err && <div className="alert alert-error">{err}</div>}
 
-      <VitaGate vita={vita}>
-        {flashNode}
-        {!vita.editor ? <div className="alert alert-error">Sola consultazione: l&apos;import lo fa chi gestisce il programma.</div> : (
-          <>
-            <ol className="rsm-steps">
-              <li className={file ? 'done' : 'on'}><span className="n">{file ? '✓' : '1'}</span>Scegli il file dell&apos;Azienda</li>
-              <li className={dry ? 'on' : ''}><span className="n">2</span>Controlla e importa</li>
-            </ol>
+      <ol className="rsm-steps">
+        {['Scegli il file', 'Anno, polizze e tassi', 'Controlla e importa'].map((t, i) => (
+          <li key={t} className={step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}><span className="n">{step > i + 1 ? '✓' : i + 1}</span>{t}</li>
+        ))}
+      </ol>
 
+      {step === 1 && (
+        <div className="rsm-box">
+          <div className="rsm-box-body">
+            <p className="rsm-muted">Il file dell&apos;Azienda con un foglio per contraente. Dal file il programma legge l&apos;anno, i numeri di polizza e, se c&apos;è il foglio TASSI, anche i tassi per età. Vale per qualsiasi anno: quello nuovo o uno passato, per avere lo storico.</p>
+            <div className={`rsm-drop${drag ? ' on' : ''}`} role="button" tabIndex={0}
+              onClick={() => fileRef.current?.click()}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click() }}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0] || null) }}>
+              <p><b>Trascina qui il file Excel, oppure fai clic per sceglierlo</b></p>
+              <p className="rsm-note">Es. «Elenco assicurati VITA 2026.xlsx»</p>
+            </div>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => pick(e.target.files?.[0] || null)} />
+            {busy && <p className="rsm-note"><span className="spinner" /> Leggo il file…</p>}
+          </div>
+        </div>
+      )}
+
+      {step === 2 && insp && cfg && (
+        <>
+          <div className="rsm-box">
+            <div className="rsm-box-body">
+              <p>«{file?.name}»: {insp.companies.length} {insp.companies.length === 1 ? 'contraente' : 'contraenti'}{insp.years.length ? `, RAL ${insp.years.join(' e ')}` : ''}{insp.ratesN ? `, ${insp.ratesN} tassi per età (${insp.ratesMin}-${insp.ratesMax}) dal foglio «${insp.ratesFrom}»` : ', nessun foglio dei tassi'}.</p>
+            </div>
+          </div>
+
+          <div className="rsm-grid2">
             <div className="rsm-box">
+              <div className="rsm-box-head"><span className="rsm-box-title">Anno e programma</span></div>
               <div className="rsm-box-body">
-                <div className={`rsm-drop${drag ? ' on' : ''}`} role="button" tabIndex={0}
-                  onClick={() => fileRef.current?.click()}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click() }}
-                  onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
-                  onDragLeave={() => setDrag(false)}
-                  onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0] || null) }}>
-                  <p><b>{file ? file.name : 'Trascina qui il file Excel, oppure fai clic per sceglierlo'}</b></p>
-                  <p className="rsm-note">Un foglio per contraente, con le colonne del vostro tracciato: codice fiscale, livello, RAL {vita.program?.year}, figura chiave, documentazione sanitaria.</p>
+                <div className="rsm-row">
+                  <label className="rsm-field">Anno della polizza<input value={year} onChange={(e) => changeYear(Number(e.target.value) || year)} style={{ width: 100 }} /></label>
+                  <label className="rsm-field" style={{ minWidth: 260 }}>Carica in
+                    <select value={target} onChange={(e) => changeTarget(e.target.value)}>
+                      {editable.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.year})</option>)}
+                      <option value="new">Un programma nuovo…</option>
+                    </select>
+                  </label>
                 </div>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => pick(e.target.files?.[0] || null)} />
-                {busy && !dry && <p className="rsm-note"><span className="spinner" /> Leggo il file…</p>}
+                {target === 'new' && (
+                  <label className="rsm-field" style={{ minWidth: 300 }}>Nome del programma nuovo<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+                )}
+                {prev && <div className="rsm-row"><button className="btn btn-secondary" onClick={() => copyFrom(prev.id)}>Copia regole, tassi e polizze da «{prev.name}»</button></div>}
+                <p className="rsm-note">Un programma per anno. Scrivendo un anno che non esiste ancora si crea: così gli anni nuovi, o quelli passati per lo storico, si fanno da qui senza chiedere niente a nessuno.</p>
               </div>
             </div>
 
-            {dry && (
-              <>
-                <div className="rsm-kpis">
-                  {cfg?.companies.map((c) => (
-                    <div className="rsm-kpi" key={c.key}>
-                      <div className="rsm-kpi-top"><span>{c.name}</span><span>{c.policy ? `pol. ${c.policy}` : ''}</span></div>
-                      <div className="rsm-kpi-num">{dry.perCompany[c.key] || 0}</div>
-                      <div className="rsm-kpi-line">assicurati nel file</div>
-                    </div>
-                  ))}
-                  <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(dry.premium)}</div><div className="rsm-kpi-line">calcolato coi tassi del programma</div></div>
-                </div>
-
-                {gravi.map((w, i) => <div key={i} className="alert alert-error">{w}</div>)}
-
-                {altri.length > 0 && (
-                  <div className="rsm-box">
-                    <details>
-                      <summary className="rsm-box-head" style={{ cursor: 'pointer', borderBottom: 0 }}>
-                        <span className="rsm-box-title">{altri.length} avvisi sui dati del file</span>
-                        <span className="rsm-note">Codici fiscali che non tornano: si importano lo stesso, conviene correggerli dopo.</span>
-                      </summary>
-                      <div className="rsm-box-body">{altri.map((w, i) => <div key={i} className="rsm-issue warning">{w}</div>)}</div>
-                    </details>
-                  </div>
-                )}
-
-                <div className="rsm-box">
-                  <div className="rsm-box-body">
-                    <p>Pronti <b>{dry.n}</b> assicurati da caricare in «{vita.program?.name}».</p>
-                    {!!dry.replaces && (
-                      <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5, color: 'var(--c-error)' }}>
-                        <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} style={{ height: 16, width: 16 }} />
-                        Ho capito: sostituisce i {dry.replaces} assicurati già registrati in questo programma.
-                      </label>
+            <div className="rsm-box">
+              <div className="rsm-box-head"><span className="rsm-box-title">Contraenti e polizze</span></div>
+              <div className="rsm-box-body">
+                {cfg.companies.map((c, i) => (
+                  <div className="rsm-row" key={c.key}>
+                    <label className="rsm-field">Contraente<input value={c.name} onChange={(e) => setCompany(i, { name: e.target.value })} style={{ width: 210 }} /></label>
+                    <label className="rsm-field">Numero di polizza<input value={c.policy} onChange={(e) => setCompany(i, { policy: e.target.value })} style={{ width: 130 }} /></label>
+                    {insp.companies[i]?.policy && insp.companies[i].policy !== c.policy && (
+                      <button type="button" className="rsm-mini" style={{ alignSelf: 'flex-end', marginBottom: 2 }} onClick={() => setCompany(i, { policy: insp.companies[i].policy, name: insp.companies[i].name })}>dal file: {insp.companies[i].policy}</button>
                     )}
-                    <div className="rsm-row">
-                      <button className="btn btn-primary" disabled={busy || !dry.n || (!!dry.replaces && !understood)} onClick={() => send(true)}>Importa {dry.n} assicurati</button>
-                      <button className="btn btn-secondary" disabled={busy} onClick={() => { setDry(null); setFile(null); if (fileRef.current) fileRef.current.value = '' }}>Annulla</button>
-                    </div>
-                    <p className="rsm-note">L&apos;import si annulla dalla scheda della persona o dal messaggio qui sopra, finché è l&apos;ultima operazione del programma.</p>
                   </div>
+                ))}
+                <p className="rsm-note">Il contraente di ogni riga si riconosce dal numero di polizza: se non combacia, la riga viene saltata e lo diciamo al passo dopo.</p>
+              </div>
+            </div>
+
+            <div className="rsm-box">
+              <div className="rsm-box-head"><span className="rsm-box-title">Tassi per età</span><span className="rsm-note">{Object.keys(cfg.rates).length} età</span></div>
+              <div className="rsm-box-body">
+                {noRates ? (
+                  <div className="rsm-issue error">Nessun tasso: senza non si calcolano i premi. Copiali da un altro anno o aggiungi al file il foglio TASSI (due colonne: età e tasso ‰).</div>
+                ) : (
+                  <p className="rsm-muted">{insp.ratesN ? `Presi dal foglio «${insp.ratesFrom}» del file.` : 'Quelli del programma: nel file non c’è il foglio dei tassi.'} Si correggono uno per uno in «Tassi e regole».</p>
+                )}
+                {insp.ratesN > 0 && <div className="rsm-row"><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, rates: { ...insp.rates } })}>Usa i {insp.ratesN} tassi del file</button></div>}
+              </div>
+            </div>
+
+            <div className="rsm-box">
+              <div className="rsm-box-head"><span className="rsm-box-title">Regole del capitale</span></div>
+              <div className="rsm-box-body">
+                <div className="rsm-row">
+                  <label className="rsm-field">Moltiplicatore RAL<input value={String(cfg.rules.multiplier).replace('.', ',')} onChange={(e) => setRule('multiplier', n2(e.target.value))} style={{ width: 90 }} /></label>
+                  <label className="rsm-field">Figura chiave<input value={eur(cfg.rules.keyFigureCapital)} onChange={(e) => setRule('keyFigureCapital', n2(e.target.value))} style={{ width: 140 }} /></label>
+                  <label className="rsm-field">Diritti<input value={String(cfg.rules.rights).replace('.', ',')} onChange={(e) => setRule('rights', n2(e.target.value))} style={{ width: 90 }} /></label>
                 </div>
-              </>
-            )}
-          </>
-        )}
-      </VitaGate>
+                <div className="rsm-row">
+                  <label className="rsm-field">Senza documenti fino a<input value={eur(cfg.rules.noDocUpTo)} onChange={(e) => setRule('noDocUpTo', n2(e.target.value))} style={{ width: 140 }} /></label>
+                  <label className="rsm-field">Visita fino a<input value={eur(cfg.rules.visitUpTo)} onChange={(e) => setRule('visitUpTo', n2(e.target.value))} style={{ width: 140 }} /></label>
+                </div>
+                <p className="rsm-note">Il resto (limiti di età, rimborsi, mail, accessi) si cambia in «Tassi e regole», anche dopo l&apos;import.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rsm-row">
+            <button className="btn btn-primary" disabled={busy || noRates || (target === 'new' && !name.trim())} onClick={toCheck}>{busy ? <span className="spinner" /> : 'Avanti: controlla gli assicurati'}</button>
+            <button className="btn btn-secondary" disabled={busy} onClick={() => { setStep(1); setFile(null); setInsp(null); setCfg(null) }}>Indietro</button>
+          </div>
+        </>
+      )}
+
+      {step === 3 && dry && (
+        <>
+          <div className="rsm-kpis">
+            {(vita.cfg?.companies || []).map((c) => (
+              <div className="rsm-kpi" key={c.key}>
+                <div className="rsm-kpi-top"><span>{c.name}</span><span>{c.policy ? `pol. ${c.policy}` : ''}</span></div>
+                <div className="rsm-kpi-num">{dry.perCompany[c.key] || 0}</div>
+                <div className="rsm-kpi-line">assicurati nel file</div>
+              </div>
+            ))}
+            <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(dry.premium)}</div><div className="rsm-kpi-line">calcolato coi tassi del programma</div></div>
+          </div>
+
+          {gravi.map((w, i) => <div key={i} className="alert alert-error">{w}</div>)}
+
+          {altri.length > 0 && (
+            <div className="rsm-box">
+              <details>
+                <summary className="rsm-box-head" style={{ cursor: 'pointer', borderBottom: 0 }}>
+                  <span className="rsm-box-title">{altri.length} avvisi sui dati del file</span>
+                  <span className="rsm-note">Codici fiscali che non tornano: si importano lo stesso, conviene correggerli dopo.</span>
+                </summary>
+                <div className="rsm-box-body">{altri.map((w, i) => <div key={i} className="rsm-issue warning">{w}</div>)}</div>
+              </details>
+            </div>
+          )}
+
+          <div className="rsm-box">
+            <div className="rsm-box-body">
+              <p>Pronti <b>{dry.n}</b> assicurati da caricare in «{vita.program?.name}».</p>
+              {!!dry.replaces && (
+                <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5, color: 'var(--c-error)' }}>
+                  <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} style={{ height: 16, width: 16 }} />
+                  Ho capito: sostituisce i {dry.replaces} assicurati già registrati in questo programma.
+                </label>
+              )}
+              <div className="rsm-row">
+                <button className="btn btn-primary" disabled={busy || !dry.n || (!!dry.replaces && !understood)} onClick={confirm}>Importa {dry.n} assicurati</button>
+                <button className="btn btn-secondary" disabled={busy} onClick={() => setStep(2)}>Indietro</button>
+              </div>
+              <p className="rsm-note">Il programma e le sue impostazioni sono già salvati; gli assicurati si caricano solo adesso. L&apos;import si annulla dal messaggio di conferma, finché è l&apos;ultima operazione.</p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

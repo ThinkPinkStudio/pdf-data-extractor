@@ -3,7 +3,7 @@
 // Tassi e regole della polizza vita: tutto ciò che può cambiare nel tempo si
 // modifica da qui, senza interventi sul programma. I tassi stanno nel programma
 // perché cambiano ogni anno.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { VitaGate, VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
 import type { VitaConfig } from '@/lib/vita/types'
@@ -20,6 +20,34 @@ export default function VitaSettingsPage() {
   const [busy, setBusy] = useState(false)
   const { setFlash, node: flashNode } = useFlash(vita)
   const [newYear, setNewYear] = useState(String(new Date().getFullYear()))
+  const ratesRef = useRef<HTMLInputElement>(null)
+
+  /** Tassi da un file col foglio TASSI: 63 valori non si scrivono a mano. */
+  async function ratesFromFile(f: File | null) {
+    if (!f || !cfg) return
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      const r = await fetch('/api/vita/inspect', { method: 'POST', body: fd })
+      const j = (await r.json()) as { ratesN: number; rates: Record<string, number>; ratesFrom: string; ratesMin: number | null; ratesMax: number | null; error?: string }
+      if (!r.ok) throw new Error(j.error || 'Errore')
+      if (!j.ratesN) throw new Error('Nel file non c\'è un foglio dei tassi: servono due colonne, età e tasso ‰.')
+      setCfg({ ...cfg, rates: { ...j.rates } })
+      setFlash({ ok: true, text: `Letti ${j.ratesN} tassi (${j.ratesMin}-${j.ratesMax} anni) dal foglio «${j.ratesFrom}». Premi Salva per tenerli.` })
+    } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally {
+      setBusy(false)
+      if (ratesRef.current) ratesRef.current.value = ''
+    }
+  }
+
+  /** Tassi e regole da un altro anno, senza toccare gli assicurati. */
+  function copyRulesFrom(id: string) {
+    const src = (vita.programs || []).find((p) => p.id === id)
+    if (!src || !cfg) return
+    setCfg({ ...cfg, rules: clone(src.config.rules), rates: clone(src.config.rates) })
+    setFlash({ ok: true, text: `Tassi e regole copiati da «${src.name}». Premi Salva per tenerli.` })
+  }
 
   useEffect(() => {
     if (vita.program) { setCfg(clone(vita.program.config)); setName(vita.program.name) }
@@ -141,7 +169,22 @@ export default function VitaSettingsPage() {
               </div>
 
               <div className="rsm-box">
-                <div className="rsm-box-head"><span className="rsm-box-title">Tassi per età (‰)</span><span className="rsm-note">{ages.length} età, da {ages[0]} a {ages[ages.length - 1]} anni · cambiano ogni anno, si caricano col file della compagnia</span></div>
+                <div className="rsm-box-head">
+                  <span className="rsm-box-title">Tassi per età (‰)</span>
+                  <span className="rsm-note">{ages.length ? `${ages.length} età, da ${ages[0]} a ${ages[ages.length - 1]} anni` : 'nessun tasso'} · cambiano ogni anno</span>
+                </div>
+                {vita.editor && (
+                  <div className="rsm-box-body" style={{ paddingBottom: 0 }}>
+                    <div className="rsm-row">
+                      <button className="btn btn-secondary" disabled={busy} onClick={() => ratesRef.current?.click()}>Leggi i tassi da un file Excel</button>
+                      <input ref={ratesRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => ratesFromFile(e.target.files?.[0] || null)} />
+                      {(vita.programs || []).filter((p) => p.id !== vita.programId).map((p) => (
+                        <button key={p.id} className="btn btn-secondary" disabled={busy} onClick={() => copyRulesFrom(p.id)}>Copia tassi e regole da «{p.name}»</button>
+                      ))}
+                    </div>
+                    <p className="rsm-note">Il file deve avere un foglio con due colonne, età e tasso ‰ (nel vostro si chiama TASSI). I 63 valori non si scrivono a mano.</p>
+                  </div>
+                )}
                 <div className="rsm-scroll tall" style={{ maxHeight: 360 }}>
                   <table className="rsm-table">
                     <thead><tr>{[0, 1, 2].map((i) => <th key={`h${i}`} colSpan={2}>Età e tasso ‰</th>)}</tr></thead>

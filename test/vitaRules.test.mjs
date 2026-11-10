@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   DEFAULT_RULES, ageAt, rateFor, coverage, medicalBand, capitalOf, premiumOf, roundUp2,
-  prorata, movementOf, computeInsured, makeCf, missingDoc,
+  prorata, movementOf, computeInsured, makeCf, missingDoc, parseVitaRates, parseVitaWorkbook, findVitaHeader,
 } from '../web/lib/vita/rules.js'
 import { decodeCf, checkPerson } from '../web/lib/rsm/rules.js'
 import { VITA_RATES_2026 as RATES } from '../web/lib/vita/rates2026.ts'
@@ -158,4 +158,76 @@ test('codice fiscale di prova valido e coerente', () => {
   assert.equal(d.valid !== false, true)
   const chk = checkPerson({ cognome: 'Bianchi', nome: 'Laura', cf, birthDate: '1975-03-12' }, 2026)
   assert.deepEqual(chk.issues.filter((i) => i.level === 'error'), [])
+})
+
+/* ─── Lettura dei file del cliente ───────────────────────────────────────── */
+
+const CFG = {
+  periodStart: '2026-01-01', periodEnd: '2027-01-01',
+  companies: [{ key: 'sgr', name: 'Amundi SGR', policy: '60037' }, { key: 're', name: 'Amundi Real Estate', policy: '60038' }],
+  rules: DEFAULT_RULES, rates: RATES, mail: { to: '', cc: '', signature: '' },
+}
+const HEAD = ['AZIENDA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'CODICE FISCALE', 'LIVELLO', 'DATA DI NASCITA', 'DATA INSERIMENTO', "ETA'", 'RAL ANNUA 2025', 'RAL 2026 FULL TIME', 'SOVRAPREMI %', 'FIGURA CHIAVE', 'RAPPORTO DI VISITA MEDICA', 'RAPPORTO DI VISITA MEDICA FORNITO', 'OK C.A. VITA OVER 400.000', 'NOTE']
+const RIGA = (cf, pol, ral25, ral26, fk = 'NO', visita = 'NO', ok = 'SI') =>
+  ['AMUNDI SGR', pol, 'ROSSI', 'MARIO', cf, 'Quadro', 31000, 46023, 50, ral25, ral26, 0, fk, 'NO', visita, ok, '']
+
+test('import: la colonna RAL si sceglie dall\'anno del programma', () => {
+  const sheets = { 'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 40000, 50000)] }
+  // il programma 2026 prende «RAL 2026 FULL TIME», non la RAL 2025
+  assert.equal(parseVitaWorkbook(CFG, sheets).insured[0].ral, 50000)
+  assert.equal(parseVitaWorkbook(CFG, sheets, { ralYear: 2025 }).insured[0].ral, 40000)
+  // senza una colonna dell'anno chiesto lo dice e usa l'ultima
+  const r = parseVitaWorkbook(CFG, sheets, { ralYear: 2030 })
+  assert.equal(r.insured[0].ral, 50000)
+  assert.ok(r.warnings.some((w) => /RAL 2030/.test(w)))
+})
+
+test('import: il contraente si riconosce dal numero di polizza', () => {
+  const sheets = { 'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000), RIGA('BNCLRA90A41F205I', 60038, 0, 60000), RIGA('VRDGPP70A01H501S', 99999, 0, 70000)] }
+  const { insured, warnings } = parseVitaWorkbook(CFG, sheets)
+  // la polizza 99999 non è di nessuno: la riga entra col nome dell'azienda, ma lo si dice
+  assert.deepEqual(insured.map((p) => p.company), ['sgr', 're', 'sgr'])
+  assert.ok(warnings.some((w) => /99999/.test(w) && /nessun contraente/.test(w)), warnings.join('\n'))
+  // senza nemmeno un nome riconoscibile la riga si salta
+  const muto = { 'Foglio X': [HEAD, RIGA('VRDGPP70A01H501S', 99999, 0, 70000).map((v, i) => (i === 0 ? 'ALTRA SPA' : v))] }
+  const r2 = parseVitaWorkbook(CFG, muto)
+  assert.equal(r2.insured.length, 0)
+  assert.ok(r2.warnings.some((w) => /senza un contraente riconoscibile/.test(w)), r2.warnings.join('\n'))
+})
+
+test('import: righe di servizio e fogli delle movimentazioni fuori', () => {
+  const sheets = {
+    'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000), ['TOTALI', null, null, null, null, null, null, null, null, 0, 1234567, 0], ['Assicurati: 1']],
+    'Movimentazioni SGR': [HEAD, RIGA('BNCLRA90A41F205I', 60037, 0, 60000)],
+    TASSI: [['Età', 'Tasso ‰'], [18, 0.34]],
+  }
+  const { insured, warnings } = parseVitaWorkbook(CFG, sheets)
+  assert.equal(insured.length, 1, 'solo la persona vera')
+  assert.equal(warnings.filter((w) => /TASSI/.test(w)).length, 0, 'il foglio dei tassi non è un errore')
+})
+
+test('import: il sovrappremio del file è una frazione, qui è una percentuale', () => {
+  const sheets = { 'Amundi SGR': [HEAD, ['AMUNDI SGR', 60037, 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'Quadro', 31000, 46023, 50, 0, 50000, 0.25, 'NO', 'NO', 'NO', 'SI', '']] }
+  assert.equal(parseVitaWorkbook(CFG, sheets).insured[0].sovrPct, 25)
+})
+
+test('tassi per età dal foglio del file, riconosciuto dal contenuto', () => {
+  const r = parseVitaRates({
+    'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000)],
+    'Tassi 2027': [['Età', 'Tasso ‰'], [18, 0.35], [19, 0.37], ['', ''], [80, 30.5]],
+  })
+  assert.equal(r.n, 3)
+  assert.equal(r.from, 'Tassi 2027')
+  assert.equal(r.minAge, 18)
+  assert.equal(r.maxAge, 80)
+  assert.equal(r.rates['80'], 30.5)
+  // nessun foglio dei tassi: niente, non si inventa
+  assert.equal(parseVitaRates({ 'Amundi SGR': [HEAD] }).n, 0)
+})
+
+test('intestazione del tracciato trovata anche con la riga di titolo sopra', () => {
+  const h = findVitaHeader([[null, 'Elenco assicurati'], [], HEAD], 2026)
+  assert.equal(h.row, 2)
+  assert.equal(h.map.cf, 4)
+  assert.equal(h.map.ral, 10, 'la colonna RAL 2026, non la 2025')
 })

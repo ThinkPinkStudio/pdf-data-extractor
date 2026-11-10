@@ -285,13 +285,17 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
   const companies = cfg.companies || []
   const byPolicy = new Map(companies.filter((c) => c.policy).map((c) => [String(c.policy).trim(), c.key]))
   const norm = (s) => normHead(s).replace(/ /g, '')
+  // Il numero di polizza è il legame buono. Se non è di nessun contraente si
+  // ripiega sul nome dell'azienda o del foglio, ma lo si DICE: nel file del
+  // cliente compaiono numeri che non sono fra i tre (una 60036 fra le 60037).
   const findCompany = (polizza, azienda, sheet) => {
-    const p = byPolicy.get(String(polizza || '').trim())
-    if (p) return p
-    for (const c of companies) if (azienda && norm(c.name) === norm(azienda)) return c.key
-    for (const c of companies) if (sheet && norm(c.name) === norm(sheet)) return c.key
-    for (const c of companies) if (azienda && norm(azienda).includes(norm(c.name))) return c.key
-    for (const c of companies) if (sheet && norm(sheet).includes(norm(c.name))) return c.key
+    const num = String(polizza || '').trim()
+    const p = byPolicy.get(num)
+    if (p) return { key: p, byPolicy: true }
+    for (const c of companies) if (azienda && norm(c.name) === norm(azienda)) return { key: c.key, num }
+    for (const c of companies) if (sheet && norm(c.name) === norm(sheet)) return { key: c.key, num }
+    for (const c of companies) if (azienda && norm(azienda).includes(norm(c.name))) return { key: c.key, num }
+    for (const c of companies) if (sheet && norm(sheet).includes(norm(c.name))) return { key: c.key, num }
     return null
   }
 
@@ -311,6 +315,8 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
     else if (!String(h.map.ralHead || '').includes(String(ralYear))) warnings.push(`Foglio «${name}»: nessuna colonna «RAL ${ralYear}», ho usato «${h.map.ralHead}».`)
     const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
     let unknown = 0, noCf = 0
+    /** @type {Map<string, number>} */
+    const oddPolicy = new Map()
     for (let i = h.row + 1; i < rows.length; i++) {
       const r = rows[i] || []
       const cf = cellStr(get(r, 'cf')).toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -319,8 +325,10 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
       // Righe di servizio in fondo al foglio («TOTALI», «Assicurati: 308»): senza un
       // codice fiscale che regga non è una persona.
       if (!CF_RE.test(cf)) { if (cellNum(get(r, 'ral'))) noCf++; continue }
-      const company = findCompany(cellStr(get(r, 'polizza')), cellStr(get(r, 'azienda')), name)
-      if (!company) { unknown++; continue }
+      const found = findCompany(cellStr(get(r, 'polizza')), cellStr(get(r, 'azienda')), name)
+      if (!found) { unknown++; continue }
+      const company = found.key
+      if (!found.byPolicy && found.num) oddPolicy.set(found.num, (oddPolicy.get(found.num) || 0) + 1)
       const entry = cellDate(get(r, 'inserimento'))
       const nascita = cellDate(get(r, 'nascita'))
       const sovr = cellNum(get(r, 'sovr')) || 0
@@ -348,6 +356,10 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
         sheet: name,
       })
     }
+    for (const [num, n] of oddPolicy) {
+      const who = companies.find((c) => c.key === (insured.find((p) => p.sheet === name) || {}).company)
+      warnings.push(`Foglio «${name}»: ${n} ${n === 1 ? 'riga ha' : 'righe hanno'} il numero di polizza ${num}, che non è di nessun contraente del programma; ${n === 1 ? 'assegnata' : 'assegnate'} a ${who ? who.name : name} dal nome dell'azienda.`)
+    }
     if (noCf) warnings.push(`Foglio «${name}»: ${noCf} ${noCf === 1 ? 'riga ha' : 'righe hanno'} una RAL ma nessun codice fiscale valido; saltate.`)
     if (unknown) warnings.push(`Foglio «${name}»: ${unknown} righe senza un contraente riconoscibile (numero di polizza e azienda non corrispondono a nessuno dei contraenti del programma); saltate.`)
   }
@@ -361,4 +373,33 @@ export function parseVitaRal(cfg, sheets, ralYear) {
   const byCf = {}
   for (const p of insured) if (p.cf && p.ral > 0) byCf[p.cf] = p.ral
   return { byCf, n: Object.keys(byCf).length, warnings }
+}
+
+/**
+ * Tassi ‰ per età dal foglio TASSI del file: la prima colonna è l'età (18-120),
+ * la seconda il tasso. Riconosce il foglio dal contenuto, non dal nome, così va
+ * bene anche se il cliente lo chiama in un altro modo.
+ */
+export function parseVitaRates(sheets) {
+  /** @type {Record<string, number>} */
+  let best = {}
+  let from = ''
+  for (const name of Object.keys(sheets || {})) {
+    const rows = sheets[name] || []
+    /** @type {Record<string, number>} */
+    const found = {}
+    for (const r of rows) {
+      if (!r) continue
+      const age = cellNum(r[0])
+      const rate = cellNum(r[1])
+      // Età intera plausibile e tasso positivo: la riga d'intestazione cade da sola.
+      if (age == null || rate == null) continue
+      if (!Number.isInteger(age) || age < 0 || age > 120) continue
+      if (!(rate > 0) || rate > 1000) continue
+      found[String(age)] = rate
+    }
+    if (Object.keys(found).length > Object.keys(best).length) { best = found; from = name }
+  }
+  const ages = Object.keys(best).map(Number).sort((a, b) => a - b)
+  return { rates: best, n: ages.length, from, minAge: ages[0] ?? null, maxAge: ages[ages.length - 1] ?? null }
 }
