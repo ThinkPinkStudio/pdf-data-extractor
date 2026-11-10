@@ -10,13 +10,10 @@ import type { Computed } from '@/lib/vita/demo'
 import { computeInsured, movementOf } from '@/lib/vita/rules.js'
 import { decodeCf } from '@/lib/rsm/rules.js'
 
-const SAMPLE = `Buongiorno,
-vi chiedo di includere in polizza vita dal 25/11/2026:
+const PLACEHOLDER = `Incolla qui la mail dell'Azienda, per esempio:
 
-Verdi Matilde  VRDMLD99A41F205H
-RAL 62.000 euro, livello Quadro - Livello 4
-
-Grazie, Roberto`
+«vi chiedo di includere in polizza vita dal 25/11/2026: Cognome Nome, codice fiscale …, RAL 62.000 euro»
+«si comunica la cessazione: va escluso dalla polizza vita dal 01/12/2026, codice fiscale …»`
 
 // Il verbo della mail decide il movimento: non si assume mai un'inclusione.
 const OUT_WORDS = /\b(esclu[dst]\w*|cessa\w*|dimissi\w*|licenzia\w*|uscita|pensionament\w*|termina\w*)/i
@@ -41,7 +38,7 @@ interface ReadRow {
 }
 
 export default function VitaMovimentiPage() {
-  const [text, setText] = useState(SAMPLE)
+  const [text, setText] = useState('')
   const [kind, setKind] = useState<'tutti' | 'INCLUSIONE' | 'ESCLUSIONE'>('tutti')
   const all = useMemo(() => movements(), [])
   const list = all.filter((m) => kind === 'tutti' || m.kind === kind)
@@ -103,9 +100,9 @@ export default function VitaMovimentiPage() {
         <div className="rsm-box">
           <div className="rsm-box-head"><span className="rsm-box-title">Incolla la mail dell&apos;Azienda</span><span className="rsm-muted">o trascina il file .eml</span></div>
           <div className="rsm-box-body">
-            <label className="rsm-field">Testo della mail<textarea rows={9} value={text} onChange={(e) => setText(e.target.value)} /></label>
+            <label className="rsm-field">Testo della mail<textarea rows={9} value={text} placeholder={PLACEHOLDER} onChange={(e) => setText(e.target.value)} /></label>
             {read.miss.length > 0 ? (
-              <p className="rsm-note">Dalla mail non si capisce ancora {read.miss.join(', ')}. Serve anche la RAL per le inclusioni.</p>
+              <p className="rsm-note">{text.trim() ? `Dalla mail non si capisce ancora ${read.miss.join(', ')}. Serve anche la RAL per le inclusioni.` : 'Il programma legge data, codice fiscale e RAL e propone la riga da registrare, già calcolata.'}</p>
             ) : (
               <div className="rsm-panel">
                 <div className="rsm-box-title">Letto dalla mail</div>
@@ -136,15 +133,15 @@ export default function VitaMovimentiPage() {
             <div className="rsm-row">
               <label className="rsm-field">Movimento<select defaultValue="INCLUSIONE"><option value="INCLUSIONE">Inclusione</option><option value="ESCLUSIONE">Esclusione</option><option value="PASSAGGIO">Passaggio SGR ↔ RE</option></select></label>
               <label className="rsm-field">Polizza<select defaultValue="sgr"><option value="sgr">{COMPANIES.sgr.name} · {COMPANIES.sgr.policy}</option><option value="re">{COMPANIES.re.name} · {COMPANIES.re.policy}</option></select></label>
-              <label className="rsm-field w-date">Dal<input type="date" defaultValue="2026-11-25" /></label>
+              <label className="rsm-field w-date">Dal<input type="date" /></label>
             </div>
             <div className="rsm-row">
-              <label className="rsm-field">Cognome<input defaultValue="Verdi" /></label>
-              <label className="rsm-field">Nome<input defaultValue="Matilde" /></label>
-              <label className="rsm-field">Codice fiscale<input defaultValue="VRDMLD99A41F205H" style={{ width: 190 }} /></label>
+              <label className="rsm-field">Cognome<input /></label>
+              <label className="rsm-field">Nome<input /></label>
+              <label className="rsm-field">Codice fiscale<input style={{ width: 190 }} /></label>
             </div>
             <div className="rsm-row">
-              <label className="rsm-field">RAL<input defaultValue="62.000,00" style={{ width: 130 }} /></label>
+              <label className="rsm-field">RAL<input style={{ width: 130 }} /></label>
               <label className="rsm-field">Livello<select defaultValue="Quadro - Livello 4"><option>Quadro - Livello 4</option><option>Livello Dirigente</option><option>Impiegato</option></select></label>
               <label className="rsm-field">Figura chiave<select defaultValue="NO"><option>NO</option><option>SI</option></select></label>
             </div>
@@ -174,6 +171,7 @@ export default function VitaMovimentiPage() {
                   <td className="rsm-sub">{m.source}</td>
                 </tr>
               ))}
+              {list.length === 0 && <tr><td colSpan={8} className="rsm-empty">Nessun movimento registrato nel 2026.</td></tr>}
               <tr className="total"><td colSpan={6}>{kind === 'tutti' ? 'Saldo della regolazione' : kind === 'INCLUSIONE' ? 'Totale delle inclusioni' : 'Totale delle esclusioni'}</td><td className="num">{eur(list.reduce((s, m) => s + (m.gross || 0), 0))}</td><td /></tr>
             </tbody>
           </table>

@@ -65,9 +65,9 @@ export default function VitaSettingsPage() {
         <div className="rsm-box">
           <div className="rsm-box-head"><span className="rsm-box-title">Mail e accessi</span></div>
           <div className="rsm-box-body">
-            <label className="rsm-field">Referente in Azienda<input defaultValue="referente@amundi.example" /></label>
-            <label className="rsm-field">Copia a (operatori CSA)<input defaultValue="operatore1@csabroker.it, operatore2@csabroker.it" /></label>
-            <label className="rsm-field">Chi può registrare<input defaultValue="operatore1@csabroker.it, operatore2@csabroker.it" /></label>
+            <label className="rsm-field">Referente in Azienda<input placeholder="indirizzo di chi riceve i promemoria" /></label>
+            <label className="rsm-field">Copia a (operatori CSA)<input placeholder="indirizzi separati da virgola" /></label>
+            <label className="rsm-field">Chi può registrare<input placeholder="vuoto = tutti gli utenti dell'applicazione" /></label>
             <p className="rsm-note">Gli altri utenti consultano soltanto. Le note sanitarie non compaiono mai nelle mail all&apos;Azienda.</p>
           </div>
         </div>

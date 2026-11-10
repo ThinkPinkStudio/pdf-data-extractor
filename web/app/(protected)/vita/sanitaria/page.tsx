@@ -5,7 +5,7 @@
 // mancante: le note sanitarie restano interne).
 import { useMemo, useState } from 'react'
 import { COMPANIES, ROWS, TODAY, eur, fmtDate, statusAt } from '@/lib/vita/demo'
-import { CompanyTabs, DocPill, PersonPanel, VitaHeader, docState } from '@/components/vita/VitaUi'
+import { CompanyTabs, DocPill, PersonPanel, VitaEmpty, VitaHeader, docState } from '@/components/vita/VitaUi'
 import type { CompanyTab, DocMissing } from '@/components/vita/VitaUi'
 
 export default function VitaSanitariaPage() {
@@ -61,11 +61,12 @@ Un saluto`
 
   return (
     <div className="rsm">
-      <VitaHeader kicker={`Polizza Vita 2026 · situazione al ${fmtDate(TODAY)}`} title="Documentazione sanitaria">
-        <button className="btn btn-primary" onClick={() => setMail((v) => !v)}>Prepara la mail per l&apos;Azienda</button>
+      <VitaHeader kicker="Polizza Vita 2026 · situazione di oggi" title="Documentazione sanitaria">
+        <button className="btn btn-primary" disabled={ROWS.length === 0} onClick={() => setMail((v) => !v)}>Prepara la mail per l&apos;Azienda</button>
         <button className="btn btn-secondary">Esporta Excel</button>
       </VitaHeader>
 
+      {ROWS.length === 0 ? <VitaEmpty what="non c'è documentazione sanitaria da seguire." /> : <>
       <CompanyTabs value={tab} onChange={setTab} counts={counts} />
 
       <div className="rsm-kpis">
@@ -79,8 +80,8 @@ Un saluto`
         <div className="rsm-panel">
           <div className="rsm-box-title">Mail per la referente in Azienda</div>
           <div className="rsm-row">
-            <label className="rsm-field">A<input defaultValue="referente@amundi.example" style={{ width: 260 }} /></label>
-            <label className="rsm-field">Cc<input defaultValue="operatore1@csabroker.it, operatore2@csabroker.it" style={{ width: 340 }} /></label>
+            <label className="rsm-field">A<input placeholder="referente in Azienda" style={{ width: 260 }} /></label>
+            <label className="rsm-field">Cc<input placeholder="operatori CSA in copia" style={{ width: 340 }} /></label>
           </div>
           <label className="rsm-field rsm-mail">Testo<textarea readOnly value={body} /></label>
           <div className="rsm-row"><button className="btn btn-primary" onClick={copy}>{copied ? 'Copiata' : 'Copia il testo'}</button><button className="btn btn-secondary">Apri nella posta</button><button className="btn btn-secondary">Scarica .eml</button></div>
@@ -108,6 +109,7 @@ Un saluto`
           </table>
         </div>
       </div>
+      </>}
       {current && <PersonPanel row={current} onClose={() => setOpen(null)} />}
     </div>
   )

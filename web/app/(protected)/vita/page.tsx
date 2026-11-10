@@ -5,7 +5,7 @@
 // documentazione sanitaria. Scheda dell'assicurato nel pannello laterale.
 import { useMemo, useState } from 'react'
 import { COMPANIES, ROWS, TODAY, YEAR_START, eur, fmtDate, movements, rate4, statusAt } from '@/lib/vita/demo'
-import { CompanyTabs, CoverPill, DocPill, PersonPanel, VitaHeader } from '@/components/vita/VitaUi'
+import { CompanyTabs, CoverPill, DocPill, PersonPanel, VitaEmpty, VitaHeader } from '@/components/vita/VitaUi'
 import type { CompanyTab } from '@/components/vita/VitaUi'
 
 export default function VitaStatoPage() {
@@ -37,12 +37,13 @@ export default function VitaStatoPage() {
 
   return (
     <div className="rsm">
-      <VitaHeader kicker={`Polizza Vita 2026 · situazione al ${fmtDate(TODAY)}`} title="Stato di rischio">
+      <VitaHeader kicker="Polizza Vita 2026 · situazione di oggi" title="Stato di rischio">
         <a className="btn btn-secondary" href="/vita/movimenti">Registra entrata o uscita</a>
         <button className="btn btn-secondary">Importa lo stato di rischio</button>
         <button className="btn btn-secondary">Esporta Excel</button>
       </VitaHeader>
 
+      {ROWS.length === 0 ? <VitaEmpty what="non è ancora stato caricato lo stato di rischio." /> : <>
       <div className="rsm-kpis">
         <div className="rsm-kpi"><div className="rsm-kpi-top"><span>In copertura</span><span>{tab === 'all' ? 'tutte le polizze' : `pol. ${COMPANIES[tab].policy}`}</span></div><div className="rsm-kpi-num">{scope.length}</div><div className="rsm-kpi-line">{onlyDeath} con la sola garanzia caso morte{outOfCover > 0 ? `, ${outOfCover} oltre gli 80 anni` : ''}</div></div>
         <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitali assicurati</span></div><div className="rsm-kpi-num">{eur(capTot)}</div><div className="rsm-kpi-line">media {eur(capTot / Math.max(1, scope.length))}</div></div>
@@ -82,7 +83,8 @@ export default function VitaStatoPage() {
           </table>
         </div>
       </div>
-      <p className="rsm-note">Età, tasso, capitale, premio e garanzie non si scrivono: si calcolano da data di nascita, RAL e documentazione, come le formule del file Excel. Dati di prova.</p>
+      <p className="rsm-note">Età, tasso, capitale, premio e garanzie non si scrivono: si calcolano da data di nascita, RAL e documentazione, come le formule del file Excel.</p>
+      </>}
       {current && <PersonPanel row={current} onClose={() => setOpen(null)} />}
     </div>
   )

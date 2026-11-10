@@ -8,6 +8,19 @@ import type { CompanyKey, Computed } from '@/lib/vita/demo'
 import { checkPerson } from '@/lib/rsm/rules.js'
 import { missingDoc } from '@/lib/vita/rules.js'
 
+/** Niente assicurati: si dice che cosa manca, non si mostra una tabella vuota. */
+export function VitaEmpty({ what }: { what: string }) {
+  return (
+    <div className="rsm-box"><div className="rsm-empty">
+      <p>Nessun assicurato nel programma: {what}</p>
+      <p className="rsm-note" style={{ maxWidth: 520, margin: '0 auto' }}>
+        La sezione non è ancora collegata al database: lo stato di rischio si carica dal file dell&apos;Azienda
+        quando la mettiamo in servizio. Tassi, regole, contraenti e numeri di polizza sono già quelli veri.
+      </p>
+    </div></div>
+  )
+}
+
 export function VitaHeader({ title, kicker, children }: { title: string; kicker: string; children?: React.ReactNode }) {
   return (
     <div className="rsm-head">

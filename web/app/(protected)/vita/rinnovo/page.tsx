@@ -5,7 +5,7 @@
 // programma dell'anno dopo (capitali, premi, soglie, età).
 import { useMemo, useState } from 'react'
 import { COMPANIES, RATES, RULES, ROWS, TODAY, eur, fmtDate, rate4, statusAt } from '@/lib/vita/demo'
-import { CoverPill, VitaHeader } from '@/components/vita/VitaUi'
+import { CoverPill, VitaEmpty, VitaHeader } from '@/components/vita/VitaUi'
 import { computeInsured } from '@/lib/vita/rules.js'
 
 const NEXT = '2027-01-01'
@@ -39,6 +39,7 @@ export default function VitaRinnovoPage() {
         <button className="btn btn-primary" disabled={missing > 0}>Crea il programma 2027</button>
       </VitaHeader>
 
+      {ROWS.length === 0 ? <VitaEmpty what="non c'è niente da rinnovare." /> : <>
       <ol className="rsm-steps">
         {['Scarica l’elenco da mandare all’Azienda', 'Carica il file con le RAL nuove', 'Controlla cosa cambia e conferma'].map((t, i) => (
           <li key={t} className={step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}><button className="rsm-sort" onClick={() => setStep(i + 1)} style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="n">{step > i + 1 ? '✓' : i + 1}</span>{t}</button></li>
@@ -82,6 +83,7 @@ export default function VitaRinnovoPage() {
           </table>
         </div>
       </div>
+      </>}
     </div>
   )
 }
