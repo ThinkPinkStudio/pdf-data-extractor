@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { computeSafeContextBudget, estimateOllamaTokens, buildGroupBatches } from '../src/services/polizzaService.js'
+import { computeSafeContextBudget, estimateOllamaTokens, buildGroupBatches, ctxCap } from '../src/services/polizzaService.js'
 
 // Overhead di sistema/guida campi in TOKEN, come la funzione lo computa.
 const overheadTokens = (systemChars, userChars) => estimateOllamaTokens(systemChars + userChars)
@@ -167,4 +167,24 @@ test('regressione budget: un documento ~1800 char entra INTERO nel batch (num_ct
   const maxTokens = numCtx - Math.floor(numCtx * marginRatio)
   const totalTokens = estimateOllamaTokens(batches[0].text.length) + estimateOllamaTokens(systemChars + userChars)
   assert.ok(totalTokens <= maxTokens, `${totalTokens} token > numCtx-margine ${maxTokens}`)
+})
+test('ctxCap: default 8192, valore di Impostazioni rispettato fino a 262144, mai oltre (il nativo del modello lo applica il motore)', () => {
+  assert.equal(ctxCap({}), 8192)
+  assert.equal(ctxCap(null), 8192)
+  assert.equal(ctxCap({ polizzaBatchContext: 'abc' }), 8192)
+  assert.equal(ctxCap({ polizzaBatchContext: 16384 }), 16384)
+  assert.equal(ctxCap({ polizzaBatchContext: '32768' }), 32768)
+  assert.equal(ctxCap({ polizzaBatchContext: 131072 }), 131072)
+  assert.equal(ctxCap({ polizzaBatchContext: 262144 }), 262144)
+  assert.equal(ctxCap({ polizzaBatchContext: 524288 }), 262144)
+  assert.equal(ctxCap({ polizzaBatchContext: 512 }), 2048)
+})
+
+test('thinkEnabled: ragionamento per fase, spento di default', async () => {
+  const { thinkEnabled } = await import('../src/services/netFetch.js')
+  assert.equal(thinkEnabled({}, 'estrazione'), false)
+  assert.equal(thinkEnabled({ polizzaThink: 'abbinamento' }, 'abbinamento'), true)
+  assert.equal(thinkEnabled({ polizzaThink: 'abbinamento' }, 'estrazione'), false)
+  assert.equal(thinkEnabled({ polizzaThink: 'tutto' }, 'estrazione'), true)
+  assert.equal(thinkEnabled({ polizzaThink: 'estrazione' }, 'abbinamento'), false)
 })

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { getBatchRow, listFailedBatchJobs, resetJobForRetry } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
+import { launchBatch } from '@/lib/polizzaBatchWorker'
 
 export const runtime = 'nodejs'
 
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const id of toRetry) {
     if (await resetJobForRetry(id, session.email)) retried++
   }
-  if (retried > 0) startBatch(params.id)
+  if (retried > 0) launchBatch(params.id, session.email)
 
   await logAction({
     email: session.email, action: 'polizza.batch.retry_failed',

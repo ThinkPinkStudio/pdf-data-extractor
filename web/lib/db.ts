@@ -66,6 +66,24 @@ export async function initDb() {
     -- Timestamp dell'email di fine batch inviata al proprietario: NULL = non ancora
     -- notificato. Serve a inviare la mail UNA sola volta (anche dopo un restart).
     ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS notified_at BIGINT;
+    -- RICONCILIAZIONE per numero di polizza (25/09/2026): i batch NUOVI nascono
+    -- con TRUE (initBatch) e prima di elaborare si uniscono i dossier con lo
+    -- stesso numero; i batch esistenti restano FALSE (nessuna unione a posteriori).
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS needs_reconcile BOOLEAN NOT NULL DEFAULT FALSE;
+    -- ULTIMO LANCIO del batch (28/09/2026): data e utente dell'ultima azione che
+    -- lo ha rimesso in lavorazione (Riabbina, Estrai, Procedi, Riprova…). Le
+    -- pagine mostrano questa invece del caricamento originale: due batch con lo
+    -- stesso nome, uno fermo da settimane, si confondevano.
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_at BIGINT;
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS last_launch_by TEXT;
+    -- RIUNIONE dei dossier GIÀ ELABORATI (25/10/2026): { jobIds } = la prossima
+    -- riconciliazione legge quei dossier (non solo i nuovi in coda) e rimette in
+    -- coda SOLO quelli che unisce o divide. NULL = batch nuovo, dossier in coda.
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS reconcile_scope JSONB;
+    -- Esito dell'ultima riconciliazione (quando, dossier letti, modifiche, errore):
+    -- la pagina del batch lo mostra. Prima un guasto passava in silenzio e il batch
+    -- si elaborava per cartella (Lipari J - T, 23/10/2026).
+    ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS reconcile_result JSONB;
 
     CREATE INDEX IF NOT EXISTS idx_batch_jobs_email ON batch_jobs(email);
 
@@ -122,6 +140,30 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_status ON polizza_jobs(status);
     CREATE INDEX IF NOT EXISTS idx_polizza_jobs_batch ON polizza_jobs(batch_id);
 
+    -- STORICO delle run (25/09/2026): ogni volta che un job arriva a un esito
+    -- (estratto, abbinato, da verificare, non pertinente, errore) se ne salva
+    -- una fotografia. Prima ogni rilancio sovrascriveva il precedente e
+    -- l'andamento tra una run e l'altra non si poteva ricostruire.
+    CREATE TABLE IF NOT EXISTS polizza_job_runs (
+      id           SERIAL PRIMARY KEY,
+      job_id       TEXT NOT NULL REFERENCES polizza_jobs(id) ON DELETE CASCADE,
+      batch_id     TEXT,
+      finished_at  BIGINT NOT NULL,
+      status       TEXT NOT NULL,
+      profile_id   TEXT,
+      profile_name TEXT,
+      model        TEXT,
+      ctx          INTEGER,
+      verdict      TEXT,
+      summary      TEXT,
+      error        TEXT,
+      fields       JSONB NOT NULL DEFAULT '[]',
+      field_values JSONB NOT NULL DEFAULT '{}',
+      filled       INTEGER NOT NULL DEFAULT 0,
+      total        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_polizza_job_runs_job ON polizza_job_runs(job_id, finished_at);
+
     -- PDF di input del job (base64, come la tabella sessions): consente la ripresa
     -- del job anche dopo un riavvio, senza che il client ricarichi i file.
     CREATE TABLE IF NOT EXISTS polizza_job_files (
@@ -138,6 +180,12 @@ export async function initDb() {
     -- precedenti alla migrazione (il worker lo calcola al volo in quel caso).
     ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS file_hash TEXT;
     CREATE INDEX IF NOT EXISTS idx_polizza_job_files_hash ON polizza_job_files(file_hash);
+
+    -- Percorso RELATIVO di origine del file (webkitRelativePath, radice della
+    -- cartella caricata inclusa): serve a riconsegnare i PDF del batch in uno
+    -- ZIP con lo stesso albero di cartelle di partenza. NULL sulle righe
+    -- precedenti alla migrazione: lo ZIP ripiega sul nome del dossier.
+    ALTER TABLE polizza_job_files ADD COLUMN IF NOT EXISTS rel_path TEXT;
 
     -- Cache OCR per hash contenuto: l'OCR (tesseract) di un PDF scansionato costa
     -- minuti; lo stesso identico file ricaricato (doppioni tra cartelle, retry,
@@ -184,6 +232,29 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_adesioni_dataf  ON adesioni_records(data_fine);
     CREATE INDEX IF NOT EXISTS idx_adesioni_status ON adesioni_records(status);
 
+    -- CSA Adesioni Infortuni (06/11/2026): adesioni alla polizza infortuni
+    -- conducenti AIG. Numero IAH0015842/NNN assegnato al salvataggio (unico);
+    -- status pending → sent quando il BDX parte per email.
+    CREATE TABLE IF NOT EXISTS infortuni_records (
+      id             TEXT PRIMARY KEY,
+      numero         TEXT NOT NULL UNIQUE,
+      status         TEXT NOT NULL DEFAULT 'pending',
+      saved_by       TEXT,
+      cognome        TEXT,
+      nome           TEXT,
+      codice_fiscale TEXT,
+      targa          TEXT,
+      opzione        TEXT,
+      data_adesione  TEXT,
+      data_scadenza  TEXT,
+      data           JSONB NOT NULL DEFAULT '{}',
+      sent_at        BIGINT,
+      sent_to        TEXT,
+      created_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+      updated_at     BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+    CREATE INDEX IF NOT EXISTS idx_infortuni_status ON infortuni_records(status);
+
     -- Utenti della web app (accesso "sulla fiducia" con email di dominio approvato).
     -- password_hash è mantenuto per compatibilità con gli account legacy, ma il
     -- login NON lo usa più: basta l'email nel dominio autorizzato.
@@ -194,6 +265,242 @@ export async function initDb() {
       created_at    BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     );
   `)
+
+  // Riepiloghi generali in una query A PARTE: un errore in questa DDL non deve
+  // fermare l'avvio dell'app (la query principale sopra resta intatta).
+  try {
+    await pool.query(`
+    -- RIEPILOGHI GENERALI (26/09/2026): X polizze ESTRATTE dello stesso profilo,
+    -- aggregate per anno. Nessuna FK verso polizza_jobs: un job eliminato non
+    -- deve far sparire il riepilogo (in "fotografia" i valori sono copiati qui).
+    -- profile_id = chiave del profilo (id del profilo, o 'campi:<sha1>' per le
+    -- estrazioni singole senza profilo); job_ids nell'ordine di aggiunta, senza
+    -- doppioni (max 2000); snapshot NULL in modo 'live'; prefs = solo le scelte
+    -- dell'utente (i default si calcolano a ogni lettura). snapshot_at = data
+    -- della fotografia in colonna (l'elenco non decomprime la fotografia);
+    -- field_sigs = firme dei campi delle estrazioni singole ammesse (chiave
+    -- stabile se le Impostazioni cambiano); rev = versione per il PATCH ottimistico.
+    CREATE TABLE IF NOT EXISTS polizza_summaries (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      profile_id    TEXT NOT NULL,
+      profile_name  TEXT,
+      year_field_id TEXT,
+      due_field_id  TEXT,
+      mode          TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','snapshot')),
+      job_ids       JSONB NOT NULL DEFAULT '[]',
+      snapshot      JSONB,
+      snapshot_at   BIGINT,
+      prefs         JSONB NOT NULL DEFAULT '{}',
+      field_sigs    JSONB NOT NULL DEFAULT '[]',
+      rev           BIGINT NOT NULL DEFAULT 0,
+      created_by    TEXT NOT NULL,
+      created_at    BIGINT NOT NULL,
+      updated_at    BIGINT NOT NULL
+    );
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS profile_name  TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS year_field_id TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS due_field_id  TEXT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS mode          TEXT NOT NULL DEFAULT 'live';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS job_ids       JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS snapshot      JSONB;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS prefs         JSONB NOT NULL DEFAULT '{}';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS snapshot_at   BIGINT;
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS field_sigs    JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE polizza_summaries ADD COLUMN IF NOT EXISTS rev           BIGINT NOT NULL DEFAULT 0;
+    UPDATE polizza_summaries SET snapshot_at = (snapshot->>'takenAt')::numeric::bigint
+      WHERE snapshot IS NOT NULL AND snapshot_at IS NULL AND jsonb_typeof(snapshot->'takenAt') = 'number';
+    CREATE INDEX IF NOT EXISTS idx_polizza_summaries_profile ON polizza_summaries(profile_id);
+    CREATE INDEX IF NOT EXISTS idx_polizza_summaries_updated ON polizza_summaries(updated_at DESC);
+    `)
+  } catch (e) {
+    console.error('[initDb] riepiloghi generali: tabella polizza_summaries non pronta:', e)
+  }
+
+  // ANAGRAFICHE RSM (05/11/2026): polizza collettiva rimborso spese mediche.
+  // Un programma = un cliente per un anno (config: periodo, categorie con
+  // polizza e tariffe, regole di calcolo, destinatari della mail). Una riga di
+  // rsm_members = una persona coperta in UNA categoria: una promozione chiude
+  // la riga vecchia (exit_kind 'promozione') e ne apre una nuova con lo stesso
+  // promotion_id. Gli importi NON si salvano: si ricalcolano dalla config
+  // (lib/rsm/rules.js), così un cambio di regola vale anche per il passato.
+  try {
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS rsm_programs (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      year        INTEGER NOT NULL,
+      config      JSONB NOT NULL,
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS rsm_members (
+      id                TEXT PRIMARY KEY,
+      program_id        TEXT NOT NULL REFERENCES rsm_programs(id) ON DELETE CASCADE,
+      category          TEXT NOT NULL,
+      quiescente        BOOLEAN NOT NULL DEFAULT FALSE,
+      cf                TEXT NOT NULL,
+      cognome           TEXT NOT NULL DEFAULT '',
+      nome              TEXT NOT NULL DEFAULT '',
+      birth_date        TEXT,
+      legame            TEXT NOT NULL,
+      cf_titolare       TEXT,
+      entry_date        TEXT,
+      entry_kind        TEXT NOT NULL DEFAULT 'inclusione',
+      requested_date    TEXT,
+      communicated_date TEXT,
+      entry_forced      BOOLEAN NOT NULL DEFAULT FALSE,
+      exit_date         TEXT,
+      exit_kind         TEXT,
+      exit_communicated TEXT,
+      promotion_id      TEXT,
+      source            TEXT,
+      note              TEXT,
+      created_by        TEXT NOT NULL,
+      created_at        BIGINT NOT NULL,
+      updated_at        BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rsm_members_program ON rsm_members(program_id);
+    CREATE INDEX IF NOT EXISTS idx_rsm_members_cf ON rsm_members(program_id, cf);
+    -- Due id di promozione (07/11/2026, revisione): promotion_id = la promozione
+    -- che ha CREATO la riga (entry_kind 'promozione'), exit_promotion_id = quella
+    -- che l'ha CHIUSA. Con un id solo, una seconda promozione sovrascriveva la
+    -- prima e annullarla cancellava la categoria di mezzo.
+    ALTER TABLE rsm_members ADD COLUMN IF NOT EXISTS exit_promotion_id TEXT;
+    UPDATE rsm_members SET exit_promotion_id = promotion_id,
+           promotion_id = CASE WHEN entry_kind = 'promozione' THEN promotion_id ELSE NULL END
+     WHERE exit_kind = 'promozione' AND exit_promotion_id IS NULL AND promotion_id IS NOT NULL;
+    -- Registro delle operazioni (06/11/2026): righe com'erano prima e id inseriti,
+    -- per annullare l'ultima operazione esattamente.
+    CREATE TABLE IF NOT EXISTS rsm_ops (
+      id          TEXT PRIMARY KEY,
+      program_id  TEXT NOT NULL REFERENCES rsm_programs(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      before      JSONB NOT NULL DEFAULT '[]',
+      inserted    JSONB NOT NULL DEFAULT '[]',
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      undone_at   BIGINT,
+      undone_by   TEXT
+    );
+    -- Ordine certo delle operazioni (created_at è in secondi: due operazioni
+    -- nello stesso secondo uscivano in ordine casuale).
+    ALTER TABLE rsm_ops ADD COLUMN IF NOT EXISTS seq BIGSERIAL;
+    CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, seq DESC);
+    `)
+  } catch (e) {
+    console.error('[initDb] anagrafiche RSM: tabelle non pronte:', e)
+  }
+
+  // POLIZZA VITA (10/11/2026): collettiva vita di Amundi SGR e Amundi Real Estate.
+  // Un programma = un anno (config: periodo, contraenti con la loro polizza, regole,
+  // TASSI per età — che cambiano ogni anno — destinatari della mail). Una riga di
+  // vita_insured = una persona su UNA polizza: un passaggio fra contraenti chiude la
+  // riga vecchia (exit_kind 'passaggio') e ne apre una nuova con lo stesso
+  // transfer_id. Come per l'RSM gli importi NON si salvano: capitale, premio e
+  // rimborso si ricalcolano da RAL, documentazione e tassi (lib/vita/rules.js).
+  try {
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS vita_programs (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      year        INTEGER NOT NULL,
+      config      JSONB NOT NULL,
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vita_insured (
+      id                TEXT PRIMARY KEY,
+      program_id        TEXT NOT NULL REFERENCES vita_programs(id) ON DELETE CASCADE,
+      company           TEXT NOT NULL,
+      cf                TEXT NOT NULL,
+      cognome           TEXT NOT NULL DEFAULT '',
+      nome              TEXT NOT NULL DEFAULT '',
+      birth_date        TEXT,
+      level             TEXT NOT NULL DEFAULT '',
+      ral               NUMERIC NOT NULL DEFAULT 0,
+      key_figure        BOOLEAN NOT NULL DEFAULT FALSE,
+      sovr_pct          NUMERIC NOT NULL DEFAULT 0,
+      doc_visit         BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_extra         BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_ok            BOOLEAN NOT NULL DEFAULT FALSE,
+      doc_checkup_date  TEXT,
+      reminded_on       TEXT,
+      entry_date        TEXT,
+      entry_kind        TEXT NOT NULL DEFAULT 'inclusione',
+      communicated_date TEXT,
+      exit_date         TEXT,
+      exit_kind         TEXT,
+      exit_communicated TEXT,
+      transfer_id       TEXT,
+      exit_transfer_id  TEXT,
+      next_ral          NUMERIC,
+      source            TEXT,
+      note              TEXT,
+      created_by        TEXT NOT NULL,
+      created_at        BIGINT NOT NULL,
+      updated_at        BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_vita_insured_program ON vita_insured(program_id);
+    CREATE INDEX IF NOT EXISTS idx_vita_insured_cf ON vita_insured(program_id, cf);
+    CREATE TABLE IF NOT EXISTS vita_ops (
+      id          TEXT PRIMARY KEY,
+      program_id  TEXT NOT NULL REFERENCES vita_programs(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      before      JSONB NOT NULL DEFAULT '[]',
+      inserted    JSONB NOT NULL DEFAULT '[]',
+      created_by  TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      seq         BIGSERIAL,
+      undone_at   BIGINT,
+      undone_by   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_vita_ops_program ON vita_ops(program_id, seq DESC);
+    `)
+  } catch (e) {
+    console.error('[initDb] polizza vita: tabelle non pronte:', e)
+  }
+}
+
+/**
+ * LOCK DISTRIBUITO tra processi tramite advisory lock PostgreSQL.
+ *
+ * Perche: in produzione ci sono piu repliche/container del worker, ognuno con la
+ * propria memoria — una coda in-memory non basta per garantire "una sola run di
+ * estrazione alla volta" (la VRAM 8GB esplode con run parallele). L'advisory lock
+ * è condiviso da TUTTI i processi che puntano allo stesso Postgres, quindi una
+ * sola run puo girare a livello di intero sistema; le altre si accodano
+ * (pg_advisory_lock è BLOCCANTE) invece di partire in parallelo.
+ *
+ * @param key  chiave del lock (es. 'extraction_run')
+ * @param fn   lavoro da eseguire sotto lock (la run di estrazione)
+ */
+export async function withDistributedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect()
+  try {
+    // pg_advisory_lock è bloccante: se un altro processo tiene il lock, ATTENDE
+    // (non fallisce, non parte in parallelo). La chiave va passata come bigint:
+    // deriviamo un hash deterministico a 31 bit dalla stringa.
+    const lockId = (hashLockKey(key) & 0x7fffffff)
+    await client.query('SELECT pg_advisory_lock($1)', [lockId])
+    try {
+      return await fn()
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [lockId])
+    }
+  } finally {
+    client.release()
+  }
+}
+
+function hashLockKey(key: string): number {
+  let h = 0
+  for (const ch of String(key || '')) h = (h * 31 + ch.charCodeAt(0)) & 0xffffffff
+  return h
 }
 
 export { pool }

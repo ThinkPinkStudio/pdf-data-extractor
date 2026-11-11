@@ -19,7 +19,7 @@ export function formatEuro(n) {
 }
 
 /**
- * @param {string} codiceConfig  es. '00001' | '00002' | '00003'
+ * @param {string} codiceConfig  es. '00001' | '00002' | '00003' | '00005' | '00006'
  * @param {object} prezzi        mappa { codice: { pacchetto, premio, formula? } }
  * @param {object} [record]      record dell'aderente (per le variabili della formula)
  * @returns {{ pacchetto: string, premio: string }}
@@ -46,10 +46,12 @@ const OPZIONE_LABELS = {
   '00001': "Hai selezionato l'opzione: solo assistenza",
   '00002': "Hai selezionato l'opzione: solo tutela legale",
   '00003': "Hai selezionato l'opzione: assistenza e tutela legale (entrambe)",
+  '00005': "Hai selezionato l'opzione: Pacchetto D – assistenza stradale",
+  '00006': "Hai selezionato l'opzione: Pacchetto D Plus – assistenza stradale e tutela legale",
 }
 
 /**
- * @param {string} codiceConfig  es. '00001' | '00002' | '00003'
+ * @param {string} codiceConfig  es. '00001' | '00002' | '00003' | '00005' | '00006'
  * @returns {string} descrizione dell'opzione scelta, o '' se non riconosciuta
  */
 export function opzioneLabelFor(codiceConfig) {

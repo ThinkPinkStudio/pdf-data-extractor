@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { resetJobForRetry } from '@/lib/polizzaJobStore'
-import { startBatch } from '@/lib/polizzaBatchWorker'
+import { launchBatch } from '@/lib/polizzaBatchWorker'
 import { startJob } from '@/lib/polizzaJobWorker'
 
 export const runtime = 'nodejs'
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const job = await resetJobForRetry(params.id, session.email)
   if (!job) return NextResponse.json({ error: 'Job non trovato o non rilanciabile (è ancora in esecuzione o in coda)' }, { status: 409 })
 
-  if (job.batch_id) startBatch(job.batch_id)
+  if (job.batch_id) launchBatch(job.batch_id, session.email)
   else startJob(job.id)
 
   await logAction({ email: session.email, action: 'polizza.job.retry', resource: job.dossier_name || job.id, ip })

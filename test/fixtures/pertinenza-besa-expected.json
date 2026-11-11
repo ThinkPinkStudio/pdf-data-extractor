@@ -1,0 +1,17 @@
+{
+  "_doc": "Verità di PERTINENZA per il profilo Tutela Legale 3 dalla verifica manuale del cliente del 25/09/2026 (Excel «Verifica_Tutela_Legale_BESA ING», 10 posizioni a campione). `match` = sottostringa del nome del dossier FINALE (dopo la riconciliazione per numero di polizza, che rinomina col percorso della cartella madre). expected: 'operante' = abbinato (verdict ok); 'non operante' = non pertinente o da verificare (mai estratto da solo). Le altre posizioni del gruppo non hanno verità: si riportano senza punteggio.",
+  "profile": "Tutela Legale 3",
+  "root": "polizze_test/BESA ING SANTANGELO GRUPPO",
+  "cases": [
+    { "id": "bertolotti-gt724fh", "match": "BERTOLOTTI SILVIA GT724FH", "expected": "non operante", "note": "Unipol 30/210502137: altre garanzie acquistate = Assistenza Completa; tutela legale non acquistata" },
+    { "id": "besa-fl885yc-zurich", "match": "BESA ING SANTANGELO FL 885 YC", "expected": "non operante", "note": "Zurich MB658161: sezione TL nelle condizioni ma non valorizzata" },
+    { "id": "besa-fl885yc-das", "match": "BESA ING SANTANGELO FL885YC", "expected": "operante", "note": "DAS Drive 01469DAS00031, massimale 25.000" },
+    { "id": "besa-tl-penale", "match": "BESA TUT. LEGALE PENALE AZIENDA", "expected": "operante", "note": "DAS Tutela Aziende 01469DAS00040: UNA posizione (cartella + /POLIZZA)" },
+    { "id": "besa-sas-tl", "match": "BESA SAS TUT. LEGALE", "expected": "operante", "note": "DAS 01469DAS00013, 'Tutela Legale Pacchetto Base' tra le garanzie scelte" },
+    { "id": "coi-gv474dj-allianz", "match": "COI TECHNOLOGY  GV474DJ", "expected": "operante", "note": "Allianz 556129374: 'Tutela Giudiziaria SI' premio 18,19" },
+    { "id": "coi-fl519ye-das", "match": "COI TECHNOLOGY FL519YE TUTELA LEGALE AUTO", "expected": "operante", "note": "DAS 01469DAS00082, massimale 25.000, premio 28" },
+    { "id": "coi-tl-penale", "match": "COI TECHNOLOGY TUT. LEGALE PENALE", "expected": "operante", "note": "DAS Tutela Aziende 01469DAS00039: UNA posizione (cartella + /POLIZZA)" },
+    { "id": "pisapia-auto", "match": "PISAPIA VINCENZO AUTO", "expected": "operante", "note": "Allianz 555412062: 'Tutela Giudiziaria SI' premio 25,99" },
+    { "id": "santangelo-abitazioni", "match": "SANTANGELO ROSA ABITAZIONI", "expected": "non operante", "note": "abitazione: nella parte valorizzata Incendio, Furto…; TL citata solo altrove" }
+  ]
+}

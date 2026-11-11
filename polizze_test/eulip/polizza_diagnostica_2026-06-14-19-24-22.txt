@@ -1,0 +1,95 @@
+=== DIAGNOSTICA ESTRAZIONE POLIZZA ===
+Data/ora:     2026-06-14 19:24:22
+Provider LLM: anthropic
+Modello: claude-haiku-4-5-20251001
+
+=== FILE CARICATI ===
+1. Conteggio provvigioni app. 01_EULIP_REGOLAZIONE 23_24.pdf [allegato]
+2. Conteggio provvigioni app. 05_EULIP_REGOLAZIONE 23_24.pdf [allegato]
+3. Eulip S.p.a. n.30012 App. 2 regolazione 2022.pdf [allegato]
+4. Eulip S.p.a. n.30012 App. 3 cambio contraenza e variazione numerazione.pdf [allegato]
+5. Eulip S.p.a. n.30012 App. 4 regolazione 2023.pdf [allegato]
+6. Eulip S.p.a. n.30012 App. 5 regolazione da gennaio ad aprile 2024.pdf [allegato]
+7. Eulip S.p.a. n.30012 App.1 precisazione.pdf [allegato]
+8. Eulip S.r.l. n.30010 App.1 regolazione da maggio a dic. 2024.pdf [allegato]
+9. Polizza.pdf [polizza]
+10. Quietanza di rinnovo 2023 n.30012 S.p.a..pdf [appendice]
+11. Quietanza di rinnovo 2024 n.30012 S.p.a..pdf [appendice]
+12. Quietanza di rinnovo 2025 n.30010 S.r.l..pdf [appendice]
+
+=== LOG ESTRAZIONE ===
+[21:23:28] Inizio estrazione - 12 file
+[21:23:28] File 1/12 · pag 0/0
+[21:23:28] File 1/12 · pag 3/36
+[21:23:36] File 1/12 · pag 3/36
+[21:23:36] File 1/12 · pag 6/36
+[21:23:36] File 1/12 · pag 6/36
+[21:23:36] File 1/12 · pag 9/36
+[21:23:37] File 1/12 · pag 9/36
+[21:23:37] File 1/12 · pag 12/36
+[21:23:38] File 1/12 · pag 12/36
+[21:23:38] File 1/12 · pag 15/36
+[21:23:39] File 1/12 · pag 15/36
+[21:23:39] File 1/12 · pag 18/36
+[21:23:40] File 1/12 · pag 18/36
+[21:23:40] File 1/12 · pag 21/36
+[21:23:41] File 1/12 · pag 21/36
+[21:23:41] File 1/12 · pag 24/36
+[21:23:42] File 1/12 · pag 24/36
+[21:23:42] File 1/12 · pag 27/36
+[21:23:43] File 1/12 · pag 27/36
+[21:23:43] File 1/12 · pag 30/36
+[21:23:44] File 1/12 · pag 30/36
+[21:23:44] File 1/12 · pag 33/36
+[21:23:45] File 1/12 · pag 33/36
+[21:23:45] File 1/12 · pag 36/36
+[21:23:47] File 1/12 · pag 36/36
+[21:23:47] File 2/12 · pag 0/0
+[21:23:47] File 2/12 · pag 1/1
+[21:23:48] File 2/12 · pag 1/1
+[21:23:48] File 3/12 · pag 0/0
+[21:23:48] File 3/12 · pag 1/1
+[21:23:49] File 3/12 · pag 1/1
+[21:23:49] File 4/12 · pag 0/0
+[21:23:49] File 4/12 · pag 1/1
+[21:23:51] File 4/12 · pag 1/1
+[21:23:51] File 5/12 · pag 0/0
+[21:23:51] File 5/12 · pag 1/1
+[21:23:52] File 5/12 · pag 1/1
+[21:23:52] File 6/12 · pag 0/0
+[21:23:52] File 6/12 · pag 1/1
+[21:23:53] File 6/12 · pag 1/1
+[21:23:53] File 7/12 · pag 0/0
+[21:23:53] File 7/12 · pag 1/1
+[21:23:56] File 7/12 · pag 1/1
+[21:23:56] File 8/12 · pag 0/0
+[21:23:56] File 8/12 · pag 2/2
+[21:23:59] File 8/12 · pag 2/2
+[21:23:59] File 9/12 · pag 0/0
+[21:23:59] File 9/12 · pag 2/2
+[21:24:01] File 9/12 · pag 2/2
+[21:24:01] File 10/12 · pag 0/0
+[21:24:01] File 10/12 · pag 1/1
+[21:24:03] File 10/12 · pag 1/1
+[21:24:03] File 11/12 · pag 0/0
+[21:24:03] File 11/12 · pag 1/1
+[21:24:05] File 11/12 · pag 1/1
+[21:24:05] File 12/12 · pag 0/0
+[21:24:05] File 12/12 · pag 1/1
+[21:24:07] File 12/12 · pag 1/1
+[21:24:07] Estrazione testo completata
+
+=== DATI ESTRATTI ===
+polizza_numero: 110-76206280-30012
+compagnia: HDI Global SE
+contraente: EULIP SPA
+codice_fiscale_iva: 03078910340
+indirizzo: VIA NOBEL, 7/A, 43122 PARMA
+decorrenza: 31/12/2024
+scadenza: 31/12/2025
+rcp_parametro: Fatturato ROW
+rcp_importo_preventivo: 60.339.253,34
+rcp_tasso: 0,410
+rcp_premio_imponibile: 24.739,09
+rcp_imposta: 8.339,09
+rcp_premio_totale: 33.078,18
