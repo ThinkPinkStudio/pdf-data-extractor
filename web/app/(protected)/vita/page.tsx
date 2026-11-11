@@ -43,6 +43,9 @@ export default function VitaStatoPage() {
   const onlyDeath = scope.filter((r) => r.c.cover === 'SOLO CASO MORTE').length
   const outOfCover = scope.filter((r) => r.c.cover === 'FUORI COPERTURA').length
   const noRate = scope.filter((r) => r.c.rate == null).length
+  // Uscite dell'anno: si vedono anche senza spuntare «mostra gli usciti».
+  const usciti = vita.rows.filter((r) => r.exitDate && (tab === 'all' || r.company === tab))
+  const entrati = vita.rows.filter((r) => r.entryKind !== 'iniziale' && (tab === 'all' || r.company === tab))
   const current = open ? vita.rows.find((r) => r.id === open) || null : null
 
   async function exportExcel(kind: 'stato' | 'situazione') {
@@ -66,6 +69,11 @@ export default function VitaStatoPage() {
             <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitali assicurati</span></div><div className="rsm-kpi-num">{eur(capTot)}</div><div className="rsm-kpi-line">media {eur(capTot / Math.max(1, scope.length))}</div></div>
             <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(premTot)}</div><div className="rsm-kpi-line">premio pieno di chi è in copertura; i ratei dell&apos;anno sono in Movimenti{noRate > 0 ? ` · ${noRate} senza tasso in tabella` : ''}</div></div>
             <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Capitale sotto il previsto</span></div><div className="rsm-kpi-num" style={{ color: reduced ? 'var(--c-warning)' : undefined }}>{reduced}</div><div className="rsm-kpi-line">documentazione sanitaria incompleta</div></div>
+            <div className="rsm-kpi">
+              <div className="rsm-kpi-top"><span>Movimenti dell&apos;anno</span><span>{vita.program?.year}</span></div>
+              <div className="rsm-kpi-num">{entrati.length} <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--c-text-muted)' }}>entrate</span> · {usciti.length} <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--c-text-muted)' }}>uscite</span></div>
+              <div className="rsm-kpi-line">{usciti.length ? <button className="rsm-link" onClick={() => setShowExited(true)}>mostra chi è uscito</button> : 'nessuna uscita registrata'}</div>
+            </div>
           </div>
 
           {cfg && <CompanyTabs cfg={cfg} value={tab} onChange={setTab} counts={counts} />}

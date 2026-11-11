@@ -1,18 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
-import { listInsured, replaceInsured } from '@/lib/vita/store'
+import { listInsured, mergeInsured, replaceInsured } from '@/lib/vita/store'
 import { computeInsured, parseVitaWorkbook } from '@/lib/vita/rules.js'
 import { checkPerson } from '@/lib/rsm/rules.js'
 import { fail, guard, readSheets } from '@/lib/vita/server'
 
 export const runtime = 'nodejs'
 
-interface Parsed { company: string; cf: string; cognome: string; nome: string; birthDate: string | null; ral: number; keyFigure: boolean; sovrPct: number; doc: { visit: boolean; extra: boolean; ok: boolean; checkupDate: string | null }; entryDate: string; source: string; rowNumber?: number; sheet?: string }
+interface Parsed {
+  company: string; cf: string; cognome: string; nome: string; birthDate: string | null; ral: number
+  keyFigure: boolean; sovrPct: number; doc: { visit: boolean; extra: boolean; ok: boolean; checkupDate: string | null }
+  entryDate: string; entryKind?: 'iniziale' | 'inclusione' | 'passaggio'
+  exitDate?: string | null; exitKind?: 'cessazione' | 'passaggio' | null; transferId?: string | null; exitTransferId?: string | null
+  source: string; note?: string; rowNumber?: number; sheet?: string
+}
 
 /**
- * Carica lo stato di rischio dal file dell'Azienda. Senza `confirm` è una PROVA:
- * dice che cosa entrerebbe e che cosa non torna, senza salvare. Con `confirm`
- * SOSTITUISCE le righe del programma, in una operazione annullabile.
+ * Carica lo stato di rischio dal file dell'Azienda (fogli di stato E fogli delle
+ * movimentazioni: entrate e uscite dell'anno). Senza `confirm` è una PROVA: dice
+ * che cosa entrerebbe e che cosa non torna, senza salvare.
+ * Con `confirm` e `mode=merge` (il caso normale quando il programma ha già
+ * qualcuno) AGGIORNA chi c'è, aggiunge chi è nuovo e non tocca il resto: se nel
+ * file cambiano due date non si rifà tutto a mano. Con `mode=replace` butta via
+ * le righe di prima. In entrambi i casi è una operazione annullabile.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
@@ -21,6 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const file = form?.get('file')
   if (!(file instanceof File)) return fail(400, 'File mancante', 'invalid')
   const confirm = String(form?.get('confirm') || '') === '1'
+  const replace = String(form?.get('mode') || '') === 'replace'
   const ralYear = Number(form?.get('ralYear')) || g.program.year
 
   const sheets = readSheets(Buffer.from(await file.arrayBuffer()))
@@ -38,6 +49,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     else seen.set(key, p)
   }
   const rows = [...seen.values()]
+  const esistenti = await listInsured(params.id)
+  const inFile = new Set(rows.map((p) => `${p.company}:${p.cf}`))
+  const giaDentro = new Map(esistenti.map((p) => [`${p.company}:${p.cf}`, p]))
+  const aggiornati = rows.filter((p) => giaDentro.has(`${p.company}:${p.cf}`)).length
+  const fuoriDalFile = esistenti.filter((p) => !inFile.has(`${p.company}:${p.cf}`))
+  const usciteAMano = esistenti.filter((p) => p.exitDate && inFile.has(`${p.company}:${p.cf}`) && !rows.find((r) => `${r.company}:${r.cf}` === `${p.company}:${p.cf}`)?.exitDate)
+  const noteAMano = esistenti.filter((p) => {
+    const f = rows.find((r) => `${r.company}:${r.cf}` === `${p.company}:${p.cf}`)
+    return f && String(p.note || '').trim() && String(p.note || '').trim() !== String(f.note || '').trim()
+  })
+  const usciteDalFile = rows.filter((p) => p.exitDate).length
   const perCompany: Record<string, number> = {}
   let premium = 0
   let missingRal = 0
@@ -52,12 +74,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (missingRal) all.unshift(`${missingRal} ${missingRal === 1 ? 'assicurato è' : 'assicurati sono'} senza RAL: il capitale non si può calcolare.`)
   if (noRate) all.unshift(`${noRate} ${noRate === 1 ? 'assicurato ha' : 'assicurati hanno'} un'età fuori dalla tabella dei tassi: il premio va concordato con la compagnia.`)
 
+  const puliti = rows.map(({ rowNumber, sheet, ...m }) => { void rowNumber; void sheet; return m })
   if (!confirm) {
-    const existing = await listInsured(params.id)
-    return NextResponse.json({ n: rows.length, perCompany, premium, warnings: all, missingRal, replaces: existing.length })
+    return NextResponse.json({
+      n: rows.length, perCompany, premium, warnings: all, missingRal,
+      replaces: esistenti.length, aggiornati, nuovi: rows.length - aggiornati,
+      fuoriDalFile: fuoriDalFile.length, usciteDalFile, usciteAMano: usciteAMano.length, noteAMano: noteAMano.length,
+    })
   }
-  const label = `Import dello stato di rischio da «${file.name}» (${rows.length} assicurati)`
-  const r = await replaceInsured(params.id, rows.map(({ rowNumber, sheet, ...m }) => { void rowNumber; void sheet; return m }), g.email, label)
-  await logAction({ email: g.email, action: 'vita.import', resource: params.id, metadata: { file: file.name, n: rows.length, opId: r.opId } })
-  return NextResponse.json({ ok: true, n: r.n, perCompany, premium, warnings: all, opId: r.opId, label })
+  const label = `${replace ? 'Import' : 'Aggiornamento'} dello stato di rischio da «${file.name}» (${rows.length} assicurati)`
+  if (replace) {
+    const r = await replaceInsured(params.id, puliti, g.email, label)
+    await logAction({ email: g.email, action: 'vita.import', resource: params.id, metadata: { file: file.name, mode: 'replace', n: rows.length, opId: r.opId } })
+    return NextResponse.json({ ok: true, n: r.n, perCompany, premium, warnings: all, opId: r.opId, label })
+  }
+  const r = await mergeInsured(params.id, puliti, g.email, label)
+  await logAction({ email: g.email, action: 'vita.import', resource: params.id, metadata: { file: file.name, mode: 'merge', ...r, opId: r.opId } })
+  return NextResponse.json({ ok: true, n: rows.length, ...r, perCompany, premium, warnings: all, opId: r.opId, label })
 }

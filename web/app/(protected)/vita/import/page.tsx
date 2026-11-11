@@ -29,6 +29,12 @@ interface Dry {
   warnings: string[]
   missingRal: number
   replaces?: number
+  aggiornati?: number
+  nuovi?: number
+  fuoriDalFile?: number
+  usciteDalFile?: number
+  usciteAMano?: number
+  noteAMano?: number
 }
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -46,6 +52,7 @@ export default function VitaImportPage() {
   const [dry, setDry] = useState<Dry | null>(null)
   const [busy, setBusy] = useState(false)
   const [understood, setUnderstood] = useState(false)
+  const [mode, setMode] = useState<'merge' | 'replace'>('merge')
   const [drag, setDrag] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -159,12 +166,13 @@ export default function VitaImportPage() {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('confirm', '1')
+      fd.append('mode', mode)
       const r = await fetch(`/api/vita/programs/${target}/import`, { method: 'POST', body: fd })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
       await vita.reload()
       setFlash({ ok: true, text: j.label || `Caricati ${j.n} assicurati`, opId: j.opId })
-      setStep(1); setFile(null); setInsp(null); setDry(null); setCfg(null); setUnderstood(false)
+      setStep(1); setFile(null); setInsp(null); setDry(null); setCfg(null); setUnderstood(false); setMode('merge')
       if (fileRef.current) fileRef.current.value = ''
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
@@ -307,7 +315,7 @@ export default function VitaImportPage() {
             <div className="rsm-box">
               <details>
                 <summary className="rsm-box-head" style={{ cursor: 'pointer', borderBottom: 0 }}>
-                  <span className="rsm-box-title">{altri.length} avvisi sui dati del file</span>
+                  <span className="rsm-box-title">{altri.length} {altri.length === 1 ? 'avviso' : 'avvisi'} sui dati del file</span>
                   <span className="rsm-note">Codici fiscali che non tornano: si importano lo stesso, conviene correggerli dopo.</span>
                 </summary>
                 <div className="rsm-box-body">{altri.map((w, i) => <div key={i} className="rsm-issue warning">{w}</div>)}</div>
@@ -317,15 +325,36 @@ export default function VitaImportPage() {
 
           <div className="rsm-box">
             <div className="rsm-box-body">
-              <p>Pronti <b>{dry.n}</b> assicurati da caricare in «{vita.program?.name}».</p>
-              {!!dry.replaces && (
-                <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5, color: 'var(--c-error)' }}>
-                  <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} style={{ height: 16, width: 16 }} />
-                  Ho capito: sostituisce i {dry.replaces} assicurati già registrati in questo programma.
-                </label>
+              {dry.usciteDalFile ? <p>Nel file ci sono <b>{dry.usciteDalFile}</b> {dry.usciteDalFile === 1 ? 'uscita' : 'uscite'} dell&apos;anno, dai fogli delle movimentazioni.</p> : <p className="rsm-note">Nel file non ci sono uscite nei fogli delle movimentazioni.</p>}
+              {!dry.replaces ? (
+                <p>Pronti <b>{dry.n}</b> assicurati da caricare in «{vita.program?.name}».</p>
+              ) : (
+                <>
+                  <p>In «{vita.program?.name}» ci sono già {dry.replaces} assicurati. Che cosa ne facciamo?</p>
+                  <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 13 }}>
+                    <input type="radio" name="mode" checked={mode === 'merge'} onChange={() => setMode('merge')} style={{ height: 16, width: 16, marginTop: 2 }} />
+                    <span><b>Aggiorna</b> — {dry.aggiornati} assicurati si aggiornano col file, {dry.nuovi} sono nuovi{dry.fuoriDalFile ? `, ${dry.fuoriDalFile} non sono nel file e restano come sono` : ''}.
+                      <span className="rsm-note" style={{ display: 'block' }}>Quello che il file non porta resta dov&apos;è: promemoria, accertamenti e check-up, RAL dell&apos;anno dopo, note scritte qui{dry.usciteAMano ? `, ${dry.usciteAMano} ${dry.usciteAMano === 1 ? 'uscita registrata' : 'uscite registrate'} a mano` : ''}{dry.noteAMano ? `, ${dry.noteAMano} ${dry.noteAMano === 1 ? 'nota scritta' : 'note scritte'} qui dentro` : ''}. Se nel file cambiano due date non si rifà tutto.</span>
+                    </span>
+                  </label>
+                  <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 13 }}>
+                    <input type="radio" name="mode" checked={mode === 'replace'} onChange={() => setMode('replace')} style={{ height: 16, width: 16, marginTop: 2 }} />
+                    <span><b>Sostituisci</b> — i {dry.replaces} assicurati di adesso vengono buttati e restano solo i {dry.n} del file.
+                      <span className="rsm-note" style={{ display: 'block' }}>Si perde tutto quello che è stato scritto qui dentro.</span>
+                    </span>
+                  </label>
+                  {mode === 'replace' && (
+                    <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5, color: 'var(--c-error)' }}>
+                      <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} style={{ height: 16, width: 16 }} />
+                      Ho capito: sostituisce i {dry.replaces} assicurati già registrati in questo programma.
+                    </label>
+                  )}
+                </>
               )}
               <div className="rsm-row">
-                <button className="btn btn-primary" disabled={busy || !dry.n || (!!dry.replaces && !understood)} onClick={confirm}>Importa {dry.n} assicurati</button>
+                <button className="btn btn-primary" disabled={busy || !dry.n || (mode === 'replace' && !!dry.replaces && !understood)} onClick={confirm}>
+                  {!dry.replaces ? `Importa ${dry.n} assicurati` : mode === 'merge' ? `Aggiorna ${dry.aggiornati}${dry.nuovi ? ` e aggiungi ${dry.nuovi}` : ''}` : `Sostituisci con ${dry.n} assicurati`}
+                </button>
                 <button className="btn btn-secondary" disabled={busy} onClick={() => setStep(2)}>Indietro</button>
               </div>
               <p className="rsm-note">Il programma e le sue impostazioni sono già salvati; gli assicurati si caricano solo adesso. L&apos;import si annulla dal messaggio di conferma, finché è l&apos;ultima operazione.</p>

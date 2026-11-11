@@ -235,6 +235,60 @@ export async function addInsured(programId: string, list: Partial<NewInsured>[],
   return { opId, ids: result }
 }
 
+/**
+ * Reimport dello STESSO file: aggiorna chi c'è già (stessa polizza, stesso codice
+ * fiscale), aggiunge chi è nuovo e LASCIA STARE il resto. Così se nel file cambiano
+ * una o due date non si rifà tutto a mano: quello che il file non porta — la data
+ * del promemoria, gli accertamenti, la RAL dell'anno dopo, le note scritte qui e le
+ * uscite registrate a mano — resta dov'è.
+ */
+export async function mergeInsured(programId: string, list: Partial<NewInsured>[], by: string, label: string): Promise<{ opId: string; updated: number; added: number; untouched: number; keptExits: number; keptNotes: number }> {
+  const { opId, result } = await withOp(programId, 'import', label, by, async (op) => {
+    const { rows } = await op.client.query<Row>('SELECT * FROM vita_insured WHERE program_id = $1', [programId])
+    const key = (c: string, cf: string) => `${c}:${cf}`
+    const byKey = new Map(rows.map((r) => [key(r.company, r.cf), r]))
+    const t = now()
+    const nuovi: Partial<NewInsured>[] = []
+    const visti = new Set<string>()
+    let updated = 0, keptExits = 0, keptNotes = 0
+
+    for (const m of list) {
+      const k = key(String(m.company), String(m.cf))
+      const old = byKey.get(k)
+      if (!old) { nuovi.push(m); continue }
+      visti.add(k)
+      await op.snap([old.id])
+      const d = m.doc || { visit: false, extra: false, ok: false, checkupDate: null }
+      // L'uscita registrata a mano non si cancella perché il file non la porta.
+      if (!m.exitDate && old.exit_date) keptExits++
+      // Nota scritta qui dentro: se è diversa da quella del file è dell'operatore
+      // e resta. Dopo il primo import le due coincidono, quindi non si conta.
+      const notaFile = String(m.note || '').trim()
+      const notaVecchia = String(old.note || '').trim()
+      const tieniNota = !!notaVecchia && notaVecchia !== notaFile
+      if (tieniNota) keptNotes++
+      await op.client.query(
+        `UPDATE vita_insured SET cognome=$2, nome=$3, birth_date=$4, level=$5, ral=$6, key_figure=$7,
+                sovr_pct=$8, doc_visit=$9, doc_ok=$10, entry_date=$11, entry_kind=$12, transfer_id=$13,
+                exit_date=COALESCE($14, exit_date), exit_kind=COALESCE($15, exit_kind), exit_transfer_id=COALESCE($16, exit_transfer_id),
+                note=$17, source=$18, updated_at=$19
+           WHERE id=$1`,
+        [old.id, m.cognome || '', m.nome || '', m.birthDate || null, m.level || '', m.ral ?? 0, !!m.keyFigure,
+          m.sovrPct ?? 0, !!d.visit, !!d.ok, m.entryDate || null, m.entryKind || 'inclusione', m.transferId || null,
+          m.exitDate || null, m.exitKind || null, m.exitTransferId || null, tieniNota ? notaVecchia : notaFile, m.source || null, t],
+      )
+      updated++
+    }
+    if (nuovi.length) {
+      const ids = nuovi.map(() => uuidv4())
+      await insertRaw(op.client, nuovi.map((m, i) => values(ids[i], programId, m, by, t)))
+      op.inserted(ids)
+    }
+    return { updated, added: nuovi.length, untouched: rows.length - visti.size, keptExits, keptNotes }
+  })
+  return { opId, ...result }
+}
+
 export type InsuredPatch = Partial<Pick<VitaInsured, 'cognome' | 'nome' | 'birthDate' | 'level' | 'ral' | 'keyFigure' | 'sovrPct' | 'doc' | 'remindedOn' | 'entryDate' | 'entryKind' | 'communicatedDate' | 'nextRal' | 'note'>>
 
 const PATCH_COL: Record<string, string> = {

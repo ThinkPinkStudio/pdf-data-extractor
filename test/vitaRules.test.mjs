@@ -231,3 +231,52 @@ test('intestazione del tracciato trovata anche con la riga di titolo sopra', () 
   assert.equal(h.map.cf, 4)
   assert.equal(h.map.ral, 10, 'la colonna RAL 2026, non la 2025')
 })
+
+test('import: i fogli delle MOVIMENTAZIONI portano entrate e uscite dell\'anno', () => {
+  const MOV = ['AZIENDA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'CODICE FISCALE', 'LIVELLO', 'DATA DI NASCITA', 'AZIONE', 'DATA AZIONE', "ETA'", 'RAL ANNUA', 'SOVRAPREMI %', 'FIGURA CHIAVE', 'NOTE']
+  const mov = (cf, pol, azione, data, ral = 0, cognome = 'ROSSI') =>
+    ['AMUNDI SGR', pol, cognome, 'MARIO', cf, 'Quadro', 31000, azione, data, 50, ral, 0, 'NO', '']
+  const sheets = {
+    'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000), RIGA('BNCLRA90A41F205I', 60037, 0, 60000)],
+    'Movimentazioni SGR': [MOV,
+      mov('RSSMRA85T10A562S', 60037, 'ESCLUSIONE', '01/05/2026'),
+      mov('VRDGPP70A01H501S', 60037, 'INCLUSIONE', '16/07/2026', 82000, 'VERDI')],
+  }
+  const { insured } = parseVitaWorkbook(CFG, sheets)
+  const uscito = insured.find((p) => p.cf === 'RSSMRA85T10A562S')
+  assert.equal(uscito.exitDate, '2026-05-01')
+  assert.equal(uscito.exitKind, 'cessazione')
+  const entrato = insured.find((p) => p.cf === 'VRDGPP70A01H501S')
+  assert.ok(entrato, 'chi entra in corso d\'anno e non è nello stato si aggiunge')
+  assert.equal(entrato.entryDate, '2026-07-16')
+  assert.equal(entrato.entryKind, 'inclusione')
+  assert.equal(entrato.ral, 82000)
+  // chi non ha movimenti resta com'era
+  assert.equal(insured.find((p) => p.cf === 'BNCLRA90A41F205I').exitDate, null)
+})
+
+test('import: uscita da una polizza ed entrata nell\'altra lo stesso giorno = passaggio', () => {
+  const MOV = ['AZIENDA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'CODICE FISCALE', 'LIVELLO', 'DATA DI NASCITA', 'AZIONE', 'DATA AZIONE', "ETA'", 'RAL ANNUA', 'SOVRAPREMI %', 'FIGURA CHIAVE', 'NOTE']
+  const sheets = {
+    'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000)],
+    'Movimentazioni SGR': [MOV, ['AMUNDI SGR', 60037, 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'Quadro', 31000, 'ESCLUSIONE', '23/01/2026', 50, 50000, 0, 'NO', '']],
+    'Movimentazioni Amundi RE': [MOV, ['AMUNDI RE', 60038, 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'Quadro', 31000, 'INCLUSIONE', '23/01/2026', 50, 50000, 0, 'NO', '']],
+  }
+  const { insured } = parseVitaWorkbook(CFG, sheets)
+  const esce = insured.find((p) => p.company === 'sgr')
+  const entra = insured.find((p) => p.company === 're')
+  assert.equal(esce.exitKind, 'passaggio')
+  assert.equal(entra.entryKind, 'passaggio')
+  assert.equal(esce.exitTransferId, entra.transferId, 'le due righe sono legate')
+})
+
+test('import: un\'uscita di chi non è in quella polizza si segnala, non si perde in silenzio', () => {
+  const MOV = ['AZIENDA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'CODICE FISCALE', 'LIVELLO', 'DATA DI NASCITA', 'AZIONE', 'DATA AZIONE', "ETA'", 'RAL ANNUA', 'SOVRAPREMI %', 'FIGURA CHIAVE', 'NOTE']
+  const sheets = {
+    'Amundi SGR': [HEAD, RIGA('RSSMRA85T10A562S', 60037, 0, 50000)],
+    'Movimentazioni SGR': [MOV, ['AMUNDI SGR', 60037, 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'Quadro', 31000, 'ESCLUSIONE', '01/05/2026', 50, 0, 0, 'NO', '']],
+  }
+  const { insured, warnings } = parseVitaWorkbook(CFG, sheets)
+  assert.equal(insured.filter((p) => p.exitDate).length, 0)
+  assert.ok(warnings.some((w) => /BIANCHI LAURA/.test(w) && /non è fra gli assicurati/.test(w)), warnings.join('\n'))
+})

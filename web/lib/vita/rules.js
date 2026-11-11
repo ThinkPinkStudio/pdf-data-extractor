@@ -234,6 +234,8 @@ const HEADS = [
   ['livello', /^LIVELLO/],
   ['nascita', /NASCITA/],
   ['inserimento', /^DATA INSERIMENTO|^DATA (DI )?ENTRATA|^DECORRENZA/],
+  ['azione', /^AZIONE/],
+  ['dataAzione', /^DATA AZIONE/],
   ['sovr', /^SOVRAPREMI/],
   ['figura', /^FIGURA CHIAVE/],
   ['visita', /^RAPPORTO DI VISITA MEDICA FORNITO/],
@@ -282,6 +284,7 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
   const ralYear = opts.ralYear || year
   const insured = []
   const warnings = []
+  let unknown = 0, unknownMov = 0
   const companies = cfg.companies || []
   const byPolicy = new Map(companies.filter((c) => c.policy).map((c) => [String(c.policy).trim(), c.key]))
   const norm = (s) => normHead(s).replace(/ /g, '')
@@ -299,12 +302,12 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
     return null
   }
 
-  // I fogli delle MOVIMENTAZIONI non sono lo stato: le entrate e le uscite si
-  // registrano una per una, con la loro data. Un foglio senza nemmeno un codice
-  // fiscale (TASSI, legende) non è un foglio di persone: si salta in silenzio.
+  // Un foglio senza nemmeno un codice fiscale (TASSI, legende) non è un foglio
+  // di persone: si salta in silenzio.
   const hasCf = (rows) => rows.some((r) => (r || []).some((c) => CF_RE.test(String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''))))
+  const isMov = (n) => /^(MOVIMENT|VARIAZ)/i.test(String(n).trim())
   for (const name of Object.keys(sheets)) {
-    if (/^(MOVIMENT|VARIAZ)/i.test(String(name).trim())) continue
+    if (isMov(name)) continue
     const rows = sheets[name] || []
     const h = findVitaHeader(rows, ralYear)
     if (!h) {
@@ -314,7 +317,7 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
     if (h.map.ral == null) warnings.push(`Foglio «${name}»: nessuna colonna RAL, i capitali non si possono calcolare.`)
     else if (!String(h.map.ralHead || '').includes(String(ralYear))) warnings.push(`Foglio «${name}»: nessuna colonna «RAL ${ralYear}», ho usato «${h.map.ralHead}».`)
     const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
-    let unknown = 0, noCf = 0
+    let noCf = 0
     /** @type {Map<string, number>} */
     const oddPolicy = new Map()
     for (let i = h.row + 1; i < rows.length; i++) {
@@ -363,7 +366,91 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
     if (noCf) warnings.push(`Foglio «${name}»: ${noCf} ${noCf === 1 ? 'riga ha' : 'righe hanno'} una RAL ma nessun codice fiscale valido; saltate.`)
     if (unknown) warnings.push(`Foglio «${name}»: ${unknown} righe senza un contraente riconoscibile (numero di polizza e azienda non corrispondono a nessuno dei contraenti del programma); saltate.`)
   }
-  return { insured, warnings }
+
+  // 2) FOGLI DELLE MOVIMENTAZIONI: entrate e uscite dell'anno. Erano saltati e le
+  // uscite sparivano (segnalato dal cliente l'11/11/2026).
+  const moves = []
+  for (const name of Object.keys(sheets)) {
+    if (!isMov(name)) continue
+    const rows = sheets[name] || []
+    const h = findVitaHeader(rows, ralYear)
+    if (!h) { if (hasCf(rows)) warnings.push(`Foglio «${name}»: intestazione non trovata; entrate e uscite non lette.`); continue }
+    const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
+    let senzaAzione = 0
+    for (let i = h.row + 1; i < rows.length; i++) {
+      const r = rows[i] || []
+      const cf = cellStr(get(r, 'cf')).toUpperCase().replace(/[^A-Z0-9]/g, '')
+      if (!CF_RE.test(cf)) continue
+      const found = findCompany(cellStr(get(r, 'polizza')), cellStr(get(r, 'azienda')), name)
+      if (!found) { unknownMov++; continue }
+      const azione = normHead(get(r, 'azione'))
+      const date = cellDate(get(r, 'dataAzione')) || cellDate(get(r, 'uscita')) || cellDate(get(r, 'inserimento'))
+      const kind = /ESCL|USCIT|CESSA/.test(azione) ? 'uscita' : /INCL|ENTRAT|INSERI/.test(azione) ? 'entrata' : null
+      if (!kind || !date) { senzaAzione++; continue }
+      const sovr = cellNum(get(r, 'sovr')) || 0
+      moves.push({
+        kind, date, cf, company: found.key, sheet: name, rowNumber: i + 1,
+        cognome: cellStr(get(r, 'cognome')).toUpperCase(), nome: cellStr(get(r, 'nome')).toUpperCase(),
+        birthDate: cellDate(get(r, 'nascita')), level: cellStr(get(r, 'livello')),
+        ral: cellNum(get(r, 'ral')) || 0, keyFigure: yes(get(r, 'figura')),
+        sovrPct: Math.abs(sovr) > 0 && Math.abs(sovr) <= 1 ? sovr * 100 : sovr,
+        doc: { visit: yes(get(r, 'visita')), ok: yes(get(r, 'ok')), extra: false, checkupDate: null },
+        note: cellStr(get(r, 'note')),
+      })
+    }
+    if (senzaAzione) warnings.push(`Foglio «${name}»: ${senzaAzione} ${senzaAzione === 1 ? 'riga senza' : 'righe senza'} azione o data; saltate.`)
+  }
+  if (unknownMov) warnings.push(`Movimentazioni: ${unknownMov} righe senza un contraente riconoscibile; saltate.`)
+
+  // Passaggio fra contraenti: la stessa persona esce da una polizza ed entra
+  // nell'altra lo stesso giorno. Le due righe si legano, come una cessazione non è.
+  const transferOf = new Map()
+  for (const m of moves.filter((x) => x.kind === 'uscita')) {
+    const inn = moves.find((x) => x.kind === 'entrata' && x.cf === m.cf && x.date === m.date && x.company !== m.company)
+    if (inn) { const id = `tr-${m.cf}-${m.date}`; transferOf.set(m, id); transferOf.set(inn, id) }
+  }
+
+  const key = (company, cf) => `${company}:${cf}`
+  const byKey = new Map(insured.map((p) => [key(p.company, p.cf), p]))
+
+  // Prima le entrate (chi entra può uscire nello stesso anno), poi le uscite.
+  for (const m of moves.filter((x) => x.kind === 'entrata').sort((a, b) => a.date.localeCompare(b.date))) {
+    const tr = transferOf.get(m) || null
+    const exist = byKey.get(key(m.company, m.cf))
+    if (exist) {
+      exist.entryDate = m.date
+      exist.entryKind = tr ? 'passaggio' : m.date > cfg.periodStart ? 'inclusione' : 'iniziale'
+      exist.transferId = tr
+      if (m.ral > 0) exist.ral = m.ral
+      exist.source = `${exist.source} · ${m.sheet} riga ${m.rowNumber}`
+      continue
+    }
+    const nuovo = {
+      company: m.company, cf: m.cf, cognome: m.cognome, nome: m.nome, birthDate: m.birthDate,
+      level: m.level, ral: m.ral, keyFigure: m.keyFigure, sovrPct: m.sovrPct, doc: m.doc,
+      remindedOn: null, entryDate: m.date,
+      entryKind: tr ? 'passaggio' : m.date > cfg.periodStart ? 'inclusione' : 'iniziale',
+      communicatedDate: null, exitDate: null, exitKind: null, exitCommunicated: null,
+      transferId: tr, exitTransferId: null, nextRal: null,
+      source: `${m.sheet} riga ${m.rowNumber}`, note: m.note, rowNumber: m.rowNumber, sheet: m.sheet,
+    }
+    insured.push(nuovo)
+    byKey.set(key(m.company, m.cf), nuovo)
+  }
+
+  let uscitePerse = 0
+  for (const m of moves.filter((x) => x.kind === 'uscita').sort((a, b) => a.date.localeCompare(b.date))) {
+    const p = byKey.get(key(m.company, m.cf))
+    if (!p) { uscitePerse++; warnings.push(`«${m.sheet}» riga ${m.rowNumber}: ${m.cognome} ${m.nome} esce il ${fmtDate(m.date)} ma non è fra gli assicurati di quella polizza; uscita non registrata.`); continue }
+    const tr = transferOf.get(m) || null
+    p.exitDate = m.date
+    p.exitKind = tr ? 'passaggio' : 'cessazione'
+    p.exitTransferId = tr
+    if (m.note && !p.note) p.note = m.note
+  }
+  void uscitePerse
+
+  return { insured, warnings, moves: moves.length }
 }
 
 /** Solo codice fiscale → RAL dell'anno indicato, per il rinnovo. */
