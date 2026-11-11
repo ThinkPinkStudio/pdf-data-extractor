@@ -35,6 +35,7 @@ interface Dry {
   usciteDalFile?: number
   usciteAMano?: number
   noteAMano?: number
+  docAMano?: number
 }
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -334,7 +335,7 @@ export default function VitaImportPage() {
                   <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 13 }}>
                     <input type="radio" name="mode" checked={mode === 'merge'} onChange={() => setMode('merge')} style={{ height: 16, width: 16, marginTop: 2 }} />
                     <span><b>Aggiorna</b> — {dry.aggiornati} assicurati si aggiornano col file, {dry.nuovi} sono nuovi{dry.fuoriDalFile ? `, ${dry.fuoriDalFile} non sono nel file e restano come sono` : ''}.
-                      <span className="rsm-note" style={{ display: 'block' }}>Quello che il file non porta resta dov&apos;è: promemoria, accertamenti e check-up, RAL dell&apos;anno dopo, note scritte qui{dry.usciteAMano ? `, ${dry.usciteAMano} ${dry.usciteAMano === 1 ? 'uscita registrata' : 'uscite registrate'} a mano` : ''}{dry.noteAMano ? `, ${dry.noteAMano} ${dry.noteAMano === 1 ? 'nota scritta' : 'note scritte'} qui dentro` : ''}. Se nel file cambiano due date non si rifà tutto.</span>
+                      <span className="rsm-note" style={{ display: 'block' }}>Quello che il file non porta resta dov&apos;è: promemoria, accertamenti e check-up, RAL dell&apos;anno dopo, note scritte qui{dry.usciteAMano ? `, ${dry.usciteAMano} ${dry.usciteAMano === 1 ? 'uscita registrata' : 'uscite registrate'} a mano` : ''}{dry.noteAMano ? `, ${dry.noteAMano} ${dry.noteAMano === 1 ? 'nota scritta' : 'note scritte'} qui dentro` : ''}{dry.docAMano ? `, la documentazione segnata qui per ${dry.docAMano} ${dry.docAMano === 1 ? 'assicurato' : 'assicurati'}` : ''}. Se nel file cambiano due date non si rifà tutto.</span>
                     </span>
                   </label>
                   <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 13 }}>

@@ -55,6 +55,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const aggiornati = rows.filter((p) => giaDentro.has(`${p.company}:${p.cf}`)).length
   const fuoriDalFile = esistenti.filter((p) => !inFile.has(`${p.company}:${p.cf}`))
   const usciteAMano = esistenti.filter((p) => p.exitDate && inFile.has(`${p.company}:${p.cf}`) && !rows.find((r) => `${r.company}:${r.cf}` === `${p.company}:${p.cf}`)?.exitDate)
+  const docAMano = esistenti.filter((p) => {
+    const f = rows.find((r) => `${r.company}:${r.cf}` === `${p.company}:${p.cf}`)
+    return f && ((p.doc?.visit && !f.doc?.visit) || (p.doc?.ok && !f.doc?.ok))
+  })
   const noteAMano = esistenti.filter((p) => {
     const f = rows.find((r) => `${r.company}:${r.cf}` === `${p.company}:${p.cf}`)
     return f && String(p.note || '').trim() && String(p.note || '').trim() !== String(f.note || '').trim()
@@ -80,6 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       n: rows.length, perCompany, premium, warnings: all, missingRal,
       replaces: esistenti.length, aggiornati, nuovi: rows.length - aggiornati,
       fuoriDalFile: fuoriDalFile.length, usciteDalFile, usciteAMano: usciteAMano.length, noteAMano: noteAMano.length,
+      docAMano: docAMano.length,
     })
   }
   const label = `${replace ? 'Import' : 'Aggiornamento'} dello stato di rischio da «${file.name}» (${rows.length} assicurati)`
