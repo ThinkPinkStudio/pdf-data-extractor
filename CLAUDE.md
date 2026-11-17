@@ -2124,6 +2124,17 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   campi numerici all'italiana (`NumInput`: «646,», «2,5», «9.146»); cambio
   rapido di programma senza dati mescolati (`wanted` in useRsm); registro con
   `seq` (ordine certo) e programma bloccato in `withOp`.
+  **Più società del gruppo (17/11/2026)**: un programma = una società per un
+  anno (`rsm_programs.company`, vuota sui vecchi e ricavata dal nome con
+  `companyOf`). In cima a ogni pagina RSM una scheda per società (un clic,
+  stesso anno), sotto la scelta dell'anno. Import guidato: «Copia tariffe e
+  regole» da qualunque programma (categorie, polizze, tariffe, regole, mail,
+  editor; mai `fileCompany`); la società si propone dalla colonna AZIENDA del
+  file (`workbookCompany`) e si ricorda in `config.fileCompany`: un nome mai
+  visto propone un programma NUOVO, mai quello della società aperta (prima
+  il file di un'altra società andava, di default, a sostituire quella aperta).
+  Guida per il cliente con screenshot su dati anonimi:
+  `.goldens-out/rsm-docs/` (database di prova `rsm_demo`, config `rsm-demo-3012`).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
