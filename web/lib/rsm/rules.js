@@ -229,6 +229,7 @@ export function defaultProgramConfig(year = new Date().getFullYear()) {
       refundTaxPct: 2.5, // rimborso al netto dell'imposta
       notifyDays: 30, // inclusione comunicata entro N giorni: decorre dalla data richiesta
       coverUntilPeriodEnd: true, // chi cessa resta coperto fino a fine periodo
+      maxAge: 80, // limite d'età della polizza: al rinnovo un avviso, mai un'esclusione
     },
     mail: { cc: '', signature: '' },
   }
@@ -330,6 +331,44 @@ export function statusAt(cfg, m, date) {
 }
 
 export const isCovered = (state) => state === 'attivo' || state === 'cessazione'
+
+/** Anni compiuti a una data ISO. */
+export function ageAt(birthISO, atISO) {
+  if (!birthISO || !atISO) return null
+  let a = +atISO.slice(0, 4) - +birthISO.slice(0, 4)
+  if (atISO.slice(5) < birthISO.slice(5)) a--
+  return a
+}
+
+/**
+ * Stato di rischio «pulito» per l'anno dopo (regole di CSA, 17/11/2026): chi è
+ * in copertura al primo giorno del nuovo periodo (`cfg.periodEnd`). Fuori i
+ * cessati dell'anno e le righe chiuse da una promozione (la persona c'è già
+ * nella categoria nuova); dentro chi entra entro il 31/12, col suo premio.
+ * Chi ha una decorrenza nel nuovo anno va nel PROMEMORIA in fondo all'elenco.
+ * Il limite d'età non esclude mai: è un avviso, si decide con la compagnia.
+ * → { keep: [{ m, alerts }], next: [{ m, alerts }], dropped: [{ m, reason }], at }
+ */
+export function renewalPlan(cfg, members) {
+  const at = cfg.periodEnd
+  const maxAge = Number((cfg.rules || {}).maxAge) || 80
+  const keep = [], next = [], dropped = []
+  for (const m of members) {
+    if (m.entryDate && m.entryDate >= at) { next.push({ m, alerts: [] }); continue }
+    const st = statusAt(cfg, m, at)
+    if (st !== 'attivo') { dropped.push({ m, reason: st === 'promosso' ? 'promozione' : 'cessazione' }); continue }
+    keep.push({ m, alerts: [] })
+  }
+  const covered = new Set(keep.concat(next).filter((x) => x.m.legame === 'TI').map((x) => `${x.m.category}|${x.m.cf}`))
+  for (const x of keep.concat(next)) {
+    const a = ageAt(x.m.birthDate || decodeCf(x.m.cf).birthDate, at)
+    if (a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
+    if (x.m.exitDate && x.m.exitDate > at) x.alerts.push(`uscita comunicata dal ${fmtDate(x.m.exitDate)}`)
+    if (x.m.legame !== 'TI' && x.m.cfTitolare === x.m.cf) x.alerts.push('come capo nucleo ha il proprio codice fiscale: manca il titolare')
+    else if (x.m.legame !== 'TI' && x.m.cfTitolare && !covered.has(`${x.m.category}|${x.m.cfTitolare}`)) x.alerts.push('il titolare del nucleo non è più in copertura')
+  }
+  return { keep, next, dropped, at }
+}
 
 /* ─── Promozione ────────────────────────────────────────────────────────── */
 
@@ -905,6 +944,14 @@ export const sameFileCompany = (a, b) => !!a && !!b && normHead(a) === normHead(
  * entrate dei fogli di stato. null se il file non ha date.
  */
 export function workbookYear(sheets) {
+  // Il file del rinnovo (export «Stato per il <anno>») lo dice in chiaro: le
+  // entrate sono dell'anno prima, ma il file è dell'anno nuovo.
+  for (const rows of Object.values(sheets || {})) {
+    for (const r of rows || []) {
+      const m = /STATO DI RISCHIO PER IL ((?:19|20)\d{2})\b/.exec(normHead(r && r[0]))
+      if (m) return +m[1]
+    }
+  }
   const mode = (ys) => {
     const f = new Map()
     for (const y of ys) f.set(y, (f.get(y) || 0) + 1)

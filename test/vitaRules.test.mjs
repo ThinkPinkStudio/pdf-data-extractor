@@ -280,3 +280,30 @@ test('import: un\'uscita di chi non è in quella polizza si segnala, non si perd
   assert.equal(insured.filter((p) => p.exitDate).length, 0)
   assert.ok(warnings.some((w) => /BIANCHI LAURA/.test(w) && /non è fra gli assicurati/.test(w)), warnings.join('\n'))
 })
+
+test('stato di rischio Vita per il rinnovo: fuori i cessati e i passaggi, età solo avviso', async () => {
+  const { vitaRenewalPlan } = await import('../web/lib/vita/rules.js')
+  const cfg = { periodStart: '2026-01-01', periodEnd: '2027-01-01', rules: DEFAULT_RULES, rates: RATES,
+    companies: [{ key: 'sgr', name: 'Amundi SGR', policy: '' }, { key: 're', name: 'Amundi Real Estate', policy: '' }] }
+  const base = { company: 'sgr', ral: 50000, keyFigure: false, sovrPct: 0, doc: {}, entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: null, exitKind: null, birthDate: '1975-03-10' }
+  const p = (id, extra) => ({ id, cf: id, cognome: id, nome: 'X', ...base, ...extra })
+  const plan = vitaRenewalPlan(cfg, [
+    p('resta'),
+    p('cessato', { exitDate: '2026-09-01', exitKind: 'cessazione' }),
+    p('passato', { exitDate: '2026-05-01', exitKind: 'passaggio' }),
+    p('arrivato', { company: 're', entryDate: '2026-05-01', entryKind: 'passaggio' }),
+    p('escePrimoGennaio', { exitDate: '2027-01-01', exitKind: 'cessazione' }),
+    p('dicembre', { entryDate: '2026-12-01', entryKind: 'inclusione' }),
+    p('gennaio', { entryDate: '2027-01-01', entryKind: 'inclusione' }),
+    p('ottanta', { birthDate: '1945-06-01' }),
+    p('settanta', { birthDate: '1955-09-01' }),
+  ])
+  const ids = (l) => l.map((x) => x.p.id).sort()
+  assert.deepEqual(ids(plan.keep), ['arrivato', 'dicembre', 'ottanta', 'resta', 'settanta'])
+  assert.deepEqual(ids(plan.next), ['gennaio'])
+  assert.deepEqual(ids(plan.dropped), ['cessato', 'escePrimoGennaio', 'passato'])
+  const a = (id) => plan.keep.find((x) => x.p.id === id).alerts.join(' ')
+  assert.match(a('ottanta'), /oltre il limite di 80/)
+  assert.match(a('settanta'), /solo caso morte/)
+  assert.equal(a('resta'), '')
+})

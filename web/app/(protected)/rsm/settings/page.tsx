@@ -163,6 +163,7 @@ export default function RsmSettingsPage() {
                   <label className="rsm-field">{t('rsm.set.semEnd')}<DayMonth value={cfg.rules.firstSemesterEnd} disabled={ro} onChange={(v) => setRule('firstSemesterEnd', v)} /></label>
                   <label className="rsm-field">{t('rsm.set.semPct')}<input type="number" value={cfg.rules.secondSemesterPct} disabled={ro} onChange={(e) => setRule('secondSemesterPct', Number(e.target.value))} style={{ width: 90 }} /></label>
                   <label className="rsm-field">{t('rsm.set.notify')}<input type="number" value={cfg.rules.notifyDays} disabled={ro} onChange={(e) => setRule('notifyDays', Number(e.target.value))} style={{ width: 90 }} /></label>
+                  <label className="rsm-field" title={t('rsm.set.maxAgeHint')}>{t('rsm.set.maxAge')}<input type="number" value={cfg.rules.maxAge ?? 80} disabled={ro} onChange={(e) => setRule('maxAge', Number(e.target.value))} style={{ width: 90 }} /></label>
                 </div>
                 <div className="rsm-row">
                   <label className="rsm-field">{t('rsm.set.prorata')}

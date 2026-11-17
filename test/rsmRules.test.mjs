@@ -392,3 +392,42 @@ test('società scritta nel file: colonna AZIENDA, valore più frequente', () => 
   assert.ok(!sameFileCompany('C.A. VITA', 'SOCIETA ESEMPIO'))
   assert.ok(!sameFileCompany('', ''))
 })
+
+test('stato di rischio per il rinnovo: in copertura al 01/01, avvisi, promemoria', async () => {
+  const { renewalPlan, ageAt } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  const base = { quiescente: false, cfTitolare: null, entryKind: 'iniziale', exitDate: null, exitKind: null, birthDate: '1970-05-01' }
+  const m = (id, extra) => ({ id, category: 'impiegati', legame: 'TI', cf: `CF${id}`, cognome: id, nome: 'X', entryDate: '2026-01-01', ...base, ...extra })
+  const members = [
+    m('resta'),
+    m('cessato', { exitDate: '2026-06-01', exitKind: 'cessazione' }),
+    m('promosso', { exitDate: '2026-03-01', exitKind: 'promozione' }),
+    m('promossoNuovo', { category: 'funzionari', entryDate: '2026-03-01', entryKind: 'promozione' }),
+    m('dicembre', { entryDate: '2026-12-15', entryKind: 'inclusione' }),
+    m('gennaio', { entryDate: '2027-01-01', entryKind: 'inclusione' }),
+    m('anziano', { birthDate: '1946-12-31' }),
+    m('quasi', { birthDate: '1947-01-02' }),
+    m('esceDopo', { exitDate: '2027-02-01', exitKind: 'cessazione' }),
+    m('figlioOrfano', { legame: 'FI', cfTitolare: 'CFcessato' }),
+  ]
+  const p = renewalPlan(cfg, members)
+  const ids = (l) => l.map((x) => x.m.id).sort()
+  assert.equal(p.at, '2027-01-01')
+  assert.deepEqual(ids(p.keep), ['anziano', 'dicembre', 'esceDopo', 'figlioOrfano', 'promossoNuovo', 'quasi', 'resta'])
+  assert.deepEqual(ids(p.next), ['gennaio'])
+  assert.deepEqual(p.dropped.map((x) => `${x.m.id}:${x.reason}`).sort(), ['cessato:cessazione', 'promosso:promozione'])
+  const alerts = (id) => p.keep.find((x) => x.m.id === id).alerts.join(' ')
+  assert.match(alerts('anziano'), /80 anni.*limite di 80/)
+  assert.equal(alerts('quasi'), '')
+  assert.match(alerts('esceDopo'), /uscita comunicata dal 01\/02\/2027/)
+  assert.match(alerts('figlioOrfano'), /titolare del nucleo non è più in copertura/)
+  assert.equal(ageAt('1946-12-31', '2027-01-01'), 80)
+  // il limite si cambia dalle Impostazioni
+  cfg.rules.maxAge = 85
+  assert.equal(renewalPlan(cfg, members).keep.find((x) => x.m.id === 'anziano').alerts.length, 0)
+})
+
+test('anno del file del rinnovo: lo dice la riga «stato di rischio per il …»', async () => {
+  const { workbookYear } = await import('../web/lib/rsm/rules.js')
+  assert.equal(workbookYear({ Riepilogo: [['CATEGORIA'], [], ['Crédit Agricole Vita · RSM 2026 · stato di rischio per il 2027: chi è in copertura al 01/01/2027']] }), 2027)
+})

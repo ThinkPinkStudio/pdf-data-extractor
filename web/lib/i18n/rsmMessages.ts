@@ -3,6 +3,10 @@
 
 export const rsmMessages: Record<'it' | 'en', Record<string, string>> = {
   it: {
+    'rsm.st.exportRenewal': 'Stato per il {y}',
+    'rsm.st.exportRenewalHint': 'Excel da mandare al cliente: chi è in copertura al 01/01/{y}, con gli avvisi sull\'età e, in fondo, chi decorre nel {y}. Un foglio a parte elenca chi è uscito.',
+    'rsm.set.maxAge': 'Limite d\'età',
+    'rsm.set.maxAgeHint': 'Al rinnovo chi lo raggiunge resta nell\'elenco con un avviso: non viene mai escluso in automatico.',
     'rsm.companies': 'Società',
     'rsm.company': 'Società',
     'rsm.companyPh': 'Es. Crédit Agricole Vita',
@@ -366,6 +370,10 @@ export const rsmMessages: Record<'it' | 'en', Record<string, string>> = {
     'rsm.set.deleted': 'Programma eliminato.',
   },
   en: {
+    'rsm.st.exportRenewal': 'Status for {y}',
+    'rsm.st.exportRenewalHint': 'Excel for the client: who is covered on 01/01/{y}, with age warnings and, at the bottom, who starts in {y}. A separate sheet lists who left.',
+    'rsm.set.maxAge': 'Age limit',
+    'rsm.set.maxAgeHint': 'At renewal whoever reaches it stays on the list with a warning: never excluded automatically.',
     'rsm.companies': 'Companies',
     'rsm.company': 'Company',
     'rsm.companyPh': 'E.g. Crédit Agricole Vita',

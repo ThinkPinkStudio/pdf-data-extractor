@@ -174,6 +174,36 @@ export function computeInsured(p, rates, atISO, rules = DEFAULT_RULES) {
   return { age, rate, ...cap, ...prem, cover: coverage(age, rules) }
 }
 
+/**
+ * Stato di rischio «pulito» per l'anno dopo (regole di CSA, 17/11/2026): chi è
+ * in copertura al primo giorno del nuovo periodo (`cfg.periodEnd`). Fuori chi
+ * esce entro quel giorno (anche per passaggio: c'è già la riga nell'altra
+ * polizza); chi ha la decorrenza nel nuovo anno va nel PROMEMORIA. Oltre i
+ * limiti d'età nessuna esclusione, solo un avviso (decisione del cliente).
+ * → { keep: [{ p, alerts, now, next }], next: [{ p, alerts }], dropped: [{ p, reason }], at }
+ */
+export function vitaRenewalPlan(cfg, insured) {
+  const at = cfg.periodEnd
+  const rules = cfg.rules || DEFAULT_RULES
+  const keep = [], next = [], dropped = []
+  for (const p of insured) {
+    if (p.entryDate && p.entryDate >= at) { next.push({ p, alerts: [] }); continue }
+    if (p.exitDate && p.exitDate <= at) { dropped.push({ p, reason: p.exitKind || 'cessazione' }); continue }
+    const now = computeInsured(p, cfg.rates, p.entryDate && p.entryDate > cfg.periodStart ? p.entryDate : cfg.periodStart, rules)
+    const nx = computeInsured(p, cfg.rates, at, rules)
+    const alerts = []
+    if (nx.cover === 'FUORI COPERTURA') alerts.push(`${nx.age} anni al ${fmtDate(at)}: oltre il limite di ${rules.deathMaxAge} per il caso morte, da verificare con la compagnia`)
+    else if (nx.cover !== now.cover) alerts.push(`${nx.age} anni al ${fmtDate(at)}: oltre ${rules.ipMaxAge} anni, solo caso morte (niente IPT)`)
+    if (p.exitDate) alerts.push(`uscita comunicata dal ${fmtDate(p.exitDate)}`)
+    keep.push({ p, alerts, now, next: nx })
+  }
+  for (const x of next) {
+    const nx = computeInsured(x.p, cfg.rates, x.p.entryDate, rules)
+    if (nx.cover === 'FUORI COPERTURA') x.alerts.push(`${nx.age} anni alla decorrenza: oltre il limite di ${rules.deathMaxAge}, da verificare con la compagnia`)
+  }
+  return { keep, next, dropped, at }
+}
+
 /* ─── Codice fiscale (solo per i dati di prova) ─────────────────────────── */
 
 const ODD = { 0: 1, 1: 0, 2: 5, 3: 7, 4: 9, 5: 13, 6: 15, 7: 17, 8: 19, 9: 21, A: 1, B: 0, C: 5, D: 7, E: 9, F: 13, G: 15, H: 17, I: 19, J: 21, K: 2, L: 4, M: 18, N: 20, O: 11, P: 3, Q: 6, R: 8, S: 12, T: 14, U: 16, V: 10, W: 22, X: 25, Y: 24, Z: 23 }

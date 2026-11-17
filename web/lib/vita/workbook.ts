@@ -4,7 +4,7 @@
 // Stesse colonne e stesso ordine, perché il cliente lavora su quel file.
 // Solo valori, nessuna formula (totali compresi): gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
-import { computeInsured, fmtDate, movementOf, prorata } from './rules.js'
+import { computeInsured, fmtDate, movementOf, prorata, vitaRenewalPlan } from './rules.js'
 import type { VitaInsured, VitaProgram } from './types'
 
 const FMT_DATE = 'dd/mm/yyyy'
@@ -41,7 +41,7 @@ function totals(ws: ExcelJS.Worksheet, rows: ExcelJS.CellValue[][], cols: number
   info.font = { bold: true }
 }
 
-export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[], kind: 'stato' | 'situazione', at: string): Promise<Buffer> {
+export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[], kind: 'stato' | 'situazione' | 'rinnovo', at: string): Promise<Buffer> {
   const cfg = program.config
   const wb = new ExcelJS.Workbook()
   wb.creator = 'CSA Suite'
@@ -92,6 +92,76 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       ws.addRow(row)
     }
     totals(ws, out, [11, 12, 13, 14, 15, 16], insured.length)
+    return Buffer.from(await wb.xlsx.writeBuffer())
+  }
+
+  if (kind === 'rinnovo') {
+    // Stato di rischio «pulito» per l'anno dopo (vitaRenewalPlan): per contraente
+    // chi è in copertura al primo giorno, età e garanzia a quella data, la RAL
+    // dell'anno nuovo da far compilare all'Azienda (la colonna «RAL ANNUA <anno>»
+    // è quella che il caricamento del rinnovo legge), gli avvisi e, in fondo, il
+    // promemoria di chi decorre nell'anno nuovo.
+    const plan = vitaRenewalPlan(cfg, insured) as {
+      at: string
+      keep: { p: VitaInsured; alerts: string[]; next: { age: number | null; cover: string } }[]
+      next: { p: VitaInsured; alerts: string[] }[]
+      dropped: { p: VitaInsured; reason: string }[]
+    }
+    const start = plan.at
+    const next = +start.slice(0, 4)
+    const cols = [
+      { h: 'AZIENDA', w: 18 }, { h: 'NR. POLIZZA', w: 13 }, { h: 'COGNOME', w: 20 }, { h: 'NOME', w: 20 },
+      { h: 'CODICE FISCALE', w: 19 }, { h: 'LIVELLO', w: 22 }, { h: 'DATA DI NASCITA', w: 14, fmt: FMT_DATE },
+      { h: 'DATA INSERIMENTO', w: 15, fmt: FMT_DATE }, { h: `ETA' AL ${fmtDate(start)}`, w: 10 },
+      { h: `RAL ANNUA ${program.year}`, w: 14, fmt: FMT_EUR }, { h: `RAL ANNUA ${next}`, w: 14, fmt: FMT_EUR },
+      { h: 'FIGURA CHIAVE', w: 13 }, { h: `TIPO COPERTURA AL ${fmtDate(start)}`, w: 20 }, { h: 'AVVISI', w: 50 }, { h: 'NOTE', w: 40 },
+    ]
+    const row = (p: VitaInsured, ageNext: number | null, cover: string, alerts: string[]) => [
+      companyName(p.company), policy(p.company) || null, p.cognome, p.nome, p.cf, p.level, toDate(p.birthDate), toDate(p.entryDate),
+      ageNext, p.ral, p.nextRal, p.keyFigure ? 'SI' : 'NO', cover, alerts.join('; '), p.note || '',
+    ]
+    const byName = <T extends { p: VitaInsured }>(l: T[]) => [...l].sort((a, b) => `${a.p.cognome} ${a.p.nome}`.localeCompare(`${b.p.cognome} ${b.p.nome}`, 'it'))
+    const sum = wb.addWorksheet('Riepilogo')
+    header(sum, [{ h: 'AZIENDA', w: 20 }, { h: 'NR. POLIZZA', w: 13 }, { h: `IN COPERTURA AL ${fmtDate(start)}`, w: 16 },
+      { h: `USCITI NEL ${program.year}`, w: 12 }, { h: `DA INSERIRE NEL ${next}`, w: 14 }, { h: 'CON AVVISI', w: 11 }])
+    for (const comp of cfg.companies) {
+      const keep = byName(plan.keep.filter((x) => x.p.company === comp.key))
+      const nxt = byName(plan.next.filter((x) => x.p.company === comp.key))
+      const out = plan.dropped.filter((x) => x.p.company === comp.key)
+      if (!keep.length && !nxt.length && !out.length) continue
+      const ws = wb.addWorksheet(sheetName(comp.name))
+      header(ws, cols)
+      for (const x of keep) {
+        const r = ws.addRow(row(x.p, x.next.age, x.next.cover, x.alerts))
+        if (x.alerts.length) r.getCell(14).font = { bold: true, color: { argb: 'FFB42318' } }
+      }
+      const tot = ws.addRow([`TOTALE ${keep.length} ASSICURATI`])
+      tot.font = { bold: true }
+      if (nxt.length) {
+        ws.addRow([])
+        const t = ws.addRow([`PROMEMORIA · COMUNICATI NEL ${program.year} CON DECORRENZA DAL ${fmtDate(start)} O DOPO (da inserire nel ${next})`])
+        t.font = { bold: true }
+        for (const x of nxt) {
+          const c = calc(x.p, x.p.entryDate || start)
+          const r = ws.addRow(row(x.p, c.age, c.cover, x.alerts))
+          r.font = { italic: true }
+        }
+      }
+      sum.addRow([comp.name, comp.policy, keep.length, out.length, nxt.length, keep.concat(nxt as typeof keep).filter((x) => x.alerts.length).length])
+    }
+    if (plan.dropped.length) {
+      const ws = wb.addWorksheet(sheetName(`Usciti nel ${program.year}`))
+      // NOMINATIVO e non COGNOME/NOME: il file torna indietro col caricamento delle
+      // RAL, e questo foglio non deve sembrare un elenco di assicurati.
+      header(ws, [{ h: 'AZIENDA', w: 18 }, { h: 'NOMINATIVO', w: 34 }, { h: 'C.F.', w: 19 },
+        { h: 'DATA USCITA', w: 13, fmt: FMT_DATE }, { h: 'MOTIVO', w: 34 }, { h: 'NOTE', w: 40 }])
+      for (const x of [...plan.dropped].sort((a, b) => String(a.p.exitDate).localeCompare(String(b.p.exitDate)))) {
+        ws.addRow([companyName(x.p.company), `${x.p.cognome} ${x.p.nome}`, x.p.cf, toDate(x.p.exitDate),
+          x.reason === 'passaggio' ? "passaggio all'altra polizza (è nell'altro elenco)" : 'cessazione', x.p.note || ''])
+      }
+    }
+    sum.addRow([])
+    sum.addRow([`${program.name} · stato di rischio per il ${next}: chi è in copertura al ${fmtDate(start)} · limiti d'età ${cfg.rules.ipMaxAge} (IPT) e ${cfg.rules.deathMaxAge} (caso morte): solo avviso · compilare la colonna «RAL ANNUA ${next}» · esportato il ${fmtDate(at)}`])
     return Buffer.from(await wb.xlsx.writeBuffer())
   }
 

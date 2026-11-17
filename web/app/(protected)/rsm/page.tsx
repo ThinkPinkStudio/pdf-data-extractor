@@ -129,7 +129,7 @@ export default function RsmStatoPage() {
     run(() => api(`/api/rsm/programs/${rsm.programId}/members`, 'DELETE', { ids: [r.id] }), t('rsm.st.deleted'))
   }
 
-  async function exportXlsx(kind: 'stato' | 'situazione') {
+  async function exportXlsx(kind: 'stato' | 'situazione' | 'rinnovo') {
     try { await downloadExport(rsm.programId!, { kind, at, ids: kind === 'situazione' ? visible.map((r) => r.id) : undefined }) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
   }
 
@@ -141,6 +141,7 @@ export default function RsmStatoPage() {
             <label className="rsm-field w-date">{t('rsm.st.at')}<input type="date" value={at} onChange={(e) => setAt(e.target.value || today())} /></label>
             <button className="btn btn-secondary" onClick={() => exportXlsx('situazione')}>{t('rsm.st.exportView')}</button>
             <button className="btn btn-secondary" onClick={() => exportXlsx('stato')}>{t('rsm.st.exportStato')}</button>
+            <button className="btn btn-secondary" title={t('rsm.st.exportRenewalHint', { y: rsm.program.year + 1 })} onClick={() => exportXlsx('rinnovo')}>{t('rsm.st.exportRenewal', { y: rsm.program.year + 1 })}</button>
             {rsm.editor && <Link className="btn btn-primary" href="/rsm/variazioni">{t('rsm.st.register')}</Link>}
           </>
         )}

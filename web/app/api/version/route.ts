@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // l'istanza che risponde la sta servendo — indipendentemente da cache del
 // browser o proxy.
 const BUILD_FEATURES = [
+  'stato-rinnovo',        // RSM e Vita: stato di rischio pulito per l'anno dopo (17/11/2026)
   'strategy-switch',      // Impostazioni → Verifica e qualità → Strategia di estrazione (1.0.107)
   'archive-chat',         // voce Chat archivio + /api/archive/chat (1.0.107)
   'semantic-routing',     // gate campo×documento + arbitro semantico nel merge (1.0.108)

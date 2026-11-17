@@ -73,7 +73,7 @@ export default function VitaRinnovoPage() {
   return (
     <div className="rsm">
       <VitaHeader vita={vita} title="Rinnovo di fine anno" kicker={`dal ${year} al ${next}`}>
-        <button className="btn btn-secondary" disabled={!vita.rows.length} onClick={() => downloadExport(vita.programId!, { kind: 'stato' }).catch((e) => setFlash({ ok: false, text: (e as Error).message }))}>Scarica l&apos;elenco per l&apos;Azienda</button>
+        <button className="btn btn-secondary" disabled={!vita.rows.length} onClick={() => downloadExport(vita.programId!, { kind: 'rinnovo' }).catch((e) => setFlash({ ok: false, text: (e as Error).message }))}>Scarica lo stato per il {next}</button>
         {vita.editor && <button className="btn btn-primary" disabled={busy || missing > 0 || !vita.rows.length} onClick={createNext}>Crea il programma {next}</button>}
       </VitaHeader>
 
@@ -81,7 +81,7 @@ export default function VitaRinnovoPage() {
         {flashNode}
         {vita.rows.length === 0 ? <VitaEmpty what="non c'è niente da rinnovare." /> : <>
           <ol className="rsm-steps">
-            <li className={vita.rows.length ? 'done' : 'on'}><span className="n">{vita.rows.length ? '✓' : '1'}</span>Scarica l&apos;elenco da mandare all&apos;Azienda</li>
+            <li className={vita.rows.length ? 'done' : 'on'}><span className="n">{vita.rows.length ? '✓' : '1'}</span>Scarica lo stato per il {next} (chi resta in copertura, avvisi sull&apos;età, promemoria) e mandalo all&apos;Azienda</li>
             <li className={missing < rows.length ? 'done' : 'on'}><span className="n">{missing < rows.length ? '✓' : '2'}</span>Carica il file di ritorno con le RAL {next}</li>
             <li className={missing === 0 ? 'on' : ''}><span className="n">3</span>Controlla cosa cambia e crea il programma {next}</li>
           </ol>

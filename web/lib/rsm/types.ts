@@ -21,6 +21,7 @@ export interface RsmConfig {
     refundTaxPct: number
     notifyDays: number
     coverUntilPeriodEnd: boolean
+    maxAge?: number // limite d'età: al rinnovo un avviso, mai un'esclusione (default 80)
   }
   mail: { cc: string; signature: string }
   // Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano.

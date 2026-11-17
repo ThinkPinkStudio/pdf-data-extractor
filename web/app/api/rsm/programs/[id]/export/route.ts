@@ -6,13 +6,13 @@ import { fail, guard } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
 
-// POST { kind: 'stato' | 'situazione', at, ids? } → .xlsx. `ids` = le righe
+// POST { kind: 'stato' | 'situazione' | 'rinnovo', at, ids? } → .xlsx. `ids` = le righe
 // filtrate nella pagina (solo per 'situazione'); senza, tutte.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, false)
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as { kind?: string; at?: string; ids?: string[] }
-  const kind = body.kind === 'situazione' ? 'situazione' : 'stato'
+  const kind = body.kind === 'situazione' ? 'situazione' : body.kind === 'rinnovo' ? 'rinnovo' : 'stato'
   const at = typeof body.at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.at) ? body.at : new Date().toISOString().slice(0, 10)
   let members = await listMembers(params.id)
   if (kind === 'situazione' && Array.isArray(body.ids)) {
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const buf = await rsmWorkbook(g.program, members, kind, at)
     await logAction({ email: g.email, action: 'rsm.export', resource: params.id, metadata: { kind, at, rows: members.length } })
-    const file = `${g.program.name.replace(/[^\w\- ]+/g, '').trim() || 'RSM'} - ${kind === 'stato' ? 'stato di rischio' : 'situazione'} ${at}.xlsx`
+    const file = `${g.program.name.replace(/[^\w\- ]+/g, '').trim() || 'RSM'} - ${kind === 'stato' ? 'stato di rischio' : kind === 'rinnovo' ? `stato di rischio per il ${g.program.year + 1}` : 'situazione'} ${at}.xlsx`
     return new NextResponse(new Uint8Array(buf), {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

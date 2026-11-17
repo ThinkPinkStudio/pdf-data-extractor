@@ -2135,6 +2135,19 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   il file di un'altra società andava, di default, a sostituire quella aperta).
   Guida per il cliente con screenshot su dati anonimi:
   `.goldens-out/rsm-docs/` (database di prova `rsm_demo`, config `rsm-demo-3012`).
+  **Stato di rischio per il rinnovo (17/11/2026, regole di Lidia)**: RSM
+  «Stato per il <anno>» (pagina Stato di rischio, export `rinnovo`,
+  `renewalPlan`) e Vita «Scarica lo stato per il <anno>» (pagina Rinnovo,
+  `vitaRenewalPlan`): chi è in copertura al primo giorno del periodo nuovo
+  (`cfg.periodEnd`); fuori cessati, righe chiuse da promozione/passaggio
+  (foglio «Usciti nel <anno>» per il controllo del cliente); dentro le
+  entrate di dicembre col premio; chi decorre nell'anno nuovo in fondo come
+  PROMEMORIA. Limite d'età (RSM `rules.maxAge`, default 80, in Impostazioni;
+  Vita 70 IPT / 80 morte) = SOLO AVVISO, mai esclusione. Il file torna
+  dentro: RSM con l'import guidato (anno dalla riga «stato di rischio per il
+  <anno>», `workbookYear`), Vita col caricamento delle RAL (colonna «RAL ANNUA
+  <anno>» vuota da compilare). Totali e foglio usciti scritti in modo che
+  l'import non li scambi per persone (testo nella prima cella, NOMINATIVO).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

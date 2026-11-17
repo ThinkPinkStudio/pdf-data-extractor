@@ -43,6 +43,7 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
       refundTaxPct: num(r.refundTaxPct),
       notifyDays: Math.round(num(r.notifyDays ?? 30)),
       coverUntilPeriodEnd: r.coverUntilPeriodEnd !== false,
+      maxAge: Math.round(num(r.maxAge ?? 80)) || 80,
     },
     mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || '') },
     editors: (c.editors || []).map((e) => String(e).trim().toLowerCase()).filter((e) => /@/.test(e)),
