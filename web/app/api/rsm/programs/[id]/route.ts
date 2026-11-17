@@ -46,20 +46,22 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
     },
     mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || '') },
     editors: (c.editors || []).map((e) => String(e).trim().toLowerCase()).filter((e) => /@/.test(e)),
+    fileCompany: String(c.fileCompany || '').trim().slice(0, 120),
   }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
-  const body = (await req.json().catch(() => ({}))) as { name?: string; year?: number; config?: RsmConfig }
+  const body = (await req.json().catch(() => ({}))) as { company?: string; name?: string; year?: number; config?: RsmConfig }
   const config = cleanConfig(body.config as RsmConfig)
   if (!config) return fail(400, 'Configurazione non valida: periodo, categorie con chiavi diverse.', 'invalid')
   // chi salva non può togliersi da solo il diritto di modifica
   if (config.editors && config.editors.length && !config.editors.includes(g.email.toLowerCase())) config.editors.push(g.email.toLowerCase())
   const name = String(body.name || g.program.name).trim()
   const year = Number(body.year) || g.program.year
-  const p = await updateProgram(params.id, name, year, config)
+  const company = String(body.company ?? g.program.company).trim() || g.program.company
+  const p = await updateProgram(params.id, company, name, year, config)
   await logAction({ email: g.email, action: 'rsm.program.update', resource: params.id })
   return NextResponse.json({ program: p })
 }

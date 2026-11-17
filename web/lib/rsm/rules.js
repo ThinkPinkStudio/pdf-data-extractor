@@ -873,6 +873,31 @@ export function tariffsFromWorkbook(cfg, sheets) {
 }
 
 /**
+ * Società scritta nel file (colonna AZIENDA o SOCIETÀ dei fogli di stato e
+ * variazioni): il valore più frequente, '' se il file non ce l'ha. Serve
+ * all'import guidato per proporre la società giusta (17/11/2026: col file di
+ * un'altra società del gruppo proponeva di caricarlo in quella aperta).
+ */
+export function workbookCompany(sheets) {
+  const freq = new Map()
+  for (const name of Object.keys(sheets)) {
+    const rows = sheets[name] || []
+    const h = findHeader(rows)
+    if (!h) continue
+    const col = (rows[h.row] || []).map(normHead).findIndex((x) => /^(AZIENDA|SOCIETA)$/.test(x))
+    if (col < 0) continue
+    for (const r of rows.slice(h.row + 1)) {
+      const v = cellStr(r && r[col])
+      if (v && !/^(AZIENDA|SOCIETA)$/i.test(normHead(v))) freq.set(v, (freq.get(v) || 0) + 1)
+    }
+  }
+  return [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+}
+
+/** Stessa società scritta in due modi («C.A. VITA» / «c.a. vita »). */
+export const sameFileCompany = (a, b) => !!a && !!b && normHead(a) === normHead(b)
+
+/**
  * Anno di polizza del file dello stato di rischio, prima di avere un
  * programma: la data d'inizio scritta in testa ai fogli «Variazioni …»
  * («Regolazione Premio 1/1/26 – 1/1/27»), altrimenti l'anno più frequente

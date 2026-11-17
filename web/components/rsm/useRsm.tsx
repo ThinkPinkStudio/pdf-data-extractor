@@ -74,12 +74,25 @@ export function useRsm() {
     if (id) await load(id)
   }, [programId, load, loadPrograms])
 
+  // Società: i programmi raggruppati per società, nell'ordine dei nomi.
+  const companies = useMemo(
+    () => [...new Set((programs || []).map((p) => p.company))].sort((a, b) => a.localeCompare(b, 'it')),
+    [programs],
+  )
+  const company = program?.company ?? null
+  /** Passa a un'altra società restando sullo stesso anno (o sul suo anno più recente). */
+  const setCompany = useCallback((c: string) => {
+    const same = (programs || []).filter((p) => p.company === c).sort((a, b) => b.year - a.year)
+    const pick = same.find((p) => p.year === program?.year) || same[0]
+    if (pick) setProgramId(pick.id)
+  }, [programs, program, setProgramId])
+
   const rows: Row[] = useMemo(
     () => (program ? members.map((m) => ({ ...m, c: computeMember(program.config, m) as RsmCalc })) : []),
     [program, members],
   )
 
-  return { programs, programId, setProgramId, program, members, rows, editor, loading, error, reload }
+  return { programs, programId, setProgramId, program, members, rows, editor, loading, error, reload, companies, company, setCompany }
 }
 
 export type Rsm = ReturnType<typeof useRsm>
@@ -94,24 +107,39 @@ export const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Intestazione delle pagine: titolo, scelta del programma, azioni. */
+/**
+ * Intestazione delle pagine: società (un clic per passare all'altra), anno,
+ * titolo, azioni. Con una sola società resta il nome; con un solo anno, l'anno.
+ */
 export function RsmHeader({ rsm, title, children }: { rsm: Rsm; title: string; children?: React.ReactNode }) {
   const { t } = useI18n()
+  const years = (rsm.programs || []).filter((p) => p.company === rsm.company).sort((a, b) => b.year - a.year)
   return (
-    <div className="rsm-head">
-      <div>
-        <div className="rsm-kicker">
-          {rsm.programs && rsm.programs.length > 1 ? (
-            <select aria-label={t('rsm.program')} value={rsm.programId || ''} onChange={(e) => rsm.setProgramId(e.target.value)}
-              style={{ height: 30, padding: '0 8px', fontSize: 12, width: 'auto' }}>
-              {rsm.programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          ) : (rsm.program?.name || '')}
-          {rsm.program && !rsm.editor && <span className="rsm-pill off" style={{ marginLeft: 8 }}>{t('rsm.readOnly')}</span>}
+    <div className="rsm-head-wrap">
+      {rsm.companies.length > 1 && (
+        <nav className="rsm-companies" aria-label={t('rsm.companies')}>
+          {rsm.companies.map((c) => (
+            <button key={c} type="button" className={c === rsm.company ? 'on' : ''} aria-current={c === rsm.company ? 'true' : undefined}
+              onClick={() => c !== rsm.company && rsm.setCompany(c)}>{c}</button>
+          ))}
+        </nav>
+      )}
+      <div className="rsm-head">
+        <div>
+          <div className="rsm-kicker">
+            {rsm.program && <span>{rsm.company}</span>}
+            {years.length > 1 ? (
+              <select aria-label={t('rsm.year')} value={rsm.programId || ''} onChange={(e) => rsm.setProgramId(e.target.value)}
+                style={{ height: 28, padding: '0 8px', fontSize: 12, width: 'auto', marginLeft: 8 }}>
+                {years.map((p) => <option key={p.id} value={p.id}>{p.year}</option>)}
+              </select>
+            ) : rsm.program ? <span>&nbsp;· {rsm.program.year}</span> : null}
+            {rsm.program && !rsm.editor && <span className="rsm-pill off" style={{ marginLeft: 8 }}>{t('rsm.readOnly')}</span>}
+          </div>
+          <h1 className="page-title">{title}</h1>
         </div>
-        <h1 className="page-title">{title}</h1>
+        <div className="rsm-row">{children}</div>
       </div>
-      <div className="rsm-row">{children}</div>
     </div>
   )
 }

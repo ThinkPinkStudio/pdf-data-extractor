@@ -25,10 +25,17 @@ export interface RsmConfig {
   mail: { cc: string; signature: string }
   // Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano.
   editors?: string[]
+  // Come la società è scritta nei file del cliente (colonna AZIENDA: «C.A.
+  // VITA»), ricordato all'import: il file dopo si riconosce da solo.
+  fileCompany?: string
 }
 
 export interface RsmProgram {
   id: string
+  // Società assicurata (17/11/2026): un programma = una società per un anno.
+  // Le pagine raggruppano i programmi per società e passano dall'una
+  // all'altra con un clic.
+  company: string
   name: string
   year: number
   config: RsmConfig
@@ -119,3 +126,24 @@ export interface RsmPreparedRow {
 
 export const canEdit = (cfg: RsmConfig, email: string) =>
   !cfg.editors || cfg.editors.length === 0 || cfg.editors.map((e) => e.trim().toLowerCase()).includes(String(email).trim().toLowerCase())
+
+/**
+ * Società di un programma: quella salvata, altrimenti ricavata dal nome dei
+ * programmi creati prima che esistesse (anno e «RSM» tolti:
+ * «Crédit Agricole Vita · RSM 2026» → «Crédit Agricole Vita»).
+ */
+export function companyOf(p: { company?: string | null; name: string }): string {
+  const c = String(p.company || '').trim()
+  if (c) return c
+  const n = p.name
+    .replace(/\b(19|20)\d{2}\b/g, ' ')
+    .replace(/\bRSM\b/gi, ' ')
+    .replace(/[\s·\-–—]+$/g, '')
+    .replace(/^[\s·\-–—]+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return n || p.name.trim()
+}
+
+/** Nome di default di un programma: «Società · RSM anno». */
+export const programName = (company: string, year: number) => `${company.trim()} · RSM ${year}`

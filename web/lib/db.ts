@@ -388,6 +388,10 @@ export async function initDb() {
     -- Ordine certo delle operazioni (created_at è in secondi: due operazioni
     -- nello stesso secondo uscivano in ordine casuale).
     ALTER TABLE rsm_ops ADD COLUMN IF NOT EXISTS seq BIGSERIAL;
+    -- Società del programma (17/11/2026): più società dello stesso gruppo, una
+    -- per programma e per anno. Vuota sui programmi di prima: la pagina la
+    -- ricava dal nome (companyOf) finché non si salva.
+    ALTER TABLE rsm_programs ADD COLUMN IF NOT EXISTS company TEXT;
     CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, seq DESC);
     `)
   } catch (e) {

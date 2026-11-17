@@ -5,6 +5,7 @@
 // inseriti, così l'ultima operazione si annulla esattamente (`undoLastOp`).
 import { v4 as uuidv4 } from 'uuid'
 import { pool } from '../db'
+import { companyOf } from './types'
 import type { RsmConfig, RsmMember, RsmProgram } from './types'
 
 const now = () => Math.floor(Date.now() / 1000)
@@ -28,14 +29,14 @@ function toMember(r: MemberRow): RsmMember {
   }
 }
 
-interface ProgramRow { id: string; name: string; year: number; config: RsmConfig; created_by: string; created_at: string; updated_at: string }
+interface ProgramRow { id: string; company: string | null; name: string; year: number; config: RsmConfig; created_by: string; created_at: string; updated_at: string }
 const toProgram = (r: ProgramRow): RsmProgram => ({
-  id: r.id, name: r.name, year: r.year, config: r.config, createdBy: r.created_by,
+  id: r.id, company: companyOf({ company: r.company, name: r.name }), name: r.name, year: r.year, config: r.config, createdBy: r.created_by,
   createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
 })
 
 export async function listPrograms(): Promise<RsmProgram[]> {
-  const { rows } = await pool.query<ProgramRow>('SELECT * FROM rsm_programs ORDER BY year DESC, name')
+  const { rows } = await pool.query<ProgramRow>('SELECT * FROM rsm_programs ORDER BY year DESC, company, name')
   return rows.map(toProgram)
 }
 
@@ -44,19 +45,19 @@ export async function getProgram(id: string): Promise<RsmProgram | null> {
   return rows[0] ? toProgram(rows[0]) : null
 }
 
-export async function createProgram(name: string, year: number, config: RsmConfig, by: string): Promise<RsmProgram> {
+export async function createProgram(company: string, name: string, year: number, config: RsmConfig, by: string): Promise<RsmProgram> {
   const t = now()
   const { rows } = await pool.query<ProgramRow>(
-    'INSERT INTO rsm_programs (id, name, year, config, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6) RETURNING *',
-    [uuidv4(), name, year, JSON.stringify(config), by, t],
+    'INSERT INTO rsm_programs (id, company, name, year, config, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *',
+    [uuidv4(), company, name, year, JSON.stringify(config), by, t],
   )
   return toProgram(rows[0])
 }
 
-export async function updateProgram(id: string, name: string, year: number, config: RsmConfig): Promise<RsmProgram | null> {
+export async function updateProgram(id: string, company: string, name: string, year: number, config: RsmConfig): Promise<RsmProgram | null> {
   const { rows } = await pool.query<ProgramRow>(
-    'UPDATE rsm_programs SET name=$2, year=$3, config=$4, updated_at=$5 WHERE id=$1 RETURNING *',
-    [id, name, year, JSON.stringify(config), now()],
+    'UPDATE rsm_programs SET company=$2, name=$3, year=$4, config=$5, updated_at=$6 WHERE id=$1 RETURNING *',
+    [id, company, name, year, JSON.stringify(config), now()],
   )
   return rows[0] ? toProgram(rows[0]) : null
 }

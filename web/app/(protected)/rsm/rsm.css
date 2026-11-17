@@ -3,7 +3,14 @@
 .rsm { display: flex; flex-direction: column; gap: 18px; max-width: 1400px; }
 .rsm-head { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; justify-content: space-between; }
 .rsm-head h1 { margin: 2px 0 0; }
-.rsm-kicker { font-size: 12px; color: var(--c-text-secondary); }
+.rsm-kicker { font-size: 12px; color: var(--c-text-secondary); display: flex; align-items: center; flex-wrap: wrap; }
+.rsm-head-wrap { display: flex; flex-direction: column; gap: 14px; }
+/* Società: una scheda per società, un clic per passare all'altra. */
+.rsm-companies { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: var(--r-md, 10px); background: var(--c-bg-hover); align-self: flex-start; max-width: 100%; }
+.rsm-companies button { border: 0; background: transparent; color: var(--c-text-secondary); font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: var(--r-sm, 8px); cursor: pointer; white-space: nowrap; }
+.rsm-companies button:hover { color: var(--c-text-primary, inherit); }
+.rsm-companies button.on { background: var(--c-bg-card, var(--c-bg)); color: var(--c-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.rsm-companies button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
 .rsm-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .rsm-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: var(--c-text-secondary); text-transform: uppercase; letter-spacing: .04em; }
 .rsm-field input, .rsm-field select, .rsm-field textarea { height: 36px; padding: 0 10px; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }

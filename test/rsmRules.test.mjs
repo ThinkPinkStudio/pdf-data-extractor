@@ -12,7 +12,7 @@ import {
   defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
   parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
   parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear, parseCessationText, emlToText,
-  headerFits, referenceHeader,
+  headerFits, referenceHeader, workbookCompany, sameFileCompany,
 } from '../web/lib/rsm/rules.js'
 
 function cfg2026() {
@@ -378,4 +378,17 @@ test('numero di polizza diverso da quello della categoria: si segnala', () => {
   const c2 = cfg2026()
   c2.categories.forEach((x) => { x.policy = '' })
   assert.equal(parseStatoWorkbook(c2, sheets).warnings.filter((x) => /polizza/.test(x)).length, 0)
+})
+
+test('società scritta nel file: colonna AZIENDA, valore più frequente', () => {
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'X', 'NR. POLIZZA', 'COGNOME', 'NOME']
+  const sheets = {
+    DIRIGENTI: [head, ['C.A. VITA', 'DIRIGENTI'], ['C.A. VITA', 'DIRIGENTI'], ['ALTRA', 'DIRIGENTI']],
+    FUNZIONARI: [head, ['C.A. VITA', 'FUNZIONARI']],
+  }
+  assert.equal(workbookCompany(sheets), 'C.A. VITA')
+  assert.equal(workbookCompany({ IMPIEGATI: [['COGNOME', 'NOME'], ['ROSSI', 'MARIO']] }), '')
+  assert.ok(sameFileCompany('C.A. VITA', 'c.a. vita '))
+  assert.ok(!sameFileCompany('C.A. VITA', 'SOCIETA ESEMPIO'))
+  assert.ok(!sameFileCompany('', ''))
 })

@@ -10,6 +10,7 @@ import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
 import { addDays } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
+import { programName } from '@/lib/rsm/types'
 import type { RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
 
@@ -17,16 +18,25 @@ export default function RsmSettingsPage() {
   const { t } = useI18n()
   const rsm = useRsm()
   const { ask, panel } = useConfirmPanel()
+  const [company, setCompany] = useState('')
   const [name, setName] = useState('')
   const [year, setYear] = useState(0)
   const [cfg, setCfg] = useState<RsmConfig | null>(null)
   const [editors, setEditors] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [nw, setNw] = useState({ name: '', year: new Date().getFullYear(), copyFrom: '' })
+  const [nw, setNw] = useState({ company: '', name: '', year: new Date().getFullYear(), copyFrom: '' })
+  const [nwTouched, setNwTouched] = useState(false)
+  /** Nuovo programma: il nome segue società e anno finché non lo si scrive a mano. */
+  const setNew = (p: Partial<typeof nw>) => setNw((x) => {
+    const n = { ...x, ...p }
+    if (!nwTouched && ('company' in p || 'year' in p)) n.name = n.company.trim() ? programName(n.company, n.year) : ''
+    return n
+  })
 
   useEffect(() => {
     if (!rsm.program) return
+    setCompany(rsm.program.company)
     setName(rsm.program.name)
     setYear(rsm.program.year)
     setCfg(JSON.parse(JSON.stringify(rsm.program.config)))
@@ -69,9 +79,9 @@ export default function RsmSettingsPage() {
   async function create() {
     setBusy(true); setMsg(null)
     try {
-      const j = await api('/api/rsm/programs', 'POST', { name: nw.name, year: nw.year, copyFrom: nw.copyFrom || undefined })
+      const j = await api('/api/rsm/programs', 'POST', { company: nw.company, name: nw.name, year: nw.year, copyFrom: nw.copyFrom || undefined })
       rsm.setProgramId(j.program.id)
-      setNw({ ...nw, name: '' })
+      setNw({ ...nw, company: '', name: '' }); setNwTouched(false)
       setMsg({ ok: true, text: t('rsm.set.created') })
       await rsm.reload()
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -94,6 +104,8 @@ export default function RsmSettingsPage() {
             <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.set.program')}</div>{ro && <span className="rsm-pill off">{t('rsm.readOnly')}</span>}</div>
             <div className="rsm-box-body">
               <div className="rsm-row">
+                <label className="rsm-field" style={{ minWidth: 260 }}>{t('rsm.company')}<input value={company} disabled={ro} list="rsm-companies-set" onChange={(e) => setCompany(e.target.value)} /></label>
+                <datalist id="rsm-companies-set">{rsm.companies.map((c) => <option key={c} value={c} />)}</datalist>
                 <label className="rsm-field" style={{ minWidth: 300 }}>{t('rsm.set.name')}<input value={name} disabled={ro} onChange={(e) => setName(e.target.value)} /></label>
                 <label className="rsm-field">{t('rsm.set.year')}<input type="number" value={year} disabled={ro} onChange={(e) => setYear(Number(e.target.value))} style={{ width: 100 }} /></label>
                 <label className="rsm-field w-date">{t('rsm.set.from')}<input type="date" value={cfg.periodStart} disabled={ro} onChange={(e) => setCfg({ ...cfg, periodStart: e.target.value })} /></label>
@@ -108,7 +120,7 @@ export default function RsmSettingsPage() {
               {!ro && others.length > 0 && (
                 <div className="rsm-row" style={{ alignItems: 'center' }}>
                   <select aria-label={t('rsm.set.copyFrom')} value={copySrc} onChange={(e) => setCopySrc(e.target.value)} style={{ height: 34, width: 240, fontSize: 12.5, padding: '0 8px' }}>
-                    {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    {others.map((p) => <option key={p.id} value={p.id}>{p.company} · {p.year}</option>)}
                   </select>
                   <button className="btn btn-secondary" disabled={!copySrc} onClick={() => copyFrom(copySrc)}>{t('rsm.set.copyBtn')}</button>
                 </div>
@@ -180,7 +192,7 @@ export default function RsmSettingsPage() {
           {!ro && (
             <div className="rsm-row">
               <button className="btn btn-primary" disabled={busy} onClick={() => run(() => api(`/api/rsm/programs/${rsm.programId}`, 'PUT', {
-                name, year, config: { ...cfg, editors: editors.split(/[\s,;]+/).filter(Boolean) },
+                company, name, year, config: { ...cfg, editors: editors.split(/[\s,;]+/).filter(Boolean) },
               }), t('rsm.saved'))}>{t('rsm.save')}</button>
             </div>
           )}
@@ -201,17 +213,18 @@ export default function RsmSettingsPage() {
         <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.set.newTitle')}</div></div>
         <div className="rsm-box-body">
           <div className="rsm-row">
-            <label className="rsm-field" style={{ minWidth: 300 }}>{t('rsm.set.name')}<input value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} placeholder="Crédit Agricole Vita · RSM 2027" /></label>
-            <label className="rsm-field">{t('rsm.set.year')}<input type="number" value={nw.year} onChange={(e) => setNw({ ...nw, year: Number(e.target.value) })} style={{ width: 100 }} /></label>
+            <label className="rsm-field" style={{ minWidth: 240 }}>{t('rsm.company')}<input value={nw.company} list="rsm-companies-set" placeholder={t('rsm.companyPh')} onChange={(e) => setNew({ company: e.target.value })} /></label>
+            <label className="rsm-field">{t('rsm.set.year')}<input type="number" value={nw.year} onChange={(e) => setNew({ year: Number(e.target.value) })} style={{ width: 100 }} /></label>
+            <label className="rsm-field" style={{ minWidth: 280 }}>{t('rsm.set.name')}<input value={nw.name} onChange={(e) => { setNwTouched(true); setNw({ ...nw, name: e.target.value }) }} /></label>
             {rsm.programs && rsm.programs.length > 0 && (
               <label className="rsm-field">{t('rsm.set.copyFrom')}
                 <select value={nw.copyFrom} onChange={(e) => setNw({ ...nw, copyFrom: e.target.value })} style={{ width: 260 }}>
                   <option value="">{t('rsm.set.blank')}</option>
-                  {rsm.programs.filter((p) => p.editor).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {rsm.programs.filter((p) => p.editor).map((p) => <option key={p.id} value={p.id}>{p.company} · {p.year}</option>)}
                 </select>
               </label>
             )}
-            <button className="btn btn-primary" disabled={!nw.name.trim() || busy} onClick={create}>{t('rsm.set.create')}</button>
+            <button className="btn btn-primary" disabled={!nw.name.trim() || !nw.company.trim() || busy} onClick={create}>{t('rsm.set.create')}</button>
           </div>
           <div className="rsm-note">{t('rsm.set.newHint')}</div>
         </div>

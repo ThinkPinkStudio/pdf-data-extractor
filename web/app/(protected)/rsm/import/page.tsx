@@ -10,11 +10,12 @@ import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
-import { defaultProgramConfig } from '@/lib/rsm/rules.js'
+import { defaultProgramConfig, sameFileCompany } from '@/lib/rsm/rules.js'
+import { programName } from '@/lib/rsm/types'
 import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
 type FileTariffs = Record<string, { tariffs: RsmCategory['tariffs']; policy: string }>
-interface Inspect { year: number | null; categories: string[]; tariffs: FileTariffs }
+interface Inspect { year: number | null; company: string; categories: string[]; tariffs: FileTariffs }
 interface Dry {
   total: number
   counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>
@@ -39,6 +40,10 @@ export default function RsmImportPage() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [target, setTarget] = useState<string>('new')
   const [newName, setNewName] = useState('')
+  const [newCompany, setNewCompany] = useState('')
+  const [nameTouched, setNameTouched] = useState(false)
+  const [copySrc, setCopySrc] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
   const [cfg, setCfg] = useState<RsmConfig | null>(null)
   const [dry, setDry] = useState<Dry | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
@@ -76,11 +81,18 @@ export default function RsmImportPage() {
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
       const y = j.year || new Date().getFullYear()
-      const same = editable.find((p) => p.year === y)
+      // Società di partenza: quella che il file nomina (colonna AZIENDA), se un
+      // programma l'ha già vista; il file senza società va nella società aperta;
+      // un nome mai visto propone una società nuova, mai quella aperta.
+      const fileCo = String(j.company || '').trim()
+      const known = fileCo ? programs.find((p) => sameFileCompany(p.config.fileCompany || '', fileCo)) : null
+      const co = known ? known.company : fileCo ? fileCo : (rsm.company || '')
+      const same = editable.find((p) => p.year === y && p.company === co)
       const tgt = same ? same.id : 'new'
-      const last = [...programs].sort((a, b) => b.year - a.year)[0]
       setInsp(j); setYear(y); setTarget(tgt)
-      setNewName(last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `RSM ${y}`)
+      setNewCompany(co); setNameTouched(false); setCopied(null)
+      setNewName(co ? programName(co, y) : `RSM ${y}`)
+      setCopySrc(defaultSource(tgt, co, y))
       setCfg(draftFor(tgt, y, j.tariffs))
       setStep(2)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -88,21 +100,53 @@ export default function RsmImportPage() {
 
   function changeTarget(id: string) {
     setTarget(id)
+    setCopied(null)
     const p = programs.find((x) => x.id === id)
     if (p) setYear(p.year)
+    setCopySrc(defaultSource(id, p ? p.company : newCompany, p ? p.year : year))
     if (insp) setCfg(draftFor(id, p ? p.year : year, insp.tariffs))
   }
 
-  function copyPrev() {
-    const prev = [...programs].filter((p) => p.year < year).sort((a, b) => b.year - a.year)[0]
-    if (!prev || !cfg) return
-    const by = new Map(prev.config.categories.map((c) => [c.key, c]))
-    setCfg({ ...cfg, rules: { ...prev.config.rules }, categories: cfg.categories.map((c) => {
-      const o = by.get(c.key)
-      return o ? { ...c, tariffs: { ...o.tariffs }, quota: o.quota, mode: o.mode, policy: o.policy } : c
-    }) })
+  /**
+   * Da dove copiare di default: l'anno prima della stessa società, altrimenti
+   * il programma più recente di un'altra società del gruppo (stessi conteggi).
+   */
+  function defaultSource(targetId: string, co: string, y: number) {
+    const others = programs.filter((p) => p.id !== targetId)
+    const sameCo = others.filter((p) => p.company === co && p.year < y).sort((a, b) => b.year - a.year)[0]
+    if (sameCo) return sameCo.id
+    return [...others].sort((a, b) => b.year - a.year)[0]?.id || ''
   }
-  const prevProgram = [...programs].filter((p) => p.year < year).sort((a, b) => b.year - a.year)[0]
+  const sources = programs.filter((p) => p.id !== target)
+
+  /**
+   * Copia da un altro programma tutto ciò che decide i conteggi: categorie
+   * (nomi, polizze, premio a nucleo o a persona, tariffe, quote), regole di
+   * calcolo, mail e chi può modificare. Le persone no: arrivano dal file.
+   */
+  function copyFromProgram(id: string) {
+    const src = programs.find((p) => p.id === id)
+    if (!src || !cfg) return
+    setCfg({
+      ...cfg,
+      categories: src.config.categories.map((c) => ({ ...c, tariffs: { ...c.tariffs } })),
+      rules: { ...src.config.rules },
+      mail: { ...src.config.mail },
+      editors: [...(src.config.editors || [])],
+      fileCompany: cfg.fileCompany, // come il file chiama QUESTA società: non si copia
+    })
+    setCopied(src.name)
+  }
+
+  function changeCompany(v: string) {
+    setNewCompany(v)
+    if (!nameTouched) setNewName(v.trim() ? programName(v, year) : `RSM ${year}`)
+    setCopySrc(defaultSource(target, v.trim(), year))
+  }
+  function changeYear(y: number) {
+    setYear(y)
+    if (!nameTouched && newCompany.trim()) setNewName(programName(newCompany, y))
+  }
 
   function useFile() {
     if (!cfg || !insp) return
@@ -123,11 +167,12 @@ export default function RsmImportPage() {
     try {
       let id = target
       const shift = (iso: string) => `${year}${iso.slice(4)}`
-      const config = target === 'new' ? { ...cfg, periodStart: shift(cfg.periodStart), periodEnd: `${year + 1}${cfg.periodEnd.slice(4)}` } : cfg
+      const base = { ...cfg, fileCompany: insp?.company || cfg.fileCompany || '' }
+      const config = target === 'new' ? { ...base, periodStart: shift(cfg.periodStart), periodEnd: `${year + 1}${cfg.periodEnd.slice(4)}` } : base
       if (target === 'new') {
-        const j = await api('/api/rsm/programs', 'POST', { name: newName.trim() || `RSM ${year}`, year })
+        const j = await api('/api/rsm/programs', 'POST', { company: newCompany.trim(), name: newName.trim() || `RSM ${year}`, year })
         id = j.program.id
-        await api(`/api/rsm/programs/${id}`, 'PUT', { name: j.program.name, year, config })
+        await api(`/api/rsm/programs/${id}`, 'PUT', { company: j.program.company, name: j.program.name, year, config })
       } else {
         const p = programs.find((x) => x.id === id)!
         await api(`/api/rsm/programs/${id}`, 'PUT', { name: p.name, year: p.year, config })
@@ -212,28 +257,51 @@ export default function RsmImportPage() {
             <div className="rsm-row">
               <label className="rsm-field">{t('rsm.imp.into')}
                 <select value={target} onChange={(e) => changeTarget(e.target.value)} style={{ width: 300 }}>
-                  {editable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {editable.map((p) => <option key={p.id} value={p.id}>{p.company} · {p.year}</option>)}
                   <option value="new">{t('rsm.imp.newProgram')}</option>
                 </select>
               </label>
               {target === 'new' && (
                 <>
-                  <label className="rsm-field" style={{ minWidth: 300 }}>{t('rsm.set.name')}<input value={newName} onChange={(e) => setNewName(e.target.value)} /></label>
-                  <label className="rsm-field">{t('rsm.set.year')}<input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ width: 100 }} /></label>
+                  <label className="rsm-field" style={{ minWidth: 260 }}>{t('rsm.company')}
+                    <input value={newCompany} list="rsm-companies" placeholder={t('rsm.companyPh')} onChange={(e) => changeCompany(e.target.value)} />
+                  </label>
+                  <datalist id="rsm-companies">{rsm.companies.map((c) => <option key={c} value={c} />)}</datalist>
+                  <label className="rsm-field">{t('rsm.set.year')}<input type="number" value={year} onChange={(e) => changeYear(Number(e.target.value))} style={{ width: 100 }} /></label>
+                  <label className="rsm-field" style={{ minWidth: 300 }}>{t('rsm.set.name')}<input value={newName} onChange={(e) => { setNameTouched(true); setNewName(e.target.value) }} /></label>
                 </>
               )}
             </div>
+            {target === 'new' && insp.company && !rsm.companies.includes(newCompany.trim()) && rsm.companies.length > 0 && (
+              <div className="rsm-note">{t('rsm.imp.fileCompany', { c: insp.company })}</div>
+            )}
             {target !== 'new' && insp.year && programs.find((p) => p.id === target)?.year !== insp.year && (
               <div className="rsm-issue error">{t('rsm.imp.yearMismatch', { f: insp.year, p: programs.find((p) => p.id === target)?.year ?? '' })}</div>
             )}
           </div></div>
+
+          {sources.length > 0 && (
+            <div className="rsm-box">
+              <div className="rsm-box-head">
+                <div><div className="rsm-box-title">{t('rsm.imp.copyTitle')}</div><span className="rsm-note">{t('rsm.imp.copyHint')}</span></div>
+              </div>
+              <div className="rsm-box-body">
+                <div className="rsm-row" style={{ alignItems: 'center' }}>
+                  <select aria-label={t('rsm.set.copyFrom')} value={copySrc} onChange={(e) => setCopySrc(e.target.value)} style={{ height: 36, width: 320, fontSize: 13, padding: '0 10px' }}>
+                    {sources.map((p) => <option key={p.id} value={p.id}>{p.company} · {p.year}</option>)}
+                  </select>
+                  <button className="btn btn-primary" disabled={!copySrc} onClick={() => copyFromProgram(copySrc)}>{t('rsm.set.copyBtn')}</button>
+                </div>
+                {copied && <div className="alert alert-success" style={{ margin: 0 }}>{t('rsm.imp.copied', { name: copied })}</div>}
+              </div>
+            </div>
+          )}
 
           <div className="rsm-box">
             <div className="rsm-box-head">
               <div><div className="rsm-box-title">{t('rsm.imp.tariffs')}</div><span className="rsm-note">{t('rsm.imp.tariffsHint')}</span></div>
               <div className="rsm-row" style={{ alignItems: 'center' }}>
                 {Object.keys(insp.tariffs).length > 0 && <button className="btn btn-secondary" onClick={useFile}>{t('rsm.set.useFileTariffs')}</button>}
-                {prevProgram && <button className="btn btn-secondary" onClick={copyPrev}>{t('rsm.imp.copyPrev', { name: prevProgram.name })}</button>}
               </div>
             </div>
             <div className="rsm-box-body rsm-scroll">
@@ -279,7 +347,7 @@ export default function RsmImportPage() {
           </div>
           <div className="rsm-row">
             <button className="btn btn-secondary" onClick={() => { setStep(1); setFile(null); setInsp(null) }}>{t('rsm.imp.back')}</button>
-            <button className="btn btn-primary" disabled={busy || missingTariff || (target === 'new' && !newName.trim())} onClick={toCheck}>{busy ? <span className="spinner" /> : t('rsm.imp.next')}</button>
+            <button className="btn btn-primary" disabled={busy || missingTariff || (target === 'new' && (!newName.trim() || !newCompany.trim()))} onClick={toCheck}>{busy ? <span className="spinner" /> : t('rsm.imp.next')}</button>
           </div>
         </>
       )}
