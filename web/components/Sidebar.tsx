@@ -171,11 +171,12 @@ const NAV_PREMIO: NavItem[] = [
   { href: '/premio', key: 'nav.pmCalcolo', icon: <IconTable /> },
 ]
 
-// Polizza Vita (08/11/2026): collettiva vita Amundi / Crédit Agricole Vita.
+// Polizza Vita (08/11/2026): collettive vita di Amundi e (18/11/2026) di Agos, LTC e Vita Quadri e Dirigenti.
 const NAV_VITA: NavItem[] = [
   { href: '/vita', key: 'nav.vitaStato', icon: <IconTable /> },
   { href: '/vita/sanitaria', key: 'nav.vitaSanitaria', icon: <IconShield /> },
   { href: '/vita/import', key: 'nav.vitaImport', icon: <IconBatch /> },
+  { href: '/vita/mensile', key: 'nav.vitaMensile', icon: <IconForm /> },
   { href: '/vita/movimenti', key: 'nav.vitaMovimenti', icon: <IconHistory /> },
   { href: '/vita/rinnovo', key: 'nav.vitaRinnovo', icon: <IconCalendar /> },
   { href: '/vita/settings', key: 'nav.vitaSettings', icon: <IconSettings /> },

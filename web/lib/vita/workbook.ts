@@ -4,7 +4,7 @@
 // Stesse colonne e stesso ordine, perché il cliente lavora su quel file.
 // Solo valori, nessuna formula (totali compresi): gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
-import { computeInsured, fmtDate, movementOf, prorata, vitaRenewalPlan } from './rules.js'
+import { computeInsured, fmtDate, movementOf, prorata, vitaRenewalPlan, yearEndOf } from './rules.js'
 import type { VitaInsured, VitaProgram } from './types'
 
 const FMT_DATE = 'dd/mm/yyyy'
@@ -42,10 +42,11 @@ function totals(ws: ExcelJS.Worksheet, rows: ExcelJS.CellValue[][], cols: number
 }
 
 export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[], kind: 'stato' | 'situazione' | 'rinnovo', at: string): Promise<Buffer> {
+  if (program.config.rules?.capitalMode === 'categoria') return categoryWorkbook(program, insured, kind, at)
   const cfg = program.config
   const wb = new ExcelJS.Workbook()
   wb.creator = 'CSA Suite'
-  const yearEnd = `${program.year}-12-31`
+  const yearEnd = yearEndOf(cfg)
   const calc = (p: VitaInsured, on: string) => computeInsured(p, cfg.rates, on, cfg.rules) as {
     age: number | null; rate: number | null; target: number; band: string; capital: number; scopertura: number
     net: number | null; gross: number | null; cover: string
@@ -222,6 +223,157 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
   const ws = wb.addWorksheet('TASSI')
   header(ws, [{ h: 'Età', w: 8 }, { h: 'Tasso ‰', w: 22, fmt: '0.0000000000000000' }])
   for (const age of Object.keys(cfg.rates).map(Number).sort((a, b) => a - b)) ws.addRow([age, cfg.rates[String(age)]])
+  void prorata
+  return Buffer.from(await wb.xlsx.writeBuffer())
+}
+
+/* ─── Polizze per categoria (Agos): l'Excel con le colonne del file del cliente ─── */
+
+const DEFAULT_CAT_HEADS = ['AZIENDA', 'NR. POLIZZA', 'MATRICOLA', 'COGNOME', 'NOME', 'C.F.', 'DATA DI NASCITA', "ETA'", 'SESSO', 'CATEGORIA', 'CAPITALE', 'TASSO', 'DIRITTI', 'PREMIO', 'DECORRENZA', 'SCADENZA', 'NOTE']
+const nh = (s: string) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+
+interface Ctx { date: string | null; scad: string; prem: number | null; azione?: string; age: number | null; capital: number; rate: number | null; category: string | null }
+
+/** Valore e formato di una colonna del cliente, dal testo della sua intestazione. */
+function cellFor(head: string, p: VitaInsured, x: Ctx, cfg: VitaProgram['config']): { v: ExcelJS.CellValue; fmt?: string } {
+  const h = nh(head)
+  const company = cfg.companies.find((c) => c.key === p.company)
+  const ex = p.extra || {}
+  if (/^(AZIENDA|SOCIETA|CONTRAENTE)/.test(h)) return { v: company?.name || p.company }
+  if (/POLIZZA/.test(h)) return { v: company?.policy ? (/^\d+$/.test(company.policy) ? Number(company.policy) : company.policy) : null }
+  if (/^MATRICOLA/.test(h)) return { v: ex.MATRICOLA || ex[head.toUpperCase()] || null }
+  if (/^COGNOME/.test(h)) return { v: p.cognome }
+  if (/^NOME$/.test(h)) return { v: p.nome }
+  if (/^(C F|CODICE FISCALE|CF)/.test(h)) return { v: p.cf }
+  if (/^DATA/.test(h) && /NASCITA/.test(h)) return { v: toDate(p.birthDate), fmt: FMT_DATE }
+  if (/^(PROVINCIA|COMUNE)/.test(h)) return { v: ex[head.toUpperCase()] || ex[/^PROVINCIA/.test(h) ? 'PROVINCIA DI NASCITA' : 'COMUNE DI NASCITA'] || null }
+  if (/^ETA/.test(h)) return { v: x.age }
+  if (/^SESSO/.test(h)) { const d = Number(String(p.cf).slice(9, 11).replace(/[LMNPQRSTUV]/g, (c) => String('LMNPQRSTUV'.indexOf(c)))); return { v: ex.SESSO || (isFinite(d) && p.cf.length === 16 ? (d > 40 ? 'F' : 'M') : null) } }
+  if (/^(CATEGORIA|DESCRIZIONE LIVELLO|QUALIFICA)/.test(h)) return { v: x.category || p.level }
+  if (/^LIVELLO/.test(h)) return { v: p.level }
+  if (/^CAPITAL/.test(h)) return { v: x.capital, fmt: FMT_EUR }
+  if (/^TASSO/.test(h)) return { v: x.rate == null ? null : x.rate / 1000, fmt: '0.000%' }
+  if (/^DIRITTI/.test(h)) return { v: cfg.rules.rights, fmt: FMT_EUR }
+  if (/^PREMIO/.test(h)) return { v: x.prem, fmt: FMT_EUR }
+  if (/^(DECORRENZA|DATA (DI )?ENTRATA|DATA INSERIMENTO|DATA (DI )?USCITA|DATA AZIONE|DATA (DI )?ESCLUSIONE)/.test(h)) return { v: toDate(x.date), fmt: FMT_DATE }
+  if (/^SCADENZA/.test(h)) return { v: toDate(x.scad), fmt: FMT_DATE }
+  if (/^AZIONE/.test(h)) return { v: x.azione || null }
+  if (/^NOTE/.test(h)) return { v: p.note || '' }
+  return { v: ex[head.toUpperCase()] ?? null }
+}
+
+function catSheet(wb: ExcelJS.Workbook, name: string, heads: string[], rows: { p: VitaInsured; x: Ctx; alerts?: string[] }[], cfg: VitaProgram['config'], opts: { alerts?: boolean; italic?: boolean; noCapTotal?: boolean } = {}) {
+  const ws = wb.addWorksheet(sheetName(name))
+  const all = opts.alerts ? [...heads, 'AVVISI'] : heads
+  header(ws, all.map((h) => ({ h, w: Math.max(9, Math.min(28, h.length + 4)) })))
+  let tot = 0, cap = 0
+  const premCol = heads.findIndex((h) => /^PREMIO/.test(nh(h)))
+  const capCol = heads.findIndex((h) => /^CAPITAL/.test(nh(h)))
+  for (const { p, x, alerts } of rows) {
+    const cells = heads.map((h) => cellFor(h, p, x, cfg))
+    const r = ws.addRow([...cells.map((c) => c.v), ...(opts.alerts ? [(alerts || []).join('; ')] : [])])
+    cells.forEach((c, i) => { if (c.fmt) r.getCell(i + 1).numFmt = c.fmt })
+    if (opts.italic) r.font = { italic: true }
+    tot += x.prem || 0
+    cap += x.capital || 0
+  }
+  // Totale in fondo, come nei loro fogli: valori già sommati, prima cella col testo.
+  const t = ws.addRow([`TOTALE ${rows.length} ASSICURATI`])
+  t.font = { bold: true }
+  if (premCol > 0) { t.getCell(premCol + 1).value = Math.round(tot * 100) / 100; t.getCell(premCol + 1).numFmt = FMT_EUR }
+  if (capCol > 0 && !opts.noCapTotal) { t.getCell(capCol + 1).value = Math.round(cap * 100) / 100; t.getCell(capCol + 1).numFmt = FMT_EUR }
+  return ws
+}
+
+async function categoryWorkbook(program: VitaProgram, insured: VitaInsured[], kind: 'stato' | 'situazione' | 'rinnovo', at: string): Promise<Buffer> {
+  const cfg = program.config
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'CSA Suite'
+  const scad = yearEndOf(cfg)
+  const statoHeads = cfg.fileLayout?.stato?.length ? cfg.fileLayout.stato.filter(Boolean) : DEFAULT_CAT_HEADS
+  const movBase = cfg.fileLayout?.mov?.length ? cfg.fileLayout.mov.filter(Boolean) : statoHeads
+  const movHeads = movBase.some((h) => /^AZIONE/.test(nh(h))) ? movBase : ['AZIONE', ...movBase]
+  const calc = (p: VitaInsured, on: string) => computeInsured(p, cfg.rates, on, cfg.rules) as { age: number | null; capital: number; rate: number | null; gross: number | null; category?: string | null }
+  const ctx = (p: VitaInsured, on: string, date: string | null, prem: number | null, azione?: string): Ctx => {
+    const c = calc(p, on)
+    return { date, scad, prem, azione, age: c.age, capital: c.capital, rate: c.rate, category: c.category || null }
+  }
+  const byName = (a: VitaInsured, b: VitaInsured) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`, 'it')
+
+  if (kind === 'rinnovo') {
+    const plan = vitaRenewalPlan(cfg, insured) as { at: string; keep: { p: VitaInsured; alerts: string[] }[]; next: { p: VitaInsured; alerts: string[] }[]; dropped: { p: VitaInsured; reason: string }[] }
+    const next = +plan.at.slice(0, 4)
+    const nextEnd = cfg.rules.countLastDay ? `${next + 1}-01-01` : `${next}-12-31`
+    const keep = [...plan.keep].sort((a, b) => byName(a.p, b.p)).map((k) => {
+      const c = calc(k.p, plan.at)
+      return { p: k.p, alerts: k.alerts, x: { ...ctx(k.p, plan.at, plan.at, c.gross), scad: nextEnd } }
+    })
+    const ws = catSheet(wb, `Rinnovo ${next}`, statoHeads, keep, cfg, { alerts: true })
+    if (plan.next.length) {
+      ws.addRow([])
+      const t = ws.addRow([`PROMEMORIA · COMUNICATI NEL ${program.year} CON DECORRENZA DAL ${fmtDate(plan.at)} O DOPO`])
+      t.font = { bold: true }
+      for (const x of plan.next) {
+        const c = calc(x.p, x.p.entryDate || plan.at)
+        const cells = statoHeads.map((h) => cellFor(h, x.p, { ...ctx(x.p, x.p.entryDate || plan.at, x.p.entryDate, c.gross), scad: nextEnd }, cfg))
+        const r = ws.addRow(cells.map((q) => q.v))
+        cells.forEach((q, i) => { if (q.fmt) r.getCell(i + 1).numFmt = q.fmt })
+        r.font = { italic: true }
+      }
+    }
+    if (plan.dropped.length) {
+      const out = wb.addWorksheet(sheetName(`Usciti nel ${program.year}`))
+      header(out, [{ h: 'NOMINATIVO', w: 34 }, { h: 'C.F.', w: 19 }, { h: 'CATEGORIA', w: 14 }, { h: 'DATA USCITA', w: 13, fmt: FMT_DATE }, { h: 'MOTIVO', w: 30 }])
+      for (const x of [...plan.dropped].sort((a, b) => String(a.p.exitDate).localeCompare(String(b.p.exitDate)))) {
+        out.addRow([`${x.p.cognome} ${x.p.nome}`, x.p.cf, calc(x.p, x.p.entryDate || cfg.periodStart).category || x.p.level, toDate(x.p.exitDate), x.reason === 'passaggio' ? 'passaggio ad altra categoria (è nell\'elenco)' : 'cessazione'])
+      }
+    }
+    return Buffer.from(await wb.xlsx.writeBuffer())
+  }
+
+  if (kind === 'situazione') {
+    const ws = catSheet(wb, `Situazione al ${fmtDate(at).replace(/\//g, '-')}`, [...statoHeads, 'STATO', 'DATA USCITA'].filter((h, i, a) => a.indexOf(h) === i), [], cfg)
+    ws.spliceRows(2, 1)
+    let n = 0, tot = 0
+    for (const p of [...insured].sort(byName)) {
+      const c = calc(p, p.entryDate || cfg.periodStart)
+      const stato = p.exitDate && p.exitDate <= at ? 'Uscito' : (p.entryDate || '') > at ? 'Non ancora entrato' : 'In copertura'
+      const x = ctx(p, p.entryDate || cfg.periodStart, p.entryDate, c.gross)
+      const cells = statoHeads.map((h) => cellFor(h, p, x, cfg))
+      const r = ws.addRow([...cells.map((q) => q.v), stato, toDate(p.exitDate)])
+      cells.forEach((q, i) => { if (q.fmt) r.getCell(i + 1).numFmt = q.fmt })
+      r.getCell(statoHeads.length + 2).numFmt = FMT_DATE
+      n++; tot += stato === 'In copertura' ? c.gross || 0 : 0
+    }
+    const t = ws.addRow([`TOTALE ${n} RIGHE · premio annuo di chi è in copertura ${tot.toFixed(2).replace('.', ',')}`])
+    t.font = { bold: true }
+    return Buffer.from(await wb.xlsx.writeBuffer())
+  }
+
+  // Stato di rischio a inizio anno + variazioni dell'anno, come i loro due fogli.
+  const start = insured.filter((p) => p.entryKind === 'iniziale').sort(byName)
+    .map((p) => { const c = calc(p, cfg.periodStart); return { p, x: ctx(p, cfg.periodStart, cfg.periodStart, c.gross) } })
+  catSheet(wb, `Rinnovo ${program.year}`, statoHeads, start, cfg)
+  const ye = yearEndOf(cfg)
+  const mov: { p: VitaInsured; x: Ctx }[] = []
+  for (const p of insured) {
+    const c = calc(p, p.entryDate || cfg.periodStart)
+    if (p.entryKind !== 'iniziale' && p.entryDate) {
+      const m = movementOf({ kind: 'INCLUSIONE', date: p.entryDate, capital: c.capital, rate: c.rate }, ye, cfg.rules) as { gross: number | null }
+      mov.push({ p, x: ctx(p, p.entryDate, p.entryDate, m.gross, 'INCLUSIONE') })
+    }
+    if (p.exitDate) {
+      const m = movementOf({ kind: 'ESCLUSIONE', date: p.exitDate, capital: c.capital, rate: c.rate, paid: { capital: c.capital, rate: c.rate as number } }, ye, cfg.rules) as { gross: number | null }
+      mov.push({ p, x: ctx(p, p.entryDate || cfg.periodStart, p.exitDate, m.gross, 'ESCLUSIONE') })
+    }
+  }
+  mov.sort((a, b) => String(a.x.date).localeCompare(String(b.x.date)) || (a.x.azione === 'ESCLUSIONE' ? -1 : 1))
+  const ws = catSheet(wb, `Variazioni ${program.year}`, movHeads, mov, cfg, { noCapTotal: true })
+  const last = ws.lastRow
+  if (last) last.getCell(1).value = `TOTALE ${mov.length} VARIAZIONI`
+  ws.addRow([])
+  ws.addRow([cfg.rules.exitNextDay !== false ? "Le esclusioni decorrono dal giorno successivo all'ultimo giorno di lavoro indicato dal cliente." : ''])
+  ws.addRow([`Pro-rata a giorni su 365 fino al ${fmtDate(ye)}.`])
   void prorata
   return Buffer.from(await wb.xlsx.writeBuffer())
 }

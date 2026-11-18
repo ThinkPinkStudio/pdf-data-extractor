@@ -8,6 +8,21 @@ export interface VitaCompany {
   key: string // 'sgr' | 're' o altri, se il cliente ne aggiunge
   name: string
   policy: string
+  /** Codice della società nel file mensile del cliente (colonna «Soc»: Agos = 300); più codici con la virgola. */
+  hrCode?: string
+}
+
+/** Categoria con capitale e premio fissi (modo «categoria»: Agos LTC e Vita Quadri e Dirigenti). */
+export interface VitaCategory {
+  key: string
+  name: string // come compare nel file del cliente: «QUADRO», «DIRIGENTE», «DIPENDENTI»
+  capital: number
+  /** Tasso ‰ sul capitale (LTC: 1,96) … */
+  rate: number
+  /** … oppure premio annuo fisso (Vita Quadri: 110,41): se c'è vince sul tasso. */
+  premium?: number
+  /** Parole del livello che portano in questa categoria («quadro»); vuoto = il nome. */
+  match: string
 }
 
 export interface VitaRules {
@@ -21,6 +36,23 @@ export interface VitaRules {
   deathMaxAge: number
   ipMaxAge: number
   refundBasis: 'start' | 'exit' // rimborso: dati pagati a inizio anno o età al giorno di uscita
+  /** 'ral' = capitale da RAL e documentazione (Amundi); 'categoria' = capitale e premio fissi per categoria (Agos). */
+  capitalMode?: 'ral' | 'categoria'
+  categories?: VitaCategory[]
+  /** Premio annuo: 'eccesso' (ROUNDUP, Amundi), 'normale' (al centesimo), 'nessuno' (decimali pieni, come i fogli Agos). */
+  grossRounding?: 'eccesso' | 'normale' | 'nessuno'
+  /** Inclusione: diritti anche loro in pro-rata (Agos) invece che interi (Amundi). */
+  rightsProRata?: boolean
+  /** Pro-rata fino al 01/01 dell'anno dopo (LTC Agos) invece che al 31/12. */
+  countLastDay?: boolean
+  /** File mensile: il cliente scrive l'ultimo giorno di lavoro, l'uscita è dal giorno dopo. */
+  exitNextDay?: boolean
+}
+
+/** Colonne dei file del cliente, per rifare l'Excel con le stesse intestazioni. */
+export interface VitaFileLayout {
+  stato?: string[] | null
+  mov?: string[] | null
 }
 
 export interface VitaConfig {
@@ -33,11 +65,16 @@ export interface VitaConfig {
   mail: { to: string; cc: string; signature: string }
   /** Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano. */
   editors?: string[]
+  /** Il programma si aggiorna col file mensile del cliente (assunti, cessati, passaggi). */
+  hrMonthly?: boolean
+  fileLayout?: VitaFileLayout
 }
 
 export interface VitaProgram {
   id: string
   name: string
+  /** Cliente (Amundi, Agos…): le schede in cima alle pagine. Vuoto nei programmi vecchi. */
+  company: string
   year: number
   config: VitaConfig
   createdBy: string
@@ -80,6 +117,8 @@ export interface VitaInsured {
   nextRal: number | null
   source: string | null
   note: string | null
+  /** Colonne del file del cliente che il programma non usa ma conserva (matricola, comune…). */
+  extra?: Record<string, string> | null
   createdBy: string
   createdAt: number
   updatedAt: number
@@ -101,6 +140,17 @@ export function canEdit(cfg: VitaConfig, email: string): boolean {
   const list = (cfg.editors || []).map((e) => e.trim().toLowerCase()).filter(Boolean)
   return list.length === 0 || list.includes(String(email || '').trim().toLowerCase())
 }
+
+/** Cliente del programma: il campo salvato o, nei programmi vecchi, il nome senza anno e «Polizza Vita». */
+export function clientOf(p: Pick<VitaProgram, 'company' | 'name' | 'year'>): string {
+  const c = String(p.company || '').trim()
+  if (c) return c
+  const n = String(p.name || '').replace(new RegExp(`\\b${p.year}\\b`), '').replace(/polizza vita/i, '').replace(/[-–·\s]+$/, '').replace(/^[-–·\s]+/, '').trim()
+  return n || 'Amundi'
+}
+
+/** Il programma calcola per categoria (capitale e premio fissi)? */
+export const byCategory = (cfg: VitaConfig | null | undefined) => cfg?.rules?.capitalMode === 'categoria'
 
 export const companyOf = (cfg: VitaConfig, key: string): VitaCompany | null =>
   (cfg.companies || []).find((c) => c.key === key) || null

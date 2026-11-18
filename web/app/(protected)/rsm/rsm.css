@@ -138,3 +138,15 @@
 .rsm-colmap select { height: 34px; width: 100%; min-width: 220px; padding: 0 8px; font-size: 13px; line-height: normal; }
 .rsm-colmap td { vertical-align: middle; }
 .rsm-colmap tr.todo td { background: rgba(245, 158, 11, .08); }
+
+/* Polizza Vita (18/11/2026): scelte con spiegazione sotto, file mensile */
+.rsm-rule { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; cursor: pointer; }
+.rsm-rule input { height: 16px; width: 16px; margin-top: 2px; flex: none; }
+.rsm-rule .rsm-help { display: block; margin-top: 2px; }
+.rsm-rules.one { grid-template-columns: 1fr; }
+.rsm-change { display: grid; grid-template-columns: 96px 1fr auto; gap: 4px 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--c-border); font-size: 13px; }
+.rsm-change:last-child { border-bottom: 0; }
+.rsm-change .d { font-variant-numeric: tabular-nums; color: var(--c-text-muted); }
+.rsm-change .amt { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.rsm-programs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+@media (max-width: 640px) { .rsm-change { grid-template-columns: 1fr; } .rsm-change .amt { text-align: left; } }

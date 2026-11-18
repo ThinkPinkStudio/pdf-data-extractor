@@ -17,7 +17,7 @@ interface Row {
   reminded_on: string | null; entry_date: string | null; entry_kind: string; communicated_date: string | null
   exit_date: string | null; exit_kind: string | null; exit_communicated: string | null
   transfer_id: string | null; exit_transfer_id: string | null; next_ral: string | null
-  source: string | null; note: string | null; created_by: string; created_at: string; updated_at: string
+  source: string | null; note: string | null; extra: Record<string, string> | null; created_by: string; created_at: string; updated_at: string
 }
 
 function toInsured(r: Row): VitaInsured {
@@ -28,19 +28,19 @@ function toInsured(r: Row): VitaInsured {
     remindedOn: r.reminded_on, entryDate: r.entry_date, entryKind: r.entry_kind as VitaInsured['entryKind'],
     communicatedDate: r.communicated_date, exitDate: r.exit_date, exitKind: r.exit_kind as VitaInsured['exitKind'],
     exitCommunicated: r.exit_communicated, transferId: r.transfer_id, exitTransferId: r.exit_transfer_id,
-    nextRal: r.next_ral == null ? null : num(r.next_ral), source: r.source, note: r.note,
+    nextRal: r.next_ral == null ? null : num(r.next_ral), source: r.source, note: r.note, extra: r.extra || null,
     createdBy: r.created_by, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
   }
 }
 
-interface ProgramRow { id: string; name: string; year: number; config: VitaConfig; created_by: string; created_at: string; updated_at: string }
+interface ProgramRow { id: string; name: string; company: string | null; year: number; config: VitaConfig; created_by: string; created_at: string; updated_at: string }
 const toProgram = (r: ProgramRow): VitaProgram => ({
-  id: r.id, name: r.name, year: r.year, config: r.config, createdBy: r.created_by,
+  id: r.id, name: r.name, company: r.company || '', year: r.year, config: r.config, createdBy: r.created_by,
   createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
 })
 
 export async function listPrograms(): Promise<VitaProgram[]> {
-  const { rows } = await pool.query<ProgramRow>('SELECT * FROM vita_programs ORDER BY year DESC, name')
+  const { rows } = await pool.query<ProgramRow>('SELECT * FROM vita_programs ORDER BY year DESC, company, name')
   return rows.map(toProgram)
 }
 
@@ -49,19 +49,19 @@ export async function getProgram(id: string): Promise<VitaProgram | null> {
   return rows[0] ? toProgram(rows[0]) : null
 }
 
-export async function createProgram(name: string, year: number, config: VitaConfig, by: string): Promise<VitaProgram> {
+export async function createProgram(name: string, year: number, config: VitaConfig, by: string, company = ''): Promise<VitaProgram> {
   const t = now()
   const { rows } = await pool.query<ProgramRow>(
-    'INSERT INTO vita_programs (id, name, year, config, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6) RETURNING *',
-    [uuidv4(), name, year, JSON.stringify(config), by, t],
+    'INSERT INTO vita_programs (id, name, company, year, config, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *',
+    [uuidv4(), name, company || null, year, JSON.stringify(config), by, t],
   )
   return toProgram(rows[0])
 }
 
-export async function updateProgram(id: string, name: string, year: number, config: VitaConfig): Promise<VitaProgram | null> {
+export async function updateProgram(id: string, name: string, year: number, config: VitaConfig, company?: string): Promise<VitaProgram | null> {
   const { rows } = await pool.query<ProgramRow>(
-    'UPDATE vita_programs SET name=$2, year=$3, config=$4, updated_at=$5 WHERE id=$1 RETURNING *',
-    [id, name, year, JSON.stringify(config), now()],
+    'UPDATE vita_programs SET name=$2, year=$3, config=$4, updated_at=$5, company=COALESCE($6, company) WHERE id=$1 RETURNING *',
+    [id, name, year, JSON.stringify(config), now(), company == null ? null : company],
   )
   return rows[0] ? toProgram(rows[0]) : null
 }
@@ -73,7 +73,7 @@ export async function deleteProgram(id: string): Promise<boolean> {
 
 export async function listInsured(programId: string): Promise<VitaInsured[]> {
   const { rows } = await pool.query<Row>(
-    'SELECT * FROM vita_insured WHERE program_id = $1 ORDER BY company, cognome, nome, entry_date',
+    'SELECT * FROM vita_insured WHERE program_id = $1 ORDER BY company, cognome, nome, entry_date, created_at',
     [programId],
   )
   return rows.map(toInsured)
@@ -81,7 +81,7 @@ export async function listInsured(programId: string): Promise<VitaInsured[]> {
 
 export type NewInsured = Omit<VitaInsured, 'id' | 'programId' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-const COLS = 'id, program_id, company, cf, cognome, nome, birth_date, level, ral, key_figure, sovr_pct, doc_visit, doc_extra, doc_ok, doc_checkup_date, reminded_on, entry_date, entry_kind, communicated_date, exit_date, exit_kind, exit_communicated, transfer_id, exit_transfer_id, next_ral, source, note, created_by, created_at, updated_at'
+const COLS = 'id, program_id, company, cf, cognome, nome, birth_date, level, ral, key_figure, sovr_pct, doc_visit, doc_extra, doc_ok, doc_checkup_date, reminded_on, entry_date, entry_kind, communicated_date, exit_date, exit_kind, exit_communicated, transfer_id, exit_transfer_id, next_ral, source, note, extra, created_by, created_at, updated_at'
 const COL_LIST = COLS.split(', ')
 
 function values(id: string, programId: string, m: Partial<NewInsured>, by: string, t: number) {
@@ -91,7 +91,8 @@ function values(id: string, programId: string, m: Partial<NewInsured>, by: strin
     m.ral ?? 0, !!m.keyFigure, m.sovrPct ?? 0, !!d.visit, !!d.extra, !!d.ok, d.checkupDate || null,
     m.remindedOn || null, m.entryDate || null, m.entryKind || 'inclusione', m.communicatedDate || null,
     m.exitDate || null, m.exitKind || null, m.exitCommunicated || null, m.transferId || null,
-    m.exitTransferId || null, m.nextRal ?? null, m.source || null, m.note || null, by, t, t,
+    m.exitTransferId || null, m.nextRal ?? null, m.source || null, m.note || null,
+    m.extra && Object.keys(m.extra).length ? JSON.stringify(m.extra) : null, by, t, t,
   ]
 }
 
@@ -192,7 +193,10 @@ export async function undoLastOp(programId: string, opId: string, by: string): P
     const ids = last.before.map((r) => r.id)
     if (ids.length) {
       await client.query('DELETE FROM vita_insured WHERE id = ANY($1::text[])', [ids])
-      await insertRaw(client as unknown as Client, last.before.map((r) => COL_LIST.map((c) => (r as unknown as Record<string, unknown>)[c])))
+      await insertRaw(client as unknown as Client, last.before.map((r) => COL_LIST.map((c) => {
+        const v = (r as unknown as Record<string, unknown>)[c]
+        return c === 'extra' && v != null && typeof v === 'object' ? JSON.stringify(v) : v
+      })))
     }
     await client.query('UPDATE vita_ops SET undone_at=$2, undone_by=$3 WHERE id=$1', [opId, now(), by])
     await client.query('UPDATE vita_programs SET updated_at=$2 WHERE id=$1', [programId, now()])
@@ -246,7 +250,14 @@ export async function mergeInsured(programId: string, list: Partial<NewInsured>[
   const { opId, result } = await withOp(programId, 'import', label, by, async (op) => {
     const { rows } = await op.client.query<Row>('SELECT * FROM vita_insured WHERE program_id = $1', [programId])
     const key = (c: string, cf: string) => `${c}:${cf}`
-    const byKey = new Map(rows.map((r) => [key(r.company, r.cf), r]))
+    // La stessa persona può avere più righe sulla stessa polizza (rientro dopo
+    // un'uscita, passaggio da quadro a dirigente): si abbinano in ordine di decorrenza.
+    const byKey = new Map<string, Row[]>()
+    for (const r of [...rows].sort((a, b) => String(a.entry_date || '').localeCompare(String(b.entry_date || '')))) {
+      const k = key(r.company, r.cf)
+      byKey.set(k, [...(byKey.get(k) || []), r])
+    }
+    const used = new Map<string, number>()
     const t = now()
     const nuovi: Partial<NewInsured>[] = []
     const visti = new Set<string>()
@@ -254,9 +265,11 @@ export async function mergeInsured(programId: string, list: Partial<NewInsured>[
 
     for (const m of list) {
       const k = key(String(m.company), String(m.cf))
-      const old = byKey.get(k)
+      const idx = used.get(k) || 0
+      const old = (byKey.get(k) || [])[idx]
       if (!old) { nuovi.push(m); continue }
-      visti.add(k)
+      used.set(k, idx + 1)
+      visti.add(old.id)
       await op.snap([old.id])
       const d = m.doc || { visit: false, extra: false, ok: false, checkupDate: null }
       // Il file AGGIUNGE, non cancella: l'uscita registrata a mano resta (COALESCE) e
@@ -275,11 +288,12 @@ export async function mergeInsured(programId: string, list: Partial<NewInsured>[
         `UPDATE vita_insured SET cognome=$2, nome=$3, birth_date=$4, level=$5, ral=$6, key_figure=$7,
                 sovr_pct=$8, doc_visit=(doc_visit OR $9), doc_ok=(doc_ok OR $10), entry_date=$11, entry_kind=$12, transfer_id=$13,
                 exit_date=COALESCE($14, exit_date), exit_kind=COALESCE($15, exit_kind), exit_transfer_id=COALESCE($16, exit_transfer_id),
-                note=$17, source=$18, updated_at=$19
+                note=$17, source=$18, updated_at=$19, extra=COALESCE($20, extra)
            WHERE id=$1`,
         [old.id, m.cognome || '', m.nome || '', m.birthDate || null, m.level || '', m.ral ?? 0, !!m.keyFigure,
           m.sovrPct ?? 0, !!d.visit, !!d.ok, m.entryDate || null, m.entryKind || 'inclusione', m.transferId || null,
-          m.exitDate || null, m.exitKind || null, m.exitTransferId || null, tieniNota ? notaVecchia : notaFile, m.source || null, t],
+          m.exitDate || null, m.exitKind || null, m.exitTransferId || null, tieniNota ? notaVecchia : notaFile, m.source || null, t,
+          m.extra && Object.keys(m.extra).length ? JSON.stringify(m.extra) : null],
       )
       updated++
     }
@@ -391,4 +405,37 @@ export async function setNextRal(programId: string, byCf: Record<string, number>
     return todo.length
   })
   return { opId, n: result }
+}
+
+/**
+ * Registra il piano del file mensile (planHrEvents): righe nuove, uscite,
+ * passaggi e le correzioni di data scelte. Una sola operazione annullabile.
+ * Gli id provvisori «new:N» del piano diventano id veri.
+ */
+export async function applyHrPlan(programId: string, plan: { inserts: Partial<NewInsured>[]; updates: { id: string; set: Partial<VitaInsured> }[] }, by: string, label: string): Promise<{ opId: string; added: number; updated: number }> {
+  const SET_COL: Record<string, string> = {
+    entryDate: 'entry_date', entryKind: 'entry_kind', exitDate: 'exit_date', exitKind: 'exit_kind',
+    exitCommunicated: 'exit_communicated', exitTransferId: 'exit_transfer_id', note: 'note',
+  }
+  const { opId, result } = await withOp(programId, 'file-mensile', label, by, async (op) => {
+    const ids = plan.updates.map((u) => u.id)
+    const { rows } = await op.client.query<{ id: string }>('SELECT id FROM vita_insured WHERE program_id=$1 AND id = ANY($2::text[])', [programId, ids])
+    if (rows.length !== new Set(ids).size) throw new Error('Il programma è cambiato nel frattempo: ricarica il file e riprova.')
+    await op.snap(ids)
+    const t = now()
+    for (const u of plan.updates) {
+      const sets: string[] = []
+      const params: unknown[] = [u.id, programId]
+      for (const [k, col] of Object.entries(SET_COL)) if (k in u.set) { params.push((u.set as Record<string, unknown>)[k] ?? null); sets.push(`${col}=$${params.length}`) }
+      if (!sets.length) continue
+      params.push(t)
+      sets.push(`updated_at=$${params.length}`)
+      await op.client.query(`UPDATE vita_insured SET ${sets.join(', ')} WHERE id=$1 AND program_id=$2`, params)
+    }
+    const newIds = plan.inserts.map(() => uuidv4())
+    await insertRaw(op.client, plan.inserts.map((m, i) => values(newIds[i], programId, m, by, t)))
+    op.inserted(newIds)
+    return { added: newIds.length, updated: plan.updates.length }
+  })
+  return { opId, ...result }
 }

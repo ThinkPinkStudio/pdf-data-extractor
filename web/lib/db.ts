@@ -467,6 +467,9 @@ export async function initDb() {
       undone_by   TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_vita_ops_program ON vita_ops(program_id, seq DESC);
+    -- 18/11/2026: più clienti (Amundi, Agos) e colonne del file del cliente conservate
+    ALTER TABLE vita_programs ADD COLUMN IF NOT EXISTS company TEXT;
+    ALTER TABLE vita_insured ADD COLUMN IF NOT EXISTS extra JSONB;
     `)
   } catch (e) {
     console.error('[initDb] polizza vita: tabelle non pronte:', e)

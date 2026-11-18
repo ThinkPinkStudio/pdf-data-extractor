@@ -4,7 +4,9 @@
 // file di ritorno con le RAL nuove e si vede cosa cambia prima di creare il
 // programma dell'anno dopo (capitali, premi, soglie sanitarie, limiti di età).
 import { useMemo, useRef, useState } from 'react'
-import { computeInsured } from '@/lib/vita/rules.js'
+import { computeInsured, vitaRenewalPlan } from '@/lib/vita/rules.js'
+import { clientOf } from '@/lib/vita/types'
+import type { VitaInsured } from '@/lib/vita/types'
 import { CoverPill } from '@/components/vita/VitaUi'
 import { VitaEmpty, VitaGate, VitaHeader, api, downloadExport, eur, fmtDate, rate4, statusAt, today, useFlash, useVita } from '@/components/vita/useVita'
 
@@ -64,10 +66,50 @@ export default function VitaRinnovoPage() {
   async function createNext() {
     setBusy(true)
     try {
-      const j = await api('/api/vita/programs', 'POST', { name: (vita.program?.name || 'Polizza Vita').replace(/\b(19|20)\d{2}\b/, String(next)) || `Polizza Vita ${next}`, year: next, copyFrom: vita.programId })
+      const base = (vita.program?.name || 'Polizza Vita').replace(/\b(19|20)\d{2}\b/, String(next))
+      const j = await api('/api/vita/programs', 'POST', { name: base.includes(String(next)) ? base : `${base} ${next}`, year: next, copyFrom: vita.programId, company: vita.program ? clientOf(vita.program) : undefined })
       setFlash({ ok: true, text: `Creato il programma «${j.program.name}». Caricaci lo stato di rischio con l'import.` })
       await vita.reload()
     } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  const catMode = cfg?.rules.capitalMode === 'categoria'
+  const plan = useMemo(() => (catMode && cfg ? vitaRenewalPlan(cfg, vita.insured) as { keep: { p: VitaInsured; alerts: string[] }[]; next: { p: VitaInsured }[]; dropped: { p: VitaInsured; reason: string }[] } : null), [catMode, cfg, vita.insured])
+
+  if (catMode) {
+    // Per categoria non ci sono RAL da raccogliere: lo stato per l'anno dopo è chi
+    // resta in copertura al primo giorno, con capitali e premi delle categorie.
+    const byCat = new Map<string, number>()
+    let prem = 0
+    for (const x of plan?.keep || []) {
+      const c = computeInsured(x.p, cfg!.rates, nextStart, cfg!.rules) as { category?: string | null; gross: number | null }
+      byCat.set(c.category || 'senza categoria', (byCat.get(c.category || 'senza categoria') || 0) + 1)
+      prem += c.gross || 0
+    }
+    return (
+      <div className="rsm">
+        <VitaHeader vita={vita} title="Rinnovo di fine anno" kicker={`dal ${year} al ${next}`}>
+          <button className="btn btn-secondary" disabled={!vita.rows.length} onClick={() => downloadExport(vita.programId!, { kind: 'rinnovo' }).catch((e) => setFlash({ ok: false, text: (e as Error).message }))}>Scarica lo stato per il {next}</button>
+          {vita.editor && <button className="btn btn-primary" disabled={busy || !vita.rows.length} onClick={createNext}>Crea il programma {next}</button>}
+        </VitaHeader>
+        <VitaGate vita={vita}>
+          {flashNode}
+          {vita.rows.length === 0 ? <VitaEmpty what="non c'è niente da rinnovare." /> : <>
+            <ol className="rsm-steps">
+              <li className="on"><span className="n">1</span>Scarica lo stato per il {next}: chi è in copertura al {fmtDate(nextStart)}, con le colonne del vostro file</li>
+              <li><span className="n">2</span>Crea il programma {next} (copia contraenti, categorie e regole) e caricaci quel file con l&apos;import</li>
+            </ol>
+            <div className="rsm-kpis">
+              <div className="rsm-kpi"><div className="rsm-kpi-top"><span>In copertura al {fmtDate(nextStart)}</span></div><div className="rsm-kpi-num">{plan?.keep.length || 0}</div><div className="rsm-kpi-line">{[...byCat.entries()].map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}</div></div>
+              <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio annuo {next}</span></div><div className="rsm-kpi-num">{eur(prem)}</div><div className="rsm-kpi-line">con capitali e premi di adesso</div></div>
+              <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Usciti nel {year}</span></div><div className="rsm-kpi-num">{plan?.dropped.length || 0}</div><div className="rsm-kpi-line">non sono nello stato per il {next}</div></div>
+              <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Promemoria</span></div><div className="rsm-kpi-num">{plan?.next.length || 0}</div><div className="rsm-kpi-line">decorrono dal {fmtDate(nextStart)} o dopo</div></div>
+            </div>
+            <p className="rsm-note">Se nel {next} cambiano capitali o premi delle categorie, si correggono in «Tassi e regole» del programma nuovo: valgono per tutti.</p>
+          </>}
+        </VitaGate>
+      </div>
+    )
   }
 
   return (

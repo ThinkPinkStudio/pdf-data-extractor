@@ -9,8 +9,9 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
-import { defaultVitaConfig } from '@/lib/vita/types'
-import type { VitaConfig } from '@/lib/vita/types'
+import { CalcModeBox, CategoriesBox, MovementRulesBox } from '@/components/vita/VitaConfigParts'
+import { clientOf, defaultVitaConfig } from '@/lib/vita/types'
+import type { VitaCategory, VitaConfig, VitaProgram } from '@/lib/vita/types'
 
 interface Inspect {
   sheets: string[]
@@ -21,8 +22,14 @@ interface Inspect {
   ratesN: number
   ratesMin: number | null
   ratesMax: number | null
+  categories: { categories: VitaCategory[]; rights: number; countLastDay: boolean | null; from: string }
+  byCategory: boolean
+  hrEvents: number
+  hrMonths: string[]
 }
 interface Dry {
+  perCategory?: Record<string, number>
+  noCategory?: number
   n: number
   perCompany: Record<string, number>
   premium: number
@@ -40,6 +47,41 @@ interface Dry {
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const n2 = (v: string) => Number(String(v).replace(/\./g, '').replace(',', '.')) || 0
+const normName = (v: string) => String(v || '').toUpperCase().replace(/[^A-Z0-9]+/g, '')
+const titleCase = (v: string) => v.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
+
+/** Nome della polizza dal nome del file: «Agos_LTC_2026.xlsx» → «Agos LTC 2026». */
+function nameFromFile(f: string, y: number) {
+  let n = f.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  n = n.replace(/^anagrafiche\s+/i, '')
+  if (!n.includes(String(y))) n = `${n} ${y}`
+  return n
+}
+
+/**
+ * Quale programma dell'anno è quello del file: con più clienti e più polizze
+ * nello stesso anno decide la somiglianza (numero di polizza, categorie, nomi
+ * dei contraenti, modo di calcolo). Nessuna somiglianza = programma nuovo.
+ */
+function bestTarget(list: VitaProgram[], y: number, ins: Inspect): string {
+  let best = 'new', score = 0
+  const pols = new Set(ins.companies.map((c) => c.policy).filter(Boolean))
+  const names = ins.companies.map((c) => normName(c.name))
+  const cats = new Set(ins.categories.categories.map((c) => normName(c.name)))
+  for (const p of list.filter((x) => x.year === y)) {
+    const cat = p.config.rules.capitalMode === 'categoria'
+    if (cat !== ins.byCategory) continue
+    // categorie diverse = polizza diversa (LTC «DIPENDENTI» non è la Vita «QUADRO, DIRIGENTE»)
+    const pc = (p.config.rules.categories || []).map((c) => normName(c.name))
+    if (cat && cats.size && pc.length && !pc.some((n) => cats.has(n))) continue
+    let sc = 1
+    if (p.config.companies.some((c) => c.policy && pols.has(c.policy))) sc += 3
+    if ((p.config.rules.categories || []).some((c) => cats.has(normName(c.name)))) sc += 2
+    if (p.config.companies.some((c) => names.some((n) => n && (n.includes(normName(c.name)) || normName(c.name).includes(n))))) sc += 1
+    if (sc > score) { score = sc; best = p.id }
+  }
+  return score >= 2 || (score === 1 && list.filter((x) => x.year === y).length === 1 && !ins.byCategory) ? best : 'new'
+}
 
 export default function VitaImportPage() {
   const vita = useVita()
@@ -49,6 +91,7 @@ export default function VitaImportPage() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [target, setTarget] = useState<string>('new')
   const [name, setName] = useState('')
+  const [client, setClient] = useState('')
   const [cfg, setCfg] = useState<VitaConfig | null>(null)
   const [dry, setDry] = useState<Dry | null>(null)
   const [busy, setBusy] = useState(false)
@@ -66,6 +109,22 @@ export default function VitaImportPage() {
     const base = targetId === 'new'
       ? defaultVitaConfig(y)
       : clone(editable.find((p) => p.id === targetId)!.config)
+    if (ins.byCategory) {
+      // File per categoria (Agos): capitali, premi, diritti e scadenza letti dal file
+      const c = ins.categories
+      if (targetId === 'new') {
+        base.rules = { ...base.rules, capitalMode: 'categoria', categories: c.categories, rights: c.rights, grossRounding: 'nessuno', rightsProRata: true, countLastDay: c.countLastDay ?? false, exitNextDay: true, minAge: 0, deathMaxAge: 99, ipMaxAge: 99 }
+        base.rates = {}
+        base.hrMonthly = true
+        const seen = new Set<string>()
+        base.companies = ins.companies.filter((f) => { const k = normName(f.name); if (seen.has(k)) return false; seen.add(k); return true })
+          .map((f, i) => ({ key: `c${i + 1}`, name: titleCase(f.name), policy: f.policy }))
+        if (!base.companies.length) base.companies = [{ key: 'c1', name: '', policy: '' }]
+      } else if (!(base.rules.categories || []).length) {
+        base.rules = { ...base.rules, capitalMode: 'categoria', categories: c.categories }
+      }
+      return base
+    }
     // Contraenti e polizze dal file, dove mancano
     if (ins.companies.length) {
       const used = new Set<string>()
@@ -97,13 +156,22 @@ export default function VitaImportPage() {
       const r = await fetch('/api/vita/inspect', { method: 'POST', body: fd })
       const j = (await r.json()) as Inspect & { error?: string }
       if (!r.ok) throw new Error(j.error || 'Errore')
-      // L'anno del file: il più alto nominato dalle colonne RAL («RAL 2026 FULL TIME»).
+      // Il file mensile delle risorse umane non è uno stato di rischio: va caricato da «File mensile».
+      if (j.hrEvents > 0 && !j.companies.length) {
+        setErr(null)
+        setInsp(null)
+        setStep(1)
+        setFlash({ ok: false, text: `«${f.name}» è il file mensile del cliente (assunti, cessati, passaggi: ${j.hrMonths.join(', ')}). Si carica da «File mensile del cliente», non da qui.` })
+        return
+      }
+      // L'anno del file: il più alto nominato dalle colonne RAL («RAL 2026 FULL TIME») o dai fogli («Rinnovo 2026»).
       const y = j.years.length ? j.years[j.years.length - 1] : new Date().getFullYear()
-      const same = editable.find((p) => p.year === y)
-      const tgt = same ? same.id : 'new'
+      const tgt = bestTarget(editable, y, j)
       const last = [...(vita.programs || [])].sort((a, b) => b.year - a.year)[0]
       setInsp(j); setYear(y); setTarget(tgt)
-      setName(last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `Polizza Vita ${y}`)
+      const first = j.companies[0]?.name || ''
+      setClient(j.byCategory ? titleCase(first.split(/\s+/)[0] || '') : (last ? clientOf(last) : ''))
+      setName(j.byCategory ? nameFromFile(f.name, y) : last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `Polizza Vita ${y}`)
       setCfg(draftFor(tgt, y, j))
       setStep(2)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -119,12 +187,10 @@ export default function VitaImportPage() {
 
   function changeYear(y: number) {
     setYear(y)
-    const same = editable.find((p) => p.year === y)
-    const tgt = same ? same.id : 'new'
+    const tgt = insp ? bestTarget(editable, y, insp) : 'new'
     setTarget(tgt)
     if (insp) setCfg(draftFor(tgt, y, insp))
-    const last = [...(vita.programs || [])].sort((a, b) => b.year - a.year)[0]
-    setName(last ? last.name.replace(/\b(19|20)\d{2}\b/, String(y)) : `Polizza Vita ${y}`)
+    setName((n) => n.replace(/\b(19|20)\d{2}\b/, String(y)))
   }
 
   function copyFrom(id: string) {
@@ -144,10 +210,10 @@ export default function VitaImportPage() {
     try {
       let id = target
       if (target === 'new') {
-        const j = await api('/api/vita/programs', 'POST', { name: name.trim() || `Polizza Vita ${year}`, year })
+        const j = await api('/api/vita/programs', 'POST', { name: name.trim() || `Polizza Vita ${year}`, year, company: client.trim() })
         id = j.program.id
       }
-      await api(`/api/vita/programs/${id}`, 'PUT', { name: target === 'new' ? name.trim() || `Polizza Vita ${year}` : undefined, year, config: cfg })
+      await api(`/api/vita/programs/${id}`, 'PUT', { name: target === 'new' ? name.trim() || `Polizza Vita ${year}` : undefined, year, config: cfg, company: target === 'new' ? client.trim() : undefined })
       await vita.reload()
       vita.setProgramId(id)
       setTarget(id)
@@ -178,10 +244,13 @@ export default function VitaImportPage() {
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  const gravi = dry ? dry.warnings.filter((w) => /RAL|tassi|contraente|intestazione/i.test(w)) : []
+  const gravi = dry ? dry.warnings.filter((w) => /RAL|tassi|contraente|intestazione|categoria/i.test(w) && !/numero di polizza/.test(w)) : []
   const altri = dry ? dry.warnings.filter((w) => !gravi.includes(w)) : []
-  const noRates = cfg ? Object.keys(cfg.rates).length === 0 : false
-  const prev = [...editable].filter((p) => p.year !== year).sort((a, b) => Math.abs(a.year - year) - Math.abs(b.year - year))[0]
+  const catMode = cfg?.rules.capitalMode === 'categoria'
+  const noRates = cfg && !catMode ? Object.keys(cfg.rates).length === 0 : false
+  const badCats = catMode && (cfg?.rules.categories || []).some((c) => !c.name.trim() || !(c.capital > 0) || (!(Number(c.premium) > 0) && !(c.rate > 0)))
+  const sameKind = editable.filter((p) => p.year !== year && (p.config.rules.capitalMode === 'categoria') === !!catMode && (!client.trim() || clientOf(p).toLowerCase() === client.trim().toLowerCase()))
+  const prev = [...sameKind].sort((a, b) => Math.abs(a.year - year) - Math.abs(b.year - year))[0]
 
   return (
     <div className="rsm">
@@ -220,7 +289,11 @@ export default function VitaImportPage() {
         <>
           <div className="rsm-box">
             <div className="rsm-box-body">
-              <p>«{file?.name}»: {insp.companies.length} {insp.companies.length === 1 ? 'contraente' : 'contraenti'}{insp.years.length ? `, RAL ${insp.years.join(' e ')}` : ''}{insp.ratesN ? `, ${insp.ratesN} tassi per età (${insp.ratesMin}-${insp.ratesMax}) dal foglio «${insp.ratesFrom}»` : ', nessun foglio dei tassi'}.</p>
+              {insp.byCategory ? (
+                <p>«{file?.name}»: {insp.companies.length} {insp.companies.length === 1 ? 'contraente' : 'contraenti'}, capitali e premi per categoria dal foglio «{insp.categories.from}» ({insp.categories.categories.map((c) => c.name).join(', ')}). Niente RAL né tassi per età: il programma calcola per categoria.</p>
+              ) : (
+                <p>«{file?.name}»: {insp.companies.length} {insp.companies.length === 1 ? 'contraente' : 'contraenti'}{insp.years.length ? `, RAL ${insp.years.join(' e ')}` : ''}{insp.ratesN ? `, ${insp.ratesN} tassi per età (${insp.ratesMin}-${insp.ratesMax}) dal foglio «${insp.ratesFrom}»` : ', nessun foglio dei tassi'}.</p>
+              )}
             </div>
           </div>
 
@@ -238,10 +311,13 @@ export default function VitaImportPage() {
                   </label>
                 </div>
                 {target === 'new' && (
-                  <label className="rsm-field" style={{ minWidth: 300 }}>Nome del programma nuovo<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+                  <div className="rsm-row">
+                    <label className="rsm-field">Cliente<input value={client} onChange={(e) => setClient(e.target.value)} placeholder="es. Agos" style={{ width: 140 }} /></label>
+                    <label className="rsm-field" style={{ minWidth: 260 }}>Nome della polizza<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+                  </div>
                 )}
                 {prev && <div className="rsm-row"><button className="btn btn-secondary" onClick={() => copyFrom(prev.id)}>Copia regole, tassi e polizze da «{prev.name}»</button></div>}
-                <p className="rsm-note">Un programma per anno. Scrivendo un anno che non esiste ancora si crea: così gli anni nuovi, o quelli passati per lo storico, si fanno da qui senza chiedere niente a nessuno.</p>
+                <p className="rsm-note">Un programma per polizza e per anno; il cliente le raggruppa in una scheda. Scrivendo un anno che non esiste ancora si crea: così gli anni nuovi, o quelli passati per lo storico, si fanno da qui senza chiedere niente a nessuno.</p>
               </div>
             </div>
 
@@ -261,7 +337,9 @@ export default function VitaImportPage() {
               </div>
             </div>
 
-            <div className="rsm-box">
+            {catMode && <CalcModeBox cfg={cfg} setCfg={setCfg} />}
+            {catMode && <MovementRulesBox cfg={cfg} setCfg={setCfg} />}
+            {!catMode && <div className="rsm-box">
               <div className="rsm-box-head"><span className="rsm-box-title">Tassi per età</span><span className="rsm-note">{Object.keys(cfg.rates).length} età</span></div>
               <div className="rsm-box-body">
                 {noRates ? (
@@ -271,9 +349,9 @@ export default function VitaImportPage() {
                 )}
                 {insp.ratesN > 0 && <div className="rsm-row"><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, rates: { ...insp.rates } })}>Usa i {insp.ratesN} tassi del file</button></div>}
               </div>
-            </div>
+            </div>}
 
-            <div className="rsm-box">
+            {!catMode && <div className="rsm-box">
               <div className="rsm-box-head"><span className="rsm-box-title">Regole del capitale</span></div>
               <div className="rsm-box-body">
                 <div className="rsm-row">
@@ -287,11 +365,19 @@ export default function VitaImportPage() {
                 </div>
                 <p className="rsm-note">Il resto (limiti di età, rimborsi, mail, accessi) si cambia in «Tassi e regole», anche dopo l&apos;import.</p>
               </div>
-            </div>
+            </div>}
           </div>
 
+          {catMode && <CategoriesBox cfg={cfg} setCfg={setCfg} />}
+          {catMode && insp.byCategory && (
+            <label className="rsm-rule" style={{ margin: '4px 0 12px' }}>
+              <input type="checkbox" checked={!!cfg.hrMonthly} onChange={(e) => setCfg({ ...cfg, hrMonthly: e.target.checked })} />
+              <span>La polizza si aggiorna col file mensile del cliente (assunti, cessati, passaggi di livello)<span className="rsm-help">Dopo questo import, ogni mese basta caricare il loro file in «File mensile del cliente».</span></span>
+            </label>
+          )}
+
           <div className="rsm-row">
-            <button className="btn btn-primary" disabled={busy || noRates || (target === 'new' && !name.trim())} onClick={toCheck}>{busy ? <span className="spinner" /> : 'Avanti: controlla gli assicurati'}</button>
+            <button className="btn btn-primary" disabled={busy || noRates || !!badCats || (target === 'new' && !name.trim())} onClick={toCheck}>{busy ? <span className="spinner" /> : 'Avanti: controlla gli assicurati'}</button>
             <button className="btn btn-secondary" disabled={busy} onClick={() => { setStep(1); setFile(null); setInsp(null); setCfg(null) }}>Indietro</button>
           </div>
         </>
@@ -307,7 +393,10 @@ export default function VitaImportPage() {
                 <div className="rsm-kpi-line">assicurati nel file</div>
               </div>
             ))}
-            <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(dry.premium)}</div><div className="rsm-kpi-line">calcolato coi tassi del programma</div></div>
+            {Object.entries(dry.perCategory || {}).map(([k, n]) => (
+              <div className="rsm-kpi" key={`cat-${k}`}><div className="rsm-kpi-top"><span>{k}</span><span>categoria</span></div><div className="rsm-kpi-num">{n}</div><div className="rsm-kpi-line">in copertura oggi</div></div>
+            ))}
+            <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo</span></div><div className="rsm-kpi-num">{eur(dry.premium)}</div><div className="rsm-kpi-line">chi è nello stato di rischio a inizio anno, {catMode ? 'con capitali e premi delle categorie' : 'coi tassi del programma'}</div></div>
           </div>
 
           {gravi.map((w, i) => <div key={i} className="alert alert-error">{w}</div>)}

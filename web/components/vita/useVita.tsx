@@ -6,7 +6,8 @@
 // non chiede nulla al server.
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { computeInsured, fmtDate, movementOf } from '@/lib/vita/rules.js'
+import { computeInsured, fmtDate, movementOf, yearEndOf } from '@/lib/vita/rules.js'
+import { clientOf } from '@/lib/vita/types'
 import type { VitaInsured, VitaProgram } from '@/lib/vita/types'
 
 const KEY = 'vitaProgram'
@@ -21,6 +22,8 @@ export interface Calc {
   net: number | null
   gross: number | null
   cover: string
+  /** Categoria (calcolo per categoria): null = il livello non è di nessuna categoria. */
+  category?: string | null
 }
 
 export type Row = VitaInsured & { c: Calc }
@@ -106,7 +109,8 @@ export function useVita() {
     return insured.map((p) => ({ ...p, c: computeInsured(p, cfg.rates, p.entryDate || cfg.periodStart, cfg.rules) as Calc }))
   }, [insured, cfg])
 
-  const yearEnd = program ? `${program.year}-12-31` : ''
+  // ultimo giorno contato dal pro-rata: 31/12 o il 01/01 dopo, secondo le regole del programma
+  const yearEnd = cfg ? yearEndOf(cfg) : ''
 
   /** Movimenti dell'anno: inclusioni dalle decorrenze, uscite dalle date di uscita. */
   const movements = useCallback((): Movement[] => {
@@ -118,7 +122,7 @@ export function useVita() {
         const m = movementOf({ kind: 'INCLUSIONE', date: r.entryDate, capital: r.c.capital, rate: r.c.rate, sovrPct: r.sovrPct }, yearEnd, cfg.rules) as { days: number; gross: number | null }
         out.push({
           key: `${r.id}-in`, date: r.entryDate, kind: 'INCLUSIONE', row: r, days: m.days, gross: m.gross, capital: r.c.capital,
-          title: r.entryKind === 'passaggio' ? `Passaggio a ${nameOf(r.company)}` : 'Inclusione',
+          title: r.entryKind === 'passaggio' ? `Passaggio a ${cfg.rules.capitalMode === 'categoria' && r.c.category ? r.c.category : nameOf(r.company)}` : 'Inclusione',
           source: r.source || r.note || '', transfer: r.entryKind === 'passaggio',
         })
       }
@@ -127,7 +131,7 @@ export function useVita() {
         const m = movementOf({ kind: 'ESCLUSIONE', date: r.exitDate, capital: r.c.capital, rate: r.c.rate, sovrPct: r.sovrPct, paid: { capital: r.c.capital, rate: r.c.rate as number } }, yearEnd, cfg.rules) as { days: number; gross: number | null }
         out.push({
           key: `${r.id}-out`, date: r.exitDate, kind: 'ESCLUSIONE', row: r, days: m.days, gross: m.gross, capital: r.c.capital,
-          title: r.exitKind === 'passaggio' ? 'Passaggio ad altra polizza' : 'Esclusione',
+          title: r.exitKind === 'passaggio' ? (cfg.rules.capitalMode === 'categoria' ? 'Passaggio ad altra categoria' : 'Passaggio ad altra polizza') : 'Esclusione',
           source: r.note || '', transfer: r.exitKind === 'passaggio',
         })
       }
@@ -135,7 +139,18 @@ export function useVita() {
     return out.sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'ESCLUSIONE' ? -1 : 1))
   }, [rows, cfg, yearEnd])
 
-  return { programs, programId, setProgramId, program, cfg, insured, rows, movements, yearEnd, editor, loading, error, reload }
+  // Clienti (Amundi, Agos…) come schede; dentro un cliente e un anno possono
+  // esserci più polizze (Agos: LTC e Vita Quadri e Dirigenti).
+  const clients = useMemo(() => [...new Set((programs || []).map((p) => clientOf(p)))], [programs])
+  const client = program ? clientOf(program) : (clients[0] || '')
+  const siblings = useMemo(() => (programs || []).filter((p) => program && clientOf(p) === client && p.year === program.year), [programs, program, client])
+  const setClient = useCallback((c: string) => {
+    const list = (programs || []).filter((p) => clientOf(p) === c)
+    const pick = list.find((p) => program && p.year === program.year) || [...list].sort((a, b) => b.year - a.year)[0]
+    if (pick) setProgramId(pick.id)
+  }, [programs, program, setProgramId])
+
+  return { programs, programId, setProgramId, program, cfg, insured, rows, movements, yearEnd, editor, loading, error, reload, clients, client, setClient, siblings }
 }
 
 export type Vita = ReturnType<typeof useVita>
@@ -156,24 +171,63 @@ export const eur = (n: number | null | undefined) => {
 export const rate4 = (n: number | null | undefined) => (n == null ? '—' : n.toFixed(4).replace('.', ','))
 export const today = () => new Date().toISOString().slice(0, 10)
 
-/** Intestazione delle pagine: titolo, scelta del programma, azioni. */
+/** Nome della polizza senza cliente e anno: «LTC», «Vita Quadri e Dirigenti». */
+export function policyLabel(p: VitaProgram): string {
+  const c = clientOf(p)
+  const n = p.name.replace(new RegExp(`\\b${p.year}\\b`), '').replace(new RegExp(`^\\s*${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), '').replace(/\s+/g, ' ').replace(/^[\s\-–·]+|[\s\-–·]+$/g, '').trim()
+  return n || p.name
+}
+
+/**
+ * Intestazione delle pagine: una scheda per cliente (Amundi, Agos…), poi le
+ * polizze del cliente in quell'anno (se sono più di una) e l'anno.
+ */
 export function VitaHeader({ vita, title, kicker, children }: { vita: Vita; title: string; kicker?: string; children?: React.ReactNode }) {
+  const p = vita.program
+  const ofClient = (vita.programs || []).filter((x) => clientOf(x) === vita.client)
+  const years = [...new Set(ofClient.map((x) => x.year))].sort((a, b) => b - a)
+  const pickYear = (y: number) => {
+    const same = ofClient.filter((x) => x.year === y)
+    const want = p ? policyLabel(p) : ''
+    const hit = same.find((x) => policyLabel(x) === want) || same[0]
+    if (hit) vita.setProgramId(hit.id)
+  }
   return (
-    <div className="rsm-head">
-      <div>
-        <div className="rsm-kicker">
-          {vita.programs && vita.programs.length > 1 ? (
-            <select aria-label="Programma" value={vita.programId || ''} onChange={(e) => vita.setProgramId(e.target.value)}
-              style={{ height: 30, padding: '0 8px', fontSize: 12, width: 'auto' }}>
-              {vita.programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          ) : (vita.program?.name || '')}
-          {kicker ? ` · ${kicker}` : ''}
-          {vita.program && !vita.editor && <span className="rsm-pill off" style={{ marginLeft: 8 }}>sola consultazione</span>}
+    <div className="rsm-head-wrap">
+      {vita.clients.length > 1 && (
+        <nav className="rsm-companies" aria-label="Clienti">
+          {vita.clients.map((c) => (
+            <button key={c} type="button" className={c === vita.client ? 'on' : ''} aria-current={c === vita.client ? 'true' : undefined}
+              onClick={() => c !== vita.client && vita.setClient(c)}>{c}</button>
+          ))}
+        </nav>
+      )}
+      <div className="rsm-head">
+        <div>
+          <div className="rsm-kicker">
+            {p && <span>{vita.client}</span>}
+            {p && vita.siblings.length <= 1 && policyLabel(p) !== p.name && <span>&nbsp;· {policyLabel(p)}</span>}
+            {years.length > 1 ? (
+              <select aria-label="Anno" value={p?.year || ''} onChange={(e) => pickYear(Number(e.target.value))}
+                style={{ height: 28, padding: '0 8px', fontSize: 12, width: 'auto', marginLeft: 8 }}>
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            ) : p ? <span>&nbsp;· {p.year}</span> : null}
+            {kicker ? <span>&nbsp;· {kicker}</span> : null}
+            {p && !vita.editor && <span className="rsm-pill off" style={{ marginLeft: 8 }}>sola consultazione</span>}
+          </div>
+          {vita.siblings.length > 1 && (
+            <nav className="rsm-programs rsm-tabs" aria-label="Polizze">
+              {vita.siblings.map((x) => (
+                <button key={x.id} type="button" className={`rsm-tab${x.id === vita.programId ? ' on' : ''}`} aria-current={x.id === vita.programId ? 'true' : undefined}
+                  onClick={() => x.id !== vita.programId && vita.setProgramId(x.id)}>{policyLabel(x)}</button>
+              ))}
+            </nav>
+          )}
+          <h1 className="page-title">{title}</h1>
         </div>
-        <h1 className="page-title">{title}</h1>
+        <div className="rsm-row">{children}</div>
       </div>
-      <div className="rsm-row">{children}</div>
     </div>
   )
 }

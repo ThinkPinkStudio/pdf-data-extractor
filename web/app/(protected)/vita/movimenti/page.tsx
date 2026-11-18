@@ -33,11 +33,14 @@ interface ReadRow {
   rate?: number | null
   age?: number | null
   m?: { days: number; net: number | null; gross: number | null }
+  level?: string
 }
 
 export default function VitaMovimentiPage() {
   const vita = useVita()
   const cfg = vita.cfg
+  const catMode = cfg?.rules.capitalMode === 'categoria'
+  const cats = cfg?.rules.categories || []
   const [text, setText] = useState('')
   const [kind, setKind] = useState<'tutti' | 'INCLUSIONE' | 'ESCLUSIONE'>('tutti')
   const [busy, setBusy] = useState(false)
@@ -79,13 +82,21 @@ export default function VitaMovimentiPage() {
       return { ...base, who, m, birth: who.birthDate, capital: who.c.capital, rate: who.c.rate, age: who.c.age }
     }
 
+    if (catMode) {
+      // Per categoria: niente RAL, conta il livello (dalla mail o scritto sotto)
+      const lv = form.level || (cats.find((k) => new RegExp(`\\b(${(k.match || k.name).split(',').map((w) => w.trim()).filter(Boolean).join('|')})`, 'i').test(text))?.name || '')
+      const c = computeInsured({ birthDate: d.birthDate, level: lv, ral: 0, keyFigure: false, doc: {}, sovrPct: 0 }, cfg.rates, iso, cfg.rules) as { age: number | null; rate: number | null; capital: number; category?: string | null }
+      if (!c.category) return { ...base, err: `Scrivi qui sotto il livello o la categoria (${cats.map((k) => k.name).join(', ')}): dalla mail non si capisce.` }
+      const m = movementOf({ kind: 'INCLUSIONE', date: iso, capital: c.capital, rate: c.rate }, vita.yearEnd, cfg.rules) as ReadRow['m']
+      return { ...base, ral: 0, m, birth: d.birthDate, capital: c.capital, rate: c.rate, age: c.age, level: lv }
+    }
     if (!ralm) return { ...base, err: 'Manca la RAL: senza quella non si calcola il capitale.' }
     const ral = Number(ralm[1].replace(/\./g, '').replace(',', '.'))
     const c = computeInsured({ birthDate: d.birthDate, ral, keyFigure: false, doc: {}, sovrPct: 0 }, cfg.rates, iso, cfg.rules) as { age: number | null; rate: number | null; capital: number }
     if (c.rate == null) return { ...base, err: `Età computabile ${c.age} anni: fuori dalla tabella dei tassi, il premio va concordato con la compagnia.` }
     const m = movementOf({ kind: 'INCLUSIONE', date: iso, capital: c.capital, rate: c.rate }, vita.yearEnd, cfg.rules) as ReadRow['m']
     return { ...base, ral, m, birth: d.birthDate, capital: c.capital, rate: c.rate, age: c.age }
-  }, [text, cfg, vita.rows, vita.yearEnd, vita.program])
+  }, [text, cfg, vita.rows, vita.yearEnd, vita.program, catMode, cats, form.level])
 
   async function run(fn: () => Promise<{ label?: string; opId?: string }>, fallback: string) {
     setBusy(true)
@@ -107,7 +118,7 @@ export default function VitaMovimentiPage() {
     }
     const company = form.company || cfg?.companies[0]?.key
     return run(() => api(url, 'POST', {
-      insured: [{ company, cf: read.cf, cognome: form.cognome, nome: form.nome, birthDate: read.birth, level: form.level, ral: read.ral, entryDate: read.iso, source: 'Mail dell’Azienda' }],
+      insured: [{ company, cf: read.cf, cognome: form.cognome, nome: form.nome, birthDate: read.birth, level: form.level || read.level || '', ral: read.ral, entryDate: read.iso, source: 'Mail dell’Azienda' }],
     }), 'Inclusione registrata')
   }
 
@@ -144,7 +155,7 @@ export default function VitaMovimentiPage() {
                           {read.who
                             ? <tr><td>Assicurato</td><td className="num">{read.who.cognome} {read.who.nome}<div className="rsm-sub">{cfg?.companies.find((c) => c.key === read.who!.company)?.name} · in copertura dal {fmtDate(read.who.entryDate)}</div></td></tr>
                             : <tr><td>Data di nascita</td><td className="num">{fmtDate(read.birth!)}<div className="rsm-sub">ricavata dal codice fiscale</div></td></tr>}
-                          <tr><td>{read.kind === 'ESCLUSIONE' ? 'Capitale assicurato' : 'RAL → capitale'}</td><td className="num">{read.kind === 'ESCLUSIONE' ? eur(read.capital) : <>{eur(read.ral)} → {eur(read.capital)}</>}</td></tr>
+                          <tr><td>{read.kind === 'ESCLUSIONE' || catMode ? 'Capitale assicurato' : 'RAL → capitale'}</td><td className="num">{read.kind === 'ESCLUSIONE' || catMode ? <>{eur(read.capital)}{catMode && read.level ? <div className="rsm-sub">{read.level}</div> : null}</> : <>{eur(read.ral)} → {eur(read.capital)}</>}</td></tr>
                           <tr><td>Età · tasso</td><td className="num">{read.age} anni · {rate4(read.rate)} ‰</td></tr>
                           <tr><td>Pro-rata</td><td className="num">{read.m?.days}/365 giorni</td></tr>
                           <tr className="total"><td>{read.kind === 'ESCLUSIONE' ? 'Rimborso (senza diritti)' : 'Premio dell’anno (diritti inclusi)'}</td><td className="num">{eur(read.m?.gross)}</td></tr>
@@ -184,12 +195,16 @@ export default function VitaMovimentiPage() {
                   <label className="rsm-field">Codice fiscale<input value={form.cf} onChange={(e) => setForm({ ...form, cf: e.target.value.toUpperCase() })} style={{ width: 190 }} /></label>
                 </div>
                 <div className="rsm-row">
-                  <label className="rsm-field">RAL<input value={form.ral} onChange={(e) => setForm({ ...form, ral: e.target.value })} style={{ width: 130 }} /></label>
-                  <label className="rsm-field">Livello<input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>
-                  <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={form.keyFigure} onChange={(e) => setForm({ ...form, keyFigure: e.target.checked })} style={{ height: 16, width: 16 }} />Figura chiave</label>
+                  {catMode ? (
+                    <label className="rsm-field">Categoria<select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}><option value="">—</option>{cats.map((k) => <option key={k.key} value={k.name}>{k.name}</option>)}</select></label>
+                  ) : <>
+                    <label className="rsm-field">RAL<input value={form.ral} onChange={(e) => setForm({ ...form, ral: e.target.value })} style={{ width: 130 }} /></label>
+                    <label className="rsm-field">Livello<input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>
+                    <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={form.keyFigure} onChange={(e) => setForm({ ...form, keyFigure: e.target.checked })} style={{ height: 16, width: 16 }} />Figura chiave</label>
+                  </>}
                 </div>
                 <div className="rsm-row">
-                  <button className="btn btn-primary" disabled={busy || !form.cf || !form.date || !form.cognome}
+                  <button className="btn btn-primary" disabled={busy || !form.cf || !form.date || !form.cognome || (catMode && cats.length > 1 && !form.level)}
                     onClick={() => run(() => api(url, 'POST', { insured: [{ ...form, company: form.company || cfg?.companies[0]?.key, ral: Number(String(form.ral).replace(/\./g, '').replace(',', '.')) || 0, entryDate: form.date, birthDate: (decodeCf(form.cf, vita.program?.year) as { birthDate: string | null }).birthDate, source: 'Inserimento a mano' }] }), 'Inclusione registrata')}>Registra l&apos;inclusione</button>
                 </div>
                 <p className="rsm-note">Per le uscite si parte dalla scheda della persona, nello Stato di rischio: la data è il giorno dopo la comunicazione e il rimborso usa il tasso e il capitale già pagati a inizio anno.</p>
@@ -211,7 +226,7 @@ export default function VitaMovimentiPage() {
                   <tr key={m.key}>
                     <td className="nowrap">{fmtDate(m.date)}</td>
                     <td><span className="rsm-who">{m.row.cognome} {m.row.nome}</span><div className="rsm-cf">{m.row.cf}</div></td>
-                    <td className="nowrap">{cfg?.companies.find((c) => c.key === m.row.company)?.name}</td>
+                    <td className="nowrap">{cfg?.companies.find((c) => c.key === m.row.company)?.name}{catMode && m.row.c.category && <div className="rsm-sub">{m.row.c.category}</div>}</td>
                     <td><span className={`rsm-pill ${m.transfer ? 'promo' : m.kind === 'INCLUSIONE' ? 'new' : 'off'}`}>{m.title}</span></td>
                     <td className="num">{eur(m.capital)}</td>
                     <td className="num">{m.days}/365</td>

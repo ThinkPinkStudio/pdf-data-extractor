@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
-import { listInsured, mergeInsured, replaceInsured } from '@/lib/vita/store'
+import { listInsured, mergeInsured, replaceInsured, updateProgram } from '@/lib/vita/store'
 import { computeInsured, parseVitaWorkbook } from '@/lib/vita/rules.js'
 import { checkPerson } from '@/lib/rsm/rules.js'
 import { fail, guard, readSheets } from '@/lib/vita/server'
@@ -12,7 +12,8 @@ interface Parsed {
   keyFigure: boolean; sovrPct: number; doc: { visit: boolean; extra: boolean; ok: boolean; checkupDate: string | null }
   entryDate: string; entryKind?: 'iniziale' | 'inclusione' | 'passaggio'
   exitDate?: string | null; exitKind?: 'cessazione' | 'passaggio' | null; transferId?: string | null; exitTransferId?: string | null
-  source: string; note?: string; rowNumber?: number; sheet?: string
+  source: string; note?: string; rowNumber?: number; sheet?: string; level?: string
+  extra?: Record<string, string>
 }
 
 /**
@@ -35,7 +36,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const ralYear = Number(form?.get('ralYear')) || g.program.year
 
   const sheets = readSheets(Buffer.from(await file.arrayBuffer()))
-  const { insured, warnings } = parseVitaWorkbook(g.program.config, sheets, { ralYear }) as { insured: Parsed[]; warnings: string[] }
+  const { insured, warnings, layout } = parseVitaWorkbook(g.program.config, sheets, { ralYear }) as { insured: Parsed[]; warnings: string[]; layout: { stato: string[] | null; mov: string[] | null } }
+  const catMode = g.program.config.rules?.capitalMode === 'categoria'
   if (!insured.length) return NextResponse.json({ n: 0, warnings: [...warnings, 'Nessun assicurato riconosciuto nel file.'], perCompany: {}, premium: 0, missingRal: 0 })
 
   // Controlli sui dati del file: il codice fiscale contro nome, cognome e nascita.
@@ -44,7 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const p of insured) {
     const issues = checkPerson({ cognome: p.cognome, nome: p.nome, cf: p.cf, birthDate: p.birthDate }, g.program.year).issues as { level: string; text: string }[]
     for (const i of issues.filter((x) => x.level === 'error')) all.push(`«${p.sheet}» riga ${p.rowNumber} ${p.cognome} ${p.nome}: ${i.text}`)
-    const key = `${p.company}:${p.cf}`
+    // la stessa persona può avere due righe (rientro, passaggio di categoria): diverse per decorrenza
+    const key = `${p.company}:${p.cf}:${p.entryDate}`
     if (seen.has(key)) all.push(`${p.cognome} ${p.nome} compare due volte sulla stessa polizza (righe ${seen.get(key)!.rowNumber} e ${p.rowNumber}): tenuta la prima.`)
     else seen.set(key, p)
   }
@@ -68,26 +71,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let premium = 0
   let missingRal = 0
   let noRate = 0
+  let noCategory = 0
+  const perCategory: Record<string, number> = {}
   for (const p of rows) {
     perCompany[p.company] = (perCompany[p.company] || 0) + 1
-    if (!(p.ral > 0) && !p.keyFigure) missingRal++
-    const c = computeInsured(p, g.program.config.rates, p.entryDate, g.program.config.rules) as { gross: number | null; rate: number | null }
-    if (c.rate == null) noRate++
-    premium += c.gross || 0
+    if (!catMode && !(p.ral > 0) && !p.keyFigure) missingRal++
+    const c = computeInsured(p, g.program.config.rates, p.entryDate, g.program.config.rules) as { gross: number | null; rate: number | null; category?: string | null }
+    if (catMode) {
+      if (!c.category) noCategory++
+      else if (!p.exitDate) perCategory[c.category] = (perCategory[c.category] || 0) + 1
+    } else if (c.rate == null) noRate++
+    if (p.entryKind === 'iniziale' || !p.entryKind) premium += c.gross || 0
   }
   if (missingRal) all.unshift(`${missingRal} ${missingRal === 1 ? 'assicurato è' : 'assicurati sono'} senza RAL: il capitale non si può calcolare.`)
   if (noRate) all.unshift(`${noRate} ${noRate === 1 ? 'assicurato ha' : 'assicurati hanno'} un'età fuori dalla tabella dei tassi: il premio va concordato con la compagnia.`)
+  if (noCategory) all.unshift(`${noCategory} ${noCategory === 1 ? 'assicurato ha' : 'assicurati hanno'} un livello che non è di nessuna categoria: capitale e premio a zero, controlla le parole delle categorie.`)
 
   const puliti = rows.map(({ rowNumber, sheet, ...m }) => { void rowNumber; void sheet; return m })
   if (!confirm) {
     return NextResponse.json({
-      n: rows.length, perCompany, premium, warnings: all, missingRal,
+      n: rows.length, perCompany, perCategory, premium, warnings: all, missingRal, noCategory,
       replaces: esistenti.length, aggiornati, nuovi: rows.length - aggiornati,
       fuoriDalFile: fuoriDalFile.length, usciteDalFile, usciteAMano: usciteAMano.length, noteAMano: noteAMano.length,
       docAMano: docAMano.length,
     })
   }
   const label = `${replace ? 'Import' : 'Aggiornamento'} dello stato di rischio da «${file.name}» (${rows.length} assicurati)`
+  // Le colonne del file si ricordano: l'Excel in uscita le rifà uguali.
+  if (catMode && (layout.stato || layout.mov)) {
+    await updateProgram(params.id, g.program.name, g.program.year, { ...g.program.config, fileLayout: { stato: layout.stato || g.program.config.fileLayout?.stato || null, mov: layout.mov || g.program.config.fileLayout?.mov || null } })
+  }
   if (replace) {
     const r = await replaceInsured(params.id, puliti, g.email, label)
     await logAction({ email: g.email, action: 'vita.import', resource: params.id, metadata: { file: file.name, mode: 'replace', n: rows.length, opId: r.opId } })

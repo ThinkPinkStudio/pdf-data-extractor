@@ -19,14 +19,21 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
-  const body = (await req.json().catch(() => ({}))) as { name?: string; year?: number; config?: VitaConfig }
+  const body = (await req.json().catch(() => ({}))) as { name?: string; year?: number; config?: VitaConfig; company?: string }
   const name = String(body.name ?? g.program.name).trim()
   const year = Number(body.year ?? g.program.year)
   if (!name || !(year >= 2000 && year <= 2100)) return fail(400, 'Nome e anno obbligatori', 'invalid')
   const cfg = body.config || g.program.config
   if (!Array.isArray(cfg.companies) || !cfg.companies.length) return fail(400, 'Serve almeno un contraente', 'invalid')
-  if (!cfg.rules || !(Number(cfg.rules.multiplier) > 0)) return fail(400, 'Moltiplicatore della RAL mancante', 'invalid')
-  const p = await updateProgram(params.id, name, year, cfg)
+  if (!cfg.rules) return fail(400, 'Regole mancanti', 'invalid')
+  if (cfg.rules.capitalMode === 'categoria') {
+    const cats = cfg.rules.categories || []
+    if (!cats.length) return fail(400, 'Serve almeno una categoria con il suo capitale', 'invalid')
+    if (cats.some((c) => !String(c.name || '').trim() || !(Number(c.capital) > 0))) return fail(400, 'Ogni categoria deve avere un nome e un capitale', 'invalid')
+    if (cats.some((c) => !(Number(c.premium) > 0) && !(Number(c.rate) > 0))) return fail(400, 'Ogni categoria deve avere un tasso o un premio annuo', 'invalid')
+  } else if (!(Number(cfg.rules.multiplier) > 0)) return fail(400, 'Moltiplicatore della RAL mancante', 'invalid')
+  const company = body.company == null ? undefined : String(body.company).trim()
+  const p = await updateProgram(params.id, name, year, cfg, company)
   await logAction({ email: g.email, action: 'vita.program.update', resource: params.id, metadata: { name, year } })
   return NextResponse.json({ program: p })
 }

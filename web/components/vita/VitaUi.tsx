@@ -94,6 +94,7 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
   const sameCf = vita.rows.filter((r) => r.cf === row.cf && r.id !== row.id)
   const other = cfg.companies.find((c) => c.key !== row.company)
   const st = statusAt(row, at)
+  const catMode = cfg.rules.capitalMode === 'categoria'
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -152,8 +153,10 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
           <div className="rsm-facts">
             <div><span>Data di nascita</span><b>{fmtDate(row.birthDate) || '—'}</b></div>
             <div><span>Livello</span><b>{row.level || '—'}</b></div>
+            {catMode && <div><span>Categoria</span><b>{row.c.category || 'nessuna: il livello non è di nessuna categoria'}</b></div>}
+            {Object.entries(row.extra || {}).map(([k, v]) => <div key={k}><span>{k.charAt(0) + k.slice(1).toLowerCase()}</span><b>{v}</b></div>)}
             <div><span>Età computabile al {fmtDate(row.entryDate || cfg.periodStart)}</span><b>{row.c.age ?? '—'} anni</b></div>
-            <div><span>Garanzie</span><b><CoverPill cover={row.c.cover} /></b></div>
+            {!catMode && <div><span>Garanzie</span><b><CoverPill cover={row.c.cover} /></b></div>}
             <div><span>Stato al {fmtDate(at)}</span><b><span className={`rsm-pill ${st === 'attivo' ? 'ok' : st === 'uscito' ? 'off' : 'new'}`}>{st === 'attivo' ? 'In copertura' : st === 'uscito' ? 'Uscito' : 'Non ancora entrato'}</span></b></div>
             {row.nextRal != null && <div><span>RAL comunicata per l&apos;anno dopo</span><b>{eur(row.nextRal)}</b></div>}
           </div>
@@ -169,6 +172,18 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
 
           <section>
             <h3 className="rsm-drawer-h">Come si arriva al premio</h3>
+            {catMode ? (
+              <table className="rsm-table" aria-label="Calcolo del premio">
+                <tbody>
+                  <tr><td>Categoria</td><td className="num">{row.c.category || '—'}</td></tr>
+                  <tr><td><b>Capitale assicurato</b></td><td className="num"><b>{eur(row.c.capital)}</b></td></tr>
+                  <tr><td>Tasso</td><td className="num">{rate4(row.c.rate)} ‰</td></tr>
+                  <tr><td>Premio netto</td><td className="num">{eur(row.c.net)}</td></tr>
+                  <tr><td>Diritti</td><td className="num">{eur(cfg.rules.rights)}</td></tr>
+                  <tr className="total"><td>Premio lordo annuo</td><td className="num">{eur(row.c.gross)}</td></tr>
+                </tbody>
+              </table>
+            ) : (
             <table className="rsm-table" aria-label="Calcolo del premio">
               <tbody>
                 <tr><td>RAL</td><td className="num">{eur(row.ral)}</td></tr>
@@ -184,9 +199,10 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
                 <tr className="total"><td>Premio lordo annuo</td><td className="num">{eur(row.c.gross)}</td></tr>
               </tbody>
             </table>
+            )}
           </section>
 
-          {row.c.band !== 'nessuna' && (
+          {!catMode && row.c.band !== 'nessuna' && (
             <section>
               <h3 className="rsm-drawer-h">Documentazione sanitaria</h3>
               <ul className="rsm-list">
@@ -233,10 +249,10 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
             <Panel title="Registra l'uscita" busy={busy} onCancel={() => setMode(null)} saveLabel="Registra"
               onSave={() => run(() => api(url, 'PATCH', { action: 'exit', ids: [row.id], exitDate, exitCommunicated: exitComm || null }), 'Uscita registrata')}>
               <div className="rsm-row">
-                <label className="rsm-field w-date">Comunicata il<input type="date" value={exitComm} onChange={(e) => { setExitComm(e.target.value); if (e.target.value && !exitDate) { const d = new Date(e.target.value); d.setDate(d.getDate() + 1); setExitDate(d.toISOString().slice(0, 10)) } }} /></label>
+                <label className="rsm-field w-date">Ultimo giorno o comunicazione<input type="date" value={exitComm} onChange={(e) => { setExitComm(e.target.value); if (e.target.value && !exitDate) { const d = new Date(e.target.value); d.setDate(d.getDate() + 1); setExitDate(d.toISOString().slice(0, 10)) } }} /></label>
                 <label className="rsm-field w-date">Esce dal<input type="date" value={exitDate} onChange={(e) => setExitDate(e.target.value)} /></label>
               </div>
-              <p className="rsm-note">La data dell&apos;uscita è il giorno dopo la comunicazione: scrivendo la comunicazione la proponiamo noi. Il rimborso usa il tasso e il capitale pagati a inizio anno.</p>
+              <p className="rsm-note">La data dell&apos;uscita è il giorno dopo l&apos;ultimo giorno di lavoro (o della comunicazione): scrivendola qui sopra la proponiamo noi. Il rimborso usa il tasso e il capitale pagati a inizio anno.</p>
             </Panel>
           )}
 
@@ -271,10 +287,11 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
               </div>
               <div className="rsm-row">
                 <label className="rsm-field">Livello<input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>
-                <label className="rsm-field">RAL<input value={form.ral} onChange={(e) => setForm({ ...form, ral: e.target.value })} style={{ width: 130 }} /></label>
+                {!catMode && <label className="rsm-field">RAL<input value={form.ral} onChange={(e) => setForm({ ...form, ral: e.target.value })} style={{ width: 130 }} /></label>}
                 <label className="rsm-field">Sovrappremio %<input value={form.sovrPct} onChange={(e) => setForm({ ...form, sovrPct: e.target.value })} style={{ width: 90 }} /></label>
               </div>
-              <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={form.keyFigure} onChange={(e) => setForm({ ...form, keyFigure: e.target.checked })} style={{ height: 16, width: 16 }} />Figura chiave (capitale {eur(cfg.rules.keyFigureCapital)}, documentazione sempre richiesta)</label>
+              {catMode && <p className="rsm-note">La categoria si legge dal livello: {(cfg.rules.categories || []).map((c) => `${c.name}${c.match ? ` (livello con «${c.match}»)` : ''}`).join(', ')}. Per un passaggio di categoria in corso d&apos;anno usa il file mensile o registra uscita ed entrata: il livello cambiato qui vale da inizio anno.</p>}
+              {!catMode && <label className="rsm-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, fontSize: 12.5 }}><input type="checkbox" checked={form.keyFigure} onChange={(e) => setForm({ ...form, keyFigure: e.target.checked })} style={{ height: 16, width: 16 }} />Figura chiave (capitale {eur(cfg.rules.keyFigureCapital)}, documentazione sempre richiesta)</label>}
               <label className="rsm-field">Nota (resta interna)<textarea rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
             </Panel>
           )}

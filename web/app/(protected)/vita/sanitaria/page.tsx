@@ -99,7 +99,9 @@ Un saluto${firma}`
 
       <VitaGate vita={vita}>
         {flashNode}
-        {vita.rows.length === 0 ? <VitaEmpty what="non c'è documentazione sanitaria da seguire." /> : <>
+        {vita.cfg?.rules.capitalMode === 'categoria' ? (
+          <div className="rsm-box"><div className="rsm-empty"><p>Questa polizza ha capitali fissi per categoria: non c&apos;è documentazione sanitaria da seguire.</p></div></div>
+        ) : vita.rows.length === 0 ? <VitaEmpty what="non c'è documentazione sanitaria da seguire." /> : <>
           {cfg && <CompanyTabs cfg={cfg} value={tab} onChange={setTab} counts={counts} />}
 
           <div className="rsm-kpis">

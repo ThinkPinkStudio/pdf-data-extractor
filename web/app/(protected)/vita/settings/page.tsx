@@ -6,6 +6,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { VitaGate, VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
+import { CalcModeBox, CategoriesBox, MovementRulesBox, VitaExample } from '@/components/vita/VitaConfigParts'
+import { clientOf } from '@/lib/vita/types'
 import type { VitaConfig } from '@/lib/vita/types'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -17,6 +19,7 @@ export default function VitaSettingsPage() {
   const { ask, panel } = useConfirmPanel()
   const [cfg, setCfg] = useState<VitaConfig | null>(null)
   const [name, setName] = useState('')
+  const [client, setClient] = useState('')
   const [busy, setBusy] = useState(false)
   const { setFlash, node: flashNode } = useFlash(vita)
   const [newYear, setNewYear] = useState(String(new Date().getFullYear()))
@@ -50,7 +53,7 @@ export default function VitaSettingsPage() {
   }
 
   useEffect(() => {
-    if (vita.program) { setCfg(clone(vita.program.config)); setName(vita.program.name) }
+    if (vita.program) { setCfg(clone(vita.program.config)); setName(vita.program.name); setClient(clientOf(vita.program)) }
   }, [vita.program])
 
   const set = (patch: Partial<VitaConfig>) => setCfg((c) => (c ? { ...c, ...patch } : c))
@@ -62,7 +65,7 @@ export default function VitaSettingsPage() {
     if (!cfg || !vita.programId) return
     setBusy(true)
     try {
-      await api(`/api/vita/programs/${vita.programId}`, 'PUT', { name, year: vita.program!.year, config: cfg })
+      await api(`/api/vita/programs/${vita.programId}`, 'PUT', { name, year: vita.program!.year, config: cfg, company: client.trim() })
       await vita.reload()
       setFlash({ ok: true, text: 'Impostazioni salvate. Gli importi si ricalcolano da soli, anche per il passato.' })
     } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
@@ -72,13 +75,16 @@ export default function VitaSettingsPage() {
     const year = Number(newYear)
     setBusy(true)
     try {
-      const j = await api('/api/vita/programs', 'POST', { name: `Polizza Vita ${year}`, year, copyFrom: vita.programId || undefined })
+      const base = vita.program ? vita.program.name.replace(/\b(19|20)\d{2}\b/, String(year)) : `Polizza Vita ${year}`
+      const nm = base.includes(String(year)) ? base : `${base} ${year}`
+      const j = await api('/api/vita/programs', 'POST', { name: nm, year, copyFrom: vita.programId || undefined, company: vita.program ? clientOf(vita.program) : undefined })
       setFlash({ ok: true, text: `Creato il programma «${j.program.name}».` })
       await vita.reload()
       vita.setProgramId(j.program.id)
     } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
+  const catMode = cfg?.rules.capitalMode === 'categoria'
   const ages = cfg ? Object.keys(cfg.rates).map(Number).sort((a, b) => a - b) : []
   const perCol = Math.ceil(ages.length / 3) || 1
 
@@ -108,26 +114,35 @@ export default function VitaSettingsPage() {
                   <div className="rsm-box-head"><span className="rsm-box-title">Programma e polizze</span></div>
                   <div className="rsm-box-body">
                     <div className="rsm-row">
-                      <label className="rsm-field">Nome<input value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} /></label>
+                      <label className="rsm-field">Cliente<input value={client} onChange={(e) => setClient(e.target.value)} placeholder="es. Agos" style={{ width: 150 }} /></label>
+                      <label className="rsm-field">Nome della polizza<input value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} /></label>
                       <label className="rsm-field">Anno<input value={vita.program.year} disabled style={{ width: 90 }} /></label>
                     </div>
                     {cfg.companies.map((c, i) => (
                       <div className="rsm-row" key={c.key}>
-                        <label className="rsm-field">Contraente<input value={c.name} onChange={(e) => setCompany(i, { name: e.target.value })} style={{ width: 220 }} /></label>
-                        <label className="rsm-field">Numero di polizza<input value={c.policy} onChange={(e) => setCompany(i, { policy: e.target.value })} style={{ width: 130 }} /></label>
+                        <label className="rsm-field">Contraente<input value={c.name} onChange={(e) => setCompany(i, { name: e.target.value })} style={{ width: 200 }} /></label>
+                        <label className="rsm-field">Numero di polizza<input value={c.policy} onChange={(e) => setCompany(i, { policy: e.target.value })} style={{ width: 120 }} /></label>
+                        {cfg.hrMonthly && <label className="rsm-field">Codice nel file mensile<input value={c.hrCode || ''} onChange={(e) => setCompany(i, { hrCode: e.target.value })} placeholder="es. 300" style={{ width: 110 }} /></label>}
+                        {cfg.companies.length > 1 && <button type="button" className="rsm-mini" style={{ alignSelf: 'flex-end', marginBottom: 2 }} aria-label={`Togli ${c.name}`} onClick={() => set({ companies: cfg.companies.filter((_, j) => j !== i) })}>×</button>}
                       </div>
                     ))}
-                    <p className="rsm-note">Una polizza per contraente. I numeri possono cambiare da un anno all&apos;altro.</p>
+                    <div className="rsm-row"><button type="button" className="btn btn-secondary" onClick={() => set({ companies: [...cfg.companies, { key: `c${Date.now().toString(36)}`, name: '', policy: '' }] })}>Aggiungi un contraente</button></div>
+                    <label className="rsm-rule" style={{ marginTop: 8 }}>
+                      <input type="checkbox" checked={!!cfg.hrMonthly} onChange={(e) => set({ hrMonthly: e.target.checked })} />
+                      <span>Si aggiorna col file mensile del cliente<span className="rsm-help">Assunti, cessati e passaggi di livello si caricano da «File mensile del cliente», per tutte le polizze del cliente collegate. Il codice è quello della colonna «Soc» del file (Agos Ducato: 300); vuoto con un solo contraente.</span></span>
+                    </label>
+                    <p className="rsm-note">Il cliente raggruppa le sue polizze in una scheda in cima alle pagine (Amundi, Agos…). Più contraenti possono avere lo stesso numero di polizza: decide il nome dell&apos;azienda.</p>
                   </div>
                 </div>
 
-                <div className="rsm-box">
+                <CalcModeBox cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />
+
+                {!catMode && <div className="rsm-box">
                   <div className="rsm-box-head"><span className="rsm-box-title">Capitale e documentazione sanitaria</span></div>
                   <div className="rsm-box-body">
                     <div className="rsm-row">
                       <label className="rsm-field">Moltiplicatore della RAL<input value={show(cfg.rules.multiplier)} onChange={(e) => setRule('multiplier', n2(e.target.value))} style={{ width: 110 }} /></label>
                       <label className="rsm-field">Capitale figura chiave<input value={eur(cfg.rules.keyFigureCapital)} onChange={(e) => setRule('keyFigureCapital', n2(e.target.value))} style={{ width: 150 }} /></label>
-                      <label className="rsm-field">Diritti per assicurato<input value={show(cfg.rules.rights)} onChange={(e) => setRule('rights', n2(e.target.value))} style={{ width: 110 }} /></label>
                     </div>
                     <div className="rsm-row">
                       <label className="rsm-field">Senza documenti fino a<input value={eur(cfg.rules.noDocUpTo)} onChange={(e) => setRule('noDocUpTo', n2(e.target.value))} style={{ width: 150 }} /></label>
@@ -136,7 +151,7 @@ export default function VitaSettingsPage() {
                     </div>
                     <p className="rsm-note">Senza documenti il capitale resta a {eur(cfg.rules.noDocUpTo)}. Con il rapporto di visita (e l&apos;ok di C.A. Vita) arriva a {eur(cfg.rules.visitUpTo)}; con accertamenti o check-up (e l&apos;ok) al capitale previsto. Alla figura chiave la documentazione si chiede sempre.</p>
                   </div>
-                </div>
+                </div>}
 
                 <div className="rsm-box">
                   <div className="rsm-box-head"><span className="rsm-box-title">Limiti di età e movimenti</span></div>
@@ -152,9 +167,11 @@ export default function VitaSettingsPage() {
                         <option value="exit">Con l&apos;età al giorno di uscita</option>
                       </select>
                     </label>
-                    <p className="rsm-note">Il pro-rata è a giorni fino al 31/12 (giorni / 365). Le inclusioni pagano i diritti, le esclusioni no. Chi supera gli {cfg.rules.deathMaxAge} anni non esce in automatico: compare un avviso nel rinnovo.</p>
+                    <p className="rsm-note">Il pro-rata è a giorni (giorni / 365). Chi supera gli {cfg.rules.deathMaxAge} anni non esce in automatico: compare un avviso nel rinnovo.</p>
                   </div>
                 </div>
+
+                <MovementRulesBox cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />
 
                 <div className="rsm-box">
                   <div className="rsm-box-head"><span className="rsm-box-title">Mail e accessi</span></div>
@@ -168,7 +185,10 @@ export default function VitaSettingsPage() {
                 </div>
               </div>
 
-              <div className="rsm-box">
+              {catMode && <CategoriesBox cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />}
+              <VitaExample cfg={cfg} />
+
+              {!catMode && <div className="rsm-box">
                 <div className="rsm-box-head">
                   <span className="rsm-box-title">Tassi per età (‰)</span>
                   <span className="rsm-note">{ages.length ? `${ages.length} età, da ${ages[0]} a ${ages[ages.length - 1]} anni` : 'nessun tasso'} · cambiano ogni anno</span>
@@ -210,7 +230,7 @@ export default function VitaSettingsPage() {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </div>}
 
               {vita.editor && (
                 <div className="rsm-box">

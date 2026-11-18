@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { logAction } from '@/lib/logger'
 import { createProgram, getProgram, listPrograms } from '@/lib/vita/store'
 import { canEdit, defaultVitaConfig } from '@/lib/vita/types'
+import type { VitaConfig } from '@/lib/vita/types'
 import { fail } from '@/lib/vita/server'
 
 export const runtime = 'nodejs'
@@ -20,11 +21,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session.email) return fail(401, 'Unauthorized', 'unauthorized')
-  const body = (await req.json().catch(() => ({}))) as { name?: string; year?: number; copyFrom?: string }
+  const body = (await req.json().catch(() => ({}))) as { name?: string; year?: number; copyFrom?: string; company?: string; config?: VitaConfig }
   const year = Number(body.year)
   const name = String(body.name || '').trim()
   if (!name || !(year >= 2000 && year <= 2100)) return fail(400, 'Nome e anno obbligatori', 'invalid')
-  let config = defaultVitaConfig(year)
+  let config = body.config && Array.isArray(body.config.companies) && body.config.rules ? { ...defaultVitaConfig(year), ...body.config } : defaultVitaConfig(year)
   if (body.copyFrom) {
     const src = await getProgram(body.copyFrom)
     if (!src) return fail(404, 'Programma di partenza non trovato', 'not-found')
@@ -32,7 +33,8 @@ export async function POST(req: NextRequest) {
     const shift = (iso: string) => `${Number(iso.slice(0, 4)) + (year - src.year)}${iso.slice(4)}`
     config = { ...src.config, periodStart: shift(src.config.periodStart), periodEnd: shift(src.config.periodEnd) }
   }
-  const p = await createProgram(name, year, config, session.email)
+  const company = String(body.company || '').trim()
+  const p = await createProgram(name, year, config, session.email, company)
   await logAction({ email: session.email, action: 'vita.program.create', resource: p.id, metadata: { name, year, copyFrom: body.copyFrom || null } })
   return NextResponse.json({ program: p })
 }

@@ -2173,6 +2173,40 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   con e senza tracciato. Guida aggiornata: `.goldens-out/rsm-docs/Guida RSM -
   societa del gruppo, regole e file.pdf`.
 
+- **Polizza Vita per CATEGORIA e file mensile (18/11/2026, Agos; dentro il
+  preventivo RSM per scelta dell'utente: «facciamoci rientrare tutto»)**: la
+  sezione Vita ha più CLIENTI (`vita_programs.company`, `clientOf`: i vecchi
+  senza nome = Amundi) con le schede in cima e, dentro un cliente e un anno,
+  più POLIZZE (LTC, Vita Quadri e Dirigenti: `policyLabel`). Regole componibili
+  in `rules.js` (default = Amundi): `capitalMode` 'ral' | 'categoria'
+  (`categories`: capitale, tasso ‰ o premio annuo fisso, parole del livello →
+  `categoryFor`; una sola categoria senza parole = tutti), `grossRounding`
+  ('nessuno' = decimali pieni come i fogli Agos: 26,902 × 2.003 = 53.884,71),
+  `rightsProRata`, `countLastDay` (LTC fino al 01/01, Vita al 31/12:
+  `yearEndOf`), `exitNextDay`. File mensile delle risorse umane
+  (`parseHrMonthly`: un foglio per mese, sezioni ASSUNTI/CESSATI/PROROGHE/
+  PASSAGGI/PROMOZIONI riconosciute dalle parole) → `planHrEvents` per OGNI
+  polizza del cliente e dell'anno con `config.hrMonthly`: simula in ordine di
+  data, entra solo chi ha una categoria, uscita dal giorno dopo l'ultimo di
+  lavoro, impiegato→quadro = entrata, quadro→dirigente = uscita + entrata
+  legate (`transferId`), proroghe ignorate, codice «Soc» → contraente
+  (`hrCode`). Idempotente (il file è cumulativo gen→mese scorso); le date
+  diverse da quelle registrate sono `diffs` che si correggono SOLO se
+  l'operatore le spunta. Pagina `/vita/mensile`, route `/api/vita/hr`,
+  `applyHrPlan` (una operazione annullabile per polizza). Import: movimentazioni
+  a due sezioni (INSERIMENTI/ESCLUSIONI), stessa persona su più righe (rientro,
+  passaggio di categoria: merge in ordine di decorrenza), colonne in più in
+  `vita_insured.extra`, intestazioni ricordate in `config.fileLayout` → l'Excel
+  (`categoryWorkbook`) rifà «Rinnovo»/«Variazioni» con le colonne del cliente;
+  `categoriesFromWorkbook` propone categorie, diritti e scadenza dal file.
+  Misura sui file del cliente del 18/11: totali al centesimo (LTC 53.884,71;
+  Vita 632, capitali 35.521.845,42, premio 75.940,37, variazioni 1.618,59);
+  ottobre = LTC 3 entrate/9 uscite, Vita 1/4; trovati nei loro file: COSCI
+  uscita 01/01 invece di 01/08, RIZZI 14/02 invece di 15/02, celle trascinate
+  (capitale 13.201…, polizza 60021…), 18 passaggi a quadro 30/06 inclusi dal
+  01/06 (da chiedere). Test `test/vitaCategory.test.mjs`. Guida:
+  `.goldens-out/rsm-docs/Guida Polizza Vita - Agos, polizze per categoria e file mensile.pdf`.
+
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 
 Valori attesi per la taratura: N° polizza 283618616 · P.IVA contraente
