@@ -9,7 +9,7 @@
 //    esce, perché il cliente controlli anche quelli.
 // Solo valori, nessuna formula: gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
-import { addDays, annualPremium, computeMember, decodeCf, fmtDate, renewalPlan, statusAt, round2 } from './rules.js'
+import { addDays, annualPremium, categoryOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
 import type { RsmMember, RsmProgram } from './types'
 
 const FMT_DATE = 'dd/mm/yyyy'
@@ -76,10 +76,11 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       { h: 'LEGAME', w: 8 }, { h: 'DATA ENTRATA', w: 13, fmt: FMT_DATE }, { h: `PREMIO ANNUO (TARIFFE ${program.year})`, w: 14, fmt: FMT_EUR },
       { h: 'QUIESCENTE', w: 10 }, { h: 'AVVISI', w: 50 }, { h: 'NOTE', w: 40 },
     ]
+    const premium = (m: RsmMember) => annualPremium(cfg, m.category, m.legame, m.quiescente, categoryOf(cfg, m.category)?.tariffBy === 'eta' ? memberAge(cfg, m) : null) || null
     const row = (m: RsmMember, alerts: string[], first: boolean) => [
       m.legame === 'TI' && first ? label(m.category).toUpperCase() : '', policy(m.category), m.cognome, m.nome, toDate(m.birthDate),
       age(m.birthDate, start), decodeCf(m.cf).sex || '', m.cf, m.cfTitolare || '', titName(m), m.legame, toDate(m.entryDate),
-      annualPremium(cfg, m.category, m.legame, m.quiescente) || null, m.quiescente ? 'SI' : 'NO', alerts.join('; '), m.note || '',
+      premium(m), m.quiescente ? 'SI' : 'NO', alerts.join('; '), m.note || '',
     ]
     // Titolare e poi il suo nucleo, come nel file del cliente.
     const byNucleus = <T extends { m: RsmMember }>(list: T[]) => [...list].sort((a, b) => {
@@ -89,6 +90,68 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       const nb = nameOf.get(`${b.m.category}|${kb}`) || `${b.m.cognome} ${b.m.nome}`
       return na.localeCompare(nb, 'it') || ka.localeCompare(kb) || (a.m.legame === 'TI' ? -1 : 0) - (b.m.legame === 'TI' ? -1 : 0)
     })
+    // File della società col suo tracciato: stesse colonne, stesso ordine, stessi
+    // codici, un foglio solo se la categoria sta in una colonna. Così il file
+    // torna indietro e si ricarica con l'import senza domande.
+    const layout = cfg.fileLayout
+    if (layout && layout.order && layout.order.length) {
+      const norm = (h: string) => h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+      const heads = [...layout.order]
+      if (!heads.some((h) => norm(h) === 'AVVISI')) heads.push('AVVISI')
+      const value = (m: RsmMember, head: string, alerts: string[]): ExcelJS.CellValue => {
+        const f = layout.columns[norm(head)]
+        if (norm(head) === 'AVVISI' && !f) return alerts.join('; ')
+        switch (f) {
+          case 'cognome': return m.cognome
+          case 'nome': return m.nome
+          case 'cfAss': return m.cf
+          case 'cfTit': return m.cfTitolare || ''
+          case 'legame': return layoutCode(layout, 'legame', m.legame) || m.legame
+          case 'categoria': return m.legame === 'TI' || !layoutCode(layout, 'categoria', m.category) ? (layoutCode(layout, 'categoria', m.quiescente ? `${m.category}|Q` : m.category) || layoutCode(layout, 'categoria', m.category) || label(m.category).toUpperCase()) : ''
+          case 'nascita': return toDate(m.birthDate)
+          case 'entrata': return toDate(m.entryDate)
+          case 'polizza': return policy(m.category) || ''
+          case 'quiescente': return m.quiescente ? 'SI' : 'NO'
+          case 'note': return m.note || ''
+          case 'societa': return cfg.fileCompany || program.company
+          case 'extra': return (m.extra && m.extra[head]) ?? ''
+          default: return ''
+        }
+      }
+      const dateCols = new Set(heads.map((h, i) => (['nascita', 'entrata'].includes(layout.columns[norm(h)]) ? i + 1 : 0)).filter(Boolean))
+      const byCat = layout.columns && Object.values(layout.columns).includes('categoria')
+      const groups = byCat ? [{ name: layout.sheet || 'Stato di rischio', keys: cfg.categories.map((c) => c.key) }] : cfg.categories.map((c) => ({ name: c.label.toUpperCase(), keys: [c.key] }))
+      const sum = wb.addWorksheet('Riepilogo')
+      header(sum, [{ h: 'CATEGORIA', w: 16 }, { h: `IN COPERTURA AL ${fmtDate(start)}`, w: 16 }, { h: `USCITI NEL ${program.year}`, w: 12 }, { h: `DA INSERIRE NEL ${nextYear}`, w: 14 }, { h: 'CON AVVISI', w: 11 }])
+      for (const g of groups) {
+        const keep = byNucleus(plan.keep.filter((x) => g.keys.includes(x.m.category)))
+        const nxt = byNucleus(plan.next.filter((x) => g.keys.includes(x.m.category)))
+        if (!keep.length && !nxt.length) continue
+        const ws = wb.addWorksheet(sheetName(g.name))
+        header(ws, heads.map((h, i) => ({ h, w: Math.max(10, Math.min(30, h.length + 4)), fmt: dateCols.has(i + 1) ? FMT_DATE : undefined })))
+        for (const x of keep) ws.addRow(heads.map((h) => value(x.m, h, x.alerts)))
+        const tot = ws.addRow([`TOTALE ${keep.length} ASSICURATI`])
+        tot.font = { bold: true }
+        if (nxt.length) {
+          ws.addRow([])
+          ws.addRow([`PROMEMORIA · COMUNICATI ENTRO IL ${fmtDate(addDays(start, -1))} CON DECORRENZA DAL ${fmtDate(start)} O DOPO (da inserire nel ${nextYear})`]).font = { bold: true }
+          for (const x of nxt) ws.addRow(heads.map((h) => value(x.m, h, x.alerts))).font = { italic: true }
+        }
+      }
+      for (const cat of cfg.categories) {
+        const keep = plan.keep.filter((x) => x.m.category === cat.key), nxt = plan.next.filter((x) => x.m.category === cat.key)
+        const out = plan.dropped.filter((x) => x.m.category === cat.key)
+        if (keep.length || nxt.length || out.length) sum.addRow([cat.label, keep.length, out.length, nxt.length, keep.concat(nxt).filter((x) => x.alerts.length).length])
+      }
+      if (plan.dropped.length) {
+        const ws = wb.addWorksheet(sheetName(`Usciti nel ${program.year}`))
+        header(ws, [{ h: 'CATEGORIA', w: 14 }, { h: 'NOMINATIVO', w: 30 }, { h: 'C.F.', w: 19 }, { h: 'LEGAME', w: 8 }, { h: 'DATA USCITA', w: 13, fmt: FMT_DATE }, { h: 'MOTIVO', w: 30 }, { h: 'NOTE', w: 40 }])
+        for (const x of plan.dropped) ws.addRow([label(x.m.category), `${x.m.cognome} ${x.m.nome}`, x.m.cf, x.m.legame, toDate(x.m.exitDate), x.reason === 'promozione' ? 'promozione (è nella categoria nuova)' : 'cessazione', x.m.note || ''])
+      }
+      sum.addRow([])
+      sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · colonne del file della società · limite d'età ${Number(cfg.rules.maxAge) || 80} anni (solo avviso) · esportato il ${fmtDate(at)}`])
+      return Buffer.from(await wb.xlsx.writeBuffer())
+    }
     const sum = wb.addWorksheet('Riepilogo')
     header(sum, [{ h: 'CATEGORIA', w: 16 }, { h: 'NR. POLIZZA', w: 12 }, { h: `IN COPERTURA AL ${fmtDate(start)}`, w: 16 }, { h: 'DI CUI TITOLARI', w: 12 },
       { h: `USCITI NEL ${program.year}`, w: 12 }, { h: `DA INSERIRE NEL ${nextYear}`, w: 14 }, { h: 'CON AVVISI', w: 11 }])

@@ -10,12 +10,14 @@ import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
-import { defaultProgramConfig, sameFileCompany } from '@/lib/rsm/rules.js'
+import { buildLayout, defaultProgramConfig, normCategory, normHeadText, normLegame, sameFileCompany } from '@/lib/rsm/rules.js'
+import { ColumnMap, missingFields, type MapCol } from '@/components/rsm/ColumnMap'
 import { programName } from '@/lib/rsm/types'
-import type { RsmAnomaly, RsmCategory, RsmConfig } from '@/lib/rsm/types'
+import type { RsmAnomaly, RsmCategory, RsmConfig, RsmFileLayout } from '@/lib/rsm/types'
 
 type FileTariffs = Record<string, { tariffs: RsmCategory['tariffs']; policy: string }>
-interface Inspect { year: number | null; company: string; categories: string[]; tariffs: FileTariffs }
+interface InspectCols { sheet: string | null; guessed?: boolean; columns: { col: number; head: string; norm: string; field: string | null; saved: boolean; samples: string[]; values: string[] }[] }
+interface Inspect { year: number | null; company: string; categories: string[]; tariffs: FileTariffs; columns: InspectCols }
 interface Dry {
   total: number
   counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>
@@ -44,6 +46,11 @@ export default function RsmImportPage() {
   const [nameTouched, setNameTouched] = useState(false)
   const [copySrc, setCopySrc] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
+  // Colonne del file e codici della società (tracciato, ricordato per i file dopo)
+  const [cols, setCols] = useState<MapCol[]>([])
+  const [catCodes, setCatCodes] = useState<Record<string, string>>({})
+  const [legCodes, setLegCodes] = useState<Record<string, string>>({})
+  const [colOpen, setColOpen] = useState(false)
   const [cfg, setCfg] = useState<RsmConfig | null>(null)
   const [dry, setDry] = useState<Dry | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
@@ -55,6 +62,40 @@ export default function RsmImportPage() {
   const { setFlash, node: flashNode } = useFlash(rsm)
   const programs = rsm.programs || []
   const editable = programs.filter((p) => p.editor)
+
+  /**
+   * Tracciato di partenza: quello del programma scelto, altrimenti l'ultimo
+   * della stessa società. Le colonne che il programma riconosce da solo restano
+   * scelte; le altre (e i codici mai visti) le indica l'operatore.
+   */
+  function layoutFor(targetId: string, co: string): RsmFileLayout | null {
+    const t0 = programs.find((p) => p.id === targetId)
+    if (t0?.config.fileLayout) return t0.config.fileLayout
+    return [...programs].filter((p) => p.company === co && p.config.fileLayout).sort((a, b) => b.year - a.year)[0]?.config.fileLayout || null
+  }
+  function initMap(ic: InspectCols, layout: RsmFileLayout | null, categories: RsmCategory[]) {
+    const lc = (layout && layout.columns) || {}
+    const next: MapCol[] = ic.columns.map((c) => ({ ...c, auto: c.field, field: lc[c.norm] || c.field, saved: !!lc[c.norm] }))
+    setCols(next)
+    const catCol = next.find((c) => c.field === 'categoria'), legCol = next.find((c) => c.field === 'legame')
+    const cc: Record<string, string> = {}
+    for (const v of catCol ? catCol.values : []) {
+      const saved = layout?.categoryCodes?.[normHeadText(v)]
+      const auto = normCategory(v, categories)
+      cc[v] = saved || (auto.key ? `${auto.key}${auto.quiescente ? '|Q' : ''}` : '')
+    }
+    const lg: Record<string, string> = {}
+    for (const v of legCol ? legCol.values : []) lg[v] = layout?.legameCodes?.[normHeadText(v)] || normLegame(v) || ''
+    setCatCodes(cc); setLegCodes(lg)
+    setColOpen(!!ic.guessed || next.some((c) => !c.field && c.values.length > 0) || missingFields(next, true).length > 0)
+  }
+  // codici delle colonne ricalcolati quando l'operatore cambia la colonna di categoria o legame
+  function setColsAndCodes(next: MapCol[]) {
+    setCols(next)
+    const catCol = next.find((c) => c.field === 'categoria'), legCol = next.find((c) => c.field === 'legame')
+    if (catCol) setCatCodes(Object.fromEntries(catCol.values.map((v) => { const a = normCategory(v, cfg?.categories || []); return [v, catCodes[v] ?? (a.key ? `${a.key}${a.quiescente ? '|Q' : ''}` : '')] })))
+    if (legCol) setLegCodes(Object.fromEntries(legCol.values.map((v) => [v, legCodes[v] ?? (normLegame(v) || '')])))
+  }
 
   /** Configurazione di partenza per il programma scelto, con le tariffe del file dove mancano. */
   function draftFor(targetId: string, y: number, ft: FileTariffs) {
@@ -86,14 +127,22 @@ export default function RsmImportPage() {
       // un nome mai visto propone una società nuova, mai quella aperta.
       const fileCo = String(j.company || '').trim()
       const known = fileCo ? programs.find((p) => sameFileCompany(p.config.fileCompany || '', fileCo)) : null
-      const co = known ? known.company : fileCo ? fileCo : (rsm.company || '')
+      // Un file che non dice di chi è non va mai, di default, a sostituire gli
+      // assicurati di un programma che ne ha già: si propone un programma nuovo
+      // e la società la scrive l'operatore (17/11/2026, file senza AZIENDA).
+      const open = rsm.company || ''
+      const openSame = editable.find((p) => p.year === y && p.company === open)
+      const openHasRows = !!openSame && (openSame.id !== rsm.programId || rsm.members.length > 0)
+      const co = known ? known.company : fileCo ? fileCo : (openHasRows ? '' : open)
       const same = editable.find((p) => p.year === y && p.company === co)
-      const tgt = same ? same.id : 'new'
+      const tgt = same && (known || !co || same.id !== openSame?.id || !openHasRows) ? same.id : 'new'
       setInsp(j); setYear(y); setTarget(tgt)
       setNewCompany(co); setNameTouched(false); setCopied(null)
       setNewName(co ? programName(co, y) : `RSM ${y}`)
       setCopySrc(defaultSource(tgt, co, y))
-      setCfg(draftFor(tgt, y, j.tariffs))
+      const draft = draftFor(tgt, y, j.tariffs)
+      setCfg(draft)
+      initMap(j.columns || { sheet: null, columns: [] }, layoutFor(tgt, co), draft.categories)
       setStep(2)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
@@ -104,7 +153,11 @@ export default function RsmImportPage() {
     const p = programs.find((x) => x.id === id)
     if (p) setYear(p.year)
     setCopySrc(defaultSource(id, p ? p.company : newCompany, p ? p.year : year))
-    if (insp) setCfg(draftFor(id, p ? p.year : year, insp.tariffs))
+    if (insp) {
+      const draft = draftFor(id, p ? p.year : year, insp.tariffs)
+      setCfg(draft)
+      initMap(insp.columns || { sheet: null, columns: [] }, layoutFor(id, p ? p.company : newCompany), draft.categories)
+    }
   }
 
   /**
@@ -157,7 +210,10 @@ export default function RsmImportPage() {
   }
 
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
-  const usedCats = cfg ? cfg.categories.filter((c) => !insp || insp.categories.includes(c.key)) : []
+  const codedCats = new Set(Object.values(catCodes).filter(Boolean).map((v) => v.split('|')[0]))
+  const usedCats = cfg ? cfg.categories.filter((c) => !insp || insp.categories.includes(c.key) || codedCats.has(c.key)) : []
+  const categorySheets = !!insp && insp.categories.length > 0
+  const colsMissing = cols.length ? missingFields(cols, categorySheets) : []
   const missingTariff = usedCats.some((c) => !c.tariffs.titolare)
 
   /** Passo 2 → 3: crea o aggiorna il programma con queste tariffe, poi prova l'import. */
@@ -167,7 +223,11 @@ export default function RsmImportPage() {
     try {
       let id = target
       const shift = (iso: string) => `${year}${iso.slice(4)}`
-      const base = { ...cfg, fileCompany: insp?.company || cfg.fileCompany || '' }
+      const fileLayout = cols.length ? buildLayout({
+        sheet: insp?.columns?.sheet || '', columns: cols,
+        categoryCodes: categorySheets ? {} : catCodes, legameCodes: legCodes,
+      }) as RsmFileLayout : cfg.fileLayout || null
+      const base = { ...cfg, fileCompany: insp?.company || cfg.fileCompany || '', fileLayout }
       const config = target === 'new' ? { ...base, periodStart: shift(cfg.periodStart), periodEnd: `${year + 1}${cfg.periodEnd.slice(4)}` } : base
       if (target === 'new') {
         const j = await api('/api/rsm/programs', 'POST', { company: newCompany.trim(), name: newName.trim() || `RSM ${year}`, year })
@@ -253,7 +313,7 @@ export default function RsmImportPage() {
       {step === 2 && cfg && insp && (
         <>
           <div className="rsm-box"><div className="rsm-box-body">
-            <div className="rsm-muted">{t('rsm.imp.fileIs', { f: file?.name || '', y: insp.year ?? '—', c: insp.categories.map(label).join(', ') })}</div>
+            <div className="rsm-muted">{t('rsm.imp.fileIs', { f: file?.name || '', y: insp.year ?? '—', c: [...new Set([...insp.categories, ...codedCats])].map(label).join(', ') || '—' })}</div>
             <div className="rsm-row">
               <label className="rsm-field">{t('rsm.imp.into')}
                 <select value={target} onChange={(e) => changeTarget(e.target.value)} style={{ width: 300 }}>
@@ -279,6 +339,12 @@ export default function RsmImportPage() {
               <div className="rsm-issue error">{t('rsm.imp.yearMismatch', { f: insp.year, p: programs.find((p) => p.id === target)?.year ?? '' })}</div>
             )}
           </div></div>
+
+          {cols.length > 0 && (
+            <ColumnMap cols={cols} setCols={setColsAndCodes} cats={cfg.categories} catCodes={catCodes} setCatCodes={setCatCodes}
+              legCodes={legCodes} setLegCodes={setLegCodes} guessed={!!insp.columns?.guessed} categorySheets={categorySheets}
+              open={colOpen} setOpen={setColOpen} />
+          )}
 
           {sources.length > 0 && (
             <div className="rsm-box">
@@ -313,7 +379,7 @@ export default function RsmImportPage() {
                 <tbody>
                   {cfg.categories.map((c, i) => {
                     const f = insp.tariffs[c.key]
-                    const inFile = insp.categories.includes(c.key)
+                    const inFile = insp.categories.includes(c.key) || codedCats.has(c.key)
                     const cell = (k: TKey, disabled = false) => {
                       const v = c.tariffs[k]
                       const fv = f?.tariffs[k]
@@ -347,7 +413,7 @@ export default function RsmImportPage() {
           </div>
           <div className="rsm-row">
             <button className="btn btn-secondary" onClick={() => { setStep(1); setFile(null); setInsp(null) }}>{t('rsm.imp.back')}</button>
-            <button className="btn btn-primary" disabled={busy || missingTariff || (target === 'new' && (!newName.trim() || !newCompany.trim()))} onClick={toCheck}>{busy ? <span className="spinner" /> : t('rsm.imp.next')}</button>
+            <button className="btn btn-primary" disabled={busy || missingTariff || colsMissing.length > 0 || (target === 'new' && (!newName.trim() || !newCompany.trim()))} onClick={toCheck}>{busy ? <span className="spinner" /> : t('rsm.imp.next')}</button>
           </div>
         </>
       )}

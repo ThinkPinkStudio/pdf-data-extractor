@@ -392,6 +392,9 @@ export async function initDb() {
     -- per programma e per anno. Vuota sui programmi di prima: la pagina la
     -- ricava dal nome (companyOf) finché non si salva.
     ALTER TABLE rsm_programs ADD COLUMN IF NOT EXISTS company TEXT;
+    -- Colonne del file della società che non servono al calcolo (centro di
+    -- costo, matricola…): si conservano per riportarle nell'Excel in uscita.
+    ALTER TABLE rsm_members ADD COLUMN IF NOT EXISTS extra JSONB;
     CREATE INDEX IF NOT EXISTS idx_rsm_ops_program ON rsm_ops(program_id, seq DESC);
     `)
   } catch (e) {

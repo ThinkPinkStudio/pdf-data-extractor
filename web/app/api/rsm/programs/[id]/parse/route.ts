@@ -23,8 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const f of files) {
     try {
       const sheets = readSheets(Buffer.from(await f.arrayBuffer()))
-      const first = Object.keys(sheets).find((n) => parseCommunicationRows(sheets[n], g.program.year).rows.length) || Object.keys(sheets)[0]
-      const parsed = parseCommunicationRows(sheets[first] || [], g.program.year)
+      const first = Object.keys(sheets).find((n) => parseCommunicationRows(sheets[n], g.program.year, null, cfg.fileLayout).rows.length) || Object.keys(sheets)[0]
+      const parsed = parseCommunicationRows(sheets[first] || [], g.program.year, null, cfg.fileLayout)
       if (parsed.error) { out.push({ name: f.name, error: parsed.error, rows: [] }); continue }
       out.push({ name: f.name, sheet: first, rows: prepareCommunication(cfg, parsed.rows, existing, communicated) })
     } catch (e) {

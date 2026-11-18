@@ -189,9 +189,15 @@ export function checkPerson({ cognome, nome, cf, birthDate }, refYear) {
 
 export const LEGAMI = { TI: 'Titolare', CO: 'Coniuge/convivente', FI: 'Figlio/a' }
 
-export function normLegame(v) {
+/**
+ * Legame dal testo del file. `layout` (config.fileLayout): i codici che quella
+ * società usa («C» = coniuge, «F» = figlio), indicati una volta all'import.
+ */
+export function normLegame(v, layout) {
   const s = String(v || '').trim().toUpperCase()
   if (!s) return null
+  const coded = layout && layout.legameCodes ? layout.legameCodes[normHead(s)] : null
+  if (coded) return coded
   if (s === 'TI' || s.startsWith('TITOL')) return 'TI'
   if (s === 'CO' || s.startsWith('CONI') || s.startsWith('CONV')) return 'CO'
   if (s === 'FI' || s.startsWith('FIGL')) return 'FI'
@@ -199,9 +205,15 @@ export function normLegame(v) {
 }
 
 /** Categoria dal testo ('DIRIGENTI QUIESCENTI', 'Impiegato'…) → chiave e quiescenza. */
-export function normCategory(v, categories) {
+export function normCategory(v, categories, layout) {
   const s = String(v || '').trim().toUpperCase()
   if (!s) return { key: null, quiescente: false }
+  // codici della società («QUADRO» = Funzionari, «DIR-Q» = Dirigenti quiescenti)
+  const coded = layout && layout.categoryCodes ? layout.categoryCodes[normHead(s)] : null
+  if (coded) {
+    const [key, q] = String(coded).split('|')
+    if ((categories || []).some((c) => c.key === key)) return { key, quiescente: q === 'Q' }
+  }
   const quiescente = /QUIESC/.test(s)
   const words = s.replace(/QUIESCENT[EI]/g, '').trim()
   for (const c of categories || []) {
@@ -237,11 +249,27 @@ export function defaultProgramConfig(year = new Date().getFullYear()) {
 
 export function categoryOf(cfg, key) { return (cfg.categories || []).find((c) => c.key === key) || null }
 
+/**
+ * Tariffe della categoria per un'età: quelle uniche, o la fascia d'età che la
+ * comprende (`tariffBy: 'eta'`, fasce `ageBands` con «fino a» anni; l'ultima
+ * senza limite vale per tutti gli altri). Età sconosciuta = ultima fascia.
+ */
+export function tariffsFor(cat, age) {
+  if (!cat) return {}
+  if (cat.tariffBy === 'eta' && Array.isArray(cat.ageBands) && cat.ageBands.length) {
+    const bands = [...cat.ageBands].sort((a, b) => (a.upTo == null ? 1e9 : a.upTo) - (b.upTo == null ? 1e9 : b.upTo))
+    const last = bands[bands.length - 1]
+    if (age == null) return last
+    return bands.find((b) => b.upTo == null || age <= b.upTo) || last
+  }
+  return cat.tariffs || {}
+}
+
 /** Premio annuo di una persona nella sua categoria (0 per i familiari del premio a nucleo). */
-export function annualPremium(cfg, catKey, legame, quiescente) {
+export function annualPremium(cfg, catKey, legame, quiescente, age) {
   const cat = categoryOf(cfg, catKey)
   if (!cat) return 0
-  const t = cat.tariffs || {}
+  const t = tariffsFor(cat, age)
   if (cat.mode === 'nucleo') {
     if (legame !== 'TI') return 0
     return Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
@@ -273,11 +301,28 @@ export function firstSemesterEnd(cfg) {
  */
 export function decorrenza(cfg, requested, communicated, forced) {
   if (forced) return { date: forced, reason: 'forzata' }
-  if (!requested) return { date: communicated || null, reason: 'comunicazione' }
-  if (!communicated) return { date: requested, reason: 'richiesta' }
   const days = Number((cfg.rules || {}).notifyDays ?? 30)
-  if (daysBetween(requested, communicated) <= days) return { date: requested, reason: 'richiesta' }
-  return { date: communicated, reason: 'tardiva' }
+  /** @type {{ date: string | null, reason: string, shifted?: string }} */
+  let out
+  if (!requested) out = { date: communicated || null, reason: 'comunicazione' }
+  else if (!communicated) out = { date: requested, reason: 'richiesta' }
+  else if (daysBetween(requested, communicated) <= days) out = { date: requested, reason: 'richiesta' }
+  else out = { date: communicated, reason: 'tardiva' }
+  // «1° giorno del mese successivo»: una data che non è già il primo del mese slitta
+  if ((cfg.rules || {}).decorrenzaMode === 'mese' && out.date && out.date.slice(8) !== '01') {
+    const y = +out.date.slice(0, 4), m = +out.date.slice(5, 7)
+    out = { ...out, date: m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`, shifted: out.date }
+  }
+  return out
+}
+
+/** Chi cessa esce dalla data con un rimborso (invece di restare coperto fino a fine periodo). */
+export const refundsCessation = (cfg) => ((cfg && cfg.rules) || {}).exitMode === 'rimborso'
+
+/** Età di riferimento di una riga per la tariffa: alla decorrenza, o a inizio periodo. */
+export function memberAge(cfg, m) {
+  const ref = m.entryDate && m.entryDate > cfg.periodStart ? m.entryDate : cfg.periodStart
+  return ageAt(m.birthDate || decodeCf(m.cf, +cfg.periodStart.slice(0, 4) + 1).birthDate, ref)
 }
 
 /**
@@ -287,7 +332,9 @@ export function decorrenza(cfg, requested, communicated, forced) {
  */
 export function computeMember(cfg, m) {
   const r = cfg.rules || {}
-  const annuo = annualPremium(cfg, m.category, m.legame, m.quiescente)
+  const cat0 = categoryOf(cfg, m.category)
+  const byAge = cat0 && cat0.tariffBy === 'eta'
+  const annuo = annualPremium(cfg, m.category, m.legame, m.quiescente, byAge ? memberAge(cfg, m) : null)
   let frazione = 1
   let calc = ''
   const entry = m.entryDate
@@ -295,6 +342,11 @@ export function computeMember(cfg, m) {
   if (!entry || entry <= cfg.periodStart) {
     calc = 'annuo intero'
   } else if (m.entryKind === 'promozione') {
+    frazione = prorataFraction(cfg, entry)
+    calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
+  } else if (r.entryMode === 'intero') {
+    calc = 'premio intero'
+  } else if (r.entryMode === 'prorata') {
     frazione = prorataFraction(cfg, entry)
     calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
   } else if (entry <= firstSemesterEnd(cfg)) {
@@ -307,7 +359,7 @@ export function computeMember(cfg, m) {
   const rateo = round2(annuo * frazione)
   const quota = m.legame === 'TI' && annuo > 0 ? Number(cat ? cat.quota : 0) || 0 : 0
   let rimborso = 0
-  if (m.exitKind === 'promozione' && m.exitDate && annuo > 0) {
+  if ((m.exitKind === 'promozione' || (m.exitKind === 'cessazione' && refundsCessation(cfg))) && m.exitDate && annuo > 0) {
     const tax = Number(r.refundTaxPct ?? 0)
     rimborso = round2(annuo / (1 + tax / 100) * prorataFraction(cfg, m.exitDate))
   }
@@ -324,7 +376,7 @@ export function statusAt(cfg, m, date) {
   if (m.entryDate && date < m.entryDate) return 'futuro'
   if (m.exitDate && date >= m.exitDate) {
     if (m.exitKind === 'promozione') return 'promosso'
-    if ((cfg.rules || {}).coverUntilPeriodEnd !== false && date < cfg.periodEnd) return 'cessazione'
+    if ((cfg.rules || {}).coverUntilPeriodEnd !== false && !refundsCessation(cfg) && date < cfg.periodEnd) return 'cessazione'
     return 'uscito'
   }
   return 'attivo'
@@ -363,6 +415,8 @@ export function renewalPlan(cfg, members) {
   for (const x of keep.concat(next)) {
     const a = ageAt(x.m.birthDate || decodeCf(x.m.cf).birthDate, at)
     if (a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
+    const kidMax = Number((cfg.rules || {}).childMaxAge) || 0
+    if (kidMax && x.m.legame === 'FI' && a != null && a > kidMax) x.alerts.push(`figlio di ${a} anni: oltre l'età massima di ${kidMax} per i figli`)
     if (x.m.exitDate && x.m.exitDate > at) x.alerts.push(`uscita comunicata dal ${fmtDate(x.m.exitDate)}`)
     if (x.m.legame !== 'TI' && x.m.cfTitolare === x.m.cf) x.alerts.push('come capo nucleo ha il proprio codice fiscale: manca il titolare')
     else if (x.m.legame !== 'TI' && x.m.cfTitolare && !covered.has(`${x.m.category}|${x.m.cfTitolare}`)) x.alerts.push('il titolare del nucleo non è più in copertura')
@@ -413,17 +467,34 @@ const HEADS = [
   ['note', /^NOTE/],
 ]
 
-/** Riga d'intestazione (quella con COGNOME e NOME) e mappa colonna → campo. */
-export function findHeader(rows) {
+/**
+ * Riga d'intestazione (quella con COGNOME e NOME) e mappa colonna → campo.
+ * `layout` (config.fileLayout) è il tracciato della società: le sue colonne,
+ * indicate una volta all'import, valgono prima dei nomi riconosciuti da soli;
+ * «extra» = colonna che non serve al calcolo ma si riporta nell'Excel.
+ */
+export function findHeader(rows, layout) {
+  const lcols = (layout && layout.columns) || {}
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const cells = (rows[i] || []).map(normHead)
-    if (cells.includes('COGNOME') && cells.includes('NOME')) {
-      const map = {}
-      cells.forEach((h, col) => {
-        for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
-      })
-      return { row: i, map }
-    }
+    const mapped = cells.map((h) => lcols[h] || null)
+    const named = (cells.includes('COGNOME') || mapped.includes('cognome')) && (cells.includes('NOME') || mapped.includes('nome'))
+    if (!named) continue
+    const map = {}
+    const extras = []
+    const used = new Set()
+    cells.forEach((h, col) => {
+      const f = mapped[col]
+      if (!f) return
+      used.add(col)
+      if (f === 'extra') extras.push({ col, head: cellStr((rows[i] || [])[col]) })
+      else if (f !== 'skip' && !(f in map)) map[f] = col
+    })
+    cells.forEach((h, col) => {
+      if (used.has(col)) return
+      for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
+    })
+    return { row: i, map, extras }
   }
   return null
 }
@@ -436,7 +507,7 @@ const cellStr = (v) => (v == null ? '' : v instanceof Date ? v.toISOString() : S
  * fiscale e dove dice «legame» un legame riconoscibile. Serve per i fogli che il
  * cliente manda senza intestazione (foglio IMPIEGATI del rinnovo 2026).
  */
-export function headerFits(rows, map) {
+export function headerFits(rows, map, layout) {
   if (map == null || map.cfAss == null || map.cognome == null) return false
   let seen = 0, ok = 0
   for (let i = 0; i < rows.length && seen < 8; i++) {
@@ -444,7 +515,7 @@ export function headerFits(rows, map) {
     if (!r.some((c) => c != null && String(c).trim() !== '')) continue
     seen++
     const cf = cleanCf(r[map.cfAss])
-    const leg = map.legame == null ? 'TI' : normLegame(r[map.legame])
+    const leg = map.legame == null ? 'TI' : normLegame(r[map.legame], layout)
     if (/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST]/.test(cf) && leg) ok++
   }
   return seen > 0 && ok >= Math.max(1, Math.ceil(seen * 0.7))
@@ -457,10 +528,10 @@ export function headerFits(rows, map) {
  * `fallbackMap`: colonne di un altro foglio dello stesso file, usate quando la
  * riga d'intestazione manca del tutto e il tracciato combacia.
  */
-export function headerOrFallback(rows, fallbackMap) {
-  const h = findHeader(rows)
+export function headerOrFallback(rows, fallbackMap, layout) {
+  const h = findHeader(rows, layout)
   if (h) return h
-  if (fallbackMap && headerFits(rows, fallbackMap)) return { row: -1, map: fallbackMap, fromFallback: true }
+  if (fallbackMap && headerFits(rows, fallbackMap, layout)) return { row: -1, map: fallbackMap, fromFallback: true, extras: [] }
   return null
 }
 
@@ -469,18 +540,18 @@ export function headerOrFallback(rows, fallbackMap) {
  * file. `only` limita la ricerca ai fogli dello stesso tipo (stato o variazioni),
  * che nel file del cliente hanno colonne diverse.
  */
-export function referenceHeader(sheets, only) {
+export function referenceHeader(sheets, only, layout) {
   let map = null, sheet = ''
   for (const name of Object.keys(sheets || {})) {
     if (only && !only(name)) continue
-    const h = findHeader(sheets[name] || [])
+    const h = findHeader(sheets[name] || [], layout)
     if (h && (!map || Object.keys(h.map).length > Object.keys(map).length)) { map = h.map; sheet = name }
   }
   return { map, sheet }
 }
 
-export function parseCommunicationRows(rows, refYear, fallbackMap) {
-  const h = headerOrFallback(rows, fallbackMap)
+export function parseCommunicationRows(rows, refYear, fallbackMap, layout) {
+  const h = headerOrFallback(rows, fallbackMap, layout)
   if (!h) return { error: 'Intestazione non trovata: serve una riga con COGNOME e NOME.', rows: [] }
   const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
   const out = []
@@ -490,6 +561,8 @@ export function parseCommunicationRows(rows, refYear, fallbackMap) {
     const cfAss = cleanCf(get(r, 'cfAss'))
     const cfTit = cleanCf(get(r, 'cfTit'))
     if (!cognome && !cfAss) continue
+    // riga di solo testo (totale, titolo, promemoria): nessun codice fiscale, nome né legame
+    if (!cfAss && !cfTit && !cellStr(get(r, 'nome')) && !cellStr(get(r, 'legame'))) continue
     out.push({
       rowNumber: i + 1,
       societa: cellStr(get(r, 'societa')),
@@ -501,11 +574,13 @@ export function parseCommunicationRows(rows, refYear, fallbackMap) {
       birthDate: normDate(get(r, 'nascita'), refYear),
       cf: cfAss,
       cfTitolare: cfTit,
-      legame: normLegame(get(r, 'legame')),
+      legame: normLegame(get(r, 'legame'), layout),
       legameRaw: cellStr(get(r, 'legame')),
       entryDate: normDate(get(r, 'entrata'), refYear),
       exitDate: normDate(get(r, 'uscita'), refYear),
       note: cellStr(get(r, 'note')),
+      // colonne della società che non servono al calcolo: tornano nell'Excel
+      extra: (h.extras || []).length ? Object.fromEntries(h.extras.map((x) => [x.head, cellStr(r[x.col])])) : null,
     })
   }
   return { rows: out, header: h }
@@ -519,6 +594,7 @@ export function parseCommunicationRows(rows, refYear, fallbackMap) {
  */
 export function prepareCommunication(cfg, parsed, existing, communicated) {
   const refYear = +cfg.periodStart.slice(0, 4)
+  const layout = cfg.fileLayout || null
   const byCfFile = new Map()
   for (const r of parsed) {
     if (r.legame === 'TI' && !r.cf && r.cfTitolare) r.cf = r.cfTitolare
@@ -546,8 +622,8 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
     const exit = r.azione === 'U' || r.azione.startsWith('USC') || (!!r.exitDate && !r.entryDate)
     const tit = r.legame === 'TI' ? r : (byCfFile.get(r.cfTitolare) || null)
     const titExisting = r.cfTitolare ? (existing || []).find((m) => m.cf === r.cfTitolare && m.legame === 'TI') : null
-    let { key: category, quiescente } = normCategory(r.categoria, cfg.categories)
-    if (!category && tit && tit !== r) ({ key: category, quiescente } = normCategory(tit.categoria, cfg.categories))
+    let { key: category, quiescente } = normCategory(r.categoria, cfg.categories, layout)
+    if (!category && tit && tit !== r) ({ key: category, quiescente } = normCategory(tit.categoria, cfg.categories, layout))
     if (!category && titExisting) { category = titExisting.category; quiescente = !!titExisting.quiescente }
     if (!category && exit && r.cf) {
       const found = active.find((m) => m.cf === r.cf)
@@ -591,7 +667,11 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
       const pol = (categoryOf(cfg, category) || {}).policy
       if (pol && cleanCf(pol) !== cleanCf(r.polizza)) issues.push({ code: 'polizza', level: 'warning', text: `Numero di polizza ${r.polizza} diverso da quello della categoria (${pol}).` })
     }
+    const kidMax = Number((cfg.rules || {}).childMaxAge) || 0
+    const kidAge = kidMax && !exit && r.legame === 'FI' ? ageAt(person.birthDate, entryDate || communicated) : null
+    if (kidAge != null && kidAge > kidMax) issues.push({ code: 'figlio-eta', level: 'warning', text: `Figlio/a di ${kidAge} anni: oltre l'età massima di ${kidMax} per i figli.` })
     const dec = exit ? null : decorrenza(cfg, entryDate, communicated, null)
+    if (dec && dec.shifted) issues.push({ code: 'mese', level: 'info', text: `Decorre dal ${fmtDate(dec.date)}, 1° del mese successivo al ${fmtDate(dec.shifted)}.` })
     if (dec && dec.reason === 'tardiva') issues.push({ code: 'tardiva', level: 'warning', text: `Comunicata oltre ${cfg.rules.notifyDays} giorni: decorre dal ${fmtDate(dec.date)} invece che dal ${fmtDate(entryDate)}.` })
     if (dec && dec.date && (dec.date < cfg.periodStart || dec.date >= cfg.periodEnd)) issues.push({ code: 'periodo', level: 'error', text: `Data ${fmtDate(dec.date)} fuori dal periodo di polizza.` })
     const member = {
@@ -600,6 +680,7 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
       requestedDate: exit ? null : entryDate, communicatedDate: communicated || null,
       entryDate: dec ? dec.date : null, entryKind: 'inclusione',
       exitDate: exit ? (r.exitDate || entryDate) : null, exitKind: exit ? 'cessazione' : null,
+      extra: r.extra || null,
     }
     const calc = !exit && category && member.entryDate ? computeMember(cfg, member) : null
     return { ...r, action: exit ? 'uscita' : 'entrata', member, calc, issues, hasError: issues.some((i) => i.level === 'error') }
@@ -674,6 +755,7 @@ const yes = (v) => /^S[IÌ]$/i.test(String(v ?? '').trim())
  */
 export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const refYear = +cfg.periodStart.slice(0, 4)
+  const layout = cfg.fileLayout || null
   const members = []
   const warnings = []
   const catOfSheet = (name) => normCategory(String(name).replace(/^VARIAZIONI\s*/i, ''), cfg.categories).key
@@ -682,37 +764,64 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   // Servono ai fogli che il cliente manda SENZA riga d'intestazione (IMPIEGATI del
   // file di rinnovo 2026): stesse colonne, nello stesso ordine.
   const isVar = (n) => /^VARIAZ/i.test(String(n).trim())
-  const refStato = referenceHeader(sheets, (n) => !isVar(n))
-  const refVar = referenceHeader(sheets, isVar)
+  const refStato = referenceHeader(sheets, (n) => !isVar(n), layout)
+  const refVar = referenceHeader(sheets, isVar, layout)
+  /**
+   * Categoria di ogni riga: quella del foglio («DIRIGENTI»), o la colonna
+   * categoria letta coi codici della società (file a un foglio solo). Un
+   * familiare senza categoria prende quella del suo titolare nel foglio.
+   */
+  const rowCategories = (name, p, sheetKey) => {
+    const byTit = new Map()
+    const out = new Map()
+    for (const r of p.rows) {
+      const c = sheetKey ? { key: sheetKey, quiescente: normCategory(r.categoria, cfg.categories, layout).quiescente } : normCategory(r.categoria, cfg.categories, layout)
+      if (r.legame === 'TI' && c.key) byTit.set(r.cf, c)
+      out.set(r, c)
+    }
+    for (const r of p.rows) {
+      const c = out.get(r)
+      if (!c.key && r.legame !== 'TI' && byTit.has(r.cfTitolare)) out.set(r, { key: byTit.get(r.cfTitolare).key, quiescente: false })
+    }
+    return out
+  }
   const usedFallback = (name, p, ref) => {
     if (p.header && p.header.fromFallback) warnings.push(`Foglio «${name}»: manca la riga di intestazione, ho letto le colonne come nel foglio «${ref.sheet}». Controlla i nomi nell'anteprima.`)
   }
   // 1) fogli di stato al 01/01
   for (const name of names.filter((n) => !/^VARIAZ/i.test(n.trim()))) {
     const key = catOfSheet(name)
-    if (!key) continue
-    const p = parseCommunicationRows(sheets[name], refYear, refStato.map)
-    if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
+    // un foglio che non ha il nome di una categoria si legge solo se ha la colonna categoria
+    if (!key) {
+      const h = findHeader(sheets[name] || [], layout)
+      if (!h || h.map.categoria == null) continue
+    }
+    const p = parseCommunicationRows(sheets[name], refYear, key ? refStato.map : null, layout)
+    if (p.error) { if (key) warnings.push(`Foglio «${name}»: ${p.error}`); continue }
     usedFallback(name, p, refStato)
+    const cats = rowCategories(name, p, key)
     const quiescTit = new Map()
     for (const r of p.rows) {
-      if (r.legame === 'TI') quiescTit.set(r.cf, normCategory(r.categoria, cfg.categories).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente]))
+      if (r.legame === 'TI') quiescTit.set(r.cf, cats.get(r).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente]))
     }
     for (const r of p.rows) {
-      if (!r.legame) { warnings.push(`«${name}» riga ${r.rowNumber}: legame non riconosciuto, riga saltata.`); continue }
+      if (!r.legame) { warnings.push(`«${name}» riga ${r.rowNumber}: legame «${r.legameRaw || 'vuoto'}» non riconosciuto, riga saltata.`); continue }
+      const rowKey = cats.get(r).key
+      if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
       const cfTit = r.legame === 'TI' ? r.cf : r.cfTitolare
       const entry = r.entryDate && r.entryDate > cfg.periodStart ? r.entryDate : cfg.periodStart
       const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
       for (const i of person.issues.filter((x) => x.level === 'error')) warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: ${i.text}`)
       members.push({
-        category: key, quiescente: !!quiescTit.get(cfTit), cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(),
+        category: rowKey, quiescente: !!quiescTit.get(cfTit), cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(),
         birthDate: person.birthDate, legame: r.legame, cfTitolare: cfTit,
         entryDate: entry, entryKind: entry > cfg.periodStart ? 'inclusione' : 'iniziale', requestedDate: entry,
         exitDate: null, exitKind: null, source: `Stato di rischio, foglio «${name}» riga ${r.rowNumber}`, note: r.note || '',
+        extra: r.extra || null,
       })
     }
     // Numero di polizza diverso da quello della categoria: lo segnaliamo, non lo correggiamo.
-    const cat = categoryOf(cfg, key)
+    const cat = key ? categoryOf(cfg, key) : null
     const expected = cat && cat.policy ? String(cat.policy).trim() : ''
     if (expected) {
       const odd = new Map()
@@ -732,13 +841,16 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   let outOfPeriod = 0, datedRows = 0
   for (const name of names.filter((n) => /^VARIAZ/i.test(n.trim()))) {
     const key = catOfSheet(name)
-    if (!key) continue
-    const p = parseCommunicationRows(sheets[name], refYear, refVar.map)
+    const p = parseCommunicationRows(sheets[name], refYear, key ? refVar.map : null, layout)
+    if (!key && (p.error || p.header.map.categoria == null)) continue
     if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
     usedFallback(name, p, refVar)
     const promoCol = p.header.map.promozione
+    const cats = rowCategories(name, p, key)
     for (const r of p.rows) {
-      varRows.push({ ...r, key, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
+      const rowKey = cats.get(r).key
+      if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
+      varRows.push({ ...r, key: rowKey, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
       for (const d of [r.entryDate, r.exitDate].filter(Boolean)) {
         datedRows++
         if (d < cfg.periodStart || d >= cfg.periodEnd) outOfPeriod++
@@ -753,11 +865,12 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
     for (const i of person.issues.filter((x) => x.level === 'error')) warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: ${i.text}`)
     members.push({
-      category: r.key, quiescente: normCategory(r.categoria, cfg.categories).quiescente || !!(titQ && titQ.quiescente),
+      category: r.key, quiescente: normCategory(r.categoria, cfg.categories, layout).quiescente || !!(titQ && titQ.quiescente),
       cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(), birthDate: person.birthDate,
       legame: r.legame, cfTitolare: cfTit, entryDate: r.entryDate, requestedDate: r.entryDate,
       entryKind: r.promo ? 'promozione' : 'inclusione', exitDate: null, exitKind: null,
       source: `Stato di rischio, foglio «${r.sheet}» riga ${r.rowNumber}`, note: r.note || '',
+      extra: r.extra || null,
     })
   }
   for (const r of varRows.filter(isExit)) {
@@ -1057,3 +1170,134 @@ export function parseCessationText(text, refYear) {
   if (out.length === 1 && !out[0].date && dates.length === 1) out[0].date = dates[0].iso
   return out
 }
+
+/* ─── Tracciato del file di una società (config.fileLayout) ─────────────── */
+
+/** Campi che una colonna del file può essere, nell'ordine in cui si propongono. */
+export const LAYOUT_FIELDS = ['cognome', 'nome', 'cfAss', 'cfTit', 'legame', 'categoria', 'nascita', 'entrata', 'uscita', 'azione', 'polizza', 'quiescente', 'promozione', 'note', 'societa']
+
+const looksLikeData = (v) => /^[A-Z]{6}\d{2}/i.test(cleanCf(v)) || normDate(v) != null || typeof v === 'number'
+
+/**
+ * Colonne del file per l'import guidato: per ognuna l'intestazione, alcuni
+ * esempi, i valori distinti (per i codici di categoria e legame) e il campo
+ * che il programma riconosce da solo — o quello già indicato nel tracciato
+ * della società. Foglio di riferimento: quello con più righe sotto
+ * un'intestazione riconoscibile.
+ */
+export function inspectColumns(sheets, layout) {
+  let best = null
+  for (const name of Object.keys(sheets || {})) {
+    const rows = sheets[name] || []
+    let h = findHeader(rows, layout)
+    if (!h) {
+      // intestazione non riconosciuta: la prima riga di sole scritte (≥ 4 celle, niente dati)
+      for (let i = 0; i < Math.min(rows.length, 15); i++) {
+        const cells = (rows[i] || []).filter((c) => c != null && String(c).trim() !== '')
+        if (cells.length >= 4 && !cells.some(looksLikeData)) {
+          // le intestazioni che si riconoscono da sole («DATA DI NASCITA») sono già scelte
+          const map = {}
+          ;(rows[i] || []).map(normHead).forEach((hh, col) => { for (const [key, re] of HEADS) if (!(key in map) && re.test(hh)) { map[key] = col; break } })
+          h = { row: i, map, extras: [], guessed: true }
+          break
+        }
+      }
+    }
+    if (!h) continue
+    const dataRows = rows.slice(h.row + 1).filter((r) => r && r.some((c) => c != null && String(c).trim() !== ''))
+    if (!best || dataRows.length > best.dataRows.length) best = { name, h, rows, dataRows }
+  }
+  if (!best) return { sheet: null, columns: [] }
+  const head = best.rows[best.h.row] || []
+  const byCol = new Map(Object.entries(best.h.map).map(([f, c]) => [c, f]))
+  const lcols = (layout && layout.columns) || {}
+  const columns = []
+  head.forEach((cell, col) => {
+    const text = cellStr(cell)
+    if (!text) return
+    const norm = normHead(text)
+    const values = new Map()
+    for (const r of best.dataRows) {
+      const v = r[col] instanceof Date ? fmtDate(normDate(r[col])) : cellStr(r[col])
+      if (v) values.set(v, (values.get(v) || 0) + 1)
+    }
+    const samples = best.dataRows.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '').slice(0, 3)
+      .map((v) => (v instanceof Date || (typeof v === 'number' && v > 20000 && v < 80000) ? fmtDate(normDate(v)) : cellStr(v)))
+    columns.push({
+      col, head: text, norm,
+      field: lcols[norm] || byCol.get(col) || null,
+      saved: !!lcols[norm],
+      samples,
+      values: [...values.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([v]) => v),
+    })
+  })
+  return { sheet: best.name, columns, guessed: !!best.h.guessed }
+}
+
+/**
+ * Tracciato da salvare: colonne (intestazione normalizzata → campo, «extra»
+ * o «skip»), codici di categoria e legame, ordine delle intestazioni del
+ * cliente (per l'Excel in uscita), nome del foglio.
+ */
+export function buildLayout({ sheet, columns, categoryCodes, legameCodes }) {
+  const cols = {}
+  for (const c of columns || []) if (c.field) cols[c.norm || normHead(c.head)] = c.field
+  const clean = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k, v]) => k && v).map(([k, v]) => [normHead(k), v]))
+  return { sheet: sheet || '', columns: cols, categoryCodes: clean(categoryCodes), legameCodes: clean(legameCodes), order: (columns || []).map((c) => c.head) }
+}
+
+/** Codice della società per una categoria o un legame (il primo indicato), per l'Excel in uscita. */
+export function layoutCode(layout, kind, value) {
+  const codes = layout && (kind === 'legame' ? layout.legameCodes : layout.categoryCodes)
+  if (!codes) return null
+  const hit = Object.entries(codes).find(([, v]) => v === value)
+  return hit ? hit[0] : null
+}
+
+/* ─── Prova delle regole prima di salvarle ─────────────────────────────── */
+
+/**
+ * Cosa cambia passando dalla configurazione `a` alla `b` sugli assicurati
+ * registrati: premio dovuto e rimborsi per categoria, persone il cui importo
+ * cambia, avvisi del rinnovo prima e dopo. Niente si salva: è l'anteprima del
+ * pulsante Salva.
+ */
+export function compareConfigs(a, b, members) {
+  const cats = new Map()
+  const changed = []
+  const tot = { before: 0, after: 0, refundBefore: 0, refundAfter: 0, n: 0 }
+  for (const m of members || []) {
+    const ca = computeMember(a, m), cb = computeMember(b, m)
+    const cat = categoryOf(b, m.category) || categoryOf(a, m.category)
+    if (!cats.has(m.category)) cats.set(m.category, { key: m.category, label: cat ? cat.label : m.category, n: 0, before: 0, after: 0, refundBefore: 0, refundAfter: 0 })
+    const c = cats.get(m.category)
+    c.n++; c.before += ca.dovuto; c.after += cb.dovuto; c.refundBefore += ca.rimborso; c.refundAfter += cb.rimborso
+    tot.n++; tot.before += ca.dovuto; tot.after += cb.dovuto; tot.refundBefore += ca.rimborso; tot.refundAfter += cb.rimborso
+    if (ca.dovuto !== cb.dovuto || ca.rimborso !== cb.rimborso) changed.push({ m, before: ca, after: cb })
+  }
+  const r2 = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' && k !== 'n' ? round2(v) : v]))
+  const alerts = (cfg) => renewalPlan(cfg, members || []).keep.concat(renewalPlan(cfg, members || []).next).reduce((s, x) => s + x.alerts.length, 0)
+  const order = (b.categories || []).map((c) => c.key)
+  return {
+    categories: [...cats.values()].map(r2).sort((x, y) => order.indexOf(x.key) - order.indexOf(y.key)),
+    totals: r2(tot),
+    changed: changed.sort((x, y) => Math.abs(y.after.dovuto - y.before.dovuto) - Math.abs(x.after.dovuto - x.before.dovuto)),
+    alertsBefore: alerts(a), alertsAfter: alerts(b),
+  }
+}
+
+/**
+ * Esempio di calcolo per le Impostazioni: una persona di `age` anni nella
+ * categoria, con la data richiesta e quella di comunicazione. Restituisce la
+ * decorrenza e i conti come li farebbe il programma.
+ */
+export function exampleCalc(cfg, { category, legame = 'TI', quiescente = false, age = 45, requested, communicated }) {
+  const dec = decorrenza(cfg, requested, communicated, null)
+  const y = +cfg.periodStart.slice(0, 4)
+  const birthDate = `${y - age - 1}-12-31`
+  const m = { category, legame, quiescente, cf: '', birthDate, entryDate: dec.date, entryKind: dec.date && dec.date > cfg.periodStart ? 'inclusione' : 'iniziale', exitDate: null, exitKind: null }
+  return { dec, member: m, calc: computeMember(cfg, m), age: memberAge(cfg, m) }
+}
+
+/** Intestazione o codice normalizzati come li confronta il programma (maiuscole, senza accenti né segni). */
+export const normHeadText = (v) => normHead(v)

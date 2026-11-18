@@ -15,7 +15,7 @@ interface MemberRow {
   birth_date: string | null; legame: string; cf_titolare: string | null; entry_date: string | null; entry_kind: string
   requested_date: string | null; communicated_date: string | null; entry_forced: boolean; exit_date: string | null
   exit_kind: string | null; exit_communicated: string | null; promotion_id: string | null; exit_promotion_id: string | null; source: string | null
-  note: string | null; created_by: string; created_at: string; updated_at: string
+  note: string | null; extra: Record<string, string> | null; created_by: string; created_at: string; updated_at: string
 }
 
 function toMember(r: MemberRow): RsmMember {
@@ -25,7 +25,7 @@ function toMember(r: MemberRow): RsmMember {
     entryDate: r.entry_date, entryKind: r.entry_kind as RsmMember['entryKind'], requestedDate: r.requested_date,
     communicatedDate: r.communicated_date, entryForced: r.entry_forced, exitDate: r.exit_date,
     exitKind: r.exit_kind as RsmMember['exitKind'], exitCommunicated: r.exit_communicated, promotionId: r.promotion_id, exitPromotionId: r.exit_promotion_id,
-    source: r.source, note: r.note, createdBy: r.created_by, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+    source: r.source, note: r.note, extra: r.extra || null, createdBy: r.created_by, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
   }
 }
 
@@ -82,7 +82,7 @@ export async function getMember(id: string): Promise<RsmMember | null> {
 
 export type NewMember = Omit<RsmMember, 'id' | 'programId' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-const COLS = 'id, program_id, category, quiescente, cf, cognome, nome, birth_date, legame, cf_titolare, entry_date, entry_kind, requested_date, communicated_date, entry_forced, exit_date, exit_kind, exit_communicated, promotion_id, exit_promotion_id, source, note, created_by, created_at, updated_at'
+const COLS = 'id, program_id, category, quiescente, cf, cognome, nome, birth_date, legame, cf_titolare, entry_date, entry_kind, requested_date, communicated_date, entry_forced, exit_date, exit_kind, exit_communicated, promotion_id, exit_promotion_id, source, note, extra, created_by, created_at, updated_at'
 const COL_LIST = COLS.split(', ')
 
 function values(id: string, programId: string, m: Partial<NewMember>, by: string, t: number) {
@@ -90,7 +90,8 @@ function values(id: string, programId: string, m: Partial<NewMember>, by: string
     id, programId, m.category, !!m.quiescente, m.cf || '', m.cognome || '', m.nome || '', m.birthDate || null,
     m.legame, m.cfTitolare || null, m.entryDate || null, m.entryKind || 'inclusione', m.requestedDate || null,
     m.communicatedDate || null, !!m.entryForced, m.exitDate || null, m.exitKind || null, m.exitCommunicated || null,
-    m.promotionId || null, m.exitPromotionId || null, m.source || null, m.note || null, by, t, t,
+    m.promotionId || null, m.exitPromotionId || null, m.source || null, m.note || null,
+    m.extra && Object.keys(m.extra).length ? JSON.stringify(m.extra) : null, by, t, t,
   ]
 }
 

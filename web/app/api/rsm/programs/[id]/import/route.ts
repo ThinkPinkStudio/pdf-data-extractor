@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (m.entryKind !== 'iniziale') c.entrate++
     if (m.exitDate) c.uscite++
   }
-  if (!parsed.members.length) return fail(400, 'Nessun assicurato trovato: servono fogli con il nome delle categorie (es. «IMPIEGATI», «Variazioni IMPIEGATI»).', 'empty')
+  if (!parsed.members.length) return fail(400, 'Nessun assicurato trovato: servono fogli con il nome delle categorie (es. «IMPIEGATI», «Variazioni IMPIEGATI») o una colonna con la categoria, indicata al passo 2.', 'empty')
   // Tariffe a zero: i premi uscirebbero a 0 (programma nuovo non ancora compilato).
   const warnings = [...parsed.warnings]
   for (const c of g.program.config.categories) {

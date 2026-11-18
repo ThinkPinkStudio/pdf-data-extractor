@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
+import { AgeBands, ComparePanel, ExampleBox, LayoutSummary, RuleChoices } from '@/components/rsm/SettingsParts'
 import { addDays } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
 import { programName } from '@/lib/rsm/types'
@@ -27,6 +28,8 @@ export default function RsmSettingsPage() {
   const [busy, setBusy] = useState(false)
   const [nw, setNw] = useState({ company: '', name: '', year: new Date().getFullYear(), copyFrom: '' })
   const [nwTouched, setNwTouched] = useState(false)
+  // Prova prima di salvare: la configurazione nuova in attesa di conferma.
+  const [pending, setPending] = useState<RsmConfig | null>(null)
   /** Nuovo programma: il nome segue società e anno finché non lo si scrive a mano. */
   const setNew = (p: Partial<typeof nw>) => setNw((x) => {
     const n = { ...x, ...p }
@@ -60,7 +63,7 @@ export default function RsmSettingsPage() {
     const byKey = new Map(src.config.categories.map((c) => [c.key, c]))
     const categories = cfg.categories.map((c) => {
       const o = byKey.get(c.key)
-      return o ? { ...c, tariffs: { ...o.tariffs }, quota: o.quota, mode: o.mode, policy: o.policy, rank: o.rank } : c
+      return o ? { ...c, tariffs: { ...o.tariffs }, quota: o.quota, mode: o.mode, policy: o.policy, rank: o.rank, tariffBy: o.tariffBy, ageBands: (o.ageBands || []).map((b) => ({ ...b })) } : c
     })
     for (const o of src.config.categories) if (!categories.some((c) => c.key === o.key)) categories.push({ ...o, tariffs: { ...o.tariffs } })
     setCfg({ ...cfg, categories, rules: { ...src.config.rules } })
@@ -74,6 +77,21 @@ export default function RsmSettingsPage() {
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setMsg(null)
     try { await fn(); setMsg({ ok: true, text: ok }); await rsm.reload() } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  const fullConfig = (): RsmConfig => ({ ...cfg!, editors: editors.split(/[\s,;]+/).filter(Boolean) })
+  const doSave = (config: RsmConfig) => run(async () => {
+    await api(`/api/rsm/programs/${rsm.programId}`, 'PUT', { company, name, year, config })
+    setPending(null)
+  }, t('rsm.saved'))
+  /** Salva: con assicurati registrati e importi che cambiano, prima mostra cosa cambia. */
+  function save() {
+    const next = fullConfig()
+    if (rsm.program && rsm.members.length && JSON.stringify({ c: next.categories, r: next.rules, p: [next.periodStart, next.periodEnd] }) !== JSON.stringify({ c: rsm.program.config.categories, r: rsm.program.config.rules, p: [rsm.program.config.periodStart, rsm.program.config.periodEnd] })) {
+      setPending(next)
+      return
+    }
+    doSave(next)
   }
 
   async function create() {
@@ -129,7 +147,7 @@ export default function RsmSettingsPage() {
             <div className="rsm-box-body rsm-scroll">
               <table className="rsm-cats">
                 <thead><tr>
-                  <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th><th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th>
+                  <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th><th>{t('rsm.set.tariffBy')}</th><th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th>
                   <th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.quota')}</th><th>{t('rsm.set.rank')}</th><th />
                 </tr></thead>
                 <tbody>
@@ -140,10 +158,14 @@ export default function RsmSettingsPage() {
                       <td><select value={c.mode} disabled={ro} onChange={(e) => setCat(i, { mode: e.target.value as RsmCategory['mode'] })} style={{ width: 120 }}>
                         <option value="nucleo">{t('rsm.set.nucleo')}</option><option value="persona">{t('rsm.set.persona')}</option>
                       </select></td>
+                      <td><select value={c.tariffBy === 'eta' ? 'eta' : 'unica'} disabled={ro} onChange={(e) => setCat(i, e.target.value === 'eta' ? { tariffBy: 'eta', ageBands: c.ageBands && c.ageBands.length ? c.ageBands : [{ ...c.tariffs, upTo: null }] } : { tariffBy: 'unica' })} style={{ width: 150 }} aria-label={`${c.label} ${t('rsm.set.tariffBy')}`}>
+                        <option value="unica">{t('rsm.set.byOne')}</option><option value="eta">{t('rsm.set.byAge')}</option>
+                      </select></td>
+                      {c.tariffBy === 'eta' ? <td colSpan={4} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : <>
                       <td><NumInput value={c.tariffs.titolare} disabled={ro} onChange={(n) => setTariff(i, 'titolare', n)} width={90} label={`${c.label} ${t('rsm.set.tTit')}`} /></td>
                       <td><NumInput value={c.tariffs.quiescente} disabled={ro} onChange={(n) => setTariff(i, 'quiescente', n)} width={90} label={`${c.label} ${t('rsm.set.tQui')}`} /></td>
                       <td><NumInput value={c.tariffs.coniuge} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'coniuge', n)} width={80} label={`${c.label} ${t('rsm.set.tCo')}`} /></td>
-                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td>
+                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td></>}
                       <td><NumInput value={c.quota} disabled={ro} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       <td><input type="number" value={c.rank} disabled={ro} onChange={(e) => setCat(i, { rank: Number(e.target.value) })} style={{ width: 60 }} /></td>
                       <td>{!ro && cfg.categories.length > 1 && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => setCfg({ ...cfg, categories: cfg.categories.filter((_, j) => j !== i) })}>×</button>}</td>
@@ -151,6 +173,7 @@ export default function RsmSettingsPage() {
                   ))}
                 </tbody>
               </table>
+              {cfg.categories.map((c, i) => c.tariffBy === 'eta' ? <AgeBands key={`ab${i}`} cat={c} ro={ro} onChange={(ageBands) => setCat(i, { ageBands })} /> : null)}
               {!ro && <div><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, categories: [...cfg.categories, { key: `cat${cfg.categories.length + 1}`, label: '', policy: '', mode: 'persona', rank: cfg.categories.length + 1, tariffs: {}, quota: 0 }] })}>{t('rsm.set.addCat')}</button></div>}
             </div>
           </div>
@@ -173,9 +196,7 @@ export default function RsmSettingsPage() {
                   </label>
                   <label className="rsm-field">{t('rsm.set.tax')}<NumInput value={cfg.rules.refundTaxPct} disabled={ro} onChange={(n) => setRule('refundTaxPct', n)} /></label>
                 </div>
-                <label className="rsm-muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input type="checkbox" checked={cfg.rules.coverUntilPeriodEnd} disabled={ro} onChange={(e) => setRule('coverUntilPeriodEnd', e.target.checked)} />{t('rsm.set.cover')}
-                </label>
+                <RuleChoices cfg={cfg} ro={ro} setRule={setRule} />
                 <div className="rsm-note">{t('rsm.set.rulesHint')}</div>
               </div>
             </div>
@@ -190,12 +211,16 @@ export default function RsmSettingsPage() {
             </div>
           </div>
 
+          <ExampleBox cfg={cfg} />
+          <LayoutSummary cfg={cfg} ro={ro} onForget={() => { setCfg({ ...cfg, fileLayout: null }); setMsg({ ok: true, text: t('rsm.lay.forgot') }) }} />
+
           {!ro && (
             <div className="rsm-row">
-              <button className="btn btn-primary" disabled={busy} onClick={() => run(() => api(`/api/rsm/programs/${rsm.programId}`, 'PUT', {
-                company, name, year, config: { ...cfg, editors: editors.split(/[\s,;]+/).filter(Boolean) },
-              }), t('rsm.saved'))}>{t('rsm.save')}</button>
+              <button className="btn btn-primary" disabled={busy} onClick={save}>{t('rsm.save')}</button>
             </div>
+          )}
+          {pending && rsm.program && (
+            <ComparePanel before={rsm.program.config} after={pending} members={rsm.members} busy={busy} onCancel={() => setPending(null)} onSave={() => doSave(pending)} />
           )}
 
           {!ro && (

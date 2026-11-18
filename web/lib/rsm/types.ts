@@ -6,8 +6,22 @@ export interface RsmCategory {
   policy: string
   mode: 'nucleo' | 'persona'
   rank: number // ordine di carriera: una promozione va verso un rank più alto
-  tariffs: { titolare?: number; quiescente?: number; coniuge?: number; figlio?: number }
+  tariffs: RsmTariffs
   quota: number
+  // Tariffe per fascia d'età (17/11/2026): 'eta' usa `ageBands` al posto di `tariffs`.
+  tariffBy?: 'unica' | 'eta'
+  ageBands?: (RsmTariffs & { upTo: number | null })[] // «fino a» anni; null = oltre l'ultima
+}
+
+export interface RsmTariffs { titolare?: number; quiescente?: number; coniuge?: number; figlio?: number }
+
+/** Tracciato del file di una società: colonne, codici, ordine (import ed Excel in uscita). */
+export interface RsmFileLayout {
+  sheet: string
+  columns: Record<string, string> // intestazione normalizzata → campo | 'extra' | 'skip'
+  categoryCodes: Record<string, string> // codice → chiave categoria ('|Q' = quiescente)
+  legameCodes: Record<string, 'TI' | 'CO' | 'FI'>
+  order: string[] // intestazioni del cliente, nel suo ordine
 }
 
 export interface RsmConfig {
@@ -22,7 +36,12 @@ export interface RsmConfig {
     notifyDays: number
     coverUntilPeriodEnd: boolean
     maxAge?: number // limite d'età: al rinnovo un avviso, mai un'esclusione (default 80)
+    entryMode?: 'semestri' | 'prorata' | 'intero' // chi entra in corso d'anno
+    decorrenzaMode?: 'data' | 'mese' // 'mese' = 1° giorno del mese successivo
+    exitMode?: 'fineAnno' | 'rimborso' // chi cessa: coperto fino a fine anno, o rimborso pro-rata
+    childMaxAge?: number // età massima dei figli (0 = nessuna): solo avviso
   }
+  fileLayout?: RsmFileLayout | null
   mail: { cc: string; signature: string }
   // Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano.
   editors?: string[]
@@ -70,6 +89,7 @@ export interface RsmMember {
   exitPromotionId: string | null // promozione che l'ha chiusa
   source: string | null
   note: string | null
+  extra?: Record<string, string> | null // colonne del file della società che non servono al calcolo
   createdBy: string
   createdAt: number
   updatedAt: number

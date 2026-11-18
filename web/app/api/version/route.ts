@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // l'istanza che risponde la sta servendo — indipendentemente da cache del
 // browser o proxy.
 const BUILD_FEATURES = [
+  'rsm-config',           // RSM: fasce d'età, regole componibili, tracciato del file, prova prima di salvare (18/11/2026)
   'stato-rinnovo',        // RSM e Vita: stato di rischio pulito per l'anno dopo (17/11/2026)
   'strategy-switch',      // Impostazioni → Verifica e qualità → Strategia di estrazione (1.0.107)
   'archive-chat',         // voce Chat archivio + /api/archive/chat (1.0.107)

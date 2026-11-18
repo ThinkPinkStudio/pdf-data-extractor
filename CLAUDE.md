@@ -2148,6 +2148,30 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   <anno>», `workbookYear`), Vita col caricamento delle RAL (colonna «RAL ANNUA
   <anno>» vuota da compilare). Totali e foglio usciti scritti in modo che
   l'import non li scambi per persone (testo nella prima cella, NOMINATIVO).
+  **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
+  (1) regole componibili in `rules.js`, default = comportamento di prima:
+  tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,
+  età alla decorrenza, `tariffsFor`/`memberAge`), `rules.entryMode`
+  (semestri/prorata/intero), `decorrenzaMode` ('mese' = 1° del mese dopo),
+  `exitMode` ('rimborso' = cessazione con rimborso pro-rata netto imposta e
+  uscita dalla data), `childMaxAge` (solo avviso); esempio dal vivo
+  (`exampleCalc`). (2) TRACCIATO del file della società (`config.fileLayout`:
+  intestazione normalizzata → campo | 'extra' | 'skip', codici di categoria
+  `key|Q` e legame, ordine delle colonne): `findHeader`/`normLegame`/
+  `normCategory`/`parseCommunicationRows` lo usano prima del riconoscimento
+  automatico; file a UN foglio con la categoria in colonna (categoria per riga,
+  familiare = quella del titolare); colonne 'extra' salvate in
+  `rsm_members.extra` (JSONB) e riportate nell'Excel; lo stato per il rinnovo
+  esce con le colonne e i codici del cliente e si ricarica identico (provato:
+  169/169, extra e anno). UI: `ColumnMap` al passo 2 dell'import
+  (`inspectColumns`: intestazione indovinata se non riconosciuta), riepilogo
+  e «Dimentica il tracciato» in Impostazioni. Un file che non dice la società
+  non va MAI, di default, nel programma della società aperta se ha già
+  assicurati: programma nuovo con la società da scrivere. (3) Prova prima di
+  salvare (`compareConfigs`, `ComparePanel`): premio, rimborsi, persone,
+  avvisi prima/dopo. Regressione: file del cliente (copie anonime) identici
+  con e senza tracciato. Guida aggiornata: `.goldens-out/rsm-docs/Guida RSM -
+  societa del gruppo, regole e file.pdf`.
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

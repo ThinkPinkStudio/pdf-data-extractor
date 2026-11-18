@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { defaultProgramConfig, normCategory, tariffsFromWorkbook, workbookCompany, workbookYear } from '@/lib/rsm/rules.js'
+import { defaultProgramConfig, inspectColumns, normCategory, tariffsFromWorkbook, workbookCompany, workbookYear } from '@/lib/rsm/rules.js'
 import { fail, readSheets } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
@@ -19,8 +19,12 @@ export async function POST(req: NextRequest) {
     const year = workbookYear(sheets)
     const cfg = defaultProgramConfig(year || new Date().getFullYear())
     const categories = [...new Set(Object.keys(sheets).map((n) => normCategory(n.replace(/^VARIAZIONI\s*/i, ''), cfg.categories).key).filter(Boolean))]
-    if (!categories.length) return fail(400, 'Nel file non ci sono fogli con il nome di una categoria (es. «IMPIEGATI», «Variazioni IMPIEGATI»).', 'empty')
-    return NextResponse.json({ year, company: workbookCompany(sheets), categories, tariffs: tariffsFromWorkbook(cfg, sheets), sheets: Object.keys(sheets) })
+    // Colonne del file per il tracciato della società: anche un file a un foglio
+    // solo, con la categoria in colonna, va bene (i codici si indicano dopo).
+    const layout = (() => { try { return JSON.parse(String(form.get('layout') || 'null')) } catch { return null } })()
+    const columns = inspectColumns(sheets, layout)
+    if (!categories.length && !columns.columns.length) return fail(400, 'Nel file non c\'è un elenco di assicurati riconoscibile (serve una riga di intestazione).', 'empty')
+    return NextResponse.json({ year, company: workbookCompany(sheets), categories, tariffs: tariffsFromWorkbook(cfg, sheets), sheets: Object.keys(sheets), columns })
   } catch (e) {
     return fail(400, `File non leggibile: ${(e as Error).message}`, 'unreadable')
   }
