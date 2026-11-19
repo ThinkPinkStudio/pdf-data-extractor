@@ -2192,6 +2192,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   premio (`quotaMode`), rimborsata in pro-rata (`quotaRefund`); chi entra per
   promozione: pro-rata o come le altre entrate (`promotionEntry`). Il messaggio
   «Categoria mancante» elenca le categorie del programma.
+  Vita, primo blocco: giorni dell'anno del pro-rata (`rules.yearDays`: 365 di
+  sempre | reali | 360, `yearDaysOf`); età per il tasso computabile con i mesi
+  configurabili (`ageHalfMonths`) o anni compiuti (`ageMode`); diritti fissi o
+  % del premio netto / ‰ del capitale (`rightsOf`, anche nei movimenti e
+  nell'Excel); validità del check-up APPLICATA solo con `checkupExpiry` (prima
+  il numero si impostava ma non serviva a nulla); nome della compagnia
+  (`cfg.insurer`, `insurerOf`) nella mail sanitaria e negli avvisi; testi della
+  mail sanitaria (`cfg.mailTexts`); parole in più per i titoli del file mensile
+  (`cfg.words`, `parseHrMonthly(sheets, cfg)`); rinnovo col periodo nuovo da
+  `periodEnd`, non dal 1° gennaio. Restano fisse: le tre fasce della
+  documentazione sanitaria, il sovrappremio, le parole delle colonne dei file
+  Vita, i testi e i nomi dei fogli degli Excel.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

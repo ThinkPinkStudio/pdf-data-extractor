@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // l'istanza che risponde la sta servendo — indipendentemente da cache del
 // browser o proxy.
 const BUILD_FEATURES = [
+  'vita-configurabile', // Vita: giorni del pro-rata, regola dell'età, diritti fissi o %, check-up, compagnia, testi e parole del file mensile (19/11/2026)
   'rsm-parole-testi', // RSM: parole dei file, testi della mail, limite d'età spegnibile, quota e promozione configurabili (19/11/2026)
   'rsm-configurabile', // RSM: legami come elenco, tariffe/quota/scaglioni/trattenuta come valore fisso o % di altri campi (19/11/2026)
   'rsm-familiare', // RSM: legame «Altro familiare» (FA) con la sua tariffa (19/11/2026, richiesta di Lidia)

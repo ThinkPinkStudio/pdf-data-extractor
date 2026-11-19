@@ -49,7 +49,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
   const yearEnd = yearEndOf(cfg)
   const calc = (p: VitaInsured, on: string) => computeInsured(p, cfg.rates, on, cfg.rules) as {
     age: number | null; rate: number | null; target: number; band: string; capital: number; scopertura: number
-    net: number | null; gross: number | null; cover: string
+    net: number | null; gross: number | null; cover: string; rights: number | null
   }
   const companyName = (key: string) => cfg.companies.find((c) => c.key === key)?.name || key
   const policy = (key: string) => cfg.companies.find((c) => c.key === key)?.policy || ''
@@ -74,7 +74,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
     return [
       companyName(p.company), policy(p.company) || null, p.cognome, p.nome, p.cf, p.level,
       toDate(p.birthDate), toDate(p.entryDate), c.age, c.rate, p.ral, c.capital, c.scopertura,
-      c.net, c.gross == null ? null : cfg.rules.rights, c.gross,
+      c.net, c.gross == null ? null : c.rights, c.gross,
       p.sovrPct ? p.sovrPct / 100 : 0, p.keyFigure ? 'SI' : 'NO',
       needVisit ? 'SI' : 'NO', p.doc.visit ? 'SI' : 'NO', p.doc.extra ? 'SI' : 'NO', p.doc.ok ? 'SI' : 'NO',
       c.cover, p.note || '',
@@ -199,8 +199,8 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       const base = [companyName(p.company), policy(p.company) || null, p.cognome, p.nome, p.cf, p.level, toDate(p.birthDate)]
       const tail = [p.sovrPct ? p.sovrPct / 100 : 0, p.keyFigure ? 'SI' : 'NO', c.cover, p.note || '']
       if (p.entryDate && p.entryDate > cfg.periodStart) {
-        const m = movementOf({ kind: 'INCLUSIONE', date: p.entryDate, capital: c.capital, rate: c.rate, sovrPct: p.sovrPct }, yearEnd, cfg.rules) as { days: number; net: number | null; gross: number | null }
-        mov.push([...base, p.entryKind === 'passaggio' ? 'PASSAGGIO' : 'INCLUSIONE', toDate(p.entryDate), c.age, c.rate, p.ral, c.capital, m.days, m.net, cfg.rules.rights, m.gross, ...tail])
+        const m = movementOf({ kind: 'INCLUSIONE', date: p.entryDate, capital: c.capital, rate: c.rate, sovrPct: p.sovrPct }, yearEnd, cfg.rules) as { days: number; net: number | null; gross: number | null; rights: number | null }
+        mov.push([...base, p.entryKind === 'passaggio' ? 'PASSAGGIO' : 'INCLUSIONE', toDate(p.entryDate), c.age, c.rate, p.ral, c.capital, m.days, m.net, m.rights, m.gross, ...tail])
       }
       if (p.exitDate) {
         const m = movementOf({ kind: 'ESCLUSIONE', date: p.exitDate, capital: c.capital, rate: c.rate, sovrPct: p.sovrPct, paid: { capital: c.capital, rate: c.rate as number } }, yearEnd, cfg.rules) as { days: number; net: number | null; gross: number | null }
@@ -232,7 +232,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
 const DEFAULT_CAT_HEADS = ['AZIENDA', 'NR. POLIZZA', 'MATRICOLA', 'COGNOME', 'NOME', 'C.F.', 'DATA DI NASCITA', "ETA'", 'SESSO', 'CATEGORIA', 'CAPITALE', 'TASSO', 'DIRITTI', 'PREMIO', 'DECORRENZA', 'SCADENZA', 'NOTE']
 const nh = (s: string) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
 
-interface Ctx { date: string | null; scad: string; prem: number | null; azione?: string; age: number | null; capital: number; rate: number | null; category: string | null }
+interface Ctx { date: string | null; scad: string; prem: number | null; azione?: string; age: number | null; capital: number; rate: number | null; category: string | null; rights?: number | null }
 
 /** Valore e formato di una colonna del cliente, dal testo della sua intestazione. */
 function cellFor(head: string, p: VitaInsured, x: Ctx, cfg: VitaProgram['config']): { v: ExcelJS.CellValue; fmt?: string } {
@@ -253,7 +253,7 @@ function cellFor(head: string, p: VitaInsured, x: Ctx, cfg: VitaProgram['config'
   if (/^LIVELLO/.test(h)) return { v: p.level }
   if (/^CAPITAL/.test(h)) return { v: x.capital, fmt: FMT_EUR }
   if (/^TASSO/.test(h)) return { v: x.rate == null ? null : x.rate / 1000, fmt: '0.000%' }
-  if (/^DIRITTI/.test(h)) return { v: cfg.rules.rights, fmt: FMT_EUR }
+  if (/^DIRITTI/.test(h)) return { v: x.rights ?? null, fmt: FMT_EUR }
   if (/^PREMIO/.test(h)) return { v: x.prem, fmt: FMT_EUR }
   if (/^(DECORRENZA|DATA (DI )?ENTRATA|DATA INSERIMENTO|DATA (DI )?USCITA|DATA AZIONE|DATA (DI )?ESCLUSIONE)/.test(h)) return { v: toDate(x.date), fmt: FMT_DATE }
   if (/^SCADENZA/.test(h)) return { v: toDate(x.scad), fmt: FMT_DATE }
@@ -293,17 +293,22 @@ async function categoryWorkbook(program: VitaProgram, insured: VitaInsured[], ki
   const statoHeads = cfg.fileLayout?.stato?.length ? cfg.fileLayout.stato.filter(Boolean) : DEFAULT_CAT_HEADS
   const movBase = cfg.fileLayout?.mov?.length ? cfg.fileLayout.mov.filter(Boolean) : statoHeads
   const movHeads = movBase.some((h) => /^AZIONE/.test(nh(h))) ? movBase : ['AZIONE', ...movBase]
-  const calc = (p: VitaInsured, on: string) => computeInsured(p, cfg.rates, on, cfg.rules) as { age: number | null; capital: number; rate: number | null; gross: number | null; category?: string | null }
+  const calc = (p: VitaInsured, on: string) => computeInsured(p, cfg.rates, on, cfg.rules) as { age: number | null; capital: number; rate: number | null; gross: number | null; category?: string | null; rights?: number | null }
   const ctx = (p: VitaInsured, on: string, date: string | null, prem: number | null, azione?: string): Ctx => {
     const c = calc(p, on)
-    return { date, scad, prem, azione, age: c.age, capital: c.capital, rate: c.rate, category: c.category || null }
+    return { date, scad, prem, azione, age: c.age, capital: c.capital, rate: c.rate, category: c.category || null, rights: c.rights ?? null }
   }
   const byName = (a: VitaInsured, b: VitaInsured) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`, 'it')
 
   if (kind === 'rinnovo') {
     const plan = vitaRenewalPlan(cfg, insured) as { at: string; keep: { p: VitaInsured; alerts: string[] }[]; next: { p: VitaInsured; alerts: string[] }[]; dropped: { p: VitaInsured; reason: string }[] }
     const next = +plan.at.slice(0, 4)
-    const nextEnd = cfg.rules.countLastDay ? `${next + 1}-01-01` : `${next}-12-31`
+    // fine del periodo nuovo: un anno dopo la fine di questo (anche se il periodo non è l'anno solare)
+    const shiftYear = (iso: string) => `${+iso.slice(0, 4) + 1}${iso.slice(4, 10)}`
+    const endNew = shiftYear(cfg.periodEnd)
+    const lastDay = (() => { const d = new Date(`${endNew}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10) })()
+    const nextEnd = cfg.rules.countLastDay ? endNew : lastDay
+    void next
     const keep = [...plan.keep].sort((a, b) => byName(a.p, b.p)).map((k) => {
       const c = calc(k.p, plan.at)
       return { p: k.p, alerts: k.alerts, x: { ...ctx(k.p, plan.at, plan.at, c.gross), scad: nextEnd } }

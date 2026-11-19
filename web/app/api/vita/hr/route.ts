@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   const company = String(form?.get('company') || '').trim() || undefined
 
   const sheets = readSheets(Buffer.from(await file.arrayBuffer()))
-  const hr = parseHrMonthly(sheets) as { events: unknown[]; months: string[]; warnings: string[] }
+  const hr = parseHrMonthly(sheets, current.config) as { events: unknown[]; months: string[]; warnings: string[] }
   const all = await listPrograms()
   const client = clientOf(current)
   let programs = all.filter((p) => clientOf(p) === client && p.year === current.year && p.config.hrMonthly)

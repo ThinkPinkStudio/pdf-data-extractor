@@ -13,6 +13,7 @@ import type { VitaInsured, VitaProgram } from '@/lib/vita/types'
 const KEY = 'vitaProgram'
 
 export interface Calc {
+  rights?: number | null
   age: number | null
   rate: number | null
   target: number

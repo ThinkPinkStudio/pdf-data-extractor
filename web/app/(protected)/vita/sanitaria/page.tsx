@@ -6,6 +6,7 @@
 import { useMemo, useState } from 'react'
 import { CompanyTabs, DocPill, PersonPanel, docState } from '@/components/vita/VitaUi'
 import type { CompanyTab, DocMissing } from '@/components/vita/VitaUi'
+import { insurerOf } from '@/lib/vita/types'
 import { VitaEmpty, VitaGate, VitaHeader, api, downloadExport, eur, fmtDate, statusAt, today, useFlash, useVita } from '@/components/vita/useVita'
 
 export default function VitaSanitariaPage() {
@@ -45,12 +46,15 @@ export default function VitaSanitariaPage() {
   const policy = tab === 'all' ? (cfg?.companies.map((c) => c.policy).filter(Boolean).join(' e ') || '') : (cfg?.companies.find((c) => c.key === tab)?.policy || '')
   const list = (rows: typeof need) => rows.map((r) => `- ${r.cognome} ${r.nome} (capitale assicurato oggi ${eur(r.c.capital)} euro, previsto ${eur(r.c.target)} euro)`).join('\n')
   const firma = cfg?.mail.signature ? `\n${cfg.mail.signature}` : ''
-  const body = toAsk.length === 0 && waiting.length === 0 ? `Buongiorno,
+  const MT = cfg?.mailTexts || {}
+  const greet = MT.greeting?.trim() || 'Buongiorno,'
+  const closing = MT.closing?.trim() || 'Restiamo a disposizione.\nUn saluto'
+  const ask = MT.ask?.trim() || 'Fateci sapere se preferite che contattiamo noi gli assicurati.'
+  const body = toAsk.length === 0 && waiting.length === 0 ? `${greet}
 
 per la polizza vita${policy ? ` (n. ${policy})` : ''} la documentazione sanitaria è completa per tutti gli assicurati: i capitali sono quelli previsti.
 
-Restiamo a disposizione.
-Un saluto${firma}` : `Buongiorno,
+${closing}${firma}` : `${greet}
 
 ti ricordiamo che per le persone qui sotto manca ancora la documentazione sanitaria della polizza vita${policy ? ` (n. ${policy})` : ''}: finché non arriva, il capitale assicurato resta quello indicato.
 ${noVisit.length ? `
@@ -62,14 +66,13 @@ Il rapporto di visita è stato accettato; per arrivare al capitale previsto manc
 
 ${list(noExtra)}
 ` : ''}${waiting.length ? `
-Per queste persone abbiamo inviato la documentazione e attendiamo la risposta di Credit Agricole Vita:
+Per queste persone abbiamo inviato la documentazione e attendiamo la risposta di ${insurerOf(cfg)}:
 
 ${waiting.map((r) => `- ${r.cognome} ${r.nome}`).join('\n')}
 ` : ''}
-Fateci sapere se preferite che contattiamo noi gli assicurati.
+${ask}
 
-Restiamo a disposizione.
-Un saluto${firma}`
+${closing}${firma}`
 
   function openMail() {
     setTo(cfg?.mail.to || '')

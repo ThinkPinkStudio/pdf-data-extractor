@@ -31,7 +31,7 @@ export interface VitaRules {
   noDocUpTo: number // fino a qui nessun documento sanitario
   visitUpTo: number // col rapporto di visita (e l'ok della compagnia) si arriva a qui
   checkupMonths: number // validità del check-up
-  rights: number // diritti per assicurato
+  rights: number | { mode: 'fisso'; value: number } | { mode: 'percentuale' | 'permille'; value: number; of: string[] } // diritti: fissi o % del premio netto / ‰ del capitale
   minAge: number
   deathMaxAge: number
   ipMaxAge: number
@@ -43,6 +43,13 @@ export interface VitaRules {
   grossRounding?: 'eccesso' | 'normale' | 'nessuno'
   /** Inclusione: diritti anche loro in pro-rata (Agos) invece che interi (Amundi). */
   rightsProRata?: boolean
+  /** pro-rata: '365' (di sempre), 'reali' (giorni veri), '360' */
+  yearDays?: '365' | 'reali' | '360'
+  /** età: 'computabile' (+1 oltre `ageHalfMonths` mesi dal compleanno) o 'compiuti' */
+  ageMode?: 'computabile' | 'compiuti'
+  ageHalfMonths?: number
+  /** accertamenti/check-up validi solo entro `checkupMonths` mesi */
+  checkupExpiry?: boolean
   /** Pro-rata fino al 01/01 dell'anno dopo (LTC Agos) invece che al 31/12. */
   countLastDay?: boolean
   /** File mensile: il cliente scrive l'ultimo giorno di lavoro, l'uscita è dal giorno dopo. */
@@ -58,6 +65,12 @@ export interface VitaFileLayout {
 }
 
 export interface VitaConfig {
+  /** compagnia che dà l'ok sanitario e firma la polizza (mail, avvisi): default «Credit Agricole Vita» */
+  insurer?: string
+  /** parole del file mensile e dei file del cliente (si aggiungono a quelle di sempre) */
+  words?: { hrEntry?: string; hrExit?: string; hrLevel?: string; hrExtension?: string }
+  /** testi della mail per la documentazione sanitaria (vuoto = di sempre) */
+  mailTexts?: { greeting?: string; ask?: string; closing?: string }
   periodStart: string // 'YYYY-MM-DD'
   periodEnd: string // escluso: la copertura termina il 31/12
   companies: VitaCompany[]
@@ -185,3 +198,6 @@ export function defaultVitaConfig(year: number): VitaConfig {
     mail: { to: '', cc: '', signature: '' },
   }
 }
+
+/** Nome della compagnia (ok sanitario, mail): configurabile, default Credit Agricole Vita. */
+export const insurerOf = (cfg: { insurer?: string } | null | undefined) => (cfg && typeof cfg.insurer === 'string' && cfg.insurer.trim()) || 'Credit Agricole Vita'

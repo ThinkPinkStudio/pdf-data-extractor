@@ -223,3 +223,29 @@ test('file mensile di un solo contraente (Agos Renting a parte): tutte le righe 
   assert.equal(p.inserts[0].company, 'rent')
   assert.equal(planHrEvents(LTC, [], ev, { company: 'Agos Renting' }).skipped.altraSocieta, 1) // polizza senza quel contraente
 })
+
+test('Vita configurabile: giorni dell\'anno, età, diritti fissi o in percentuale, check-up, parole del file mensile', async () => {
+  const V = await import('../web/lib/vita/rules.js')
+  // pro-rata: 365 di sempre, giorni veri (2028 bisestile), 360
+  assert.equal(V.prorata('2026-07-02', '2026-12-31'), 182 / 365)
+  assert.equal(V.yearDaysOf('2028-12-31', { yearDays: 'reali' }), 366)
+  assert.equal(V.prorata('2026-07-02', '2026-12-31', { yearDays: '360' }), 182 / 360)
+  // età: computabile (+1 oltre 6 mesi) o compiuti; mesi configurabili
+  assert.equal(V.ageAt('1980-01-10', '2026-08-01'), 47)
+  assert.equal(V.ageAt('1980-01-10', '2026-08-01', { ageMode: 'compiuti' }), 46)
+  assert.equal(V.ageAt('1980-01-10', '2026-08-01', { ageHalfMonths: 9 }), 46)
+  // diritti: fissi (di sempre) o 1% del premio netto
+  assert.equal(V.premiumOf(100000, 2, 0, { grossRounding: 'normale', rights: 1.03 }).gross, 201.03)
+  const pct = V.premiumOf(100000, 2, 0, { grossRounding: 'normale', rights: { mode: 'percentuale', value: 1, of: ['premio'] } })
+  assert.equal(pct.rights, 2)
+  assert.equal(pct.gross, 202)
+  // check-up scaduto (opzione): sopra 800.000 il capitale torna al livello della sola visita
+  const rules = { ...V.DEFAULT_RULES, checkupExpiry: true, checkupMonths: 6 }
+  const p = { birthDate: '1980-01-10', ral: 400000, keyFigure: false, sovrPct: 0, doc: { visit: true, ok: true, extra: true, checkupDate: '2025-01-01' } }
+  assert.equal(V.computeInsured(p, { 46: 1, 47: 1 }, '2026-03-01', rules).capital, 800000)
+  assert.equal(V.computeInsured(p, { 46: 1, 47: 1 }, '2026-03-01', { ...rules, checkupExpiry: false }).capital, 1000000)
+  // file mensile: titolo di sezione con una parola del programma
+  const sheets = { 'Gen 2026': [['NUOVI INGAGGI'], ['Soc', 'Cognome', 'Nome', 'CodFiscale', 'Livello', 'DataAssunzione'], ['300', 'ROSSI', 'ANNA', 'RSSNNA80A41F205X', 'Quadro', '15/01/2026']] }
+  assert.equal(V.parseHrMonthly(sheets).events.length, 0)
+  assert.equal(V.parseHrMonthly(sheets, { words: { hrEntry: 'NUOVI INGAGGI' } }).events[0].kind, 'entrata')
+})

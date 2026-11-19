@@ -6,8 +6,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { VitaGate, VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
-import { CalcModeBox, CategoriesBox, MovementRulesBox, VitaExample } from '@/components/vita/VitaConfigParts'
-import { clientOf } from '@/lib/vita/types'
+import { CalcModeBox, CategoriesBox, MovementRulesBox, VitaExample, VitaTextsBox } from '@/components/vita/VitaConfigParts'
+import { clientOf, insurerOf } from '@/lib/vita/types'
 import type { VitaConfig } from '@/lib/vita/types'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -149,7 +149,9 @@ export default function VitaSettingsPage() {
                       <label className="rsm-field">Rapporto di visita fino a<input value={eur(cfg.rules.visitUpTo)} onChange={(e) => setRule('visitUpTo', n2(e.target.value))} style={{ width: 150 }} /></label>
                       <label className="rsm-field">Validità check-up (mesi)<input value={String(cfg.rules.checkupMonths)} onChange={(e) => setRule('checkupMonths', n2(e.target.value))} style={{ width: 110 }} /></label>
                     </div>
-                    <p className="rsm-note">Senza documenti il capitale resta a {eur(cfg.rules.noDocUpTo)}. Con il rapporto di visita (e l&apos;ok di C.A. Vita) arriva a {eur(cfg.rules.visitUpTo)}; con accertamenti o check-up (e l&apos;ok) al capitale previsto. Alla figura chiave la documentazione si chiede sempre.</p>
+                    <label className="rsm-rule"><input type="checkbox" checked={!!cfg.rules.checkupExpiry} onChange={(e) => setCfg({ ...cfg, rules: { ...cfg.rules, checkupExpiry: e.target.checked } })} />
+                      <span>Gli accertamenti e il check-up valgono solo se fatti negli ultimi {cfg.rules.checkupMonths} mesi<span className="rsm-help">Con la data del check-up più vecchia, il capitale torna al livello del solo rapporto di visita.</span></span></label>
+                    <p className="rsm-note">Senza documenti il capitale resta a {eur(cfg.rules.noDocUpTo)}. Con il rapporto di visita (e l&apos;ok di {insurerOf(cfg)}) arriva a {eur(cfg.rules.visitUpTo)}; con accertamenti o check-up (e l&apos;ok) al capitale previsto. Alla figura chiave la documentazione si chiede sempre.</p>
                   </div>
                 </div>}
 
@@ -167,11 +169,21 @@ export default function VitaSettingsPage() {
                         <option value="exit">Con l&apos;età al giorno di uscita</option>
                       </select>
                     </label>
-                    <p className="rsm-note">Il pro-rata è a giorni (giorni / 365). Chi supera gli {cfg.rules.deathMaxAge} anni non esce in automatico: compare un avviso nel rinnovo.</p>
+                    <div className="rsm-row">
+                      <label className="rsm-field">Età per il tasso
+                        <select value={cfg.rules.ageMode || 'computabile'} onChange={(e) => setCfg({ ...cfg, rules: { ...cfg.rules, ageMode: e.target.value as 'computabile' } })}>
+                          <option value="computabile">Computabile: +1 anno dopo N mesi dal compleanno</option>
+                          <option value="compiuti">Anni compiuti</option>
+                        </select>
+                      </label>
+                      {(cfg.rules.ageMode || 'computabile') === 'computabile' && <label className="rsm-field">Mesi dal compleanno<input value={String(cfg.rules.ageHalfMonths ?? 6)} onChange={(e) => setCfg({ ...cfg, rules: { ...cfg.rules, ageHalfMonths: n2(e.target.value) } })} style={{ width: 90 }} /></label>}
+                    </div>
+                    <p className="rsm-note">Chi supera gli {cfg.rules.deathMaxAge} anni non esce in automatico: compare un avviso nel rinnovo.</p>
                   </div>
                 </div>
 
                 <MovementRulesBox cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />
+                <VitaTextsBox cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />
 
                 <div className="rsm-box">
                   <div className="rsm-box-head"><span className="rsm-box-title">Mail e accessi</span></div>

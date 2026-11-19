@@ -15,7 +15,8 @@ export default function VitaRinnovoPage() {
   const cfg = vita.cfg
   const year = vita.program?.year || new Date().getFullYear()
   const next = year + 1
-  const nextStart = `${next}-01-01`
+  // il periodo nuovo comincia dove finisce questo (non per forza il 1° gennaio)
+  const nextStart = cfg?.periodEnd || `${next}-01-01`
   const [busy, setBusy] = useState(false)
   const [dry, setDry] = useState<{ year: number; found: number; missing: number; extra: number; warnings: string[] } | null>(null)
   const [file, setFile] = useState<File | null>(null)

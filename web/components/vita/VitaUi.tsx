@@ -1,4 +1,5 @@
 'use client'
+import { insurerOf } from '@/lib/vita/types'
 
 // Pezzi comuni delle pagine Polizza Vita: schede per contraente, pillole di stato
 // e scheda dell'assicurato (pannello laterale).
@@ -36,16 +37,16 @@ export function docState(r: Row): { tone: 'off' | 'ok' | 'warn' | 'err'; label: 
   const missing = missingDoc({ band: r.c.band, doc: r.doc }) as DocMissing
   if (missing === null) return { tone: 'ok', label: 'Accettata', need, missing }
   if (missing === 'accertamenti') return { tone: 'warn', label: 'Mancano gli accertamenti', need, missing }
-  if (missing === 'ok') return { tone: 'warn', label: 'Attende ok C.A. Vita', need, missing }
+  if (missing === 'ok') return { tone: 'warn', label: 'Attende l\'ok della compagnia', need, missing }
   return { tone: 'err', label: 'Mancante', need, missing }
 }
 
 /** Che cosa chiedere, per la mail all'Azienda. */
-export const MISSING_TEXT: Record<Exclude<DocMissing, null>, string> = {
+export const missingText = (cfg: { insurer?: string; rules?: { checkupMonths?: number } } | null | undefined): Record<Exclude<DocMissing, null>, string> => ({
   visita: 'rapporto di visita medica',
-  accertamenti: 'accertamenti sanitari o check-up degli ultimi 6 mesi',
-  ok: 'documentazione inviata, in attesa della risposta di Credit Agricole Vita',
-}
+  accertamenti: `accertamenti sanitari o check-up degli ultimi ${cfg?.rules?.checkupMonths ?? 6} mesi`,
+  ok: `documentazione inviata, in attesa della risposta di ${insurerOf(cfg)}`,
+})
 
 export function DocPill({ r }: { r: Row }) {
   const d = docState(r)
@@ -179,7 +180,7 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
                   <tr><td><b>Capitale assicurato</b></td><td className="num"><b>{eur(row.c.capital)}</b></td></tr>
                   <tr><td>Tasso</td><td className="num">{rate4(row.c.rate)} ‰</td></tr>
                   <tr><td>Premio netto</td><td className="num">{eur(row.c.net)}</td></tr>
-                  <tr><td>Diritti</td><td className="num">{eur(cfg.rules.rights)}</td></tr>
+                  <tr><td>Diritti</td><td className="num">{eur(row.c.rights ?? 0)}</td></tr>
                   <tr className="total"><td>Premio lordo annuo</td><td className="num">{eur(row.c.gross)}</td></tr>
                 </tbody>
               </table>
@@ -195,7 +196,7 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
                 <tr><td>{row.c.age == null ? 'Tasso' : `Tasso a ${row.c.age} anni`}</td><td className="num">{rate4(row.c.rate)} ‰</td></tr>
                 <tr><td>Sovrappremio</td><td className="num">{row.sovrPct} %</td></tr>
                 <tr><td>Premio netto</td><td className="num">{eur(row.c.net)}</td></tr>
-                <tr><td>Diritti</td><td className="num">{eur(cfg.rules.rights)}</td></tr>
+                <tr><td>Diritti</td><td className="num">{eur(row.c.rights ?? 0)}</td></tr>
                 <tr className="total"><td>Premio lordo annuo</td><td className="num">{eur(row.c.gross)}</td></tr>
               </tbody>
             </table>
@@ -209,7 +210,7 @@ export function PersonPanel({ vita, row, at, onClose, onDone }: { vita: Vita; ro
                 <li><span>Richiesto</span> · <b>{d.need}</b></li>
                 <li><span>Rapporto di visita</span> · <b>{row.doc.visit ? 'fornito' : 'non fornito'}</b></li>
                 {row.c.band === 'visita+accertamenti' && <li><span>Accertamenti o check-up</span> · <b>{row.doc.extra ? `forniti${row.doc.checkupDate ? ` (check-up del ${fmtDate(row.doc.checkupDate)})` : ''}` : 'non forniti'}</b></li>}
-                <li><span>Ok C.A. Vita</span> · <b>{row.doc.ok ? 'sì' : 'no'}</b></li>
+                <li><span>Ok della compagnia</span> · <b>{row.doc.ok ? 'sì' : 'no'}</b></li>
                 {row.remindedOn && <li><span>Ultimo promemoria</span> · <b>{fmtDate(row.remindedOn)}</b></li>}
               </ul>
               {vita.editor && <div className="rsm-row" style={{ marginTop: 8 }}><button className="rsm-mini" onClick={() => { setDoc(row.doc); setMode('doc') }}>Aggiorna la documentazione</button></div>}

@@ -8,6 +8,8 @@ import { useState } from 'react'
 import { computeInsured, fmtDate, movementOf, rulesOf, yearEndOf } from '@/lib/vita/rules.js'
 import type { VitaCategory, VitaConfig } from '@/lib/vita/types'
 import { eur } from './useVita'
+import ValueInput from '@/components/ValueInput'
+import { insurerOf } from '@/lib/vita/types'
 
 const n2 = (v: string) => Number(String(v).replace(/\./g, '').replace(',', '.')) || 0
 const show = (v: number | undefined, zero = false) => (v == null || (v === 0 && !zero) ? '' : v.toLocaleString('it-IT', { maximumFractionDigits: 6 }))
@@ -89,7 +91,15 @@ export function MovementRulesBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; s
       <div className="rsm-box-head"><span className="rsm-box-title">Premi, entrate e uscite</span></div>
       <div className="rsm-box-body">
         <div className="rsm-row">
-          <label className="rsm-field">Diritti per assicurato<Num label="Diritti" zero disabled={disabled} value={r.rights} onChange={(n) => setRules({ rights: n })} width={100} /></label>
+          <label className="rsm-field">Diritti per assicurato<ValueInput label="Diritti" disabled={disabled} value={r.rights} onChange={(v) => setRules({ rights: v })} width={90}
+            bases={[{ key: 'premio', label: 'premio netto annuo' }, { key: 'capitale', label: 'capitale' }]} /></label>
+          <label className="rsm-field">Giorni dell&apos;anno per il pro-rata
+            <select disabled={disabled} value={r.yearDays || '365'} onChange={(e) => setRules({ yearDays: e.target.value as '365' })}>
+              <option value="365">365 (come i fogli del cliente)</option>
+              <option value="reali">I giorni veri dell&apos;anno (366 se bisestile)</option>
+              <option value="360">360</option>
+            </select>
+          </label>
           <label className="rsm-field">Arrotondamento del premio
             <select disabled={disabled} value={r.grossRounding} onChange={(e) => setRules({ grossRounding: e.target.value as 'eccesso' })}>
               <option value="eccesso">Per eccesso al centesimo</option>
@@ -156,6 +166,45 @@ export function VitaExample({ cfg }: { cfg: VitaConfig }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Testi e parole della polizza: nome della compagnia (ok sanitario, mail),
+ * frasi della mail per la documentazione sanitaria, parole in più per i titoli
+ * delle sezioni del file mensile.
+ */
+export function VitaTextsBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCfg: (c: VitaConfig) => void; disabled?: boolean }) {
+  const mt = cfg.mailTexts || {}
+  const w = cfg.words || {}
+  const setMt = (p: Partial<NonNullable<VitaConfig['mailTexts']>>) => setCfg({ ...cfg, mailTexts: { ...mt, ...p } })
+  const setW = (p: Partial<NonNullable<VitaConfig['words']>>) => setCfg({ ...cfg, words: { ...w, ...p } })
+  return (
+    <div className="rsm-box">
+      <div className="rsm-box-head"><span className="rsm-box-title">Testi e parole</span></div>
+      <div className="rsm-box-body">
+        <label className="rsm-field">Compagnia (ok sanitario e mail)<input disabled={disabled} value={cfg.insurer ?? ''} placeholder={insurerOf(null)} onChange={(e) => setCfg({ ...cfg, insurer: e.target.value })} /></label>
+        <details>
+          <summary className="rsm-muted" style={{ cursor: 'pointer' }}>Mail della documentazione sanitaria</summary>
+          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+            <label className="rsm-field">Saluto<input disabled={disabled} value={mt.greeting ?? ''} placeholder="Buongiorno," onChange={(e) => setMt({ greeting: e.target.value })} /></label>
+            <label className="rsm-field">Richiesta finale<input disabled={disabled} value={mt.ask ?? ''} placeholder="Fateci sapere se preferite che contattiamo noi gli assicurati." onChange={(e) => setMt({ ask: e.target.value })} /></label>
+            <label className="rsm-field">Chiusura<textarea rows={2} disabled={disabled} value={mt.closing ?? ''} placeholder={'Restiamo a disposizione.\nUn saluto'} onChange={(e) => setMt({ closing: e.target.value })} /></label>
+          </div>
+        </details>
+        {cfg.hrMonthly && (
+          <details>
+            <summary className="rsm-muted" style={{ cursor: 'pointer' }}>Parole dei titoli del file mensile (si aggiungono a quelle di sempre)</summary>
+            <div className="rsm-row" style={{ marginTop: 8 }}>
+              <label className="rsm-field">Entrate<input disabled={disabled} value={w.hrEntry ?? ''} placeholder="ASSUNTI, INSERIMENTI" onChange={(e) => setW({ hrEntry: e.target.value })} style={{ width: 220 }} /></label>
+              <label className="rsm-field">Uscite<input disabled={disabled} value={w.hrExit ?? ''} placeholder="CESSATI, DIMISSIONI" onChange={(e) => setW({ hrExit: e.target.value })} style={{ width: 220 }} /></label>
+              <label className="rsm-field">Passaggi di livello<input disabled={disabled} value={w.hrLevel ?? ''} placeholder="PASSAGGI, PROMOZIONI" onChange={(e) => setW({ hrLevel: e.target.value })} style={{ width: 220 }} /></label>
+              <label className="rsm-field">Proroghe (ignorate)<input disabled={disabled} value={w.hrExtension ?? ''} placeholder="PROROGHE" onChange={(e) => setW({ hrExtension: e.target.value })} style={{ width: 220 }} /></label>
+            </div>
+          </details>
+        )}
       </div>
     </div>
   )

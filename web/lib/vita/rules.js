@@ -22,6 +22,10 @@ export const DEFAULT_RULES = {
   rightsProRata: false, // inclusione: true = (premio + diritti) in pro-rata; false = premio in pro-rata + diritti interi
   countLastDay: false, // pro-rata: true = giorni fino al 01/01 dell'anno dopo; false = fino al 31/12
   exitNextDay: true, // file mensile: il cliente indica l'ultimo giorno di lavoro, l'uscita è il giorno dopo
+  yearDays: '365', // pro-rata: '365' (come i fogli del cliente), 'reali' (giorni veri dell'anno di polizza) o '360'
+  ageMode: 'computabile', // 'computabile' = compiuti, +1 se dall'ultimo compleanno sono passati più di `ageHalfMonths` mesi; 'compiuti' = anni compiuti
+  ageHalfMonths: 6,
+  checkupExpiry: false, // true = accertamenti/check-up validi solo se fatti negli ultimi `checkupMonths` mesi
   transferDate: 'file', // file mensile, passaggi e promozioni: 'file' = data scritta; 'inizioMese' = 1° del mese di quella data; 'giornoDopo'; 'meseDopo' = 1° del mese successivo
 }
 
@@ -35,6 +39,8 @@ export function transferDateOf(date, rules) {
   if (mode === 'meseDopo') return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
   return date
 }
+
+import { evalValue } from '../configValue.js'
 
 /** Regole del programma con i default per quello che manca (programmi vecchi). */
 export const rulesOf = (rules) => ({ ...DEFAULT_RULES, ...(rules || {}) })
@@ -97,15 +103,18 @@ export function fmtDate(iso) { if (!iso) return ''; const [y, m, d] = String(iso
  * (compiuti + 1). Coincide con ROUND((data − nascita − 2)/365,25) del file su tutte
  * le 308 righe del 2026.
  */
-export function ageAt(birthISO, atISO) {
+export function ageAt(birthISO, atISO, rules) {
   if (!birthISO || !atISO) return null
   const [by, bm, bd] = String(birthISO).slice(0, 10).split('-').map(Number)
   const [ay, am, ad] = String(atISO).slice(0, 10).split('-').map(Number)
   let years = ay - by
   if (am < bm || (am === bm && ad < bd)) years--
   // ultimo compleanno e sei mesi dopo (il 29/02 cade il 28/02 negli anni non bisestili)
+  const R = rules ? rulesOf(rules) : null
+  if (R && R.ageMode === 'compiuti') return years
+  const half = R ? Math.max(0, Math.min(12, Number(R.ageHalfMonths ?? 6))) : 6
   const ly = by + years
-  const mm = bm + 6
+  const mm = bm + half
   const sy = ly + (mm > 12 ? 1 : 0)
   const sm = ((mm - 1) % 12) + 1
   const dim = new Date(Date.UTC(sy, sm, 0)).getUTCDate()
@@ -185,13 +194,22 @@ export function missingDoc({ band, doc = {} }) {
  * `sovrPct` è in PERCENTUALE (25 = +25%): nel file del cliente la colonna SOVRAPREMI
  * contiene una frazione (0,25), quindi all'import va moltiplicata per 100.
  */
+/**
+ * Diritti di un assicurato: importo fisso (di sempre) o percentuale / per mille
+ * del premio netto o del capitale (web/lib/configValue.js).
+ */
+export function rightsOf(rules, ctx = {}) {
+  return evalValue(rulesOf(rules).rights, { premio: Number(ctx.premio) || 0, capitale: Number(ctx.capitale) || 0 })
+}
+
 export function premiumOf(capital, rate, sovrPct = 0, rules = DEFAULT_RULES) {
   const r = rulesOf(rules)
-  if (rate == null) return { net: null, rights: r.rights, gross: null }
+  if (rate == null) return { net: null, rights: rightsOf(r, { capitale: capital }), gross: null }
   const raw = (capital * rate / 1000) * (1 + (sovrPct || 0) / 100)
-  if (r.grossRounding === 'nessuno') return { net: raw, rights: r.rights, gross: raw + r.rights }
+  const rights = r.grossRounding === 'nessuno' ? rightsOf(r, { premio: raw, capitale: capital }) : round2(rightsOf(r, { premio: raw, capitale: capital }))
+  if (r.grossRounding === 'nessuno') return { net: raw, rights, gross: raw + rights }
   const net = round2(raw)
-  return { net, rights: r.rights, gross: r.grossRounding === 'normale' ? round2(net + r.rights) : roundUp2(net + r.rights) }
+  return { net, rights, gross: r.grossRounding === 'normale' ? round2(net + rights) : roundUp2(net + rights) }
 }
 
 /**
@@ -202,9 +220,21 @@ export function premiumOf(capital, rate, sovrPct = 0, rules = DEFAULT_RULES) {
  * Una data fuori dall'anno va rifiutata prima di arrivare qui (`days` resterebbe
  * negativo o sopra 365, mentre la frazione è limitata a 0..1).
  */
-export function prorata(dateISO, yearEndISO) {
-  const f = daysBetween(dateISO, yearEndISO) / 365
+export function prorata(dateISO, yearEndISO, rules) {
+  const f = daysBetween(dateISO, yearEndISO) / yearDaysOf(yearEndISO, rules)
   return Math.max(0, Math.min(1, f))
+}
+
+/** Giorni dell'anno per il pro-rata: 365 (di sempre), i giorni veri dell'anno che finisce a `yearEndISO`, o 360. */
+export function yearDaysOf(yearEndISO, rules) {
+  const mode = rules ? String(rulesOf(rules).yearDays || '365') : '365'
+  if (mode === '360') return 360
+  if (mode === 'reali' && yearEndISO) {
+    const [y, m, d] = String(yearEndISO).slice(0, 10).split('-').map(Number)
+    const prev = new Date(Date.UTC(y - 1, m - 1, d)).toISOString().slice(0, 10)
+    return daysBetween(prev, yearEndISO) || 365
+  }
+  return 365
 }
 
 /**
@@ -214,7 +244,7 @@ export function prorata(dateISO, yearEndISO) {
  */
 export function movementOf({ kind, date, capital, rate, sovrPct = 0, paid = /** @type {{ capital: number, rate: number } | null} */ (null) }, yearEndISO, rules = DEFAULT_RULES) {
   rules = rulesOf(rules)
-  const frac = prorata(date, yearEndISO)
+  const frac = prorata(date, yearEndISO, rules)
   const days = daysBetween(date, yearEndISO)
   const useCap = kind === 'ESCLUSIONE' && rules.refundBasis === 'start' && paid ? paid.capital : capital
   const useRate = kind === 'ESCLUSIONE' && rules.refundBasis === 'start' && paid ? paid.rate : rate
@@ -231,7 +261,8 @@ export function movementOf({ kind, date, capital, rate, sovrPct = 0, paid = /** 
       return { days, frac, net, rights: rnd(gross - net), gross }
     }
     const net = rnd(base)
-    return { days, frac, net, rights: rules.rights, gross: rnd(net + rules.rights) }
+    const rights = rnd(rightsOf(rules, { premio: (useCap * useRate / 1000) * (1 + (sovrPct || 0) / 100), capitale: useCap }))
+    return { days, frac, net, rights, gross: rnd(net + rights) }
   }
   const net = -rnd(base)
   return { days, frac, net, rights: 0, gross: net }
@@ -242,7 +273,7 @@ export function computeInsured(p, rates, atISO, rules = DEFAULT_RULES) {
   rules = rulesOf(rules)
   if (rules.capitalMode === 'categoria') {
     // Capitale e tasso fissi per categoria: niente RAL, niente documenti sanitari.
-    const age = ageAt(p.birthDate, atISO)
+    const age = ageAt(p.birthDate, atISO, rules)
     const cat = categoryFor(p.level, rules)
     const capital = cat ? round2(Number(cat.capital) || 0) : 0
     // premio annuo fisso della categoria (Agos Vita: 110,41) o tasso ‰ sul capitale (LTC: 1,96)
@@ -250,9 +281,16 @@ export function computeInsured(p, rates, atISO, rules = DEFAULT_RULES) {
     const prem = premiumOf(capital, rate, p.sovrPct, rules)
     return { age, rate, target: capital, band: 'nessuna', capital, scopertura: 0, ...prem, cover: coverage(age, rules), category: cat ? cat.name : null }
   }
-  const age = ageAt(p.birthDate, atISO)
+  const age = ageAt(p.birthDate, atISO, rules)
   const rate = rateFor(age, rates)
-  const cap = capitalOf({ ral: p.ral, keyFigure: p.keyFigure }, p.doc, rules)
+  // check-up scaduto (opzione): gli accertamenti valgono solo entro `checkupMonths` mesi
+  let doc = p.doc
+  if (rules.checkupExpiry && doc && doc.extra && doc.checkupDate && atISO) {
+    const lim = new Date(`${String(atISO).slice(0, 10)}T12:00:00Z`)
+    lim.setUTCMonth(lim.getUTCMonth() - (Number(rules.checkupMonths) || 0))
+    if (String(doc.checkupDate).slice(0, 10) < lim.toISOString().slice(0, 10)) doc = { ...doc, extra: false }
+  }
+  const cap = capitalOf({ ral: p.ral, keyFigure: p.keyFigure }, doc, rules)
   const prem = premiumOf(cap.capital, rate, p.sovrPct, rules)
   return { age, rate, ...cap, ...prem, cover: coverage(age, rules) }
 }
@@ -706,7 +744,11 @@ const HR_HEADS = [
  * kind: 'entrata' | 'uscita' | 'livello' | 'proroga'. La data è quella del file:
  * per le uscite è l'ultimo giorno di lavoro (il giorno dopo lo fa il piano).
  */
-export function parseHrMonthly(sheets) {
+export function parseHrMonthly(sheets, cfg) {
+  // parole in più del programma per i titoli delle sezioni (si aggiungono a quelle di sempre)
+  const W = (cfg && cfg.words) || {}
+  const extra = [['proroga', W.hrExtension], ['livello', W.hrLevel], ['uscita', W.hrExit], ['entrata', W.hrEntry]]
+    .map(([k, w]) => [k, String(w || '').split(',').map((x) => normHead(x)).filter(Boolean)])
   const events = []
   const months = []
   const warnings = []
@@ -721,7 +763,8 @@ export function parseHrMonthly(sheets) {
       if (!filled) continue
       const first = normHead(r.find((c) => cellStr(c)))
       if (filled <= 2) {
-        const sec = HR_SECTIONS.find(([, re]) => re.test(first))
+        const own = extra.find(([, ws]) => ws.some((w) => first.startsWith(w) || first.includes(` ${w}`)))
+        const sec = own || HR_SECTIONS.find(([, re]) => re.test(first))
         if (sec) { section = sec[0]; h = null; continue }
       }
       const cells = r.map((c) => normHead(c).replace(/ /g, ''))
