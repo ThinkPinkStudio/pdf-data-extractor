@@ -17,19 +17,19 @@ export function parseItNumber(text: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-const show = (v: number | undefined) => (v ? String(v).replace('.', ',') : '')
+const show = (v: number | undefined, zero = false) => (v ? String(v).replace('.', ',') : zero && v === 0 ? '0' : '')
 
-export default function NumInput({ value, onChange, width = 90, disabled, label, invalid }: {
-  value: number | undefined; onChange: (n: number) => void; width?: number; disabled?: boolean; label?: string; invalid?: boolean
+export default function NumInput({ value, onChange, width = 90, disabled, label, invalid, zero = false }: {
+  value: number | undefined; onChange: (n: number) => void; width?: number; disabled?: boolean; label?: string; invalid?: boolean; zero?: boolean
 }) {
-  const [text, setText] = useState(show(value))
+  const [text, setText] = useState(show(value, zero))
   const [focus, setFocus] = useState(false)
-  useEffect(() => { if (!focus) setText(show(value)) }, [value, focus])
+  useEffect(() => { if (!focus) setText(show(value, zero)) }, [value, focus, zero])
   return (
     <input inputMode="decimal" aria-label={label} value={text} disabled={disabled}
       style={{ width, borderColor: invalid ? 'var(--c-error)' : undefined }}
       onFocus={() => setFocus(true)}
-      onBlur={() => { setFocus(false); setText(show(value)) }}
+      onBlur={() => { setFocus(false); setText(show(value, zero)) }}
       onChange={(e) => {
         setText(e.target.value)
         const n = parseItNumber(e.target.value)

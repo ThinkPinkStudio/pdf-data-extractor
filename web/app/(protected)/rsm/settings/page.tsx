@@ -155,15 +155,15 @@ export default function RsmSettingsPage() {
                   {cfg.categories.map((c, i) => (
                     <tr key={i}>
                       <td><input value={c.label} disabled={ro} onChange={(e) => setCat(i, { label: e.target.value })} style={{ width: 130 }} /></td>
-                      <td><input value={c.policy} disabled={ro} onChange={(e) => setCat(i, { policy: e.target.value })} style={{ width: 120 }} /></td>
+                      <td><input value={c.policy} disabled={ro} onChange={(e) => setCat(i, { policy: e.target.value })} style={{ width: 100 }} /></td>
                       <td><select value={c.mode} disabled={ro} onChange={(e) => setCat(i, { mode: e.target.value as RsmCategory['mode'] })} style={{ width: 120 }}>
                         <option value="nucleo">{t('rsm.set.nucleo')}</option><option value="persona">{t('rsm.set.persona')}</option>
                       </select></td>
-                      <td><select value={c.tariffBy === 'eta' ? 'eta' : 'unica'} disabled={ro} onChange={(e) => setCat(i, e.target.value === 'eta' ? { tariffBy: 'eta', ageBands: c.ageBands && c.ageBands.length ? c.ageBands : [{ ...c.tariffs, upTo: null }] } : { tariffBy: 'unica' })} style={{ width: 150 }} aria-label={`${c.label} ${t('rsm.set.tariffBy')}`}>
+                      <td><select value={c.tariffBy === 'eta' ? 'eta' : 'unica'} disabled={ro} onChange={(e) => setCat(i, e.target.value === 'eta' ? { tariffBy: 'eta', ageBands: c.ageBands && c.ageBands.length ? c.ageBands : [{ ...c.tariffs, upTo: null }] } : { tariffBy: 'unica' })} style={{ width: 120 }} aria-label={`${c.label} ${t('rsm.set.tariffBy')}`}>
                         <option value="unica">{t('rsm.set.byOne')}</option><option value="eta">{t('rsm.set.byAge')}</option>
                       </select></td>
                       {c.tariffBy === 'eta' ? <td colSpan={tariffColumns(cfg, t).length} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : tariffColumns(cfg, t).map((col) => (
-                        <td key={col.key}><ValueInput value={c.tariffs[col.key]} disabled={ro || (c.mode === 'nucleo' && col.family)} onChange={(v) => setTariff(i, col.key, v)} width={80}
+                        <td key={col.key}><ValueInput value={c.tariffs[col.key]} disabled={ro || (c.mode === 'nucleo' && col.family)} onChange={(v) => setTariff(i, col.key, v)} width={64}
                           bases={tariffColumns(cfg, t).filter((o) => o.key !== col.key).map((o) => ({ key: o.key, label: o.label }))} label={`${c.label} ${col.label}`} /></td>
                       ))}
                       <td><ValueInput value={c.quota} disabled={ro} onChange={(v) => setCat(i, { quota: v })} width={60} bases={[{ key: 'premio', label: t('rsm.set.premioTit') }]} label={`${c.label} ${t('rsm.set.quota')}`} /></td>

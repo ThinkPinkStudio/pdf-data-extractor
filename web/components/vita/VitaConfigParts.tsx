@@ -91,7 +91,7 @@ export function MovementRulesBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; s
       <div className="rsm-box-head"><span className="rsm-box-title">Premi, entrate e uscite</span></div>
       <div className="rsm-box-body">
         <div className="rsm-row">
-          <label className="rsm-field">Diritti per assicurato<ValueInput label="Diritti" disabled={disabled} value={r.rights} onChange={(v) => setRules({ rights: v })} width={90}
+          <label className="rsm-field">Diritti per assicurato<ValueInput label="Diritti" zero disabled={disabled} value={r.rights} onChange={(v) => setRules({ rights: v })} width={90}
             bases={[{ key: 'premio', label: 'premio netto annuo' }, { key: 'capitale', label: 'capitale' }]} /></label>
           <label className="rsm-field">Giorni dell&apos;anno per il pro-rata
             <select disabled={disabled} value={r.yearDays || '365'} onChange={(e) => setRules({ yearDays: e.target.value as '365' })}>
@@ -249,10 +249,10 @@ export function MedicalBands({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCf
     <div className="rsm-field" style={{ display: 'grid', gap: 6 }}>
       <span>Fasce della documentazione sanitaria</span>
       {bands.map((b, i) => (
-        <span key={i} className="rsm-row" style={{ alignItems: 'center', gap: 6 }}>
-          {b.upTo == null ? <span className="rsm-muted" style={{ width: 150 }}>oltre</span>
-            : <>fino a <Num label="Fino a" disabled={disabled} value={b.upTo} onChange={(n) => save(bands.map((x, j) => (j === i ? { ...x, upTo: n } : x)))} width={130} /></>}
-          <select disabled={disabled} value={need(b)} onChange={(e) => save(bands.map((x, j) => (j === i ? { ...x, needs: e.target.value === 'acc' ? ['visita', 'accertamenti'] : e.target.value === 'vis' ? ['visita'] : [] } : x)))}>
+        <span key={i} style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 6 }}>
+          {b.upTo == null ? <span className="rsm-muted" style={{ width: 160, flex: '0 0 auto' }}>oltre</span>
+            : <><span style={{ whiteSpace: 'nowrap' }}>fino a</span><Num label="Fino a" disabled={disabled} value={b.upTo} onChange={(n) => save(bands.map((x, j) => (j === i ? { ...x, upTo: n } : x)))} width={110} /></>}
+          <select disabled={disabled} value={need(b)} style={{ width: 'auto', flex: '1 1 auto', minWidth: 0 }} onChange={(e) => save(bands.map((x, j) => (j === i ? { ...x, needs: e.target.value === 'acc' ? ['visita', 'accertamenti'] : e.target.value === 'vis' ? ['visita'] : [] } : x)))}>
             <option value="no">nessun documento</option>
             <option value="vis">rapporto di visita</option>
             <option value="acc">visita + accertamenti o check-up</option>
