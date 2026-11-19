@@ -2218,6 +2218,13 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (capitale 13.201…, polizza 60021…), 18 passaggi a quadro 30/06 inclusi dal
   01/06 (da chiedere). Test `test/vitaCategory.test.mjs`. Guida:
   `.goldens-out/rsm-docs/Guida Polizza Vita - Agos, polizze per categoria e file mensile.pdf`.
+  **Le tre domande a Lidia diventano impostazioni (19/11/2026, scelta
+  dell'utente)**: decorrenza dei passaggi di livello del file mensile
+  (`rules.transferDate`: data del file | 1° del mese | giorno dopo | 1° del
+  mese dopo, `transferDateOf`; 30/06 Agos vs 01/06 loro); file mensile di UN
+  contraente (select «Di chi è il file» in /vita/mensile, `opts.company` di
+  planHrEvents per nome: Agos Renting a parte); diritti in pro-rata sulle
+  inclusioni = casella già esistente (`rightsProRata`).
 
 ## Fascicolo di riferimento (EULIP, 45 PDF)
 

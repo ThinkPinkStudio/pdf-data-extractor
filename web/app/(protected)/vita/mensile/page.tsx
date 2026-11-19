@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { VitaGate, VitaHeader, eur, fmtDate, useFlash, useVita } from '@/components/vita/useVita'
+import { clientOf } from '@/lib/vita/types'
 
 interface Change { kind: string; date: string; who: string; cf: string; sheet: string; id: string; text: string; amount?: number | null }
 interface Diff { key: string; id: string; field: string; current: string | null; expected: string; who: string; text: string }
@@ -36,14 +37,21 @@ export default function VitaMensilePage() {
   const [skip, setSkip] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
   const { setFlash, node: flashNode } = useFlash(vita)
+  // Contraente del file: '' = dalla colonna «Soc» (codici in Impostazioni); un nome =
+  // file di quel solo contraente (es. Agos Renting manda il suo a parte).
+  const [company, setCompany] = useState('')
+  const contractors = [...new Set((vita.programs || [])
+    .filter((p) => vita.program && clientOf(p) === clientOf(vita.program) && p.year === vita.program.year && (p.config.hrMonthly || p.id === vita.programId))
+    .flatMap((p) => p.config.companies.map((c) => c.name.trim()).filter(Boolean)))]
 
-  async function preview(f: File, keepFix?: Set<string>) {
+  async function preview(f: File, keepFix?: Set<string>, who = company) {
     if (!vita.programId) return
     setBusy(true); setErr(null)
     try {
       const fd = new FormData()
       fd.append('file', f)
       fd.append('programId', vita.programId)
+      if (who) fd.append('company', who)
       const r = await fetch('/api/vita/hr', { method: 'POST', body: fd })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
@@ -69,6 +77,7 @@ export default function VitaMensilePage() {
       fd.append('file', file)
       fd.append('programId', vita.programId)
       fd.append('confirm', '1')
+      if (company) fd.append('company', company)
       fd.append('targets', JSON.stringify(targets.map((p) => p.id)))
       fd.append('fix', JSON.stringify([...fix]))
       const r = await fetch('/api/vita/hr', { method: 'POST', body: fd })
@@ -100,6 +109,16 @@ export default function VitaMensilePage() {
               Un solo caricamento aggiorna tutte le polizze di {vita.client} {vita.program?.year} collegate al file mensile: ognuna prende solo chi la riguarda, secondo le sue categorie.
               Prima vedi che cosa cambia, poi registri. Il file può contenere tutti i mesi dall&apos;inizio dell&apos;anno: quello che è già registrato non entra una seconda volta.
             </p>
+            {contractors.length > 1 && (
+              <div className="rsm-row" style={{ marginBottom: 8 }}>
+                <label className="rsm-field">Di chi è il file
+                  <select value={company} onChange={(e) => { setCompany(e.target.value); if (file) preview(file, undefined, e.target.value) }}>
+                    <option value="">Di tutti i contraenti: lo dice la colonna «Soc» del file</option>
+                    {contractors.map((c) => <option key={c} value={c}>Solo di {c} (file a parte)</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
             <div className={`rsm-drop${drag ? ' on' : ''}`} role="button" tabIndex={0}
               onClick={() => fileRef.current?.click()}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click() }}

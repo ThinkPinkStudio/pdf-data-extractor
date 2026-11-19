@@ -106,6 +106,16 @@ export function MovementRulesBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; s
           <label className="rsm-rule"><input type="checkbox" disabled={disabled} checked={r.exitNextDay !== false} onChange={(e) => setRules({ exitNextDay: e.target.checked })} />
             <span>Nel file mensile la data di cessazione è l&apos;ultimo giorno di lavoro: l&apos;uscita è dal giorno dopo</span></label>
         </div>
+        <div className="rsm-row" style={{ marginTop: 8 }}>
+          <label className="rsm-field">Passaggi di livello del file mensile: decorrenza
+            <select disabled={disabled} value={r.transferDate || 'file'} onChange={(e) => setRules({ transferDate: e.target.value as 'file' })}>
+              <option value="file">La data scritta nel file (es. 30/06 → 30/06)</option>
+              <option value="inizioMese">Il 1° del mese di quella data (30/06 → 01/06)</option>
+              <option value="giornoDopo">Il giorno dopo (30/06 → 01/07)</option>
+              <option value="meseDopo">Il 1° del mese successivo (15/06 → 01/07)</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   )

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 
 import {
   categoryFor, computeInsured, movementOf, yearEndOf, nextDay, makeCf, parseVitaWorkbook,
-  parseHrMonthly, planHrEvents, categoriesFromWorkbook, premiumOf,
+  parseHrMonthly, planHrEvents, categoriesFromWorkbook, premiumOf, transferDateOf,
 } from '../web/lib/vita/rules.js'
 
 const base = { periodStart: '2026-01-01', periodEnd: '2027-01-01', rates: {}, mail: { to: '', cc: '', signature: '' } }
@@ -196,4 +196,30 @@ test('codice società: righe di altre società fuori; senza codici tutto al prim
   const noCodes = { ...QD, companies: QD.companies.map(({ hrCode, ...c }) => c) }
   assert.equal(planHrEvents(noCodes, [], ev).inserts[0].company, 'agos')
   assert.equal(nextDay('2026-12-31'), '2027-01-01')
+})
+
+test('decorrenza dei passaggi di livello: regola del programma', () => {
+  assert.equal(transferDateOf('2026-06-30', {}), '2026-06-30')
+  assert.equal(transferDateOf('2026-06-30', { transferDate: 'inizioMese' }), '2026-06-01')
+  assert.equal(transferDateOf('2026-06-30', { transferDate: 'giornoDopo' }), '2026-07-01')
+  assert.equal(transferDateOf('2026-12-15', { transferDate: 'meseDopo' }), '2027-01-01')
+  // BIANCHI impiegato → quadro il 30/06 nel file: col 1° del mese entra dal 01/06
+  const ev = parseHrMonthly(MONTHLY).events
+  const qd = { ...QD, rules: { ...QD.rules, transferDate: 'inizioMese' } }
+  const plan = planHrEvents(qd, [row(A, { id: 'a' }), row(C, { id: 'c', level: 'Impiegato' })], ev)
+  const b = plan.changes.find((c) => c.who === 'BIANCHI LUCA')
+  assert.equal(b.date, '2026-06-01')
+  assert.equal(plan.changes.find((c) => c.who === 'ROSSI ANNA').date, '2026-08-01') // già il 1°
+  // ricaricando lo stesso file con la stessa regola non entra niente due volte
+  const after = [row(A, { id: 'a' }), row(C, { id: 'c', level: 'Impiegato' }), ...plan.inserts.map((p, i) => ({ ...p, id: `n${i}` }))]
+    .map((p) => ({ ...p, ...(plan.updates.find((u) => u.id === p.id) || {}).set }))
+  assert.equal(planHrEvents(qd, after, ev).changes.length, 0)
+})
+
+test('file mensile di un solo contraente (Agos Renting a parte): tutte le righe sono sue', () => {
+  const ev = parseHrMonthly({ 'Gen 2026': [['ASSUNTI'], hrHead('DataAssunzione'), hr(D, 'Quadro', '2026-01-15', '')] }).events
+  assert.equal(planHrEvents(QD, [], ev).skipped.altraSocieta, 1) // senza codice Soc non si sa di chi è
+  const p = planHrEvents(QD, [], ev, { company: 'agos renting' })
+  assert.equal(p.inserts[0].company, 'rent')
+  assert.equal(planHrEvents(LTC, [], ev, { company: 'Agos Renting' }).skipped.altraSocieta, 1) // polizza senza quel contraente
 })

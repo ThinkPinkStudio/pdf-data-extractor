@@ -22,6 +22,18 @@ export const DEFAULT_RULES = {
   rightsProRata: false, // inclusione: true = (premio + diritti) in pro-rata; false = premio in pro-rata + diritti interi
   countLastDay: false, // pro-rata: true = giorni fino al 01/01 dell'anno dopo; false = fino al 31/12
   exitNextDay: true, // file mensile: il cliente indica l'ultimo giorno di lavoro, l'uscita è il giorno dopo
+  transferDate: 'file', // file mensile, passaggi e promozioni: 'file' = data scritta; 'inizioMese' = 1° del mese di quella data; 'giornoDopo'; 'meseDopo' = 1° del mese successivo
+}
+
+/** Decorrenza di un passaggio di livello del file mensile secondo la regola del programma. */
+export function transferDateOf(date, rules) {
+  if (!date) return date
+  const mode = rulesOf(rules).transferDate
+  const y = +date.slice(0, 4), m = +date.slice(5, 7)
+  if (mode === 'inizioMese') return `${date.slice(0, 7)}-01`
+  if (mode === 'giornoDopo') return nextDay(date)
+  if (mode === 'meseDopo') return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+  return date
 }
 
 /** Regole del programma con i default per quello che manca (programmi vecchi). */
@@ -755,7 +767,11 @@ export function planHrEvents(cfg, insured, events, opts = {}) {
   const fix = new Set(opts.fix || [])
   const companies = cfg.companies || []
   const withCodes = companies.filter((c) => String(c.hrCode || '').trim())
+  const normName = (v) => normWord(v)
+  const forced = opts.company ? companies.find((c) => normName(c.name) === normName(opts.company)) || null : undefined
   const companyFor = (soc) => {
+    // file mensile di UN contraente (es. Agos Renting a parte): tutte le righe sono sue
+    if (forced !== undefined) return forced
     if (!withCodes.length) return companies[0] || null
     const s = String(soc || '').trim()
     return withCodes.find((c) => String(c.hrCode).split(',').map((x) => x.trim()).includes(s)) || null
@@ -802,6 +818,8 @@ export function planHrEvents(cfg, insured, events, opts = {}) {
   // un'entrata è «spiegata» da un evento del file con la sua stessa data
   const explained = (e, date) => events.some((x) => x !== e && x.cf === e.cf && x.date === date && (x.kind === 'entrata' || x.kind === 'livello'))
 
+  // passaggi e promozioni alla decorrenza voluta dal programma (data del file, 1° del mese…)
+  events = events.map((e) => (e.kind === 'livello' && e.date ? { ...e, fileDate: e.date, date: transferDateOf(e.date, rules) } : e))
   const order = { uscita: 0, livello: 1, entrata: 2, proroga: 3 }
   const sorted = [...events].sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')) || order[a.kind] - order[b.kind])
   for (const e of sorted) {
@@ -872,7 +890,7 @@ export function planHrEvents(cfg, insured, events, opts = {}) {
       const tr = `tr-${e.cf}-${e.date}`
       setRow(open, { exitDate: e.date, exitKind: 'passaggio', exitTransferId: tr })
       const p = addRow(e, company, e.date, 'passaggio', null, tr)
-      changes.push({ kind: 'passaggio', date: e.date, who: who(e), cf: e.cf, sheet: e.sheet, id: p.id, text: `Passa da ${catName(open.level) || open.level} a ${cat.name} dal ${fmtDate(e.date)}: esce da una categoria ed entra nell'altra` })
+      changes.push({ kind: 'passaggio', date: e.date, who: who(e), cf: e.cf, sheet: e.sheet, id: p.id, text: `Passa da ${catName(open.level) || open.level} a ${cat.name} dal ${fmtDate(e.date)}${e.fileDate && e.fileDate !== e.date ? ` (nel file ${fmtDate(e.fileDate)})` : ''}: esce da una categoria ed entra nell'altra` })
       continue
     }
     if (!cat) { skipped.fuoriPolizza++; continue }

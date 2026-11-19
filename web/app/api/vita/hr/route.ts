@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
   const parse = (k: string) => { try { const v = JSON.parse(String(form?.get(k) || '[]')); return Array.isArray(v) ? v.map(String) : [] } catch { return [] } }
   const fix = parse('fix')
   const targets = parse('targets')
+  // file di un solo contraente (es. Agos Renting a parte): tutte le righe sono sue
+  const company = String(form?.get('company') || '').trim() || undefined
 
   const sheets = readSheets(Buffer.from(await file.arrayBuffer()))
   const hr = parseHrMonthly(sheets) as { events: unknown[]; months: string[]; warnings: string[] }
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
     const out = []
     for (const p of programs) {
       const insured = await listInsured(p.id)
-      const plan = planHrEvents(p.config, insured, hr.events) as Plan
+      const plan = planHrEvents(p.config, insured, hr.events, { company }) as Plan
       withAmounts(p, insured, plan)
       out.push({
         id: p.id, name: p.name, editor: canEdit(p.config, session.email), hrMonthly: !!p.config.hrMonthly,
@@ -89,7 +91,7 @@ export async function POST(req: NextRequest) {
   for (const id of targets) {
     const p = programs.find((x) => x.id === id)!
     const insured = await listInsured(p.id)
-    const plan = planHrEvents(p.config, insured, hr.events, { fix }) as Plan
+    const plan = planHrEvents(p.config, insured, hr.events, { fix, company }) as Plan
     if (!plan.inserts.length && !plan.updates.length) { results.push({ id, name: p.name, added: 0, updated: 0, opId: null }); continue }
     const n = (k: string) => plan.changes.filter((c) => c.kind === k).length
     const parts = [n('entrata') && `${n('entrata')} ${n('entrata') === 1 ? 'entrata' : 'entrate'}`, n('uscita') && `${n('uscita')} ${n('uscita') === 1 ? 'uscita' : 'uscite'}`, n('passaggio') && `${n('passaggio')} ${n('passaggio') === 1 ? 'passaggio' : 'passaggi'}`, n('correzione') && `${n('correzione')} ${n('correzione') === 1 ? 'data corretta' : 'date corrette'}`].filter(Boolean)

@@ -47,6 +47,8 @@ export interface VitaRules {
   countLastDay?: boolean
   /** File mensile: il cliente scrive l'ultimo giorno di lavoro, l'uscita è dal giorno dopo. */
   exitNextDay?: boolean
+  /** File mensile: decorrenza dei passaggi di livello (data del file, 1° del mese, giorno dopo, 1° del mese dopo). */
+  transferDate?: 'file' | 'inizioMese' | 'giornoDopo' | 'meseDopo'
 }
 
 /** Colonne dei file del cliente, per rifare l'Excel con le stesse intestazioni. */
