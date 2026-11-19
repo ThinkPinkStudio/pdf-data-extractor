@@ -80,6 +80,11 @@ test('questionariodati: date, importi e condizioni della polizza mai dal questio
   assert.equal(isQuestionnaireSourced(PIVA, 'polizza.pdf', 26, qp), false)
   assert.equal(isQuestionnaireSourced(FATTURATO, 'polizza.pdf', 26, qp), false)
   assert.equal(isQuestionnaireSourced(SINISTRI, 'polizza.pdf', 26, qp), false)
+  // la coda della descrizione nomina «le condizioni»: la Compagnia resta un'identità
+  const COMPAGNIA = F("Compagnia assicuratrice, cioè l'ASSICURATORE che presta la copertura: la società di assicurazione nominata nel frontespizio/scheda, nelle condizioni ('la Società', 'l'Assicuratore') o nel piè di pagina societario.")
+  assert.equal(isQuestionnaireSourced(COMPAGNIA, 'polizza.pdf', 26, qp), false)
+  const ESTENSIONI = F("Elenco TESTUALE delle estensioni di garanzia effettivamente OPERANTI, cioè barrate SI o richiamate come operanti nella scheda. Se la scheda elenca estensioni tutte barrate NO, scrivi 'Nessuna'.")
+  assert.equal(isQuestionnaireSourced(ESTENSIONI, 'polizza.pdf', 26, qp), true)
   // pagina della scheda: nessun veto
   assert.equal(isQuestionnaireSourced(SCADENZA, 'polizza.pdf', 3, qp), false)
   // documento-questionario intero

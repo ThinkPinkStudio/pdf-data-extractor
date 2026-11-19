@@ -40,7 +40,7 @@ import {
   valueTokens, pageHasValueTokens, descriptionNamesQuestionnaire, negatedQuotedLabels, negatedPhrases, negatedPhraseLabelling, valueWindows,
   validateCodiceFiscaleIva, isLabelLikeValue, isGarbageIdentifier,
   isStructuralField, isPeriodicEconomicField, isPeriodicDocName,
-  partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate,
+  partitionFields, normForMatch, passesStagedEvidence, pickMoreRecentCandidate, isPrescribedAnswer,
   isSuspectStructuralOverride, isRinvioAttivita, isIntermediaryName, isFileNameLike, isInsurerFooterPIva, isInsurerFooterAmount,
   isTextualField,
   hasOcrDigitRunAsAmount,
@@ -5299,8 +5299,9 @@ export const LIST_FILTER_SYSTEM_CTX = LIST_FILTER_SYSTEM +
 /**
  * [flag filtrocontesto] Righe della griglia attorno a una voce di elenco: la
  * riga con più parole della voce (≥ 4 lettere, almeno il 60%), nella pagina
- * della fonte se c'è, altrimenti in tutto il fascicolo; due righe sopra e tre
- * sotto, spazi compressi, al massimo 700 caratteri.
+ * della fonte se c'è, altrimenti in tutto il fascicolo; tre righe sopra e otto
+ * sotto (la frase che dice cosa è la voce può stare qualche riga dopo: «la
+ * copertura si intende estesa…» della 10.2 Casella), al massimo 1400 caratteri.
  */
 export function listItemContext(analyzed, item, file = null, page = null) {
   const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -5317,7 +5318,7 @@ export function listItemContext(analyzed, item, file = null, page = null) {
     }
     return bestN >= need ? bestI : -1
   }
-  const out = (lines, i) => lines.slice(Math.max(0, i - 2), i + 4).map((l) => l.replace(/\s{2,}/g, '  ').trim()).filter(Boolean).join('\n').slice(0, 700)
+  const out = (lines, i) => lines.slice(Math.max(0, i - 3), i + 9).map((l) => l.replace(/\s{2,}/g, '  ').trim()).filter(Boolean).join('\n').slice(0, 1400)
   const docs = analyzed || []
   const src = file ? docs.find((d) => d.name === file) : null
   if (src && page) {
@@ -6360,7 +6361,9 @@ export function isQuestionnaireSourced(field, file, page, questionnairePages, op
   if (!field || !file) return false
   const desc = String(field.description || '')
   if (descriptionAsksVerification(desc) || descriptionNamesQuestionnaire(field)) return false
-  const pos = positiveDescriptionText(desc)
+  // Sulla TESTA positiva (prima dei due punti): la coda nomina altri concetti
+  // («la società nominata … nelle condizioni» della Compagnia).
+  const pos = positiveDescriptionHead(desc)
   const termOfPolicy = /massimal|franchig|scopert|attivit|prodott|qualific|garanz|premio|tasso|impost|importo|parametro|preventiv|condizion|sottolimit|estension|esclusion/i.test(pos)
     || fieldValueKind(field) === 'date' || ['amount', 'rate'].includes(fieldValueKind(field))
   if (!termOfPolicy) return false
@@ -9580,6 +9583,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (e.gridRow === true) { diag.push(`Elenco[${f.label}]: dalla struttura della tabella, non filtrato`); continue }
       const items = splitListItems(e.valore)
       if (!items.length) continue
+      // Una RISPOSTA PRESCRITTA dalla descrizione («scrivi 'Nessuna'») non è un
+      // elenco di voci del documento: non si filtra (col testo della voce il
+      // modello non la ritrovava e la toglieva, Dell'Oro).
+      if (engineFlag(settings, 'filtrocontesto') && isPrescribedAnswer(f, e.valore)) { diag.push(`Elenco[${f.label}]: "${e.valore}" è una risposta prescritta dalla descrizione, non filtrata`); continue }
       try {
         // [flag filtrocontesto] ogni voce col TESTO del documento dove compare:
         // senza, il modello giudicava il solo nome («Attività di Consigliere di
