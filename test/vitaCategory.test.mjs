@@ -249,3 +249,22 @@ test('Vita configurabile: giorni dell\'anno, età, diritti fissi o in percentual
   assert.equal(V.parseHrMonthly(sheets).events.length, 0)
   assert.equal(V.parseHrMonthly(sheets, { words: { hrEntry: 'NUOVI INGAGGI' } }).events[0].kind, 'entrata')
 })
+
+test('fasce sanitarie come elenco e colonne dei file Vita configurabili', async () => {
+  const V = await import('../web/lib/vita/rules.js')
+  const base = { ...V.DEFAULT_RULES }
+  // di sempre: 400.000 senza documenti, 800.000 con la visita, oltre visita + accertamenti
+  const cap = (ral, doc, rules = base) => V.capitalOf({ ral, keyFigure: false }, doc, rules).capital
+  assert.equal(cap(400000, {}), 400000)
+  assert.equal(cap(400000, { visit: true, ok: true }), 800000)
+  assert.equal(cap(400000, { visit: true, ok: true, extra: true }), 1000000)
+  // una fascia in più: fino a 600.000 basta la visita, fino a 900.000 anche gli accertamenti, oltre di nuovo
+  const four = { ...base, medicalBands: [{ upTo: 400000, needs: [] }, { upTo: 600000, needs: ['visita'] }, { upTo: 900000, needs: ['visita', 'accertamenti'] }, { upTo: null, needs: ['visita', 'accertamenti'] }] }
+  assert.equal(cap(300000, { visit: true, ok: true }, four), 600000) // previsto 750.000, ha solo la visita
+  assert.equal(cap(300000, {}, four), 400000)
+  assert.equal(V.capitalOf({ ral: 300000 }, {}, four).band, 'visita+accertamenti')
+  // intestazione del cliente «DIPENDENTE» per il cognome e «CODICE PERSONA» per il codice fiscale
+  const h = V.findVitaHeader([['DIPENDENTE', 'NOME', 'CODICE PERSONA', 'LIVELLO']], null, { cognome: 'DIPENDENTE', cf: 'CODICE PERSONA' })
+  assert.equal(h.map.cognome, 0)
+  assert.equal(h.map.cf, 2)
+})

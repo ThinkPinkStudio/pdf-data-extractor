@@ -341,7 +341,7 @@ export function LayoutSummary({ cfg, ro, onForget }: { cfg: RsmConfig; ro: boole
  * promozione o una cessazione, come si chiama il foglio delle variazioni, e
  * intestazioni in più per ogni colonna. Si aggiungono a quelle di sempre.
  */
-export function WordsBox({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; onChange: (w: NonNullable<RsmConfig['words']>) => void }) {
+export function WordsBox({ cfg, ro, onChange, onExcel }: { cfg: RsmConfig; ro: boolean; onChange: (w: NonNullable<RsmConfig['words']>) => void; onExcel: (text: string) => void }) {
   const { t } = useI18n()
   const w = cfg.words || {}
   const set = (p: Partial<NonNullable<RsmConfig['words']>>) => onChange({ ...w, ...p })
@@ -365,6 +365,12 @@ export function WordsBox({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; o
               </label>
             ))}
           </div>
+        </details>
+        <details>
+          <summary className="rsm-muted" style={{ cursor: 'pointer' }}>{t('rsm.w.excel')}</summary>
+          <textarea rows={5} disabled={ro} value={cfg.excelLabels || ''} placeholder={'NR. POLIZZA = NUMERO POLIZZA\nVariazioni = Movimenti\nSI = SÌ'}
+            onChange={(e) => onExcel(e.target.value)} style={{ width: '100%', marginTop: 8, fontFamily: 'var(--font-mono, monospace)' }} />
+          <span className="rsm-help">{t('rsm.w.excelHelp')}</span>
         </details>
       </div>
     </div>

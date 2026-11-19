@@ -5,7 +5,7 @@
 // pro-rata. Ogni scelta ha sotto una riga che dice che cosa cambia, e un
 // esempio di calcolo che si aggiorna mentre si scrive.
 import { useState } from 'react'
-import { computeInsured, fmtDate, movementOf, rulesOf, yearEndOf } from '@/lib/vita/rules.js'
+import { computeInsured, fmtDate, medicalBandsOf, movementOf, rulesOf, yearEndOf } from '@/lib/vita/rules.js'
 import type { VitaCategory, VitaConfig } from '@/lib/vita/types'
 import { eur } from './useVita'
 import ValueInput from '@/components/ValueInput'
@@ -176,6 +176,12 @@ export function VitaExample({ cfg }: { cfg: VitaConfig }) {
  * frasi della mail per la documentazione sanitaria, parole in più per i titoli
  * delle sezioni del file mensile.
  */
+const VITA_FIELDS: [string, string][] = [
+  ['azienda', 'Azienda'], ['polizza', 'Numero polizza'], ['matricola', 'Matricola'], ['cognome', 'Cognome'], ['nome', 'Nome'], ['cf', 'Codice fiscale'],
+  ['livello', 'Livello'], ['nascita', 'Data di nascita'], ['inserimento', 'Data di entrata'], ['uscita', 'Data di uscita'], ['azione', 'Azione'],
+  ['dataAzione', 'Data azione'], ['sovr', 'Sovrappremio'], ['figura', 'Figura chiave'], ['visita', 'Rapporto di visita'], ['ok', 'Ok della compagnia'], ['note', 'Note'],
+]
+
 export function VitaTextsBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCfg: (c: VitaConfig) => void; disabled?: boolean }) {
   const mt = cfg.mailTexts || {}
   const w = cfg.words || {}
@@ -194,6 +200,20 @@ export function VitaTextsBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCf
             <label className="rsm-field">Chiusura<textarea rows={2} disabled={disabled} value={mt.closing ?? ''} placeholder={'Restiamo a disposizione.\nUn saluto'} onChange={(e) => setMt({ closing: e.target.value })} /></label>
           </div>
         </details>
+        <details>
+          <summary className="rsm-muted" style={{ cursor: 'pointer' }}>Intestazioni in più per le colonne dei file (si aggiungono a quelle di sempre)</summary>
+          <div className="rsm-row" style={{ marginTop: 8 }}>
+            {VITA_FIELDS.map(([k, l]) => (
+              <label className="rsm-field" key={k}>{l}<input disabled={disabled} value={(w.heads || {})[k] || ''} placeholder="parole separate da virgola" onChange={(e) => setW({ heads: { ...(w.heads || {}), [k]: e.target.value } })} style={{ width: 200 }} /></label>
+            ))}
+          </div>
+        </details>
+        <details>
+          <summary className="rsm-muted" style={{ cursor: 'pointer' }}>Testi degli Excel che si scaricano</summary>
+          <textarea rows={5} disabled={disabled} value={cfg.excelLabels || ''} placeholder={'NR. POLIZZA = NUMERO POLIZZA\nRiepilogo = Totali'}
+            onChange={(e) => setCfg({ ...cfg, excelLabels: e.target.value })} style={{ width: '100%', marginTop: 8, fontFamily: 'var(--font-mono, monospace)' }} />
+          <span className="rsm-help">Una riga per testo: «testo di sempre = testo nuovo». Vale per i nomi dei fogli (anche come inizio: «Variazioni = Movimenti») e per le celle con esattamente quel testo (intestazioni, SI/NO, TOTALE).</span>
+        </details>
         {cfg.hrMonthly && (
           <details>
             <summary className="rsm-muted" style={{ cursor: 'pointer' }}>Parole dei titoli del file mensile (si aggiungono a quelle di sempre)</summary>
@@ -206,6 +226,44 @@ export function VitaTextsBox({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCf
           </details>
         )}
       </div>
+    </div>
+  )
+}
+
+type Band = { upTo: number | null; needs: ('visita' | 'accertamenti')[] }
+/**
+ * FASCE SANITARIE come elenco: fino a quale capitale e quali documenti
+ * servono. Se ne aggiungono quante servono; l'ultima vale oltre. Si tengono
+ * allineate anche le due soglie storiche (testi e Excel le usano).
+ */
+export function MedicalBands({ cfg, setCfg, disabled }: { cfg: VitaConfig; setCfg: (c: VitaConfig) => void; disabled?: boolean }) {
+  const bands = medicalBandsOf(cfg.rules) as Band[]
+  const save = (list: Band[]) => {
+    const sorted = [...list].sort((a, b) => (a.upTo == null ? Infinity : a.upTo) - (b.upTo == null ? Infinity : b.upTo))
+    const noDoc = sorted.filter((b) => !b.needs.length && b.upTo != null).pop()
+    const visit = sorted.filter((b) => b.needs.length === 1 && b.upTo != null).pop()
+    setCfg({ ...cfg, rules: { ...cfg.rules, medicalBands: sorted, ...(noDoc ? { noDocUpTo: noDoc.upTo as number } : {}), ...(visit ? { visitUpTo: visit.upTo as number } : {}) } })
+  }
+  const need = (b: Band) => (b.needs.includes('accertamenti') ? 'acc' : b.needs.includes('visita') ? 'vis' : 'no')
+  return (
+    <div className="rsm-field" style={{ display: 'grid', gap: 6 }}>
+      <span>Fasce della documentazione sanitaria</span>
+      {bands.map((b, i) => (
+        <span key={i} className="rsm-row" style={{ alignItems: 'center', gap: 6 }}>
+          {b.upTo == null ? <span className="rsm-muted" style={{ width: 150 }}>oltre</span>
+            : <>fino a <Num label="Fino a" disabled={disabled} value={b.upTo} onChange={(n) => save(bands.map((x, j) => (j === i ? { ...x, upTo: n } : x)))} width={130} /></>}
+          <select disabled={disabled} value={need(b)} onChange={(e) => save(bands.map((x, j) => (j === i ? { ...x, needs: e.target.value === 'acc' ? ['visita', 'accertamenti'] : e.target.value === 'vis' ? ['visita'] : [] } : x)))}>
+            <option value="no">nessun documento</option>
+            <option value="vis">rapporto di visita</option>
+            <option value="acc">visita + accertamenti o check-up</option>
+          </select>
+          {!disabled && b.upTo != null && bands.length > 2 && <button type="button" className="rsm-mini danger" aria-label="Togli la fascia" onClick={() => save(bands.filter((_, j) => j !== i))}>×</button>}
+        </span>
+      ))}
+      {!disabled && <span><button type="button" className="btn btn-secondary" onClick={() => {
+        const ups = bands.map((b) => b.upTo).filter((n): n is number => n != null)
+        save([...bands, { upTo: (ups.length ? Math.max(...ups) : 0) + 200000, needs: ['visita'] }])
+      }}>Aggiungi una fascia</button></span>}
     </div>
   )
 }

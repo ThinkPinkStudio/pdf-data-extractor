@@ -9,6 +9,7 @@
 //    esce, perché il cliente controlli anche quelli.
 // Solo valori, nessuna formula: gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
+import { applyLabels } from '../excelLabels'
 import { describeValue } from '../configValue.js'
 import { maxAgeOf, quotaOf, refundTaxOf } from './rules.js'
 import { addDays, annualPremium, categoryOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
@@ -66,7 +67,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
         m.exitKind || '', STATI[statusAt(cfg, m, at)], c.annuo, c.dovuto, c.rimborso, c.calc, m.note || '',
       ])
     }
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   if (kind === 'rinnovo') {
@@ -190,7 +191,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       }
       sum.addRow([])
       sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · colonne del file della società · premi con le tariffe ${program.year} (da aggiornare se cambiano nel ${nextYear}) · ${maxAgeOf(cfg) ? `limite d'età ${maxAgeOf(cfg)} anni (solo avviso)` : 'nessun limite d\'età'} · esportato il ${fmtDate(at)}`])
-      return Buffer.from(await wb.xlsx.writeBuffer())
+      return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
     }
     const sum = wb.addWorksheet('Riepilogo')
     header(sum, [{ h: 'CATEGORIA', w: 16 }, { h: 'NR. POLIZZA', w: 12 }, { h: `IN COPERTURA AL ${fmtDate(start)}`, w: 16 }, { h: 'DI CUI TITOLARI', w: 12 },
@@ -233,7 +234,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
     }
     sum.addRow([])
     sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · ${maxAgeOf(cfg) ? `limite d'età ${maxAgeOf(cfg)} anni (solo avviso)` : 'nessun limite d\'età'} · esportato il ${fmtDate(at)}`])
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   const summary = wb.addWorksheet('Riepilogo')
@@ -303,5 +304,5 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
   }
   summary.addRow([])
   summary.addRow([`${program.name} · copertura dal ${fmtDate(cfg.periodStart)} al ${fmtDate(addDays(cfg.periodEnd, -1))} · pro-rata a ${cfg.rules.prorata} · trattenuta sul rimborso ${describeValue(refundTaxOf(cfg), { rimborso: 'rimborso' })} · esportato il ${fmtDate(at)}`])
-  return Buffer.from(await wb.xlsx.writeBuffer())
+  return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
 }

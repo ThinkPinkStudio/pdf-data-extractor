@@ -107,6 +107,7 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
     mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || ''), ...Object.fromEntries((['subject', 'greeting', 'intro', 'askAll', 'askSome', 'closing'] as const).map((k) => [k, str(c.mail?.[k], 2000)]).filter(([, v]) => v)) },
     editors: (c.editors || []).map((e) => String(e).trim().toLowerCase()).filter((e) => /@/.test(e)),
     fileCompany: String(c.fileCompany || '').trim().slice(0, 120),
+    excelLabels: str(c.excelLabels, 8000),
     fileLayout: cleanLayout(c.fileLayout),
   }
 }

@@ -143,9 +143,37 @@ export function coverage(age, rules = DEFAULT_RULES) {
  * 'visita' (fino a 800.000), 'visita+accertamenti' (oltre).
  */
 export function medicalBand(target, rules = DEFAULT_RULES) {
-  if (target <= rules.noDocUpTo) return 'nessuna'
-  if (target <= rules.visitUpTo) return 'visita'
-  return 'visita+accertamenti'
+  return bandOf(target, rules).band
+}
+
+/**
+ * FASCE SANITARIE come elenco (19/11/2026, «ogni lista deve potersi
+ * aggiungere elementi»): fino a quale capitale (null = oltre l'ultima) e quali
+ * documenti servono — nessuno, il rapporto di visita, visita + accertamenti o
+ * check-up. I programmi vecchi: fino a noDocUpTo nessuno, fino a visitUpTo la
+ * visita, oltre visita + accertamenti.
+ */
+export function medicalBandsOf(rules) {
+  const r = rulesOf(rules)
+  const list = Array.isArray(r.medicalBands) && r.medicalBands.length ? r.medicalBands : [
+    { upTo: r.noDocUpTo, needs: [] },
+    { upTo: r.visitUpTo, needs: ['visita'] },
+    { upTo: null, needs: ['visita', 'accertamenti'] },
+  ]
+  return list.map((b) => {
+    const needs = (Array.isArray(b.needs) ? b.needs : []).filter((n) => n === 'visita' || n === 'accertamenti')
+    // gli accertamenti si aggiungono alla visita, non la sostituiscono
+    if (needs.includes('accertamenti') && !needs.includes('visita')) needs.unshift('visita')
+    return { upTo: b.upTo == null || b.upTo === '' ? null : Number(b.upTo) || 0, needs }
+  }).sort((a, b) => (a.upTo == null ? Infinity : a.upTo) - (b.upTo == null ? Infinity : b.upTo))
+}
+const bandName = (needs) => (needs.includes('accertamenti') ? 'visita+accertamenti' : needs.includes('visita') ? 'visita' : 'nessuna')
+/** Fascia di un capitale: { band, needs, upTo, index }. */
+export function bandOf(target, rules) {
+  const bands = medicalBandsOf(rules)
+  const i = bands.findIndex((b) => b.upTo == null || target <= b.upTo)
+  const k = i < 0 ? bands.length - 1 : i
+  return { band: bandName(bands[k].needs), needs: bands[k].needs, upTo: bands[k].upTo, index: k }
 }
 
 /**
@@ -160,16 +188,19 @@ export function capitalOf({ ral, keyFigure }, doc = {}, rules = DEFAULT_RULES) {
   const target = round2(keyFigure ? rules.keyFigureCapital : (ral || 0) * rules.multiplier)
   // Alla figura chiave la documentazione si chiede sempre, anche se il suo capitale
   // fosse sotto la prima soglia (il valore si cambia dalle Impostazioni).
-  let band = medicalBand(target, rules)
-  if (keyFigure && band === 'nessuna') band = 'visita'
+  const bands = medicalBandsOf(rules)
+  const own = bandOf(target, rules)
+  let needs = own.needs
+  if (keyFigure && !needs.length) needs = ['visita']
+  const band = bandName(needs)
+  const visitOk = !!(doc.visit && doc.ok)
+  const has = (ns) => ns.every((n) => (n === 'visita' ? visitOk : visitOk && !!doc.extra))
   let capital = target
-  if (band !== 'nessuna') {
-    const visitOk = !!(doc.visit && doc.ok)
-    // Il tetto non alza mai il capitale sopra quello previsto (figura chiave con capitale basso).
-    const upTo = (max) => Math.min(target, max)
-    // Il rapporto di visita è sempre necessario: gli accertamenti si aggiungono, non lo sostituiscono.
-    if (band === 'visita') capital = visitOk ? target : upTo(rules.noDocUpTo)
-    else capital = visitOk && doc.extra ? target : visitOk ? upTo(rules.visitUpTo) : upTo(rules.noDocUpTo)
+  if (needs.length && !has(needs)) {
+    // senza i documenti della sua fascia il capitale scende al tetto più alto
+    // di una fascia più bassa i cui documenti ci sono (mai sopra il previsto)
+    const ok = bands.slice(0, own.index).filter((b) => b.upTo != null && has(b.needs))
+    capital = ok.length ? Math.min(target, ok[ok.length - 1].upTo) : Math.min(target, bands[0].upTo ?? target)
   }
   return { target, band, capital: round2(capital), scopertura: round2(target - capital) }
 }
@@ -408,9 +439,9 @@ const COMPUTED = /^(ETA|CAPITAL|TASSO|DIRITTI|PREMIO|SCADENZA|GIORNI|SCOPERTURA|
  * è la colonna che nomina l'anno chiesto. `ralYear` la sceglie; senza anno si
  * prende l'unica, o l'ultima.
  */
-export function findVitaHeader(rows, ralYear) {
+export function findVitaHeader(rows, ralYear, extraHeads) {
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
-    const h = vitaHeaderAt(rows[i], ralYear)
+    const h = vitaHeaderAt(rows[i], ralYear, extraHeads)
     if (h) return { row: i, ...h }
   }
   return null
@@ -422,11 +453,16 @@ export function findVitaHeader(rows, ralYear) {
  * cliente), `extras` = colonne che non sono né campi né importi ricalcolati
  * (matricola, provincia, comune, modulo…): si conservano così come sono.
  */
-export function vitaHeaderAt(row, ralYear) {
+export function vitaHeaderAt(row, ralYear, extraHeads) {
   const cells = (row || []).map(normHead)
-  if (!cells.includes('COGNOME') || !cells.includes('NOME')) return null
+  // intestazioni in più del programma (cfg.words.heads: campo → parole), prima di quelle di sempre
+  const extra = Object.entries(extraHeads || {}).map(([k, w]) => [k, String(w || '').split(',').map((x) => normHead(x)).filter(Boolean)])
+  const syn = (f) => (extra.find(([k]) => k === f) || [null, []])[1]
+  if (!(cells.includes('COGNOME') || syn('cognome').some((w) => cells.includes(w))) || !(cells.includes('NOME') || syn('nome').some((w) => cells.includes(w)))) return null
   const map = {}
   cells.forEach((h, col) => {
+    if (!h) return
+    for (const [key, ws] of extra) if (!(key in map) && ws.some((w) => h === w || h.startsWith(`${w} `))) { map[key] = col; return }
     for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
   })
   // «LIVELLO 11/2025» è lo storico, non il livello di adesso: tiene il primo «LIVELLO» puro
@@ -507,7 +543,7 @@ export function parseVitaWorkbook(cfg, sheets, opts = {}) {
   for (const name of Object.keys(sheets)) {
     if (isMov(name)) continue
     const rows = sheets[name] || []
-    const h = findVitaHeader(rows, ralYear)
+    const h = findVitaHeader(rows, ralYear, cfg && cfg.words && cfg.words.heads)
     if (!h) {
       if (hasCf(rows)) warnings.push(`Foglio «${name}»: intestazione non trovata (serve una riga con COGNOME e NOME); saltato.`)
       continue

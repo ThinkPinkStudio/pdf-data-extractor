@@ -59,6 +59,8 @@ export interface RsmConfig {
     promotionEntry?: 'prorata' | 'comeEntrata'
   }
   /** parole con cui il cliente scrive «sì», le note, i fogli e le colonne (si aggiungono a quelle di sempre) */
+  /** testi degli Excel rinominati: «testo di sempre = testo nuovo», uno per riga */
+  excelLabels?: string
   words?: { yes?: string; promoNotes?: string; cessNotes?: string; varSheet?: string; heads?: Record<string, string> }
   /** legami del nucleo; assente = titolare, coniuge, figlio, altro familiare */
   legami?: RsmLegame[]

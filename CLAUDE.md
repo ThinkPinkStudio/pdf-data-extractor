@@ -2201,9 +2201,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (`cfg.insurer`, `insurerOf`) nella mail sanitaria e negli avvisi; testi della
   mail sanitaria (`cfg.mailTexts`); parole in più per i titoli del file mensile
   (`cfg.words`, `parseHrMonthly(sheets, cfg)`); rinnovo col periodo nuovo da
-  `periodEnd`, non dal 1° gennaio. Restano fisse: le tre fasce della
-  documentazione sanitaria, il sovrappremio, le parole delle colonne dei file
-  Vita, i testi e i nomi dei fogli degli Excel.
+  `periodEnd`, non dal 1° gennaio. Terzo blocco: FASCE SANITARIE come elenco
+  (`rules.medicalBands`, `medicalBandsOf`, `bandOf`: fino a quale capitale e
+  quali documenti; senza documenti il capitale scende al tetto della fascia
+  più alta soddisfatta; noDocUpTo/visitUpTo restano allineate per testi ed
+  Excel); intestazioni in più per le colonne dei file Vita
+  (`cfg.words.heads`, `findVitaHeader(rows, ralYear, extraHeads)`); TESTI
+  DEGLI EXCEL di RSM e Vita rinominabili (`cfg.excelLabels`, righe «testo di
+  sempre = testo nuovo», `web/lib/excelLabels.ts` applicato sul file finito:
+  nomi dei fogli anche come inizio, celle col testo esatto). Il sovrappremio
+  è un dato della persona, non una regola.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

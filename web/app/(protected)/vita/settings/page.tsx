@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { VitaGate, VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
-import { CalcModeBox, CategoriesBox, MovementRulesBox, VitaExample, VitaTextsBox } from '@/components/vita/VitaConfigParts'
+import { CalcModeBox, CategoriesBox, MedicalBands, MovementRulesBox, VitaExample, VitaTextsBox } from '@/components/vita/VitaConfigParts'
 import { clientOf, insurerOf } from '@/lib/vita/types'
 import type { VitaConfig } from '@/lib/vita/types'
 
@@ -144,9 +144,8 @@ export default function VitaSettingsPage() {
                       <label className="rsm-field">Moltiplicatore della RAL<input value={show(cfg.rules.multiplier)} onChange={(e) => setRule('multiplier', n2(e.target.value))} style={{ width: 110 }} /></label>
                       <label className="rsm-field">Capitale figura chiave<input value={eur(cfg.rules.keyFigureCapital)} onChange={(e) => setRule('keyFigureCapital', n2(e.target.value))} style={{ width: 150 }} /></label>
                     </div>
+                    <MedicalBands cfg={cfg} setCfg={setCfg} disabled={!vita.editor} />
                     <div className="rsm-row">
-                      <label className="rsm-field">Senza documenti fino a<input value={eur(cfg.rules.noDocUpTo)} onChange={(e) => setRule('noDocUpTo', n2(e.target.value))} style={{ width: 150 }} /></label>
-                      <label className="rsm-field">Rapporto di visita fino a<input value={eur(cfg.rules.visitUpTo)} onChange={(e) => setRule('visitUpTo', n2(e.target.value))} style={{ width: 150 }} /></label>
                       <label className="rsm-field">Validità check-up (mesi)<input value={String(cfg.rules.checkupMonths)} onChange={(e) => setRule('checkupMonths', n2(e.target.value))} style={{ width: 110 }} /></label>
                     </div>
                     <label className="rsm-rule"><input type="checkbox" checked={!!cfg.rules.checkupExpiry} onChange={(e) => setCfg({ ...cfg, rules: { ...cfg.rules, checkupExpiry: e.target.checked } })} />

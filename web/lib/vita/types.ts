@@ -50,6 +50,8 @@ export interface VitaRules {
   ageHalfMonths?: number
   /** accertamenti/check-up validi solo entro `checkupMonths` mesi */
   checkupExpiry?: boolean
+  /** fasce sanitarie: fino a quale capitale (null = oltre) e quali documenti servono */
+  medicalBands?: { upTo: number | null; needs: ('visita' | 'accertamenti')[] }[]
   /** Pro-rata fino al 01/01 dell'anno dopo (LTC Agos) invece che al 31/12. */
   countLastDay?: boolean
   /** File mensile: il cliente scrive l'ultimo giorno di lavoro, l'uscita è dal giorno dopo. */
@@ -68,7 +70,9 @@ export interface VitaConfig {
   /** compagnia che dà l'ok sanitario e firma la polizza (mail, avvisi): default «Credit Agricole Vita» */
   insurer?: string
   /** parole del file mensile e dei file del cliente (si aggiungono a quelle di sempre) */
-  words?: { hrEntry?: string; hrExit?: string; hrLevel?: string; hrExtension?: string }
+  words?: { hrEntry?: string; hrExit?: string; hrLevel?: string; hrExtension?: string; heads?: Record<string, string> }
+  /** testi degli Excel rinominati: «testo di sempre = testo nuovo», uno per riga */
+  excelLabels?: string
   /** testi della mail per la documentazione sanitaria (vuoto = di sempre) */
   mailTexts?: { greeting?: string; ask?: string; closing?: string }
   periodStart: string // 'YYYY-MM-DD'

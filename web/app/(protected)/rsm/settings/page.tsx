@@ -211,7 +211,7 @@ export default function RsmSettingsPage() {
             </div>
           </div>
 
-          <WordsBox cfg={cfg} ro={ro} onChange={(words) => setCfg({ ...cfg, words })} />
+          <WordsBox cfg={cfg} ro={ro} onChange={(words) => setCfg({ ...cfg, words })} onExcel={(excelLabels) => setCfg({ ...cfg, excelLabels })} />
 
           <ExampleBox cfg={cfg} />
           <LayoutSummary cfg={cfg} ro={ro} onForget={() => { setCfg({ ...cfg, fileLayout: null }); setMsg({ ok: true, text: t('rsm.lay.forgot') }) }} />

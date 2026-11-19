@@ -4,6 +4,7 @@
 // Stesse colonne e stesso ordine, perché il cliente lavora su quel file.
 // Solo valori, nessuna formula (totali compresi): gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
+import { applyLabels } from '../excelLabels'
 import { computeInsured, fmtDate, movementOf, prorata, vitaRenewalPlan, yearEndOf } from './rules.js'
 import type { VitaInsured, VitaProgram } from './types'
 
@@ -93,7 +94,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       ws.addRow(row)
     }
     totals(ws, out, [11, 12, 13, 14, 15, 16], insured.length)
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   if (kind === 'rinnovo') {
@@ -163,7 +164,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
     }
     sum.addRow([])
     sum.addRow([`${program.name} · stato di rischio per il ${next}: chi è in copertura al ${fmtDate(start)} · limiti d'età ${cfg.rules.ipMaxAge} (IPT) e ${cfg.rules.deathMaxAge} (caso morte): solo avviso · compilare la colonna «RAL ANNUA ${next}» · esportato il ${fmtDate(at)}`])
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   // Un foglio per contraente: la situazione a inizio anno (chi è entrato dopo
@@ -224,7 +225,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
   header(ws, [{ h: 'Età', w: 8 }, { h: 'Tasso ‰', w: 22, fmt: '0.0000000000000000' }])
   for (const age of Object.keys(cfg.rates).map(Number).sort((a, b) => a - b)) ws.addRow([age, cfg.rates[String(age)]])
   void prorata
-  return Buffer.from(await wb.xlsx.writeBuffer())
+  return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
 }
 
 /* ─── Polizze per categoria (Agos): l'Excel con le colonne del file del cliente ─── */
@@ -333,7 +334,7 @@ async function categoryWorkbook(program: VitaProgram, insured: VitaInsured[], ki
         out.addRow([`${x.p.cognome} ${x.p.nome}`, x.p.cf, calc(x.p, x.p.entryDate || cfg.periodStart).category || x.p.level, toDate(x.p.exitDate), x.reason === 'passaggio' ? 'passaggio ad altra categoria (è nell\'elenco)' : 'cessazione'])
       }
     }
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   if (kind === 'situazione') {
@@ -352,7 +353,7 @@ async function categoryWorkbook(program: VitaProgram, insured: VitaInsured[], ki
     }
     const t = ws.addRow([`TOTALE ${n} RIGHE · premio annuo di chi è in copertura ${tot.toFixed(2).replace('.', ',')}`])
     t.font = { bold: true }
-    return Buffer.from(await wb.xlsx.writeBuffer())
+    return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
   // Stato di rischio a inizio anno + variazioni dell'anno, come i loro due fogli.
@@ -380,5 +381,5 @@ async function categoryWorkbook(program: VitaProgram, insured: VitaInsured[], ki
   ws.addRow([cfg.rules.exitNextDay !== false ? "Le esclusioni decorrono dal giorno successivo all'ultimo giorno di lavoro indicato dal cliente." : ''])
   ws.addRow([`Pro-rata a giorni su 365 fino al ${fmtDate(ye)}.`])
   void prorata
-  return Buffer.from(await wb.xlsx.writeBuffer())
+  return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
 }
