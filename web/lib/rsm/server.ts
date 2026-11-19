@@ -45,7 +45,7 @@ export function cleanNewMember(m: Record<string, unknown>) {
     cognome: (s(m.cognome) || '').toUpperCase(),
     nome: (s(m.nome) || '').toUpperCase(),
     birthDate: d(m.birthDate),
-    legame: (legame === 'TI' || legame === 'CO' || legame === 'FI' ? legame : null) as 'TI' | 'CO' | 'FI' | null,
+    legame: (legame === 'TI' || legame === 'CO' || legame === 'FI' || legame === 'FA' ? legame : null) as 'TI' | 'CO' | 'FI' | 'FA' | null,
     cfTitolare: (s(m.cfTitolare) || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null,
     entryDate: d(m.entryDate),
     entryKind: (m.entryKind === 'iniziale' ? 'iniziale' : 'inclusione') as 'iniziale' | 'inclusione',

@@ -187,7 +187,7 @@ export function checkPerson({ cognome, nome, cf, birthDate }, refYear) {
 
 /* ─── Configurazione del programma (una polizza collettiva per anno) ───── */
 
-export const LEGAMI = { TI: 'Titolare', CO: 'Coniuge/convivente', FI: 'Figlio/a' }
+export const LEGAMI = { TI: 'Titolare', CO: 'Coniuge/convivente', FI: 'Figlio/a', FA: 'Altro familiare' }
 
 /**
  * Legame dal testo del file. `layout` (config.fileLayout): i codici che quella
@@ -201,6 +201,8 @@ export function normLegame(v, layout) {
   if (s === 'TI' || s.startsWith('TITOL')) return 'TI'
   if (s === 'CO' || s.startsWith('CONI') || s.startsWith('CONV')) return 'CO'
   if (s === 'FI' || s.startsWith('FIGL')) return 'FI'
+  // altro familiare del nucleo (genitore, fratello…): «FA», «FAMILIARE», «ALTRO FAMILIARE»
+  if (s === 'FA' || s.startsWith('FAMIL') || s.startsWith('ALTRO FAMIL') || s.startsWith('ALTRI FAMIL')) return 'FA'
   return null
 }
 
@@ -276,6 +278,7 @@ export function annualPremium(cfg, catKey, legame, quiescente, age) {
   }
   if (legame === 'CO') return Number(t.coniuge) || 0
   if (legame === 'FI') return Number(t.figlio) || 0
+  if (legame === 'FA') return Number(t.familiare) || 0
   return Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
 }
 
@@ -629,7 +632,7 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
       const found = active.find((m) => m.cf === r.cf)
       if (found) category = found.category
     }
-    if (!r.legame) issues.push({ code: 'legame', level: 'error', text: `Legame «${r.legameRaw || 'vuoto'}» non riconosciuto (TI, CO o FI).` })
+    if (!r.legame) issues.push({ code: 'legame', level: 'error', text: `Legame «${r.legameRaw || 'vuoto'}» non riconosciuto (TI, CO, FI o FA).` })
     if (!category) issues.push({ code: 'categoria', level: 'error', text: 'Categoria mancante (Dirigente, Funzionario o Impiegato).' })
     const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
     issues.push(...person.issues)
@@ -1004,6 +1007,7 @@ export function tariffsFromWorkbook(cfg, sheets) {
       if (!label || !(v > 0) || v > 100000) continue
       if (/^CONIUG|^CONVIV/.test(label)) tariffs.coniuge = v
       else if (/^FIGL/.test(label)) tariffs.figlio = v
+      else if (/^(ALTR[IO] )?FAMILIAR/.test(label)) tariffs.familiare = v
       else if (normCategory(label, cfg.categories).key === key) {
         if (/QUIESC/.test(label)) tariffs.quiescente = v
         else tariffs.titolare = v

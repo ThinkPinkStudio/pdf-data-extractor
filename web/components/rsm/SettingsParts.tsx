@@ -12,8 +12,8 @@ import { compareConfigs, exampleCalc, fmtDate } from '@/lib/rsm/rules.js'
 import type { RsmCategory, RsmConfig, RsmMember, RsmTariffs } from '@/lib/rsm/types'
 
 type Band = RsmTariffs & { upTo: number | null }
-const TK: (keyof RsmTariffs)[] = ['titolare', 'quiescente', 'coniuge', 'figlio']
-const TLABEL: Record<keyof RsmTariffs, string> = { titolare: 'rsm.set.tTit', quiescente: 'rsm.set.tQui', coniuge: 'rsm.set.tCo', figlio: 'rsm.set.tFi' }
+const TK: (keyof RsmTariffs)[] = ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare']
+const TLABEL: Record<keyof RsmTariffs, string> = { titolare: 'rsm.set.tTit', quiescente: 'rsm.set.tQui', coniuge: 'rsm.set.tCo', figlio: 'rsm.set.tFi', familiare: 'rsm.set.tFa' }
 
 /** Fasce d'età di una categoria: «fino a N anni» e l'ultima per tutti gli altri. */
 export function AgeBands({ cat, ro, onChange }: { cat: RsmCategory; ro: boolean; onChange: (bands: Band[]) => void }) {
@@ -39,7 +39,7 @@ export function AgeBands({ cat, ro, onChange }: { cat: RsmCategory; ro: boolean;
                       <input type="number" value={b.upTo} disabled={ro} min={0} max={120} onChange={(e) => set(i, { upTo: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 64 }} aria-label={t('rsm.ab.upTo')} />{t('rsm.ab.years')}</span>}
                 </td>
                 {TK.map((tk) => (
-                  <td key={tk}><NumInput value={b[tk]} disabled={ro || (cat.mode === 'nucleo' && (tk === 'coniuge' || tk === 'figlio'))} onChange={(n) => set(i, { [tk]: n })} width={86} label={`${cat.label} ${t(TLABEL[tk])}`} /></td>
+                  <td key={tk}><NumInput value={b[tk]} disabled={ro || (cat.mode === 'nucleo' && (tk === 'coniuge' || tk === 'figlio' || tk === 'familiare'))} onChange={(n) => set(i, { [tk]: n })} width={86} label={`${cat.label} ${t(TLABEL[tk])}`} /></td>
                 ))}
                 <td>{!ro && b.upTo != null && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => onChange(bands.filter((_, j) => j !== i))}>×</button>}</td>
               </tr>
@@ -117,7 +117,7 @@ export function ExampleBox({ cfg }: { cfg: RsmConfig }) {
       <div className="rsm-box-body">
         <div className="rsm-row">
           <label className="rsm-field">{t('rsm.category')}<select value={cat.key} onChange={(e) => setEx({ ...ex, category: e.target.value })}>{cfg.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select></label>
-          <label className="rsm-field">{t('rsm.ex.who')}<select value={ex.legame} onChange={(e) => setEx({ ...ex, legame: e.target.value })}><option value="TI">{t('rsm.leg.TI')}</option><option value="CO">{t('rsm.leg.CO')}</option><option value="FI">{t('rsm.leg.FI')}</option></select></label>
+          <label className="rsm-field">{t('rsm.ex.who')}<select value={ex.legame} onChange={(e) => setEx({ ...ex, legame: e.target.value })}><option value="TI">{t('rsm.leg.TI')}</option><option value="CO">{t('rsm.leg.CO')}</option><option value="FI">{t('rsm.leg.FI')}</option><option value="FA">{t('rsm.leg.FA')}</option></select></label>
           <label className="rsm-field">{t('rsm.ex.age')}<input type="number" min={0} max={110} value={ex.age} onChange={(e) => setEx({ ...ex, age: Number(e.target.value) || 0 })} style={{ width: 80 }} /></label>
           <label className="rsm-field w-date">{t('rsm.ex.req')}<input type="date" value={ex.requested} onChange={(e) => setEx({ ...ex, requested: e.target.value })} /></label>
           <label className="rsm-field w-date">{t('rsm.ex.com')}<input type="date" value={ex.communicated} onChange={(e) => setEx({ ...ex, communicated: e.target.value })} /></label>

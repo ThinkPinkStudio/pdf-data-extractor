@@ -15,7 +15,7 @@ import type { RsmMember, RsmProgram } from './types'
 const FMT_DATE = 'dd/mm/yyyy'
 const FMT_EUR = '#,##0.00'
 const STATI: Record<string, string> = { attivo: 'In copertura', cessazione: 'Cessato (coperto fino a fine periodo)', uscito: 'Uscito', promosso: 'Promosso', futuro: 'Non ancora entrato' }
-const LEG: Record<string, string> = { TI: 'TI', CO: 'CO', FI: 'FI' }
+const LEG: Record<string, string> = { TI: 'TI', CO: 'CO', FI: 'FI', FA: 'FA' }
 
 const toDate = (iso: string | null) => (iso ? new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10))) : null)
 const age = (birth: string | null, at: string) => {

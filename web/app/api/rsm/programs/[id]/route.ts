@@ -32,7 +32,7 @@ function cleanLayout(l: RsmConfig['fileLayout']): RsmConfig['fileLayout'] {
     sheet: String(l.sheet || '').slice(0, 120),
     columns,
     categoryCodes: obj(l.categoryCodes, (v) => /^[a-z0-9-]+(\|Q)?$/.test(v)),
-    legameCodes: obj(l.legameCodes, (v) => v === 'TI' || v === 'CO' || v === 'FI') as Record<string, 'TI' | 'CO' | 'FI'>,
+    legameCodes: obj(l.legameCodes, (v) => v === 'TI' || v === 'CO' || v === 'FI' || v === 'FA') as Record<string, 'TI' | 'CO' | 'FI' | 'FA'>,
     order: (Array.isArray(l.order) ? l.order : []).slice(0, 80).map((h) => String(h).slice(0, 120)),
   }
 }
@@ -47,12 +47,12 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
     policy: String(x.policy || '').trim(),
     mode: x.mode === 'persona' ? 'persona' as const : 'nucleo' as const,
     rank: Number(x.rank) || i + 1,
-    tariffs: { titolare: num(x.tariffs?.titolare), quiescente: num(x.tariffs?.quiescente), coniuge: num(x.tariffs?.coniuge), figlio: num(x.tariffs?.figlio) },
+    tariffs: { titolare: num(x.tariffs?.titolare), quiescente: num(x.tariffs?.quiescente), coniuge: num(x.tariffs?.coniuge), figlio: num(x.tariffs?.figlio), familiare: num(x.tariffs?.familiare) },
     quota: num(x.quota),
     tariffBy: x.tariffBy === 'eta' ? 'eta' as const : 'unica' as const,
     ageBands: (Array.isArray(x.ageBands) ? x.ageBands : []).slice(0, 20).map((b) => ({
       upTo: b.upTo == null || (b.upTo as unknown) === '' ? null : Math.max(0, Math.round(Number(b.upTo) || 0)),
-      titolare: num(b.titolare), quiescente: num(b.quiescente), coniuge: num(b.coniuge), figlio: num(b.figlio),
+      titolare: num(b.titolare), quiescente: num(b.quiescente), coniuge: num(b.coniuge), figlio: num(b.figlio), familiare: num(b.familiare),
     })),
   }))
   if (!categories.length || new Set(categories.map((x) => x.key)).size !== categories.length) return null

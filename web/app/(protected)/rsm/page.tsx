@@ -95,7 +95,7 @@ export default function RsmStatoPage() {
       if (!map.has(k)) map.set(k, [])
       map.get(k)!.push(r)
     }
-    const rank = (r: Row) => (r.legame === 'TI' ? 0 : r.legame === 'CO' ? 1 : 2)
+    const rank = (r: Row) => (r.legame === 'TI' ? 0 : r.legame === 'CO' ? 1 : r.legame === 'FI' ? 2 : 3)
     const catOrder = new Map(cfg.categories.map((c, i) => [c.key, i]))
     // Ordinamento per colonna sul titolare: il nucleo resta unito sotto di lui.
     const val = (r: Row): string | number => sort.key === 'birth' ? r.birthDate || '' : sort.key === 'entry' ? r.entryDate || ''

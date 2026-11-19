@@ -549,3 +549,22 @@ test('prova prima di salvare: cosa cambia per categoria e per persona', async ()
   assert.equal(r.totals.after - r.totals.before, 52)
   assert.deepEqual(r.categories.map((c) => c.key), ['dirigenti', 'impiegati'])
 })
+
+test('legame «Altro familiare» (FA): lettura, tariffa propria, compreso nel nucleo', async () => {
+  const { normLegame, annualPremium, computeMember, defaultProgramConfig, tariffsFromWorkbook } = await import('../web/lib/rsm/rules.js')
+  for (const v of ['FA', 'Familiare', 'ALTRO FAMILIARE', 'altri familiari']) assert.equal(normLegame(v), 'FA', v)
+  assert.equal(normLegame('FIGLIO'), 'FI')
+  assert.equal(normLegame('FAMIL', { legameCodes: { FAMIL: 'CO' } }), 'CO') // il codice della società vince
+  const cfg = defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  const nuc = cfg.categories.find((c) => c.mode === 'nucleo')
+  imp.tariffs = { titolare: 1000, coniuge: 600, figlio: 400, familiare: 700 }
+  nuc.tariffs = { titolare: 9000, familiare: 700 }
+  assert.equal(annualPremium(cfg, imp.key, 'FA', false, null), 700)
+  assert.equal(annualPremium(cfg, nuc.key, 'FA', false, null), 0) // a nucleo paga solo il titolare
+  const c = computeMember(cfg, { category: imp.key, legame: 'FA', quiescente: false, entryDate: '2026-09-01', entryKind: 'inclusione', cf: 'RSSMRA50A01F205X', birthDate: '1950-01-01' })
+  assert.equal(c.quota, 0) // la quota associativa è solo del titolare
+  assert.equal(c.annuo, 700)
+  const t = tariffsFromWorkbook(cfg, { IMPIEGATI: [['COGNOME', 'NOME', 'C.F. FAMILIARE', 'LEGAME'], ['IMPIEGATI', '', 1000], ['ALTRI FAMILIARI', '', 700]] })
+  assert.deepEqual(t[imp.key].tariffs, { titolare: 1000, familiare: 700 })
+})

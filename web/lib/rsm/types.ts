@@ -13,14 +13,14 @@ export interface RsmCategory {
   ageBands?: (RsmTariffs & { upTo: number | null })[] // «fino a» anni; null = oltre l'ultima
 }
 
-export interface RsmTariffs { titolare?: number; quiescente?: number; coniuge?: number; figlio?: number }
+export interface RsmTariffs { titolare?: number; quiescente?: number; coniuge?: number; figlio?: number; familiare?: number }
 
 /** Tracciato del file di una società: colonne, codici, ordine (import ed Excel in uscita). */
 export interface RsmFileLayout {
   sheet: string
   columns: Record<string, string> // intestazione normalizzata → campo | 'extra' | 'skip'
   categoryCodes: Record<string, string> // codice → chiave categoria ('|Q' = quiescente)
-  legameCodes: Record<string, 'TI' | 'CO' | 'FI'>
+  legameCodes: Record<string, 'TI' | 'CO' | 'FI' | 'FA'>
   order: string[] // intestazioni del cliente, nel suo ordine
 }
 
@@ -64,7 +64,7 @@ export interface RsmProgram {
   updatedAt: number
 }
 
-export type Legame = 'TI' | 'CO' | 'FI'
+export type Legame = 'TI' | 'CO' | 'FI' | 'FA'
 
 export interface RsmMember {
   id: string

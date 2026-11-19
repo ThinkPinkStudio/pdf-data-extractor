@@ -387,7 +387,7 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
         <div className="rsm-row">
           <label className="rsm-field">{t('rsm.col.legame')}
             <select value={f.legame} onChange={(e) => set('legame', e.target.value)} style={{ width: 170 }}>
-              {['TI', 'CO', 'FI'].map((l) => <option key={l} value={l}>{t(`rsm.leg.${l}`)}</option>)}
+              {['TI', 'CO', 'FI', 'FA'].map((l) => <option key={l} value={l}>{t(`rsm.leg.${l}`)}</option>)}
             </select>
           </label>
           {f.legame === 'TI' ? (

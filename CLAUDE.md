@@ -2160,6 +2160,11 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   una categoria dà quella categoria a tutte le sue righe (la colonna non
   conta). La barra delle società (RSM) e dei clienti (Vita) si vede anche con
   una sola: con una sola sembrava «come prima».
+  **Legame «Altro familiare» FA (19/11/2026, richiesta di Lidia)**: oltre a
+  titolare (anche quiescente), coniuge e figlio; tariffa `familiare` in ogni
+  categoria e fascia d'età (a nucleo compreso nel titolare, quota solo al
+  titolare); letto da «FA», «FAMILIARE», «ALTRO/ALTRI FAMILIARI» e dalla riga
+  «ALTRI FAMILIARI <importo>» delle tariffe del file.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

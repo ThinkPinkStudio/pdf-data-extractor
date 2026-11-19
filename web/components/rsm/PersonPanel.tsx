@@ -45,7 +45,7 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
   const titCf = current.legame === 'TI' ? current.cf : current.cfTitolare
   const nucleus = rsm.rows.filter((r) => r.category === current.category && (r.cf === titCf || r.cfTitolare === titCf) && !(r.exitKind === 'promozione' && r.id !== current.id && r.cf === cf))
     .filter((r, i, all) => all.findIndex((x) => x.cf === r.cf) === i)
-    .sort((a, b) => ['TI', 'CO', 'FI'].indexOf(a.legame) - ['TI', 'CO', 'FI'].indexOf(b.legame))
+    .sort((a, b) => ['TI', 'CO', 'FI', 'FA'].indexOf(a.legame) - ['TI', 'CO', 'FI', 'FA'].indexOf(b.legame))
 
   // Storico: un evento per ogni entrata e ogni uscita di ogni riga.
   const events: Ev[] = []

@@ -36,7 +36,7 @@ function RsmPromozioniPage() {
   const tit = rsm.rows.find((r) => r.id === titId) || null
   const nucleus = useMemo(() => (tit
     ? rsm.rows.filter((r) => r.category === tit.category && (r.id === tit.id || (r.legame !== 'TI' && r.cfTitolare === tit.cf)) && !r.exitKind)
-      .sort((a, b) => ['TI', 'CO', 'FI'].indexOf(a.legame) - ['TI', 'CO', 'FI'].indexOf(b.legame))
+      .sort((a, b) => ['TI', 'CO', 'FI', 'FA'].indexOf(a.legame) - ['TI', 'CO', 'FI', 'FA'].indexOf(b.legame))
     : []), [rsm.rows, tit])
 
   function choose(r: Row) {

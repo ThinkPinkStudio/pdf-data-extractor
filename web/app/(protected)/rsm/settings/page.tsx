@@ -148,7 +148,7 @@ export default function RsmSettingsPage() {
               <table className="rsm-cats">
                 <thead><tr>
                   <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th><th>{t('rsm.set.tariffBy')}</th><th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th>
-                  <th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.quota')}</th><th>{t('rsm.set.rank')}</th><th />
+                  <th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.tFa')}</th><th>{t('rsm.set.quota')}</th><th>{t('rsm.set.rank')}</th><th />
                 </tr></thead>
                 <tbody>
                   {cfg.categories.map((c, i) => (
@@ -161,11 +161,12 @@ export default function RsmSettingsPage() {
                       <td><select value={c.tariffBy === 'eta' ? 'eta' : 'unica'} disabled={ro} onChange={(e) => setCat(i, e.target.value === 'eta' ? { tariffBy: 'eta', ageBands: c.ageBands && c.ageBands.length ? c.ageBands : [{ ...c.tariffs, upTo: null }] } : { tariffBy: 'unica' })} style={{ width: 150 }} aria-label={`${c.label} ${t('rsm.set.tariffBy')}`}>
                         <option value="unica">{t('rsm.set.byOne')}</option><option value="eta">{t('rsm.set.byAge')}</option>
                       </select></td>
-                      {c.tariffBy === 'eta' ? <td colSpan={4} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : <>
+                      {c.tariffBy === 'eta' ? <td colSpan={5} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : <>
                       <td><NumInput value={c.tariffs.titolare} disabled={ro} onChange={(n) => setTariff(i, 'titolare', n)} width={90} label={`${c.label} ${t('rsm.set.tTit')}`} /></td>
                       <td><NumInput value={c.tariffs.quiescente} disabled={ro} onChange={(n) => setTariff(i, 'quiescente', n)} width={90} label={`${c.label} ${t('rsm.set.tQui')}`} /></td>
                       <td><NumInput value={c.tariffs.coniuge} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'coniuge', n)} width={80} label={`${c.label} ${t('rsm.set.tCo')}`} /></td>
-                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td></>}
+                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td>
+                      <td><NumInput value={c.tariffs.familiare} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'familiare', n)} width={80} label={`${c.label} ${t('rsm.set.tFa')}`} /></td></>}
                       <td><NumInput value={c.quota} disabled={ro} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       <td><input type="number" value={c.rank} disabled={ro} onChange={(e) => setCat(i, { rank: Number(e.target.value) })} style={{ width: 60 }} /></td>
                       <td>{!ro && cfg.categories.length > 1 && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => setCfg({ ...cfg, categories: cfg.categories.filter((_, j) => j !== i) })}>×</button>}</td>

@@ -79,7 +79,7 @@ export function ColumnMap({ cols, setCols, cats, catCodes, setCatCodes, legCodes
         )}
         {(open || todoCodes > 0) && legCol && legVals.length > 0 && (
           <CodeTable title={t('rsm.col.legs', { c: legCol.head })} values={legVals} codes={legCodes} setCodes={setLegCodes}
-            options={(['TI', 'CO', 'FI'] as const).map((k) => ({ v: k, l: t(`rsm.leg.${k}`) }))} />
+            options={(['TI', 'CO', 'FI', 'FA'] as const).map((k) => ({ v: k, l: t(`rsm.leg.${k}`) }))} />
         )}
       </div>
     </div>

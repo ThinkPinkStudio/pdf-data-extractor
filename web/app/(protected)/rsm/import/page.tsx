@@ -25,7 +25,7 @@ interface Dry {
   anomalies: RsmAnomaly[]
 }
 type TKey = keyof RsmCategory['tariffs']
-const TKEYS: TKey[] = ['titolare', 'quiescente', 'coniuge', 'figlio']
+const TKEYS: TKey[] = ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare']
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
 // Avvisi da mostrare SUBITO, non fra quelli minori: riguardano come il file è stato
 // letto o numeri che non tornano con il programma, non il singolo dato di una persona.
@@ -374,7 +374,7 @@ export default function RsmImportPage() {
               <table className="rsm-cats">
                 <thead><tr>
                   <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th>
-                  <th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th><th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.quota')}</th>
+                  <th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th><th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.tFa')}</th><th>{t('rsm.set.quota')}</th>
                 </tr></thead>
                 <tbody>
                   {cfg.categories.map((c, i) => {
@@ -386,7 +386,7 @@ export default function RsmImportPage() {
                       return (
                         <td>
                           <NumInput value={v} disabled={disabled} width={92} invalid={inFile && k === 'titolare' && !v}
-                            label={`${c.label} ${t(`rsm.set.t${k === 'titolare' ? 'Tit' : k === 'quiescente' ? 'Qui' : k === 'coniuge' ? 'Co' : 'Fi'}`)}`}
+                            label={`${c.label} ${t(`rsm.set.t${k === 'titolare' ? 'Tit' : k === 'quiescente' ? 'Qui' : k === 'coniuge' ? 'Co' : k === 'figlio' ? 'Fi' : 'Fa'}`)}`}
                             onChange={(n) => setCat(i, { tariffs: { ...c.tariffs, [k]: n } })} />
                           {fv && fv !== v ? <button type="button" className="rsm-mini" style={{ marginTop: 4 }} onClick={() => setCat(i, { tariffs: { ...c.tariffs, [k]: fv } })}>{t('rsm.imp.fileVal', { v: eur(fv) })}</button> : null}
                         </td>
@@ -400,7 +400,7 @@ export default function RsmImportPage() {
                           {f?.policy && f.policy !== c.policy ? <button type="button" className="rsm-mini" style={{ marginTop: 4 }} onClick={() => setCat(i, { policy: f.policy })}>{t('rsm.imp.fileVal', { v: f.policy })}</button> : null}
                         </td>
                         <td>{t(c.mode === 'nucleo' ? 'rsm.set.nucleo' : 'rsm.set.persona')}</td>
-                        {cell('titolare')}{cell('quiescente')}{cell('coniuge', c.mode === 'nucleo')}{cell('figlio', c.mode === 'nucleo')}
+                        {cell('titolare')}{cell('quiescente')}{cell('coniuge', c.mode === 'nucleo')}{cell('figlio', c.mode === 'nucleo')}{cell('familiare', c.mode === 'nucleo')}
                         <td><NumInput value={c.quota} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       </tr>
                     )
