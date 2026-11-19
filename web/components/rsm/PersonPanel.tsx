@@ -9,7 +9,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { api, eur } from '@/components/rsm/useRsm'
 import type { Rsm, Row } from '@/components/rsm/useRsm'
 import { CeasePanel, EditPanel } from '@/components/rsm/MemberPanels'
-import { addDays, checkPerson, decodeCf, fmtDate, isCovered, statusAt } from '@/lib/rsm/rules.js'
+import { addDays, checkPerson, decodeCf, fmtDate, isCovered, statusAt, legameLabel, legamiOf } from '@/lib/rsm/rules.js'
 import type { RsmIssue } from '@/lib/rsm/types'
 
 const PILL: Record<string, string> = { attivo: 'ok', cessazione: 'warn', uscito: 'off', promosso: 'promo', futuro: 'new' }
@@ -45,7 +45,7 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
   const titCf = current.legame === 'TI' ? current.cf : current.cfTitolare
   const nucleus = rsm.rows.filter((r) => r.category === current.category && (r.cf === titCf || r.cfTitolare === titCf) && !(r.exitKind === 'promozione' && r.id !== current.id && r.cf === cf))
     .filter((r, i, all) => all.findIndex((x) => x.cf === r.cf) === i)
-    .sort((a, b) => ['TI', 'CO', 'FI', 'FA'].indexOf(a.legame) - ['TI', 'CO', 'FI', 'FA'].indexOf(b.legame))
+    .sort((a, b) => legamiOf(cfg).findIndex((l: { key: string }) => l.key === a.legame) - legamiOf(cfg).findIndex((l: { key: string }) => l.key === b.legame))
 
   // Storico: un evento per ogni entrata e ogni uscita di ogni riga.
   const events: Ev[] = []
@@ -63,7 +63,7 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
       ].filter(Boolean)
       events.push({
         date: r.entryDate, key: `${r.id}-in`, tone: r.entryKind === 'promozione' ? 'promo' : 'new',
-        title: t(`rsm.ps.in.${r.entryKind}`, { c: label(r.category), l: t(`rsm.leg.${r.legame}`) }),
+        title: t(`rsm.ps.in.${r.entryKind}`, { c: label(r.category), l: legameLabel(cfg, r.legame) }),
         amount: r.c.dovuto ? `${eur(r.c.dovuto)} · ${r.c.calc}` : r.c.calc,
         lines: [...dec, ...meta],
       })
@@ -105,7 +105,7 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
             <div><span>{t('rsm.col.birth')}</span><b>{fmtDate(person.birthDate) || '—'}{age != null ? ` · ${t('rsm.ps.age', { n: age })}` : ''}</b></div>
             <div><span>{t('rsm.ps.sex')}</span><b>{d.sex === 'F' ? t('rsm.ps.f') : d.sex === 'M' ? t('rsm.ps.m') : '—'}</b></div>
             <div><span>{t('rsm.category')}</span><b>{label(current.category)}{current.quiescente ? ` · ${t('rsm.quiescente')}` : ''}</b></div>
-            <div><span>{t('rsm.col.legame')}</span><b>{t(`rsm.leg.${current.legame}`)}</b></div>
+            <div><span>{t('rsm.col.legame')}</span><b>{legameLabel(cfg, current.legame)}</b></div>
             <div><span>{t('rsm.ps.stateAt', { d: fmtDate(at) })}</span><b><span className={`rsm-pill ${PILL[st]}`}>{t(`rsm.state.${st}`)}</span></b></div>
             <div><span>{t('rsm.col.due')}</span><b>{eur(current.c.dovuto)}{current.c.annuo ? ` (${t('rsm.ps.annual', { v: eur(current.c.annuo) })})` : ''}</b></div>
           </div>
@@ -143,7 +143,7 @@ export default function PersonPanel({ rsm, cf, at, onClose, onOpen, onDone }: {
                 {nucleus.map((r) => (
                   <li key={r.id}>
                     {r.cf === cf ? <b>{r.cognome} {r.nome}</b> : <button className="rsm-link" onClick={() => onOpen(r.cf)}>{r.cognome} {r.nome}</button>}
-                    <span className="rsm-sub"> · {t(`rsm.leg.${r.legame}`)} · <span className={`rsm-pill ${PILL[statusAt(cfg, r, at) as string]}`}>{t(`rsm.state.${statusAt(cfg, r, at)}`)}</span></span>
+                    <span className="rsm-sub"> · {legameLabel(cfg, r.legame)} · <span className={`rsm-pill ${PILL[statusAt(cfg, r, at) as string]}`}>{t(`rsm.state.${statusAt(cfg, r, at)}`)}</span></span>
                   </li>
                 ))}
               </ul>

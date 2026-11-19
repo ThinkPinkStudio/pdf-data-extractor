@@ -10,8 +10,9 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmGate, RsmHeader, api, eur, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import type { Row } from '@/components/rsm/useRsm'
-import { fmtDate, isCovered, previewPromotion, statusAt } from '@/lib/rsm/rules.js'
-import type { RsmCalc } from '@/lib/rsm/types'
+import { describeValue } from '@/lib/configValue.js'
+import { refundTaxOf, fmtDate, isCovered, previewPromotion, statusAt, legameLabel, legamiOf } from '@/lib/rsm/rules.js'
+import type { RsmCalc, RsmConfig } from '@/lib/rsm/types'
 
 export default function Page() {
   return <Suspense><RsmPromozioniPage /></Suspense>
@@ -36,7 +37,7 @@ function RsmPromozioniPage() {
   const tit = rsm.rows.find((r) => r.id === titId) || null
   const nucleus = useMemo(() => (tit
     ? rsm.rows.filter((r) => r.category === tit.category && (r.id === tit.id || (r.legame !== 'TI' && r.cfTitolare === tit.cf)) && !r.exitKind)
-      .sort((a, b) => ['TI', 'CO', 'FI', 'FA'].indexOf(a.legame) - ['TI', 'CO', 'FI', 'FA'].indexOf(b.legame))
+      .sort((a, b) => legamiOf(cfg).findIndex((l: { key: string }) => l.key === a.legame) - legamiOf(cfg).findIndex((l: { key: string }) => l.key === b.legame))
     : []), [rsm.rows, tit])
 
   function choose(r: Row) {
@@ -110,7 +111,7 @@ function RsmPromozioniPage() {
       <RsmHeader rsm={rsm} title={t('rsm.pr.title')} />
       <RsmGate rsm={rsm}>
         {flashNode}
-        <p className="rsm-muted" style={{ margin: 0, maxWidth: 820 }}>{t('rsm.pr.intro', { m: cfg?.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: String(cfg?.rules.refundTaxPct ?? 0).replace('.', ',') })}</p>
+        <p className="rsm-muted" style={{ margin: 0, maxWidth: 820 }}>{t('rsm.pr.intro', { m: cfg?.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: describeValue(refundTaxOf(cfg), { rimborso: t('rsm.set.refundGross') }) })}</p>
         <div className="rsm-box">
           <div className="rsm-box-body">
             {!tit && (
@@ -143,13 +144,13 @@ function RsmPromozioniPage() {
                 {nucleus.map((r) => (
                   <label key={r.id} className="rsm-muted" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input type="checkbox" checked={ids.includes(r.id)} disabled={r.legame === 'TI'} onChange={(e) => setIds((x) => (e.target.checked ? [...x, r.id] : x.filter((y) => y !== r.id)))} />
-                    {r.cognome} {r.nome} · {t(`rsm.leg.${r.legame}`)}
+                    {r.cognome} {r.nome} · {legameLabel(cfg, r.legame)}
                   </label>
                 ))}
                 {pv && (
                   <div className="rsm-grid2">
-                    <PreviewTable title={t('rsm.pr.exitTitle', { c: label(tit.category) })} rows={pv.exits} field="rimborso" total={pv.rimborso} totalLabel={t('rsm.pr.refundTot')} />
-                    <PreviewTable title={t('rsm.pr.entryTitle', { c: label(to) })} rows={pv.entries} field="dovuto" total={pv.dovuto} totalLabel={t('rsm.pr.dueTot')} />
+                    <PreviewTable cfg={cfg} title={t('rsm.pr.exitTitle', { c: label(tit.category) })} rows={pv.exits} field="rimborso" total={pv.rimborso} totalLabel={t('rsm.pr.refundTot')} />
+                    <PreviewTable cfg={cfg} title={t('rsm.pr.entryTitle', { c: label(to) })} rows={pv.entries} field="dovuto" total={pv.dovuto} totalLabel={t('rsm.pr.dueTot')} />
                   </div>
                 )}
                 {pv && <div className="rsm-sum"><span>{t('rsm.pr.saldo')} <b>{eur(pv.saldo)}</b></span></div>}
@@ -187,7 +188,7 @@ function RsmPromozioniPage() {
   )
 }
 
-function PreviewTable({ title, rows, field, total, totalLabel }: { title: string; rows: { member: Partial<Row>; calc: RsmCalc }[]; field: 'rimborso' | 'dovuto'; total: number; totalLabel: string }) {
+function PreviewTable({ cfg, title, rows, field, total, totalLabel }: { cfg?: RsmConfig; title: string; rows: { member: Partial<Row>; calc: RsmCalc }[]; field: 'rimborso' | 'dovuto'; total: number; totalLabel: string }) {
   const { t } = useI18n()
   return (
     <div className="rsm-box">
@@ -197,7 +198,7 @@ function PreviewTable({ title, rows, field, total, totalLabel }: { title: string
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              <td>{r.member.cognome} {r.member.nome}<div className="rsm-sub">{t(`rsm.leg.${r.member.legame}`)}</div></td>
+              <td>{r.member.cognome} {r.member.nome}<div className="rsm-sub">{legameLabel(cfg, r.member.legame)}</div></td>
               <td className="num">{r.calc.annuo ? eur(r.calc.annuo) : '—'}</td>
               <td className="num">{eur(r.calc[field])}{field === 'dovuto' && <div className="rsm-sub">{r.calc.calc}</div>}</td>
             </tr>

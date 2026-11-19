@@ -4,20 +4,116 @@
 // componibili con la spiegazione accanto, esempio di calcolo che segue le
 // impostazioni, prova prima di salvare (cosa cambia per categoria e per
 // persona), tracciato del file della società.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
-import NumInput from '@/components/rsm/NumInput'
+import ValueInput from '@/components/ValueInput'
 import { eur } from '@/components/rsm/useRsm'
-import { compareConfigs, exampleCalc, fmtDate } from '@/lib/rsm/rules.js'
-import type { RsmCategory, RsmConfig, RsmMember, RsmTariffs } from '@/lib/rsm/types'
+import { compareConfigs, entryStepsOf, exampleCalc, fmtDate, legamiOf, refundTaxOf, legameLabel } from '@/lib/rsm/rules.js'
+import { describeValue } from '@/lib/configValue.js'
+import type { ConfigValue, RsmCategory, RsmConfig, RsmLegame, RsmMember, RsmTariffs } from '@/lib/rsm/types'
 
 type Band = RsmTariffs & { upTo: number | null }
-const TK: (keyof RsmTariffs)[] = ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare']
-const TLABEL: Record<keyof RsmTariffs, string> = { titolare: 'rsm.set.tTit', quiescente: 'rsm.set.tQui', coniuge: 'rsm.set.tCo', figlio: 'rsm.set.tFi', familiare: 'rsm.set.tFa' }
+type T = (k: string, p?: Record<string, string | number>) => string
+
+/** Colonne delle tariffe: titolare, quiescente e una per ogni familiare del programma. */
+export function tariffColumns(cfg: RsmConfig, t: T) {
+  return [
+    { key: 'titolare', label: t('rsm.set.tTit'), family: false },
+    { key: 'quiescente', label: t('rsm.set.tQui'), family: false },
+    ...legamiOf(cfg).filter((l: RsmLegame) => l.key !== 'TI').map((l: RsmLegame) => ({ key: l.tariff, label: l.label, family: true })),
+  ]
+}
+
+/** Giorno e mese 'gg/mm' (salvato come 'MM-DD'): si scrive liberamente, vale quando è completo. */
+export function DayMonth({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const show = (v: string) => v.split('-').reverse().join('/')
+  const [text, setText] = useState(show(value))
+  useEffect(() => setText(show(value)), [value])
+  return (
+    <input value={text} disabled={disabled} placeholder="30/06" style={{ width: 80 }}
+      onChange={(e) => {
+        setText(e.target.value)
+        const m = /^(\d{1,2})\/(\d{1,2})$/.exec(e.target.value.trim())
+        if (m && +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) onChange(`${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`)
+      }}
+      onBlur={() => setText(show(value))} />
+  )
+}
+
+/**
+ * LEGAMI del nucleo: il titolare (fisso) e i familiari, a cui se ne
+ * aggiungono altri. Ognuno ha il nome, il codice, le parole con cui lo
+ * scrivono i file e un'età massima (solo avviso); la tariffa è una colonna
+ * nelle categorie.
+ */
+export function LegamiBox({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; onChange: (l: RsmLegame[]) => void }) {
+  const { t } = useI18n()
+  const legs: RsmLegame[] = legamiOf(cfg)
+  const set = (i: number, p: Partial<RsmLegame>) => onChange(legs.map((l, j) => (j === i ? { ...l, ...p } : l)))
+  const add = () => {
+    let n = 1
+    while (legs.some((l) => l.key === `L${n}`)) n++
+    onChange([...legs, { key: `L${n}`, label: '', tariff: `legame${n}`, words: '', maxAge: null }])
+  }
+  return (
+    <div className="rsm-box">
+      <div className="rsm-box-head"><div><div className="rsm-box-title">{t('rsm.leg.title')}</div><span className="rsm-note">{t('rsm.leg.hint')}</span></div></div>
+      <div className="rsm-box-body rsm-scroll">
+        <table className="rsm-cats">
+          <thead><tr><th>{t('rsm.leg.code')}</th><th>{t('rsm.leg.name')}</th><th>{t('rsm.leg.words')}</th><th>{t('rsm.leg.maxAge')}</th><th /></tr></thead>
+          <tbody>
+            {legs.map((l, i) => (
+              <tr key={i}>
+                <td><input value={l.key} disabled={ro || l.key === 'TI'} maxLength={12} onChange={(e) => set(i, { key: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} style={{ width: 70 }} aria-label={t('rsm.leg.code')} /></td>
+                <td><input value={l.label} disabled={ro} onChange={(e) => set(i, { label: e.target.value })} style={{ width: 170 }} aria-label={t('rsm.leg.name')} /></td>
+                <td><input value={l.words} disabled={ro} onChange={(e) => set(i, { words: e.target.value })} style={{ width: 300 }} placeholder="CONIUGE, CONVIVENTE" aria-label={t('rsm.leg.words')} /></td>
+                <td>{l.key === 'TI' ? <span className="rsm-muted">—</span> : <input type="number" min={0} max={120} value={l.maxAge ?? ''} placeholder={t('rsm.r.kidNone')} disabled={ro} onChange={(e) => set(i, { maxAge: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 90 }} aria-label={t('rsm.leg.maxAge')} />}</td>
+                <td>{!ro && l.key !== 'TI' && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => onChange(legs.filter((_, j) => j !== i))}>×</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!ro && <div><button className="btn btn-secondary" onClick={add}>{t('rsm.leg.add')}</button></div>}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Scaglioni d'entrata: chi entra fino al giorno X paga Y (percentuale del
+ * premio annuo o importo fisso). Di default due: fino al 30/06 il 100%, poi il
+ * 50%; se ne aggiungono quanti servono (trimestri, mesi…).
+ */
+export function EntrySteps({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; onChange: (s: { until: string; value: ConfigValue }[]) => void }) {
+  const { t } = useI18n()
+  const steps = entryStepsOf(cfg) as { until: string; value: ConfigValue }[]
+  const set = (i: number, p: Partial<{ until: string; value: ConfigValue }>) => onChange(steps.map((x, j) => (j === i ? { ...x, ...p } : x)))
+  return (
+    <div className="rsm-field" style={{ display: 'grid', gap: 6 }}>
+      <span>{t('rsm.es.title')}</span>
+      {steps.map((x, i) => (
+        <span key={i} className="rsm-row" style={{ alignItems: 'center', gap: 6 }}>
+          {t('rsm.es.until')} <DayMonth value={x.until} disabled={ro || i === steps.length - 1} onChange={(v) => set(i, { until: v })} />
+          <ValueInput value={x.value} legacy={{ mode: 'percentuale', of: ['premio'] }} disabled={ro} onChange={(v) => set(i, { value: v })} bases={[{ key: 'premio', label: t('rsm.es.premio') }]} width={70} label={t('rsm.es.until')} />
+          {!ro && steps.length > 1 && i < steps.length - 1 && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => onChange(steps.filter((_, j) => j !== i))}>×</button>}
+        </span>
+      ))}
+      {!ro && <span><button type="button" className="btn btn-secondary" onClick={() => {
+        const last = steps[steps.length - 1]
+        const prev = steps.length > 1 ? steps[steps.length - 2].until : '06-30'
+        const [mm] = prev.split('-').map(Number)
+        const until = `${String(Math.min(11, mm + 3)).padStart(2, '0')}-${mm + 3 >= 11 ? '30' : '30'}`
+        onChange([...steps.slice(0, -1), { until, value: last.value }, last])
+      }}>{t('rsm.es.add')}</button></span>}
+      <span className="rsm-help">{t('rsm.es.help')}</span>
+    </div>
+  )
+}
 
 /** Fasce d'età di una categoria: «fino a N anni» e l'ultima per tutti gli altri. */
-export function AgeBands({ cat, ro, onChange }: { cat: RsmCategory; ro: boolean; onChange: (bands: Band[]) => void }) {
+export function AgeBands({ cfg, cat, ro, onChange }: { cfg: RsmConfig; cat: RsmCategory; ro: boolean; onChange: (bands: Band[]) => void }) {
   const { t } = useI18n()
+  const cols = tariffColumns(cfg, t)
   const bands: Band[] = cat.ageBands && cat.ageBands.length ? cat.ageBands : [{ ...cat.tariffs, upTo: null }]
   const sorted = bands.map((b, i) => ({ b, i })).sort((x, y) => (x.b.upTo == null ? 1e9 : x.b.upTo) - (y.b.upTo == null ? 1e9 : y.b.upTo))
   const set = (i: number, p: Partial<Band>) => onChange(bands.map((b, j) => (j === i ? { ...b, ...p } : b)))
@@ -26,7 +122,7 @@ export function AgeBands({ cat, ro, onChange }: { cat: RsmCategory; ro: boolean;
     <div className="rsm-bands">
       <div className="rsm-box-title" style={{ fontSize: 13 }}>{t('rsm.ab.title', { c: cat.label })}</div>
       <table className="rsm-cats">
-        <thead><tr><th>{t('rsm.ab.band')}</th>{TK.map((k) => <th key={k}>{t(TLABEL[k])}</th>)}<th /></tr></thead>
+        <thead><tr><th>{t('rsm.ab.band')}</th>{cols.map((c) => <th key={c.key}>{c.label}</th>)}<th /></tr></thead>
         <tbody>
           {sorted.map(({ b, i }, k) => {
             const from = prevOf(k)
@@ -38,8 +134,9 @@ export function AgeBands({ cat, ro, onChange }: { cat: RsmCategory; ro: boolean;
                     : <span className="rsm-row" style={{ alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>{from == null ? t('rsm.ab.upTo') : t('rsm.ab.fromTo', { n: from + 1 })}
                       <input type="number" value={b.upTo} disabled={ro} min={0} max={120} onChange={(e) => set(i, { upTo: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 64 }} aria-label={t('rsm.ab.upTo')} />{t('rsm.ab.years')}</span>}
                 </td>
-                {TK.map((tk) => (
-                  <td key={tk}><NumInput value={b[tk]} disabled={ro || (cat.mode === 'nucleo' && (tk === 'coniuge' || tk === 'figlio' || tk === 'familiare'))} onChange={(n) => set(i, { [tk]: n })} width={86} label={`${cat.label} ${t(TLABEL[tk])}`} /></td>
+                {cols.map((col) => (
+                  <td key={col.key}><ValueInput value={b[col.key]} disabled={ro || (cat.mode === 'nucleo' && col.family)} onChange={(v) => set(i, { [col.key]: v })} width={76}
+                    bases={cols.filter((o) => o.key !== col.key).map((o) => ({ key: o.key, label: o.label }))} label={`${cat.label} ${col.label}`} /></td>
                 ))}
                 <td>{!ro && b.upTo != null && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => onChange(bands.filter((_, j) => j !== i))}>×</button>}</td>
               </tr>
@@ -71,7 +168,7 @@ export function RuleChoices({ cfg, ro, setRule }: { cfg: RsmConfig; ro: boolean;
     <div className="rsm-rules">
       <label className="rsm-field">{t('rsm.r.entry')}
         <select value={r.entryMode || 'semestri'} disabled={ro} onChange={(e) => setRule('entryMode', e.target.value)}>
-          <option value="semestri">{t('rsm.r.entrySem', { d: (r.firstSemesterEnd || '06-30').split('-').reverse().join('/'), p: r.secondSemesterPct ?? 50 })}</option>
+          <option value="semestri">{t('rsm.r.entrySteps')}</option>
           <option value="prorata">{t('rsm.r.entryPro')}</option>
           <option value="intero">{t('rsm.r.entryFull')}</option>
         </select>
@@ -87,13 +184,9 @@ export function RuleChoices({ cfg, ro, setRule }: { cfg: RsmConfig; ro: boolean;
       <label className="rsm-field">{t('rsm.r.exit')}
         <select value={exitMode} disabled={ro} onChange={(e) => { setRule('exitMode', e.target.value); setRule('coverUntilPeriodEnd', e.target.value !== 'rimborso') }}>
           <option value="fineAnno">{t('rsm.r.exitEnd')}</option>
-          <option value="rimborso">{t('rsm.r.exitRefund', { p: String(r.refundTaxPct).replace('.', ',') })}</option>
+          <option value="rimborso">{t('rsm.r.exitRefund', { p: describeValue(refundTaxOf(cfg), { rimborso: t('rsm.set.refundGross') }) })}</option>
         </select>
         <span className="rsm-help">{t(`rsm.r.exitHelp.${exitMode}`)}</span>
-      </label>
-      <label className="rsm-field">{t('rsm.r.kid')}
-        <input type="number" min={0} max={99} value={r.childMaxAge || ''} placeholder={t('rsm.r.kidNone')} disabled={ro} onChange={(e) => setRule('childMaxAge', Number(e.target.value) || 0)} style={{ width: 120 }} />
-        <span className="rsm-help">{t('rsm.r.kidHelp')}</span>
       </label>
     </div>
   )
@@ -117,7 +210,7 @@ export function ExampleBox({ cfg }: { cfg: RsmConfig }) {
       <div className="rsm-box-body">
         <div className="rsm-row">
           <label className="rsm-field">{t('rsm.category')}<select value={cat.key} onChange={(e) => setEx({ ...ex, category: e.target.value })}>{cfg.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select></label>
-          <label className="rsm-field">{t('rsm.ex.who')}<select value={ex.legame} onChange={(e) => setEx({ ...ex, legame: e.target.value })}><option value="TI">{t('rsm.leg.TI')}</option><option value="CO">{t('rsm.leg.CO')}</option><option value="FI">{t('rsm.leg.FI')}</option><option value="FA">{t('rsm.leg.FA')}</option></select></label>
+          <label className="rsm-field">{t('rsm.ex.who')}<select value={ex.legame} onChange={(e) => setEx({ ...ex, legame: e.target.value })}>{legamiOf(cfg).map((l: RsmLegame) => <option key={l.key} value={l.key}>{l.label}</option>)}</select></label>
           <label className="rsm-field">{t('rsm.ex.age')}<input type="number" min={0} max={110} value={ex.age} onChange={(e) => setEx({ ...ex, age: Number(e.target.value) || 0 })} style={{ width: 80 }} /></label>
           <label className="rsm-field w-date">{t('rsm.ex.req')}<input type="date" value={ex.requested} onChange={(e) => setEx({ ...ex, requested: e.target.value })} /></label>
           <label className="rsm-field w-date">{t('rsm.ex.com')}<input type="date" value={ex.communicated} onChange={(e) => setEx({ ...ex, communicated: e.target.value })} /></label>
@@ -217,7 +310,7 @@ export function LayoutSummary({ cfg, ro, onForget }: { cfg: RsmConfig; ro: boole
       <div className="rsm-box-body">
         <div className="rsm-chips">{fields.map(([h, f]) => <span key={h} className="chip">{h} → <b>{t(`rsm.f.${f}`)}</b></span>)}</div>
         {Object.keys(l.categoryCodes).length > 0 && <div className="rsm-chips">{Object.entries(l.categoryCodes).map(([c, k]) => <span key={c} className="chip">«{c}» = <b>{label(k)}</b></span>)}</div>}
-        {Object.keys(l.legameCodes).length > 0 && <div className="rsm-chips">{Object.entries(l.legameCodes).map(([c, k]) => <span key={c} className="chip">«{c}» = <b>{t(`rsm.leg.${k}`)}</b></span>)}</div>}
+        {Object.keys(l.legameCodes).length > 0 && <div className="rsm-chips">{Object.entries(l.legameCodes).map(([c, k]) => <span key={c} className="chip">«{c}» = <b>{legameLabel(cfg, k)}</b></span>)}</div>}
       </div>
     </div>
   )

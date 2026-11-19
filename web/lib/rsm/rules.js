@@ -16,6 +16,8 @@
 // anno), mai dal codice: «se modifichiamo la formula possiamo poi
 // rimodificarla?» — sì, cambiando le impostazioni.
 
+import { evalValue, normValue } from '../configValue.js'
+
 /* ─── Date: sempre 'YYYY-MM-DD' ─────────────────────────────────────────── */
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -190,19 +192,64 @@ export function checkPerson({ cognome, nome, cf, birthDate }, refYear) {
 export const LEGAMI = { TI: 'Titolare', CO: 'Coniuge/convivente', FI: 'Figlio/a', FA: 'Altro familiare' }
 
 /**
- * Legame dal testo del file. `layout` (config.fileLayout): i codici che quella
- * società usa («C» = coniuge, «F» = figlio), indicati una volta all'import.
+ * LEGAMI del programma (19/11/2026: «ogni lista deve potersi aggiungere
+ * elementi»): il titolare (TI, fisso: è il capo del nucleo) e i familiari,
+ * ognuno con il suo nome, la sua tariffa nelle categorie, le parole con cui lo
+ * scrivono i file e un'età massima (solo avviso). I programmi vecchi senza
+ * elenco hanno i quattro di sempre; l'età massima dei figli veniva da
+ * `rules.childMaxAge`.
  */
-export function normLegame(v, layout) {
+export function legamiOf(cfg) {
+  const list = cfg && Array.isArray(cfg.legami) && cfg.legami.length ? cfg.legami : null
+  const kid = Number(((cfg && cfg.rules) || {}).childMaxAge) || 0
+  const base = list || [
+    { key: 'TI', label: 'Titolare', tariff: 'titolare', words: 'TI, TITOLARE' },
+    { key: 'CO', label: 'Coniuge/convivente', tariff: 'coniuge', words: 'CO, CONIUGE, CONIUGI, CONVIVENTE, CONVIVENTI' },
+    { key: 'FI', label: 'Figlio/a', tariff: 'figlio', words: 'FI, FIGLIO, FIGLIA, FIGLI', maxAge: kid || null },
+    { key: 'FA', label: 'Altro familiare', tariff: 'familiare', words: 'FA, FAMILIARE, ALTRO FAMILIARE, ALTRI FAMILIARI' },
+  ]
+  const out = base.map((l) => ({
+    key: String(l.key || '').toUpperCase(),
+    label: String(l.label || l.key || ''),
+    tariff: l.key === 'TI' ? 'titolare' : String(l.tariff || String(l.key || '').toLowerCase()),
+    words: String(l.words || ''),
+    maxAge: l.maxAge == null || l.maxAge === '' ? null : Number(l.maxAge) || null,
+  })).filter((l) => l.key)
+  // il titolare c'è sempre, per primo
+  if (!out.some((l) => l.key === 'TI')) out.unshift({ key: 'TI', label: 'Titolare', tariff: 'titolare', words: 'TI, TITOLARE', maxAge: null })
+  return [...out.filter((l) => l.key === 'TI'), ...out.filter((l) => l.key !== 'TI')]
+}
+
+/** Nome di un legame («Coniuge/convivente»). */
+export const legameLabel = (cfg, key) => (legamiOf(cfg).find((l) => l.key === key) || {}).label || key
+
+/**
+ * Tracciato del file con i legami del programma: le funzioni di lettura lo
+ * passano ovunque già oggi, così le parole dei legami arrivano a normLegame.
+ */
+export const readLayout = (cfg) => ({ ...((cfg && cfg.fileLayout) || {}), legami: legamiOf(cfg) })
+
+/** Chiavi delle tariffe di una categoria: titolare, quiescente e una per ogni familiare. */
+export const tariffKeys = (cfg) => ['titolare', 'quiescente', ...legamiOf(cfg).filter((l) => l.key !== 'TI').map((l) => l.tariff)]
+
+/**
+ * Legame dal testo del file. `layout` (config.fileLayout): i codici che quella
+ * società usa («C» = coniuge, «F» = figlio), indicati una volta all'import;
+ * poi le parole di ogni legame del programma (`cfg`), a inizio parola.
+ */
+export function normLegame(v, layout, cfg) {
   const s = String(v || '').trim().toUpperCase()
   if (!s) return null
   const coded = layout && layout.legameCodes ? layout.legameCodes[normHead(s)] : null
   if (coded) return coded
-  if (s === 'TI' || s.startsWith('TITOL')) return 'TI'
-  if (s === 'CO' || s.startsWith('CONI') || s.startsWith('CONV')) return 'CO'
-  if (s === 'FI' || s.startsWith('FIGL')) return 'FI'
-  // altro familiare del nucleo (genitore, fratello…): «FA», «FAMILIARE», «ALTRO FAMILIARE»
-  if (s === 'FA' || s.startsWith('FAMIL') || s.startsWith('ALTRO FAMIL') || s.startsWith('ALTRI FAMIL')) return 'FA'
+  const n = normHead(s)
+  const legs = legamiOf(cfg || (layout && layout.legami ? { legami: layout.legami } : null))
+  for (const l of legs) if (n === normHead(l.key)) return l.key
+  for (const l of legs) {
+    const words = String(l.words || '').split(',').map((w) => normHead(w)).filter((w) => w.length > 2)
+    if (normHead(l.label).length > 2) words.push(normHead(l.label))
+    if (words.some((w) => n === w || n.startsWith(`${w} `) || (w.length >= 4 && n.startsWith(w.slice(0, Math.max(4, w.length - 2)))))) return l.key
+  }
   return null
 }
 
@@ -267,19 +314,72 @@ export function tariffsFor(cat, age) {
   return cat.tariffs || {}
 }
 
+/**
+ * Tariffe in euro di una riga (categoria o fascia): ogni tariffa è un importo
+ * fisso o una percentuale di altre tariffe della stessa riga («coniuge = 50%
+ * del titolare»). Si risolvono a giri finché non cambia più nulla, così una
+ * percentuale di una percentuale funziona; un giro circolare resta a 0.
+ */
+export function resolveTariffs(t) {
+  const out = {}
+  const keys = Object.keys(t || {})
+  for (const k of keys) { const v = normValue(t[k]); if (v.mode === 'fisso') out[k] = v.value }
+  for (let pass = 0; pass < keys.length; pass++) {
+    let changed = false
+    for (const k of keys) {
+      if (k in out) continue
+      const v = normValue(t[k])
+      if (v.mode === 'fisso' || !v.of.every((b) => b in out || !(b in t))) continue
+      out[k] = Math.round(evalValue(v, out) * 100) / 100
+      changed = true
+    }
+    if (!changed) break
+  }
+  for (const k of keys) if (!(k in out)) out[k] = 0
+  return out
+}
+
 /** Premio annuo di una persona nella sua categoria (0 per i familiari del premio a nucleo). */
 export function annualPremium(cfg, catKey, legame, quiescente, age) {
   const cat = categoryOf(cfg, catKey)
   if (!cat) return 0
-  const t = tariffsFor(cat, age)
-  if (cat.mode === 'nucleo') {
-    if (legame !== 'TI') return 0
-    return Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
+  const t = resolveTariffs(tariffsFor(cat, age))
+  const holder = () => Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
+  if (legame === 'TI') return holder()
+  if (cat.mode === 'nucleo') return 0
+  const leg = legamiOf(cfg).find((l) => l.key === legame)
+  return leg ? Number(t[leg.tariff]) || 0 : 0
+}
+
+/** Quota associativa di una categoria per un premio annuo (fissa o percentuale del premio). */
+export function quotaOf(cat, annuo) {
+  return Math.round(evalValue(cat ? cat.quota : 0, { premio: annuo }) * 100) / 100
+}
+
+/**
+ * Scaglioni d'entrata (modo «semestri»): fino a quale giorno, quanto si paga
+ * del premio annuo (percentuale del premio, o importo fisso). I programmi
+ * vecchi: fino a `firstSemesterEnd` il 100%, poi `secondSemesterPct`.
+ */
+export function entryStepsOf(cfg) {
+  const r = (cfg && cfg.rules) || {}
+  if (Array.isArray(r.entrySteps) && r.entrySteps.length) {
+    return [...r.entrySteps].map((x) => ({ until: /^\d{2}-\d{2}$/.test(String(x.until)) ? x.until : '12-31', value: normValue(x.value, { mode: 'percentuale', of: ['premio'] }) }))
+      .sort((a, b) => a.until.localeCompare(b.until))
   }
-  if (legame === 'CO') return Number(t.coniuge) || 0
-  if (legame === 'FI') return Number(t.figlio) || 0
-  if (legame === 'FA') return Number(t.familiare) || 0
-  return Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
+  return [
+    { until: r.firstSemesterEnd || '06-30', value: { mode: 'percentuale', value: 100, of: ['premio'] } },
+    { until: '12-31', value: { mode: 'percentuale', value: Number(r.secondSemesterPct ?? 50), of: ['premio'] } },
+  ]
+}
+
+/**
+ * Trattenuta sul rimborso: percentuale = imposta da scorporare (rimborso /
+ * (1 + p%), «al netto del 2,5%»), importo fisso = si toglie quella cifra.
+ */
+export function refundTaxOf(cfg) {
+  const r = (cfg && cfg.rules) || {}
+  return normValue(r.refundTax != null ? r.refundTax : r.refundTaxPct ?? 0, { mode: 'percentuale', of: ['rimborso'] })
 }
 
 /** Frazione del periodo da `date` (incluso) alla fine, col metodo scelto. */
@@ -352,19 +452,29 @@ export function computeMember(cfg, m) {
   } else if (r.entryMode === 'prorata') {
     frazione = prorataFraction(cfg, entry)
     calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
-  } else if (entry <= firstSemesterEnd(cfg)) {
-    calc = '1° semestre: 100%'
   } else {
-    frazione = Number(r.secondSemesterPct ?? 50) / 100
-    calc = `2° semestre: ${r.secondSemesterPct ?? 50}%`
+    // scaglioni d'entrata: il primo il cui «fino al» comprende la data
+    const md = entry.slice(5)
+    const steps = entryStepsOf(cfg)
+    const k = steps.findIndex((x) => md <= x.until)
+    const step = steps[k < 0 ? steps.length - 1 : k]
+    const v = step.value
+    const due = evalValue(v, { premio: annuo })
+    frazione = annuo > 0 ? due / annuo : 0
+    const it = (x) => String(x).replace('.', ',')
+    calc = steps.length === 2 && v.mode === 'percentuale' && v.of.length === 1 && v.of[0] === 'premio'
+      ? `${k === 0 ? '1°' : '2°'} semestre: ${it(v.value)}%`
+      : `entrata fino al ${step.until.split('-').reverse().join('/')}: ${v.mode === 'fisso' ? `${it(v.value)} €` : `${it(v.value)}${v.mode === 'permille' ? '‰' : '%'} del premio`}`
   }
   if (annuo === 0 && cat && cat.mode === 'nucleo' && m.legame !== 'TI') calc = 'compreso nel nucleo'
   const rateo = round2(annuo * frazione)
-  const quota = m.legame === 'TI' && annuo > 0 ? Number(cat ? cat.quota : 0) || 0 : 0
+  const quota = m.legame === 'TI' && annuo > 0 ? quotaOf(cat, annuo) : 0
   let rimborso = 0
   if ((m.exitKind === 'promozione' || (m.exitKind === 'cessazione' && refundsCessation(cfg))) && m.exitDate && annuo > 0) {
-    const tax = Number(r.refundTaxPct ?? 0)
-    rimborso = round2(annuo / (1 + tax / 100) * prorataFraction(cfg, m.exitDate))
+    const tax = refundTaxOf(cfg)
+    const gross = annuo * prorataFraction(cfg, m.exitDate)
+    rimborso = round2(tax.mode === 'fisso' ? Math.max(0, gross - tax.value)
+      : tax.mode === 'permille' ? gross / (1 + tax.value / 1000) : gross / (1 + tax.value / 100))
   }
   const dovuto = round2(rateo + quota)
   return { annuo, frazione, rateo, quota, dovuto, rimborso, saldo: round2(dovuto - rimborso), calc }
@@ -418,8 +528,8 @@ export function renewalPlan(cfg, members) {
   for (const x of keep.concat(next)) {
     const a = ageAt(x.m.birthDate || decodeCf(x.m.cf).birthDate, at)
     if (a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
-    const kidMax = Number((cfg.rules || {}).childMaxAge) || 0
-    if (kidMax && x.m.legame === 'FI' && a != null && a > kidMax) x.alerts.push(`figlio di ${a} anni: oltre l'età massima di ${kidMax} per i figli`)
+    const leg = legamiOf(cfg).find((l) => l.key === x.m.legame)
+    if (leg && leg.key !== 'TI' && leg.maxAge && a != null && a > leg.maxAge) x.alerts.push(`${leg.label.toLowerCase()} di ${a} anni: oltre l'età massima di ${leg.maxAge}`)
     if (x.m.exitDate && x.m.exitDate > at) x.alerts.push(`uscita comunicata dal ${fmtDate(x.m.exitDate)}`)
     if (x.m.legame !== 'TI' && x.m.cfTitolare === x.m.cf) x.alerts.push('come capo nucleo ha il proprio codice fiscale: manca il titolare')
     else if (x.m.legame !== 'TI' && x.m.cfTitolare && !covered.has(`${x.m.category}|${x.m.cfTitolare}`)) x.alerts.push('il titolare del nucleo non è più in copertura')
@@ -597,7 +707,7 @@ export function parseCommunicationRows(rows, refYear, fallbackMap, layout) {
  */
 export function prepareCommunication(cfg, parsed, existing, communicated) {
   const refYear = +cfg.periodStart.slice(0, 4)
-  const layout = cfg.fileLayout || null
+  const layout = readLayout(cfg)
   const byCfFile = new Map()
   for (const r of parsed) {
     if (r.legame === 'TI' && !r.cf && r.cfTitolare) r.cf = r.cfTitolare
@@ -670,9 +780,10 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
       const pol = (categoryOf(cfg, category) || {}).policy
       if (pol && cleanCf(pol) !== cleanCf(r.polizza)) issues.push({ code: 'polizza', level: 'warning', text: `Numero di polizza ${r.polizza} diverso da quello della categoria (${pol}).` })
     }
-    const kidMax = Number((cfg.rules || {}).childMaxAge) || 0
-    const kidAge = kidMax && !exit && r.legame === 'FI' ? ageAt(person.birthDate, entryDate || communicated) : null
-    if (kidAge != null && kidAge > kidMax) issues.push({ code: 'figlio-eta', level: 'warning', text: `Figlio/a di ${kidAge} anni: oltre l'età massima di ${kidMax} per i figli.` })
+    const legRule = legamiOf(cfg).find((l) => l.key === r.legame)
+    const kidMax = legRule && legRule.key !== 'TI' ? Number(legRule.maxAge) || 0 : 0
+    const kidAge = kidMax && !exit ? ageAt(person.birthDate, entryDate || communicated) : null
+    if (kidAge != null && kidAge > kidMax) issues.push({ code: 'figlio-eta', level: 'warning', text: `${legRule.label} di ${kidAge} anni: oltre l'età massima di ${kidMax}.` })
     const dec = exit ? null : decorrenza(cfg, entryDate, communicated, null)
     if (dec && dec.shifted) issues.push({ code: 'mese', level: 'info', text: `Decorre dal ${fmtDate(dec.date)}, 1° del mese successivo al ${fmtDate(dec.shifted)}.` })
     if (dec && dec.reason === 'tardiva') issues.push({ code: 'tardiva', level: 'warning', text: `Comunicata oltre ${cfg.rules.notifyDays} giorni: decorre dal ${fmtDate(dec.date)} invece che dal ${fmtDate(entryDate)}.` })
@@ -758,7 +869,7 @@ const yes = (v) => /^S[IÌ]$/i.test(String(v ?? '').trim())
  */
 export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const refYear = +cfg.periodStart.slice(0, 4)
-  const layout = cfg.fileLayout || null
+  const layout = readLayout(cfg)
   const members = []
   const warnings = []
   const catOfSheet = (name) => normCategory(String(name).replace(/^VARIAZIONI\s*/i, ''), cfg.categories).key
@@ -1005,9 +1116,8 @@ export function tariffsFromWorkbook(cfg, sheets) {
       const label = normHead(r && r[0])
       const v = r && typeof r[2] === 'number' ? r[2] : Number(String((r && r[2]) ?? '').replace(/\./g, '').replace(',', '.'))
       if (!label || !(v > 0) || v > 100000) continue
-      if (/^CONIUG|^CONVIV/.test(label)) tariffs.coniuge = v
-      else if (/^FIGL/.test(label)) tariffs.figlio = v
-      else if (/^(ALTR[IO] )?FAMILIAR/.test(label)) tariffs.familiare = v
+      const leg = /^(DIRIGENT|FUNZIONAR|IMPIEGAT|QUADR)/.test(label) ? null : normLegame(label, null, cfg)
+      if (leg && leg !== 'TI') tariffs[legamiOf(cfg).find((l) => l.key === leg).tariff] = v
       else if (normCategory(label, cfg.categories).key === key) {
         if (/QUIESC/.test(label)) tariffs.quiescente = v
         else tariffs.titolare = v

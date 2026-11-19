@@ -2165,6 +2165,23 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   categoria e fascia d'età (a nucleo compreso nel titolare, quota solo al
   titolare); letto da «FA», «FAMILIARE», «ALTRO/ALTRI FAMILIARI» e dalla riga
   «ALTRI FAMILIARI <importo>» delle tariffe del file.
+  **TUTTO CONFIGURABILE (19/11/2026, regola dell'utente: «ogni lista deve
+  potersi aggiungere elementi, ogni percentuale deve poter essere un valore
+  fisso o una percentuale di altri campi»)**. Mattone comune
+  `web/lib/configValue.js` (numero | { mode: fisso | percentuale | permille,
+  value, of: [basi] }, `evalValue`, `describeValue`; i numeri semplici delle
+  configurazioni vecchie restano validi) e la casella `web/components/
+  ValueInput.tsx`. RSM, primo blocco: legami come ELENCO del programma
+  (`cfg.legami`, `legamiOf`: TI fisso, gli altri con nome, tariffa, parole
+  nei file, età massima che sostituisce `childMaxAge`; `readLayout` porta le
+  parole a `normLegame`); tariffe di ogni colonna fisse o % di altre colonne
+  della stessa riga (`resolveTariffs`); quota fissa o % del premio
+  (`quotaOf`); entrata a SCAGLIONI (`rules.entrySteps`, default dai vecchi
+  firstSemesterEnd/secondSemesterPct); trattenuta sul rimborso fissa o %
+  scorporata (`rules.refundTax`, default refundTaxPct). Test: le
+  configurazioni vecchie danno gli stessi importi. Inventario del resto
+  (parole dei file, testi di mail ed Excel, scelte di calcolo, tutta la
+  parte Vita): da fare a blocchi.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

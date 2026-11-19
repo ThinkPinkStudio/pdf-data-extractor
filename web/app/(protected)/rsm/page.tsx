@@ -11,7 +11,7 @@ import { RsmGate, RsmHeader, api, downloadExport, eur, today, useFlash, useRsm }
 import { CeasePanel, EditPanel } from '@/components/rsm/MemberPanels'
 import PersonPanel from '@/components/rsm/PersonPanel'
 import type { Row } from '@/components/rsm/useRsm'
-import { checkPerson, fmtDate, isCovered, statusAt } from '@/lib/rsm/rules.js'
+import { checkPerson, fmtDate, isCovered, statusAt, legameLabel, legamiOf } from '@/lib/rsm/rules.js'
 import type { RsmIssue } from '@/lib/rsm/types'
 
 type StateFilter = 'covered' | 'exited' | 'all'
@@ -95,7 +95,7 @@ export default function RsmStatoPage() {
       if (!map.has(k)) map.set(k, [])
       map.get(k)!.push(r)
     }
-    const rank = (r: Row) => (r.legame === 'TI' ? 0 : r.legame === 'CO' ? 1 : r.legame === 'FI' ? 2 : 3)
+    const rank = (r: Row) => Math.max(0, legamiOf(cfg).findIndex((l: { key: string }) => l.key === r.legame))
     const catOrder = new Map(cfg.categories.map((c, i) => [c.key, i]))
     // Ordinamento per colonna sul titolare: il nucleo resta unito sotto di lui.
     const val = (r: Row): string | number => sort.key === 'birth' ? r.birthDate || '' : sort.key === 'entry' ? r.entryDate || ''
@@ -211,7 +211,7 @@ export default function RsmStatoPage() {
                             <div className="rsm-who"><button className="rsm-who-btn" onClick={() => openPerson(r.cf)} title={t('rsm.ps.open')}>{r.cognome} {r.nome}</button>{r.quiescente && !fam && <span className="rsm-pill off" style={{ marginLeft: 6 }}>{t('rsm.quiescente')}</span>}{issuesById.has(r.id) && <button className="rsm-pill warn" style={{ marginLeft: 6, border: 0, cursor: 'pointer' }} title={issuesById.get(r.id)!.map((i) => i.text).join('\n')} onClick={() => openPerson(r.cf)}>{t('rsm.st.toCheck')}</button>}</div>
                             <div className="rsm-cf">{r.cf}{!fam && !showFam && nFam ? ` · ${t('rsm.st.plusFam', { n: nFam })}` : ''}</div>
                           </td>
-                          <td className="nowrap">{t(`rsm.leg.${r.legame}`)}</td>
+                          <td className="nowrap">{legameLabel(cfg, r.legame)}</td>
                           {cat === 'all' && <td className="nowrap">{catLabel(r.category)}</td>}
                           <td className="nowrap">{fmtDate(r.birthDate)}</td>
                           <td className="nowrap">{fmtDate(r.entryDate)}<div className="rsm-sub">{t(`rsm.entry.${r.entryKind}`)}{r.entryForced ? ` · ${t('rsm.forced')}` : ''}</div></td>

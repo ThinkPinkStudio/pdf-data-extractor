@@ -7,9 +7,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, api, eur, saveBlob, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import type { Rsm, Row } from '@/components/rsm/useRsm'
-import {
-  buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, emlToText, fmtDate, isCovered, mailIssues, parseCessationText, statusAt,
-} from '@/lib/rsm/rules.js'
+import { buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, emlToText, fmtDate, isCovered, mailIssues, parseCessationText, statusAt, legameLabel, legamiOf } from '@/lib/rsm/rules.js'
 import type { RsmCalc, RsmIssue, RsmPreparedRow } from '@/lib/rsm/types'
 
 const SENDERS_KEY = 'rsmSenders'
@@ -145,7 +143,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
                           <td className="nowrap">{r.rowNumber}</td>
                           <td><span className={`rsm-pill ${r.action === 'entrata' ? 'new' : 'off'}`}>{t(`rsm.var.${r.action}`)}</span></td>
                           <td><div className="rsm-who">{r.cognome} {r.nome}</div><div className="rsm-cf">{r.member.cf || '—'}</div></td>
-                          <td className="nowrap">{r.member.legame ? t(`rsm.leg.${r.member.legame}`) : '—'}</td>
+                          <td className="nowrap">{r.member.legame ? legameLabel(cfg, r.member.legame) : '—'}</td>
                           <td className="nowrap">{label}</td>
                           <td className="nowrap">
                             {r.action === 'entrata'
@@ -301,7 +299,7 @@ function CeaseSection({ rsm }: { rsm: Rsm }) {
         </div>
         {!found.length && !manual && hits.map((r) => (
           <button key={r.id} className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => setPick(r.id)}>
-            {r.cognome} {r.nome} · {r.cf} · {cfg.categories.find((c) => c.key === r.category)?.label} · {t(`rsm.leg.${r.legame}`)}
+            {r.cognome} {r.nome} · {r.cf} · {cfg.categories.find((c) => c.key === r.category)?.label} · {legameLabel(cfg, r.legame)}
           </button>
         ))}
         {ready.length > 0 && (
@@ -310,7 +308,7 @@ function CeaseSection({ rsm }: { rsm: Rsm }) {
               <div key={x.cf} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', paddingBottom: 8, borderBottom: '1px solid var(--c-separator)' }}>
                 <div style={{ flex: '1 1 220px' }}>
                   {x.row
-                    ? <><b>{x.row.cognome} {x.row.nome}</b> <span className="rsm-cf">{x.cf}</span><div className="rsm-sub">{cfg.categories.find((c) => c.key === x.row!.category)?.label} · {t(`rsm.leg.${x.row.legame}`)}{famOf(x.row).length ? ` · ${t('rsm.st.plusFam', { n: famOf(x.row).length })}` : ''}</div></>
+                    ? <><b>{x.row.cognome} {x.row.nome}</b> <span className="rsm-cf">{x.cf}</span><div className="rsm-sub">{cfg.categories.find((c) => c.key === x.row!.category)?.label} · {legameLabel(cfg, x.row.legame)}{famOf(x.row).length ? ` · ${t('rsm.st.plusFam', { n: famOf(x.row).length })}` : ''}</div></>
                     : (() => {
                       const gone = rsm.rows.find((r) => r.cf === x.cf && r.exitKind)
                       return <><b>{gone ? `${gone.cognome} ${gone.nome} ` : ''}</b><span className="rsm-cf">{x.cf}</span>
@@ -387,7 +385,7 @@ function ManualSection({ rsm }: { rsm: Rsm }) {
         <div className="rsm-row">
           <label className="rsm-field">{t('rsm.col.legame')}
             <select value={f.legame} onChange={(e) => set('legame', e.target.value)} style={{ width: 170 }}>
-              {['TI', 'CO', 'FI', 'FA'].map((l) => <option key={l} value={l}>{t(`rsm.leg.${l}`)}</option>)}
+              {legamiOf(rsm.program?.config).map((l: { key: string; label: string }) => <option key={l.key} value={l.key}>{l.label}</option>)}
             </select>
           </label>
           {f.legame === 'TI' ? (

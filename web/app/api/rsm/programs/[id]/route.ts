@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logAction } from '@/lib/logger'
 import { deleteProgram, listMembers, updateProgram } from '@/lib/rsm/store'
-import { LAYOUT_FIELDS } from '@/lib/rsm/rules.js'
-import type { RsmConfig } from '@/lib/rsm/types'
+import { LAYOUT_FIELDS, legamiOf } from '@/lib/rsm/rules.js'
+import type { ConfigValue, RsmConfig } from '@/lib/rsm/types'
 import { fail, guard } from '@/lib/rsm/server'
 
 export const runtime = 'nodejs'
@@ -18,6 +18,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 const num = (v: unknown) => (v === '' || v == null ? 0 : Math.max(0, Number(v) || 0))
+/** Valore configurabile ripulito: numero, o { mode, value, of } con basi brevi. */
+const cval = (v: unknown): ConfigValue => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = v as { mode?: string; value?: unknown; of?: unknown }
+    if (o.mode === 'percentuale' || o.mode === 'permille') return { mode: o.mode, value: num(o.value), of: (Array.isArray(o.of) ? o.of : []).slice(0, 20).map((x) => String(x).slice(0, 40)).filter(Boolean) }
+    return { mode: 'fisso', value: num(o.value) }
+  }
+  return num(v)
+}
+const cleanTariffs = (t: unknown, keys: string[]) => Object.fromEntries(keys.map((k) => [k, cval((t as Record<string, unknown> | undefined)?.[k])]))
+const legKey = (v: unknown) => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 12)
 const iso = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
 
 /** Tracciato del file della società, ripulito: solo campi noti, stringhe brevi. */
@@ -32,7 +43,7 @@ function cleanLayout(l: RsmConfig['fileLayout']): RsmConfig['fileLayout'] {
     sheet: String(l.sheet || '').slice(0, 120),
     columns,
     categoryCodes: obj(l.categoryCodes, (v) => /^[a-z0-9-]+(\|Q)?$/.test(v)),
-    legameCodes: obj(l.legameCodes, (v) => v === 'TI' || v === 'CO' || v === 'FI' || v === 'FA') as Record<string, 'TI' | 'CO' | 'FI' | 'FA'>,
+    legameCodes: obj(l.legameCodes, (v) => /^[A-Z0-9]{1,12}$/.test(v)),
     order: (Array.isArray(l.order) ? l.order : []).slice(0, 80).map((h) => String(h).slice(0, 120)),
   }
 }
@@ -41,18 +52,26 @@ function cleanLayout(l: RsmConfig['fileLayout']): RsmConfig['fileLayout'] {
 function cleanConfig(c: RsmConfig): RsmConfig | null {
   const periodStart = iso(c?.periodStart), periodEnd = iso(c?.periodEnd)
   if (!periodStart || !periodEnd || periodEnd <= periodStart) return null
+  // legami: il titolare c'è sempre; chiavi uniche; tariffa = chiave della colonna
+  const legami = legamiOf({ legami: (Array.isArray(c.legami) ? c.legami : []).slice(0, 30).map((l) => ({
+    key: legKey(l.key), label: String(l.label || '').trim().slice(0, 60) || legKey(l.key),
+    tariff: legKey(l.key) === 'TI' ? 'titolare' : (String(l.tariff || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') || legKey(l.key).toLowerCase()).slice(0, 30),
+    words: String(l.words || '').slice(0, 400), maxAge: l.maxAge == null || (l.maxAge as unknown) === '' ? null : Math.round(num(l.maxAge)) || null,
+  })).filter((l) => l.key), rules: c.rules })
+  if (new Set(legami.map((l) => l.key)).size !== legami.length || new Set(legami.map((l) => l.tariff)).size !== legami.length) return null
+  const tKeys = ['titolare', 'quiescente', ...legami.filter((l) => l.key !== 'TI').map((l) => l.tariff)]
   const categories = (c.categories || []).map((x, i) => ({
     key: String(x.key || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || `cat${i + 1}`,
     label: String(x.label || x.key || '').trim(),
     policy: String(x.policy || '').trim(),
     mode: x.mode === 'persona' ? 'persona' as const : 'nucleo' as const,
     rank: Number(x.rank) || i + 1,
-    tariffs: { titolare: num(x.tariffs?.titolare), quiescente: num(x.tariffs?.quiescente), coniuge: num(x.tariffs?.coniuge), figlio: num(x.tariffs?.figlio), familiare: num(x.tariffs?.familiare) },
-    quota: num(x.quota),
+    tariffs: cleanTariffs(x.tariffs, tKeys),
+    quota: cval(x.quota),
     tariffBy: x.tariffBy === 'eta' ? 'eta' as const : 'unica' as const,
     ageBands: (Array.isArray(x.ageBands) ? x.ageBands : []).slice(0, 20).map((b) => ({
       upTo: b.upTo == null || (b.upTo as unknown) === '' ? null : Math.max(0, Math.round(Number(b.upTo) || 0)),
-      titolare: num(b.titolare), quiescente: num(b.quiescente), coniuge: num(b.coniuge), figlio: num(b.figlio), familiare: num(b.familiare),
+      ...cleanTariffs(b, tKeys),
     })),
   }))
   if (!categories.length || new Set(categories.map((x) => x.key)).size !== categories.length) return null
@@ -71,7 +90,10 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
       decorrenzaMode: r.decorrenzaMode === 'mese' ? 'mese' : 'data',
       exitMode: r.exitMode === 'rimborso' ? 'rimborso' : 'fineAnno',
       childMaxAge: Math.round(num(r.childMaxAge)),
+      ...(Array.isArray(r.entrySteps) && r.entrySteps.length ? { entrySteps: r.entrySteps.slice(0, 24).map((x) => ({ until: /^\d{2}-\d{2}$/.test(String(x.until)) ? x.until : '12-31', value: cval(x.value) })) } : {}),
+      ...(r.refundTax != null ? { refundTax: cval(r.refundTax) } : {}),
     },
+    legami,
     mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || '') },
     editors: (c.editors || []).map((e) => String(e).trim().toLowerCase()).filter((e) => /@/.test(e)),
     fileCompany: String(c.fileCompany || '').trim().slice(0, 120),

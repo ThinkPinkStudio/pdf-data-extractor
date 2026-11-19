@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, api, downloadExport, eur, today, useRsm } from '@/components/rsm/useRsm'
 import type { Row } from '@/components/rsm/useRsm'
-import { addDays, fmtDate } from '@/lib/rsm/rules.js'
+import { addDays, fmtDate, legameLabel } from '@/lib/rsm/rules.js'
 
 type Kind = 'all' | 'in' | 'out' | 'promo'
 interface Ev { r: Row; type: 'in' | 'out'; date: string; amount: number; promo: boolean; comm: string | null }
@@ -107,7 +107,7 @@ export default function RsmMovimentiPage() {
                     <td className="nowrap">{fmtDate(e.date)}</td>
                     <td className="nowrap"><span className={`rsm-pill ${e.promo ? 'promo' : e.type === 'in' ? 'new' : 'off'}`}>{t(e.promo ? (e.type === 'in' ? 'rsm.mv.promoIn' : 'rsm.mv.promoOut') : e.type === 'in' ? 'rsm.var.entrata' : 'rsm.mv.cessazione')}</span></td>
                     <td><div className="rsm-who"><Link className="rsm-who-btn" href={`/rsm?p=${e.r.cf}`}>{e.r.cognome} {e.r.nome}</Link></div><div className="rsm-cf">{e.r.cf}</div></td>
-                    <td className="nowrap">{t(`rsm.leg.${e.r.legame}`)}</td>
+                    <td className="nowrap">{legameLabel(cfg, e.r.legame)}</td>
                     <td className="nowrap">{label(e.r.category)}</td>
                     <td className="num">{e.amount ? eur(e.amount) : '0,00'}<div className="rsm-sub">{e.type === 'in' ? e.r.c.calc : e.promo ? t('rsm.mv.refundNet') : t('rsm.mv.noRefund')}</div></td>
                     <td className="nowrap">{fmtDate(e.comm)}</td>

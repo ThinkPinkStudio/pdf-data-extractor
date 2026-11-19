@@ -1,5 +1,11 @@
 // ANAGRAFICHE RSM — tipi condivisi da store, route e pagine.
 
+/** Importo fisso, o percentuale / per mille della somma di altri campi (web/lib/configValue.js). */
+export type ConfigValue = number | { mode: 'fisso'; value: number } | { mode: 'percentuale' | 'permille'; value: number; of: string[] }
+
+/** Legame del nucleo (TI = titolare, fisso; gli altri si aggiungono). */
+export interface RsmLegame { key: string; label: string; tariff: string; words: string; maxAge?: number | null }
+
 export interface RsmCategory {
   key: string
   label: string
@@ -7,20 +13,21 @@ export interface RsmCategory {
   mode: 'nucleo' | 'persona'
   rank: number // ordine di carriera: una promozione va verso un rank più alto
   tariffs: RsmTariffs
-  quota: number
+  quota: ConfigValue // fissa o percentuale del premio annuo del titolare
   // Tariffe per fascia d'età (17/11/2026): 'eta' usa `ageBands` al posto di `tariffs`.
   tariffBy?: 'unica' | 'eta'
   ageBands?: (RsmTariffs & { upTo: number | null })[] // «fino a» anni; null = oltre l'ultima
 }
 
-export interface RsmTariffs { titolare?: number; quiescente?: number; coniuge?: number; figlio?: number; familiare?: number }
+/** Tariffe di una categoria: titolare, quiescente e una per legame; ognuna fissa o percentuale di altre. */
+export type RsmTariffs = { [k: string]: ConfigValue | null | undefined }
 
 /** Tracciato del file di una società: colonne, codici, ordine (import ed Excel in uscita). */
 export interface RsmFileLayout {
   sheet: string
   columns: Record<string, string> // intestazione normalizzata → campo | 'extra' | 'skip'
   categoryCodes: Record<string, string> // codice → chiave categoria ('|Q' = quiescente)
-  legameCodes: Record<string, 'TI' | 'CO' | 'FI' | 'FA'>
+  legameCodes: Record<string, string>
   order: string[] // intestazioni del cliente, nel suo ordine
 }
 
@@ -39,8 +46,14 @@ export interface RsmConfig {
     entryMode?: 'semestri' | 'prorata' | 'intero' // chi entra in corso d'anno
     decorrenzaMode?: 'data' | 'mese' // 'mese' = 1° giorno del mese successivo
     exitMode?: 'fineAnno' | 'rimborso' // chi cessa: coperto fino a fine anno, o rimborso pro-rata
-    childMaxAge?: number // età massima dei figli (0 = nessuna): solo avviso
+    childMaxAge?: number // età massima dei figli (0 = nessuna): solo avviso — sostituita da RsmLegame.maxAge
+    /** scaglioni d'entrata: fino a quale giorno (MM-DD) quanto si paga (fisso o % del premio) */
+    entrySteps?: { until: string; value: ConfigValue }[]
+    /** trattenuta sul rimborso: % = imposta da scorporare, fisso = importo da togliere (sostituisce refundTaxPct) */
+    refundTax?: ConfigValue
   }
+  /** legami del nucleo; assente = titolare, coniuge, figlio, altro familiare */
+  legami?: RsmLegame[]
   fileLayout?: RsmFileLayout | null
   mail: { cc: string; signature: string }
   // Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano.
@@ -64,7 +77,7 @@ export interface RsmProgram {
   updatedAt: number
 }
 
-export type Legame = 'TI' | 'CO' | 'FI' | 'FA'
+export type Legame = string
 
 export interface RsmMember {
   id: string

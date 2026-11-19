@@ -7,12 +7,12 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
-import NumInput from '@/components/rsm/NumInput'
-import { AgeBands, ComparePanel, ExampleBox, LayoutSummary, RuleChoices } from '@/components/rsm/SettingsParts'
-import { addDays } from '@/lib/rsm/rules.js'
+import ValueInput from '@/components/ValueInput'
+import { AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, RuleChoices, tariffColumns } from '@/components/rsm/SettingsParts'
+import { addDays, legamiOf, refundTaxOf } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
 import { programName } from '@/lib/rsm/types'
-import type { RsmCategory, RsmConfig } from '@/lib/rsm/types'
+import type { ConfigValue, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
 
 export default function RsmSettingsPage() {
@@ -66,13 +66,13 @@ export default function RsmSettingsPage() {
       return o ? { ...c, tariffs: { ...o.tariffs }, quota: o.quota, mode: o.mode, policy: o.policy, rank: o.rank, tariffBy: o.tariffBy, ageBands: (o.ageBands || []).map((b) => ({ ...b })) } : c
     })
     for (const o of src.config.categories) if (!categories.some((c) => c.key === o.key)) categories.push({ ...o, tariffs: { ...o.tariffs } })
-    setCfg({ ...cfg, categories, rules: { ...src.config.rules } })
+    setCfg({ ...cfg, categories, rules: { ...src.config.rules }, legami: legamiOf(src.config) })
     setMsg({ ok: true, text: t('rsm.set.copied', { name: src.name }) })
   }
 
   const setRule = (k: keyof RsmConfig['rules'], v: unknown) => setCfg((c) => c && { ...c, rules: { ...c.rules, [k]: v } })
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
-  const setTariff = (i: number, k: keyof RsmCategory['tariffs'], v: number) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v } } : x)) })
+  const setTariff = (i: number, k: string, v: ConfigValue) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v } } : x)) })
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true); setMsg(null)
@@ -132,6 +132,8 @@ export default function RsmSettingsPage() {
             </div>
           </div>
 
+          <LegamiBox cfg={cfg} ro={ro} onChange={(legami) => setCfg({ ...cfg, legami })} />
+
           <div className="rsm-box">
             <div className="rsm-box-head">
               <div><div className="rsm-box-title">{t('rsm.set.cats')}</div><span className="rsm-note">{t('rsm.set.catsHint')}</span></div>
@@ -147,8 +149,7 @@ export default function RsmSettingsPage() {
             <div className="rsm-box-body rsm-scroll">
               <table className="rsm-cats">
                 <thead><tr>
-                  <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th><th>{t('rsm.set.tariffBy')}</th><th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th>
-                  <th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.tFa')}</th><th>{t('rsm.set.quota')}</th><th>{t('rsm.set.rank')}</th><th />
+                  <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th><th>{t('rsm.set.tariffBy')}</th>{tariffColumns(cfg, t).map((c) => <th key={c.key}>{c.label}</th>)}<th>{t('rsm.set.quota')}</th><th>{t('rsm.set.rank')}</th><th />
                 </tr></thead>
                 <tbody>
                   {cfg.categories.map((c, i) => (
@@ -161,20 +162,18 @@ export default function RsmSettingsPage() {
                       <td><select value={c.tariffBy === 'eta' ? 'eta' : 'unica'} disabled={ro} onChange={(e) => setCat(i, e.target.value === 'eta' ? { tariffBy: 'eta', ageBands: c.ageBands && c.ageBands.length ? c.ageBands : [{ ...c.tariffs, upTo: null }] } : { tariffBy: 'unica' })} style={{ width: 150 }} aria-label={`${c.label} ${t('rsm.set.tariffBy')}`}>
                         <option value="unica">{t('rsm.set.byOne')}</option><option value="eta">{t('rsm.set.byAge')}</option>
                       </select></td>
-                      {c.tariffBy === 'eta' ? <td colSpan={5} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : <>
-                      <td><NumInput value={c.tariffs.titolare} disabled={ro} onChange={(n) => setTariff(i, 'titolare', n)} width={90} label={`${c.label} ${t('rsm.set.tTit')}`} /></td>
-                      <td><NumInput value={c.tariffs.quiescente} disabled={ro} onChange={(n) => setTariff(i, 'quiescente', n)} width={90} label={`${c.label} ${t('rsm.set.tQui')}`} /></td>
-                      <td><NumInput value={c.tariffs.coniuge} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'coniuge', n)} width={80} label={`${c.label} ${t('rsm.set.tCo')}`} /></td>
-                      <td><NumInput value={c.tariffs.figlio} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'figlio', n)} width={80} label={`${c.label} ${t('rsm.set.tFi')}`} /></td>
-                      <td><NumInput value={c.tariffs.familiare} disabled={ro || c.mode === 'nucleo'} onChange={(n) => setTariff(i, 'familiare', n)} width={80} label={`${c.label} ${t('rsm.set.tFa')}`} /></td></>}
-                      <td><NumInput value={c.quota} disabled={ro} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
+                      {c.tariffBy === 'eta' ? <td colSpan={tariffColumns(cfg, t).length} className="rsm-sub">{t('rsm.ab.title', { c: c.label })} ↓</td> : tariffColumns(cfg, t).map((col) => (
+                        <td key={col.key}><ValueInput value={c.tariffs[col.key]} disabled={ro || (c.mode === 'nucleo' && col.family)} onChange={(v) => setTariff(i, col.key, v)} width={80}
+                          bases={tariffColumns(cfg, t).filter((o) => o.key !== col.key).map((o) => ({ key: o.key, label: o.label }))} label={`${c.label} ${col.label}`} /></td>
+                      ))}
+                      <td><ValueInput value={c.quota} disabled={ro} onChange={(v) => setCat(i, { quota: v })} width={60} bases={[{ key: 'premio', label: t('rsm.set.premioTit') }]} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       <td><input type="number" value={c.rank} disabled={ro} onChange={(e) => setCat(i, { rank: Number(e.target.value) })} style={{ width: 60 }} /></td>
                       <td>{!ro && cfg.categories.length > 1 && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => setCfg({ ...cfg, categories: cfg.categories.filter((_, j) => j !== i) })}>×</button>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {cfg.categories.map((c, i) => c.tariffBy === 'eta' ? <AgeBands key={`ab${i}`} cat={c} ro={ro} onChange={(ageBands) => setCat(i, { ageBands })} /> : null)}
+              {cfg.categories.map((c, i) => c.tariffBy === 'eta' ? <AgeBands key={`ab${i}`} cfg={cfg} cat={c} ro={ro} onChange={(ageBands) => setCat(i, { ageBands })} /> : null)}
               {!ro && <div><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, categories: [...cfg.categories, { key: `cat${cfg.categories.length + 1}`, label: '', policy: '', mode: 'persona', rank: cfg.categories.length + 1, tariffs: {}, quota: 0 }] })}>{t('rsm.set.addCat')}</button></div>}
             </div>
           </div>
@@ -184,8 +183,6 @@ export default function RsmSettingsPage() {
               <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.set.rules')}</div></div>
               <div className="rsm-box-body">
                 <div className="rsm-row">
-                  <label className="rsm-field">{t('rsm.set.semEnd')}<DayMonth value={cfg.rules.firstSemesterEnd} disabled={ro} onChange={(v) => setRule('firstSemesterEnd', v)} /></label>
-                  <label className="rsm-field">{t('rsm.set.semPct')}<input type="number" value={cfg.rules.secondSemesterPct} disabled={ro} onChange={(e) => setRule('secondSemesterPct', Number(e.target.value))} style={{ width: 90 }} /></label>
                   <label className="rsm-field">{t('rsm.set.notify')}<input type="number" value={cfg.rules.notifyDays} disabled={ro} onChange={(e) => setRule('notifyDays', Number(e.target.value))} style={{ width: 90 }} /></label>
                   <label className="rsm-field" title={t('rsm.set.maxAgeHint')}>{t('rsm.set.maxAge')}<input type="number" value={cfg.rules.maxAge ?? 80} disabled={ro} onChange={(e) => setRule('maxAge', Number(e.target.value))} style={{ width: 90 }} /></label>
                 </div>
@@ -195,8 +192,9 @@ export default function RsmSettingsPage() {
                       <option value="giorni">{t('rsm.set.prDays')}</option><option value="mesi">{t('rsm.set.prMonths')}</option>
                     </select>
                   </label>
-                  <label className="rsm-field">{t('rsm.set.tax')}<NumInput value={cfg.rules.refundTaxPct} disabled={ro} onChange={(n) => setRule('refundTaxPct', n)} /></label>
+                  <label className="rsm-field">{t('rsm.set.tax')}<ValueInput value={refundTaxOf(cfg)} disabled={ro} onChange={(v) => setRule('refundTax', v)} bases={[{ key: 'rimborso', label: t('rsm.set.refundGross') }]} /></label>
                 </div>
+                {(cfg.rules.entryMode || 'semestri') === 'semestri' && <EntrySteps cfg={cfg} ro={ro} onChange={(steps) => setRule('entrySteps', steps)} />}
                 <RuleChoices cfg={cfg} ro={ro} setRule={setRule} />
                 <div className="rsm-note">{t('rsm.set.rulesHint')}</div>
               </div>
@@ -262,21 +260,5 @@ export default function RsmSettingsPage() {
       )}
       {panel}
     </div>
-  )
-}
-
-/** Giorno e mese 'gg/mm' (salvato come 'MM-DD'): si scrive liberamente, vale quando è completo. */
-function DayMonth({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (v: string) => void }) {
-  const show = (v: string) => v.split('-').reverse().join('/')
-  const [text, setText] = useState(show(value))
-  useEffect(() => setText(show(value)), [value])
-  return (
-    <input value={text} disabled={disabled} placeholder="30/06" style={{ width: 90 }}
-      onChange={(e) => {
-        setText(e.target.value)
-        const m = /^(\d{1,2})\/(\d{1,2})$/.exec(e.target.value.trim())
-        if (m && +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) onChange(`${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`)
-      }}
-      onBlur={() => setText(show(value))} />
   )
 }

@@ -9,6 +9,8 @@
 //    esce, perché il cliente controlli anche quelli.
 // Solo valori, nessuna formula: gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
+import { describeValue } from '../configValue.js'
+import { quotaOf, refundTaxOf } from './rules.js'
 import { addDays, annualPremium, categoryOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
 import type { RsmMember, RsmProgram } from './types'
 
@@ -107,7 +109,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       if (!heads.some((h) => norm(h) === 'AVVISI')) heads.push('AVVISI')
       const quota = (m: RsmMember) => {
         const annuo = premium(m) || 0
-        return m.legame === 'TI' && annuo > 0 ? Number(categoryOf(cfg, m.category)?.quota) || 0 : 0
+        return m.legame === 'TI' && annuo > 0 ? quotaOf(categoryOf(cfg, m.category), annuo) : 0
       }
       // Colonne calcolate, riconosciute dall'intestazione (solo se il tracciato non dà già il dato).
       const derived = (m: RsmMember, h: string): ExcelJS.CellValue | undefined => {
@@ -300,6 +302,6 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
     ])
   }
   summary.addRow([])
-  summary.addRow([`${program.name} · copertura dal ${fmtDate(cfg.periodStart)} al ${fmtDate(addDays(cfg.periodEnd, -1))} · pro-rata a ${cfg.rules.prorata} · rimborso al netto del ${String(cfg.rules.refundTaxPct).replace('.', ',')}% · esportato il ${fmtDate(at)}`])
+  summary.addRow([`${program.name} · copertura dal ${fmtDate(cfg.periodStart)} al ${fmtDate(addDays(cfg.periodEnd, -1))} · pro-rata a ${cfg.rules.prorata} · trattenuta sul rimborso ${describeValue(refundTaxOf(cfg), { rimborso: 'rimborso' })} · esportato il ${fmtDate(at)}`])
   return Buffer.from(await wb.xlsx.writeBuffer())
 }

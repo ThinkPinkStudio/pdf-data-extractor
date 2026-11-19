@@ -568,3 +568,60 @@ test('legame «Altro familiare» (FA): lettura, tariffa propria, compreso nel nu
   const t = tariffsFromWorkbook(cfg, { IMPIEGATI: [['COGNOME', 'NOME', 'C.F. FAMILIARE', 'LEGAME'], ['IMPIEGATI', '', 1000], ['ALTRI FAMILIARI', '', 700]] })
   assert.deepEqual(t[imp.key].tariffs, { titolare: 1000, familiare: 700 })
 })
+
+test('tutto configurabile: legame aggiunto, tariffe e quota in percentuale, scaglioni, trattenuta fissa', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const { evalValue, describeValue, normValue } = await import('../web/lib/configValue.js')
+  // valore: fisso, percentuale e per mille della somma di più campi
+  assert.equal(evalValue(12, {}), 12)
+  assert.equal(evalValue({ mode: 'percentuale', value: 50, of: ['a', 'b'] }, { a: 100, b: 20 }), 60)
+  assert.equal(evalValue({ mode: 'permille', value: 2, of: ['c'] }, { c: 1000 }), 2)
+  assert.equal(describeValue({ mode: 'percentuale', value: 2.5, of: ['r'] }, { r: 'rimborso' }), '2,5% di rimborso')
+  assert.deepEqual(normValue(50, { mode: 'percentuale', of: ['premio'] }), { mode: 'percentuale', value: 50, of: ['premio'] })
+
+  const cfg = R.defaultProgramConfig(2026)
+  // un legame nuovo: «Genitore», con parole sue e un'età massima
+  cfg.legami = [...R.legamiOf(cfg), { key: 'GE', label: 'Genitore', tariff: 'genitore', words: 'GENITORE, PADRE, MADRE', maxAge: 85 }]
+  assert.equal(R.normLegame('Madre', null, cfg), 'GE')
+  assert.equal(R.normLegame('CONIUGE', null, cfg), 'CO')
+  assert.deepEqual(R.tariffKeys(cfg), ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare', 'genitore'])
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  // coniuge = 50% del titolare, genitore = 30% di titolare + coniuge (percentuale di una percentuale)
+  imp.tariffs = { titolare: 1000, coniuge: { mode: 'percentuale', value: 50, of: ['titolare'] }, figlio: 200, genitore: { mode: 'percentuale', value: 30, of: ['titolare', 'coniuge'] } }
+  assert.equal(R.annualPremium(cfg, imp.key, 'CO', false, null), 500)
+  assert.equal(R.annualPremium(cfg, imp.key, 'GE', false, null), 450)
+  // quota associativa = 1% del premio del titolare
+  imp.quota = { mode: 'percentuale', value: 1, of: ['premio'] }
+  const ti = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale' })
+  assert.equal(ti.quota, 10)
+  // tre scaglioni d'entrata: fino al 31/03 100%, fino al 30/09 60%, poi 100 € fissi
+  cfg.rules.entrySteps = [{ until: '03-31', value: 100 }, { until: '09-30', value: 60 }, { until: '12-31', value: { mode: 'fisso', value: 100 } }]
+  const at = (d) => R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: d, entryKind: 'inclusione' }).rateo
+  assert.equal(at('2026-02-10'), 1000)
+  assert.equal(at('2026-07-01'), 600)
+  assert.equal(at('2026-11-02'), 100)
+  // trattenuta sul rimborso: importo fisso invece dell'imposta scorporata
+  cfg.rules.exitMode = 'rimborso'
+  cfg.rules.refundTax = { mode: 'fisso', value: 20 }
+  const out = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' })
+  assert.equal(out.rimborso, Math.round((1000 * R.prorataFraction(cfg, '2026-07-02') - 20) * 100) / 100)
+  // avviso d'età del legame nuovo al rinnovo
+  const plan = R.renewalPlan(cfg, [{ category: imp.key, legame: 'GE', quiescente: false, cf: 'X', cfTitolare: 'T', birthDate: '1935-01-01', entryDate: '2026-01-01', entryKind: 'iniziale' }])
+  assert.ok(plan.keep[0].alerts.some((a) => /genitore di 92 anni/.test(a)))
+})
+
+test('configurazioni vecchie: stessi importi di prima (semestri, 2,5% scorporato, quota fissa)', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const cfg = R.defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  imp.tariffs = { titolare: 1000, coniuge: 600, figlio: 400 }
+  cfg.rules.exitMode = 'rimborso'
+  const m = (d, extra = {}) => R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: d, entryKind: 'inclusione', ...extra })
+  assert.equal(m('2026-06-30').rateo, 1000)
+  assert.equal(m('2026-06-30').calc, '1° semestre: 100%')
+  assert.equal(m('2026-07-01').rateo, 500)
+  assert.equal(m('2026-07-01').calc, '2° semestre: 50%')
+  assert.equal(m('2026-07-01').quota, 10)
+  const r = m('2026-01-01', { entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' }).rimborso
+  assert.equal(r, Math.round(1000 / 1.025 * R.prorataFraction(cfg, '2026-07-02') * 100) / 100)
+})

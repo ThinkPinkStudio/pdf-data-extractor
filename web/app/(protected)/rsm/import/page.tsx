@@ -10,7 +10,10 @@ import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
-import { buildLayout, defaultProgramConfig, normCategory, normHeadText, normLegame, sameFileCompany } from '@/lib/rsm/rules.js'
+import ValueInput from '@/components/ValueInput'
+import { describeValue } from '@/lib/configValue.js'
+import { tariffColumns } from '@/components/rsm/SettingsParts'
+import { buildLayout, defaultProgramConfig, legamiOf, normCategory, normHeadText, normLegame, sameFileCompany, tariffKeys, refundTaxOf } from '@/lib/rsm/rules.js'
 import { ColumnMap, missingFields, type MapCol } from '@/components/rsm/ColumnMap'
 import { programName } from '@/lib/rsm/types'
 import type { RsmAnomaly, RsmCategory, RsmConfig, RsmFileLayout } from '@/lib/rsm/types'
@@ -24,8 +27,7 @@ interface Dry {
   warnings: string[]
   anomalies: RsmAnomaly[]
 }
-type TKey = keyof RsmCategory['tariffs']
-const TKEYS: TKey[] = ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare']
+type TKey = string
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
 // Avvisi da mostrare SUBITO, non fra quelli minori: riguardano come il file è stato
 // letto o numeri che non tornano con il programma, non il singolo dato di una persona.
@@ -85,7 +87,7 @@ export default function RsmImportPage() {
       cc[v] = saved || (auto.key ? `${auto.key}${auto.quiescente ? '|Q' : ''}` : '')
     }
     const lg: Record<string, string> = {}
-    for (const v of legCol ? legCol.values : []) lg[v] = layout?.legameCodes?.[normHeadText(v)] || normLegame(v) || ''
+    for (const v of legCol ? legCol.values : []) lg[v] = layout?.legameCodes?.[normHeadText(v)] || normLegame(v, null, cfg) || ''
     setCatCodes(cc); setLegCodes(lg)
     setColOpen(!!ic.guessed || next.some((c) => !c.field && c.values.length > 0) || missingFields(next, true).length > 0)
   }
@@ -94,7 +96,7 @@ export default function RsmImportPage() {
     setCols(next)
     const catCol = next.find((c) => c.field === 'categoria'), legCol = next.find((c) => c.field === 'legame')
     if (catCol) setCatCodes(Object.fromEntries(catCol.values.map((v) => { const a = normCategory(v, cfg?.categories || []); return [v, catCodes[v] ?? (a.key ? `${a.key}${a.quiescente ? '|Q' : ''}` : '')] })))
-    if (legCol) setLegCodes(Object.fromEntries(legCol.values.map((v) => [v, legCodes[v] ?? (normLegame(v) || '')])))
+    if (legCol) setLegCodes(Object.fromEntries(legCol.values.map((v) => [v, legCodes[v] ?? (normLegame(v, null, cfg) || '')])))
   }
 
   /** Configurazione di partenza per il programma scelto, con le tariffe del file dove mancano. */
@@ -106,7 +108,7 @@ export default function RsmImportPage() {
       const f = ft[c.key]
       if (!f) return c
       const tariffs = { ...c.tariffs }
-      for (const k of TKEYS) if (!tariffs[k] && f.tariffs[k]) tariffs[k] = f.tariffs[k]
+      for (const k of tariffKeys(base) as string[]) if (!tariffs[k] && f.tariffs[k]) tariffs[k] = f.tariffs[k]
       return { ...c, tariffs, policy: c.policy || f.policy || '' }
     })
     return base
@@ -341,7 +343,7 @@ export default function RsmImportPage() {
           </div></div>
 
           {cols.length > 0 && (
-            <ColumnMap cols={cols} setCols={setColsAndCodes} cats={cfg.categories} catCodes={catCodes} setCatCodes={setCatCodes}
+            <ColumnMap legami={legamiOf(cfg)} cols={cols} setCols={setColsAndCodes} cats={cfg.categories} catCodes={catCodes} setCatCodes={setCatCodes}
               legCodes={legCodes} setLegCodes={setLegCodes} guessed={!!insp.columns?.guessed} categorySheets={categorySheets}
               open={colOpen} setOpen={setColOpen} />
           )}
@@ -374,20 +376,23 @@ export default function RsmImportPage() {
               <table className="rsm-cats">
                 <thead><tr>
                   <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th>
-                  <th>{t('rsm.set.tTit')}</th><th>{t('rsm.set.tQui')}</th><th>{t('rsm.set.tCo')}</th><th>{t('rsm.set.tFi')}</th><th>{t('rsm.set.tFa')}</th><th>{t('rsm.set.quota')}</th>
+                  {tariffColumns(cfg, t).map((col) => <th key={col.key}>{col.label}</th>)}<th>{t('rsm.set.quota')}</th>
                 </tr></thead>
                 <tbody>
                   {cfg.categories.map((c, i) => {
                     const f = insp.tariffs[c.key]
                     const inFile = insp.categories.includes(c.key) || codedCats.has(c.key)
+                    const cols = tariffColumns(cfg, t)
                     const cell = (k: TKey, disabled = false) => {
                       const v = c.tariffs[k]
-                      const fv = f?.tariffs[k]
+                      const fv = f?.tariffs[k] as number | undefined
                       return (
-                        <td>
-                          <NumInput value={v} disabled={disabled} width={92} invalid={inFile && k === 'titolare' && !v}
-                            label={`${c.label} ${t(`rsm.set.t${k === 'titolare' ? 'Tit' : k === 'quiescente' ? 'Qui' : k === 'coniuge' ? 'Co' : k === 'figlio' ? 'Fi' : 'Fa'}`)}`}
+                        <td key={k}>
+                          <ValueInput value={v} disabled={disabled} width={80}
+                            bases={cols.filter((o) => o.key !== k).map((o) => ({ key: o.key, label: o.label }))}
+                            label={`${c.label} ${cols.find((o) => o.key === k)?.label || k}`}
                             onChange={(n) => setCat(i, { tariffs: { ...c.tariffs, [k]: n } })} />
+                          {inFile && k === 'titolare' && !v ? <div className="rsm-sub" style={{ color: 'var(--c-error)' }}>!</div> : null}
                           {fv && fv !== v ? <button type="button" className="rsm-mini" style={{ marginTop: 4 }} onClick={() => setCat(i, { tariffs: { ...c.tariffs, [k]: fv } })}>{t('rsm.imp.fileVal', { v: eur(fv) })}</button> : null}
                         </td>
                       )
@@ -400,15 +405,15 @@ export default function RsmImportPage() {
                           {f?.policy && f.policy !== c.policy ? <button type="button" className="rsm-mini" style={{ marginTop: 4 }} onClick={() => setCat(i, { policy: f.policy })}>{t('rsm.imp.fileVal', { v: f.policy })}</button> : null}
                         </td>
                         <td>{t(c.mode === 'nucleo' ? 'rsm.set.nucleo' : 'rsm.set.persona')}</td>
-                        {cell('titolare')}{cell('quiescente')}{cell('coniuge', c.mode === 'nucleo')}{cell('figlio', c.mode === 'nucleo')}{cell('familiare', c.mode === 'nucleo')}
-                        <td><NumInput value={c.quota} onChange={(n) => setCat(i, { quota: n })} width={70} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
+                        {cols.map((col) => cell(col.key, c.mode === 'nucleo' && col.family))}
+                        <td><ValueInput value={c.quota} onChange={(n) => setCat(i, { quota: n })} width={60} bases={[{ key: 'premio', label: t('rsm.set.premioTit') }]} label={`${c.label} ${t('rsm.set.quota')}`} /></td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
               {missingTariff && <div className="rsm-issue error" style={{ marginTop: 8 }}>{t('rsm.imp.missingTariff')}</div>}
-              <div className="rsm-note" style={{ marginTop: 8 }}>{t('rsm.imp.rulesNote', { m: cfg.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: String(cfg.rules.refundTaxPct).replace('.', ',') })}</div>
+              <div className="rsm-note" style={{ marginTop: 8 }}>{t('rsm.imp.rulesNote', { m: cfg.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: describeValue(refundTaxOf(cfg), { rimborso: t('rsm.set.refundGross') }) })}</div>
             </div>
           </div>
           <div className="rsm-row">

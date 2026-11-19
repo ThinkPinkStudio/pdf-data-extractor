@@ -3,7 +3,7 @@
 // Import guidato, passo 2: le colonne del file e i codici di categoria e
 // legame, indicati una volta per società e ricordati (config.fileLayout).
 import { useI18n } from '@/lib/i18n/I18nProvider'
-import { LAYOUT_FIELDS } from '@/lib/rsm/rules.js'
+import { LAYOUT_FIELDS, legamiOf } from '@/lib/rsm/rules.js'
 import type { RsmCategory } from '@/lib/rsm/types'
 
 export interface MapCol { col: number; head: string; norm: string; field: string | null; auto: string | null; saved: boolean; samples: string[]; values: string[] }
@@ -15,7 +15,8 @@ export function missingFields(cols: MapCol[], categorySheets: boolean): string[]
   return need.filter((f) => !has(f))
 }
 
-export function ColumnMap({ cols, setCols, cats, catCodes, setCatCodes, legCodes, setLegCodes, guessed, categorySheets, open, setOpen }: {
+export function ColumnMap({ cols, setCols, cats, catCodes, setCatCodes, legCodes, setLegCodes, guessed, categorySheets, open, setOpen, legami }: {
+  legami?: { key: string; label: string }[]
   cols: MapCol[]; setCols: (c: MapCol[]) => void
   cats: RsmCategory[]
   catCodes: Record<string, string>; setCatCodes: (c: Record<string, string>) => void
@@ -79,7 +80,7 @@ export function ColumnMap({ cols, setCols, cats, catCodes, setCatCodes, legCodes
         )}
         {(open || todoCodes > 0) && legCol && legVals.length > 0 && (
           <CodeTable title={t('rsm.col.legs', { c: legCol.head })} values={legVals} codes={legCodes} setCodes={setLegCodes}
-            options={(['TI', 'CO', 'FI', 'FA'] as const).map((k) => ({ v: k, l: t(`rsm.leg.${k}`) }))} />
+            options={(legami || legamiOf(null)).map((l: { key: string; label: string }) => ({ v: l.key, l: l.label }))} />
         )}
       </div>
     </div>
