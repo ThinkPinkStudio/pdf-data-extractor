@@ -2148,6 +2148,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   <anno>», `workbookYear`), Vita col caricamento delle RAL (colonna «RAL ANNUA
   <anno>» vuota da compilare). Totali e foglio usciti scritti in modo che
   l'import non li scambi per persone (testo nella prima cella, NOMINATIVO).
+  **Col tracciato della società (19/11/2026, file PiùVera di Lidia)**: prima
+  usciva UN foglio con tutte le categorie (bastava la colonna CATEGORIA nel
+  tracciato) e le colonne non lette dall'import vuote. Ora sempre un foglio per
+  categoria + «Variazioni <categoria>» con chi decorre nell'anno nuovo (le
+  inclusioni dal 01/01), colonna categoria su ogni riga; le colonne «skip» si
+  compilano dall'intestazione (AZIENDA, ETA' al primo giorno, SESSO, TITOLARE
+  NUCLEO, PREMIO, Q. A., TOTALE; premi con le tariffe dell'anno in corso,
+  dichiarato in Riepilogo e totali). Prova sul loro export: 236 persone, si
+  ricarica nel 2027 con le stesse categorie. All'import un foglio col nome di
+  una categoria dà quella categoria a tutte le sue righe (la colonna non
+  conta). La barra delle società (RSM) e dei clienti (Vita) si vede anche con
+  una sola: con una sola sembrava «come prima».
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

@@ -194,7 +194,7 @@ export function VitaHeader({ vita, title, kicker, children }: { vita: Vita; titl
   }
   return (
     <div className="rsm-head-wrap">
-      {vita.clients.length > 1 && (
+      {vita.clients.length > 0 && (
         <nav className="rsm-companies" aria-label="Clienti">
           {vita.clients.map((c) => (
             <button key={c} type="button" className={c === vita.client ? 'on' : ''} aria-current={c === vita.client ? 'true' : undefined}

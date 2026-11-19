@@ -109,14 +109,14 @@ export const today = () => {
 
 /**
  * Intestazione delle pagine: società (un clic per passare all'altra), anno,
- * titolo, azioni. Con una sola società resta il nome; con un solo anno, l'anno.
+ * titolo, azioni. Anche con una sola società la scheda resta (si vede dove si è); con un solo anno, l'anno.
  */
 export function RsmHeader({ rsm, title, children }: { rsm: Rsm; title: string; children?: React.ReactNode }) {
   const { t } = useI18n()
   const years = (rsm.programs || []).filter((p) => p.company === rsm.company).sort((a, b) => b.year - a.year)
   return (
     <div className="rsm-head-wrap">
-      {rsm.companies.length > 1 && (
+      {rsm.companies.length > 0 && (
         <nav className="rsm-companies" aria-label={t('rsm.companies')}>
           {rsm.companies.map((c) => (
             <button key={c} type="button" className={c === rsm.company ? 'on' : ''} aria-current={c === rsm.company ? 'true' : undefined}

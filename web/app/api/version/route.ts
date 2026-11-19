@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // l'istanza che risponde la sta servendo — indipendentemente da cache del
 // browser o proxy.
 const BUILD_FEATURES = [
+  'rsm-rinnovo-categorie', // RSM: stato per l'anno dopo col tracciato = un foglio per categoria + Variazioni, colonne calcolate; barra società sempre visibile (19/11/2026)
   'rsm-config',           // RSM: fasce d'età, regole componibili, tracciato del file, prova prima di salvare (18/11/2026)
   'vita-categorie',       // Vita: clienti e anni, calcolo per categoria (Agos LTC e Quadri/Dirigenti), file mensile del cliente (18/11/2026)
   'stato-rinnovo',        // RSM e Vita: stato di rischio pulito per l'anno dopo (17/11/2026)
