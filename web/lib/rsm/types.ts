@@ -51,11 +51,19 @@ export interface RsmConfig {
     entrySteps?: { until: string; value: ConfigValue }[]
     /** trattenuta sul rimborso: % = imposta da scorporare, fisso = importo da togliere (sostituisce refundTaxPct) */
     refundTax?: ConfigValue
+    /** quota associativa: chi la paga, intera o con la frazione del premio, se torna col rimborso */
+    quotaWho?: 'titolare' | 'tutti'
+    quotaMode?: 'intera' | 'comePremio'
+    quotaRefund?: boolean
+    /** chi entra per promozione: pro-rata (default) o come le altre entrate */
+    promotionEntry?: 'prorata' | 'comeEntrata'
   }
+  /** parole con cui il cliente scrive «sì», le note, i fogli e le colonne (si aggiungono a quelle di sempre) */
+  words?: { yes?: string; promoNotes?: string; cessNotes?: string; varSheet?: string; heads?: Record<string, string> }
   /** legami del nucleo; assente = titolare, coniuge, figlio, altro familiare */
   legami?: RsmLegame[]
   fileLayout?: RsmFileLayout | null
-  mail: { cc: string; signature: string }
+  mail: { cc: string; signature: string; subject?: string; greeting?: string; intro?: string; askAll?: string; askSome?: string; closing?: string }
   // Chi può caricare e modificare (email). Vuoto = tutti; gli altri consultano.
   editors?: string[]
   // Come la società è scritta nei file del cliente (colonna AZIENDA: «C.A.

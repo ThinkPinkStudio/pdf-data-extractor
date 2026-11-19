@@ -625,3 +625,42 @@ test('configurazioni vecchie: stessi importi di prima (semestri, 2,5% scorporato
   const r = m('2026-01-01', { entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' }).rimborso
   assert.equal(r, Math.round(1000 / 1.025 * R.prorataFraction(cfg, '2026-07-02') * 100) / 100)
 })
+
+test('parole dei file, testi della mail, quota e promozione configurabili', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const cfg = R.defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  imp.tariffs = { titolare: 1000, coniuge: 600 }
+  // intestazione in più: «MATR. FAM.» = codice fiscale assicurato no, «ASSICURATO» = cognome
+  cfg.words = { yes: 'SI, X, 1', varSheet: 'MOVIMENTI', heads: { cognome: 'ASSICURATO', cfAss: 'CODICE PERSONA' } }
+  const h = R.findHeader([['ASSICURATO', 'NOME', 'CODICE PERSONA', 'LEGAME']], R.readLayout(cfg))
+  assert.equal(h.map.cognome, 0)
+  assert.equal(h.map.cfAss, 2)
+  assert.equal(R.isVarSheet('MOVIMENTI IMPIEGATI', cfg), true)
+  assert.equal(R.isVarSheet('Variazioni IMPIEGATI', cfg), false)
+  assert.equal(R.isVarSheet('Variazioni IMPIEGATI', R.defaultProgramConfig(2026)), true)
+  assert.equal(R.hasWord('ESCLUSO PER TRASFERIMENTO', 'TRASFER'), true)
+  // testi della mail con segnaposto
+  cfg.mail = { cc: '', signature: '', subject: 'Errori nel file {file}', greeting: 'Gentile ufficio,' }
+  const mail = R.buildErrorMail({ fileName: 'gennaio.xlsx', rows: [{ cognome: 'Rossi', nome: 'A', rowNumber: 3, hasError: true, issues: [{ level: 'error', text: 'CF errato' }] }], cfg })
+  assert.equal(mail.subject, 'Errori nel file gennaio.xlsx')
+  assert.ok(mail.body.startsWith('Gentile ufficio,'))
+  assert.ok(mail.body.includes('Grazie, cordiali saluti')) // non toccato = testo di sempre
+  // limite d'età 0 = nessun avviso
+  cfg.rules.maxAge = 0
+  const old = { category: imp.key, legame: 'TI', quiescente: false, cf: 'X', cfTitolare: 'X', birthDate: '1930-01-01', entryDate: '2026-01-01', entryKind: 'iniziale' }
+  assert.equal(R.renewalPlan(cfg, [old]).keep[0].alerts.length, 0)
+  // quota: anche ai familiari, con la frazione del premio; rimborsata in pro-rata
+  cfg.rules.quotaWho = 'tutti'; cfg.rules.quotaMode = 'comePremio'
+  const co = R.computeMember(cfg, { category: imp.key, legame: 'CO', quiescente: false, entryDate: '2026-08-01', entryKind: 'inclusione' })
+  assert.equal(co.rateo, 300)
+  assert.equal(co.quota, 5) // 10 × 50%
+  cfg.rules.quotaRefund = true; cfg.rules.exitMode = 'rimborso'; cfg.rules.refundTax = { mode: 'fisso', value: 0 }
+  const out = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' })
+  const f = R.prorataFraction(cfg, '2026-07-02')
+  assert.equal(out.rimborso, Math.round((1000 * f + 10 * f) * 100) / 100)
+  // promozione come le altre entrate: scaglioni invece del pro-rata
+  cfg.rules.promotionEntry = 'comeEntrata'
+  const pr = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-08-01', entryKind: 'promozione' })
+  assert.equal(pr.rateo, 500)
+})

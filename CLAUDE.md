@@ -2182,6 +2182,16 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   configurazioni vecchie danno gli stessi importi. Inventario del resto
   (parole dei file, testi di mail ed Excel, scelte di calcolo, tutta la
   parte Vita): da fare a blocchi.
+  RSM, secondo blocco: PAROLE DEI FILE (`cfg.words`, `wordsOf`: valori del
+  «sì», parole delle note per promozione/cessazione, inizio del nome dei fogli
+  delle variazioni `isVarSheet`, intestazioni in più per colonna che si
+  AGGIUNGONO a quelle di sempre in `findHeader`); TESTI DELLA MAIL per i dati
+  errati (`cfg.mail.subject/greeting/intro/askAll/askSome/closing`, segnaposto
+  {file} {data} {n} {altre}); limite d'età 0 = nessun avviso (`maxAgeOf`);
+  quota associativa: chi la paga (`quotaWho`), intera o con la frazione del
+  premio (`quotaMode`), rimborsata in pro-rata (`quotaRefund`); chi entra per
+  promozione: pro-rata o come le altre entrate (`promotionEntry`). Il messaggio
+  «Categoria mancante» elenca le categorie del programma.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

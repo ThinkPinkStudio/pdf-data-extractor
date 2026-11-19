@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import ValueInput from '@/components/ValueInput'
-import { AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, RuleChoices, tariffColumns } from '@/components/rsm/SettingsParts'
+import { AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, MailTexts, RuleChoices, WordsBox, tariffColumns } from '@/components/rsm/SettingsParts'
 import { addDays, legamiOf, refundTaxOf } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
 import { programName } from '@/lib/rsm/types'
@@ -203,12 +203,15 @@ export default function RsmSettingsPage() {
               <div className="rsm-box-head"><div className="rsm-box-title">{t('rsm.set.mailAccess')}</div></div>
               <div className="rsm-box-body">
                 <label className="rsm-field">{t('rsm.set.cc')}<input value={cfg.mail.cc} disabled={ro} onChange={(e) => setCfg({ ...cfg, mail: { ...cfg.mail, cc: e.target.value } })} placeholder="nome@csabroker.it, altro@csabroker.it" /></label>
+                <MailTexts cfg={cfg} ro={ro} onChange={(mail) => setCfg({ ...cfg, mail })} />
                 <label className="rsm-field">{t('rsm.set.signature')}<textarea rows={3} value={cfg.mail.signature} disabled={ro} onChange={(e) => setCfg({ ...cfg, mail: { ...cfg.mail, signature: e.target.value } })} /></label>
                 <label className="rsm-field">{t('rsm.set.editors')}<textarea rows={3} value={editors} disabled={ro} onChange={(e) => setEditors(e.target.value)} placeholder="nome@csabroker.it" /></label>
                 <div className="rsm-note">{t('rsm.set.editorsHint')}</div>
               </div>
             </div>
           </div>
+
+          <WordsBox cfg={cfg} ro={ro} onChange={(words) => setCfg({ ...cfg, words })} />
 
           <ExampleBox cfg={cfg} />
           <LayoutSummary cfg={cfg} ro={ro} onForget={() => { setCfg({ ...cfg, fileLayout: null }); setMsg({ ok: true, text: t('rsm.lay.forgot') }) }} />

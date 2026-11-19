@@ -28,6 +28,7 @@ const cval = (v: unknown): ConfigValue => {
   return num(v)
 }
 const cleanTariffs = (t: unknown, keys: string[]) => Object.fromEntries(keys.map((k) => [k, cval((t as Record<string, unknown> | undefined)?.[k])]))
+const str = (v: unknown, max: number) => String(v ?? '').slice(0, max)
 const legKey = (v: unknown) => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 12)
 const iso = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
 
@@ -85,16 +86,25 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
       refundTaxPct: num(r.refundTaxPct),
       notifyDays: Math.round(num(r.notifyDays ?? 30)),
       coverUntilPeriodEnd: r.exitMode === 'rimborso' ? false : r.coverUntilPeriodEnd !== false,
-      maxAge: Math.round(num(r.maxAge ?? 80)) || 80,
+      maxAge: Math.round(num(r.maxAge ?? 80)),
       entryMode: r.entryMode === 'prorata' || r.entryMode === 'intero' ? r.entryMode : 'semestri',
       decorrenzaMode: r.decorrenzaMode === 'mese' ? 'mese' : 'data',
       exitMode: r.exitMode === 'rimborso' ? 'rimborso' : 'fineAnno',
       childMaxAge: Math.round(num(r.childMaxAge)),
       ...(Array.isArray(r.entrySteps) && r.entrySteps.length ? { entrySteps: r.entrySteps.slice(0, 24).map((x) => ({ until: /^\d{2}-\d{2}$/.test(String(x.until)) ? x.until : '12-31', value: cval(x.value) })) } : {}),
       ...(r.refundTax != null ? { refundTax: cval(r.refundTax) } : {}),
+      quotaWho: r.quotaWho === 'tutti' ? 'tutti' : 'titolare',
+      quotaMode: r.quotaMode === 'comePremio' ? 'comePremio' : 'intera',
+      quotaRefund: !!r.quotaRefund,
+      promotionEntry: r.promotionEntry === 'comeEntrata' ? 'comeEntrata' : 'prorata',
     },
     legami,
-    mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || '') },
+    words: {
+      yes: str(c.words?.yes, 400), promoNotes: str(c.words?.promoNotes, 400), cessNotes: str(c.words?.cessNotes, 400), varSheet: str(c.words?.varSheet, 200),
+      heads: Object.fromEntries(Object.entries((c.words?.heads && typeof c.words.heads === 'object' ? c.words.heads : {}) as Record<string, unknown>)
+        .filter(([k]) => (LAYOUT_FIELDS as string[]).includes(k)).map(([k, v]) => [k, str(v, 400)]).filter(([, v]) => v)),
+    },
+    mail: { cc: String(c.mail?.cc || '').trim(), signature: String(c.mail?.signature || ''), ...Object.fromEntries((['subject', 'greeting', 'intro', 'askAll', 'askSome', 'closing'] as const).map((k) => [k, str(c.mail?.[k], 2000)]).filter(([, v]) => v)) },
     editors: (c.editors || []).map((e) => String(e).trim().toLowerCase()).filter((e) => /@/.test(e)),
     fileCompany: String(c.fileCompany || '').trim().slice(0, 120),
     fileLayout: cleanLayout(c.fileLayout),

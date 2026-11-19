@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmGate, RsmHeader, api, eur, saveBlob, today, useFlash, useRsm } from '@/components/rsm/useRsm'
 import type { Rsm, Row } from '@/components/rsm/useRsm'
 import { buildEml, buildErrorMail, checkPerson, cleanCf, computeMember, decodeCf, decorrenza, emlToText, fmtDate, isCovered, mailIssues, parseCessationText, statusAt, legameLabel, legamiOf } from '@/lib/rsm/rules.js'
-import type { RsmCalc, RsmIssue, RsmPreparedRow } from '@/lib/rsm/types'
+import type { RsmCalc, RsmIssue, RsmPreparedRow, RsmConfig } from '@/lib/rsm/types'
 
 const SENDERS_KEY = 'rsmSenders'
 
@@ -163,7 +163,7 @@ function ExcelSection({ rsm }: { rsm: Rsm }) {
                 </table>
               </div>
             )}
-            {!f.error && f.rows.some((r) => mailIssues(r).length > 0) && <ErrorMail fileName={f.name} received={received} rows={f.rows} sender={sender} cc={cfg.mail?.cc || ''} signature={cfg.mail?.signature || ''} />}
+            {!f.error && f.rows.some((r) => mailIssues(r).length > 0) && <ErrorMail cfg={cfg} fileName={f.name} received={received} rows={f.rows} sender={sender} cc={cfg.mail?.cc || ''} signature={cfg.mail?.signature || ''} />}
           </div>
         ))}
         {results && all.length > 0 && (
@@ -194,9 +194,9 @@ function IssueLine({ issue }: { issue: RsmIssue }) {
   )
 }
 
-function ErrorMail({ fileName, received, rows, sender, cc, signature }: { fileName: string; received: string; rows: RsmPreparedRow[]; sender: string; cc: string; signature: string }) {
+function ErrorMail({ fileName, received, rows, sender, cc, signature, cfg }: { fileName: string; received: string; rows: RsmPreparedRow[]; sender: string; cc: string; signature: string; cfg?: RsmConfig }) {
   const { t } = useI18n()
-  const initial = useMemo(() => buildErrorMail({ fileName, receivedOn: received, rows, to: sender, cc, signature }), [fileName, received, rows, sender, cc, signature])
+  const initial = useMemo(() => buildErrorMail({ fileName, receivedOn: received, rows, to: sender, cc, signature, cfg }), [fileName, received, rows, sender, cc, signature, cfg])
   const [open, setOpen] = useState(false)
   const [m, setM] = useState(initial)
   const [copied, setCopied] = useState(false)

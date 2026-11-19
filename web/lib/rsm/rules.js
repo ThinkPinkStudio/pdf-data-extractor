@@ -227,7 +227,61 @@ export const legameLabel = (cfg, key) => (legamiOf(cfg).find((l) => l.key === ke
  * Tracciato del file con i legami del programma: le funzioni di lettura lo
  * passano ovunque già oggi, così le parole dei legami arrivano a normLegame.
  */
-export const readLayout = (cfg) => ({ ...((cfg && cfg.fileLayout) || {}), legami: legamiOf(cfg) })
+export const readLayout = (cfg) => ({ ...((cfg && cfg.fileLayout) || {}), legami: legamiOf(cfg), words: wordsOf(cfg) })
+
+/**
+ * PAROLE DEI FILE (19/11/2026): come il cliente scrive «sì», che cosa nelle
+ * note suggerisce una promozione o una cessazione, come si chiama il foglio
+ * delle variazioni e altre intestazioni per ogni colonna. Si aggiungono a
+ * quelle riconosciute da sempre (mai le tolgono). Parole separate da virgola,
+ * confrontate a inizio parola, senza accenti né maiuscole.
+ */
+export const DEFAULT_WORDS = {
+  yes: 'SI, SÌ',
+  promoNotes: 'PASSAGG, PROMOS, PROMOZ, NOMIN',
+  cessNotes: 'CESSAZ, DIMISS, LICENZ, PENSION',
+  varSheet: 'VARIAZ',
+  heads: {},
+}
+export function wordsOf(cfg) {
+  const w = (cfg && cfg.words) || {}
+  const pick = (k) => (typeof w[k] === 'string' && w[k].trim() ? w[k] : DEFAULT_WORDS[k])
+  return { yes: pick('yes'), promoNotes: pick('promoNotes'), cessNotes: pick('cessNotes'), varSheet: pick('varSheet'), heads: (w.heads && typeof w.heads === 'object') ? w.heads : {} }
+}
+export const wordList = (s) => String(s || '').split(',').map((x) => normHead(x)).filter(Boolean)
+/** Il testo contiene una delle parole (a inizio parola)? */
+export const hasWord = (text, list) => {
+  const t = ` ${normHead(text)} `
+  return wordList(list).some((w) => t.includes(` ${w}`))
+}
+
+/**
+ * TESTI DELLA MAIL per i dati errati, con i segnaposto {file} {data} {n}
+ * {altre}. I programmi vecchi hanno i testi di sempre.
+ */
+export const DEFAULT_MAIL_TEXTS = {
+  subject: 'Verifica dati – {file}',
+  greeting: 'Buongiorno,',
+  intro: 'nel file «{file}»{data} abbiamo riscontrato i seguenti dati da verificare:',
+  askAll: 'Vi chiediamo di controllarli e di inviarci il file corretto.',
+  askSome: 'Vi chiediamo di controllarli e di inviarci il file corretto per queste righe. {altre}',
+  closing: 'Grazie, cordiali saluti',
+}
+export function mailTextsOf(cfg) {
+  const m = (cfg && cfg.mail) || {}
+  const out = {}
+  for (const k of Object.keys(DEFAULT_MAIL_TEXTS)) out[k] = typeof m[k] === 'string' && m[k].trim() ? m[k] : DEFAULT_MAIL_TEXTS[k]
+  return out
+}
+const fill = (tpl, vars) => String(tpl).replace(/\{(\w+)\}/g, (x, k) => (k in vars ? vars[k] : x))
+
+/** Il foglio è un foglio di variazioni? (parole del programma, di default «VARIAZ…») */
+export const isVarSheet = (name, cfg) => { const n = normHead(name); return wordList(wordsOf(cfg).varSheet).some((w) => n.startsWith(w)) }
+/** Nome del foglio senza la parola delle variazioni: «Variazioni DIRIGENTI» → «DIRIGENTI». */
+const stripVarWord = (name, cfg) => { let n = normHead(name); for (const w of wordList(wordsOf(cfg).varSheet)) if (n.startsWith(w)) { n = n.slice(w.length).replace(/^[A-Z]*\s*/, ''); break } return n }
+
+/** Limite d'età della polizza (solo avviso): 0 = nessun limite; assente = 80. */
+export const maxAgeOf = (cfg) => { const v = ((cfg && cfg.rules) || {}).maxAge; return v == null || v === '' ? 80 : Number(v) || 0 }
 
 /** Chiavi delle tariffe di una categoria: titolare, quiescente e una per ogni familiare. */
 export const tariffKeys = (cfg) => ['titolare', 'quiescente', ...legamiOf(cfg).filter((l) => l.key !== 'TI').map((l) => l.tariff)]
@@ -444,7 +498,8 @@ export function computeMember(cfg, m) {
   const cat = categoryOf(cfg, m.category)
   if (!entry || entry <= cfg.periodStart) {
     calc = 'annuo intero'
-  } else if (m.entryKind === 'promozione') {
+  } else if (m.entryKind === 'promozione' && r.promotionEntry !== 'comeEntrata') {
+    // promozione: pro-rata (di default) o come qualunque entrata (rules.promotionEntry)
     frazione = prorataFraction(cfg, entry)
     calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
   } else if (r.entryMode === 'intero') {
@@ -468,13 +523,20 @@ export function computeMember(cfg, m) {
   }
   if (annuo === 0 && cat && cat.mode === 'nucleo' && m.legame !== 'TI') calc = 'compreso nel nucleo'
   const rateo = round2(annuo * frazione)
-  const quota = m.legame === 'TI' && annuo > 0 ? quotaOf(cat, annuo) : 0
+  // Quota associativa (regole configurabili): chi la paga (solo il titolare o
+  // chiunque abbia un premio), intera o con la stessa frazione del premio, e se
+  // torna col rimborso.
+  const payer = r.quotaWho === 'tutti' ? annuo > 0 : m.legame === 'TI' && annuo > 0
+  const quotaFull = payer ? quotaOf(cat, annuo) : 0
+  const quota = r.quotaMode === 'comePremio' ? round2(quotaFull * frazione) : quotaFull
   let rimborso = 0
   if ((m.exitKind === 'promozione' || (m.exitKind === 'cessazione' && refundsCessation(cfg))) && m.exitDate && annuo > 0) {
     const tax = refundTaxOf(cfg)
-    const gross = annuo * prorataFraction(cfg, m.exitDate)
+    const exitFrac = prorataFraction(cfg, m.exitDate)
+    const gross = annuo * exitFrac
     rimborso = round2(tax.mode === 'fisso' ? Math.max(0, gross - tax.value)
       : tax.mode === 'permille' ? gross / (1 + tax.value / 1000) : gross / (1 + tax.value / 100))
+    if (r.quotaRefund && quotaFull) rimborso = round2(rimborso + quotaFull * exitFrac)
   }
   const dovuto = round2(rateo + quota)
   return { annuo, frazione, rateo, quota, dovuto, rimborso, saldo: round2(dovuto - rimborso), calc }
@@ -516,7 +578,7 @@ export function ageAt(birthISO, atISO) {
  */
 export function renewalPlan(cfg, members) {
   const at = cfg.periodEnd
-  const maxAge = Number((cfg.rules || {}).maxAge) || 80
+  const maxAge = maxAgeOf(cfg)
   const keep = [], next = [], dropped = []
   for (const m of members) {
     if (m.entryDate && m.entryDate >= at) { next.push({ m, alerts: [] }); continue }
@@ -527,7 +589,7 @@ export function renewalPlan(cfg, members) {
   const covered = new Set(keep.concat(next).filter((x) => x.m.legame === 'TI').map((x) => `${x.m.category}|${x.m.cf}`))
   for (const x of keep.concat(next)) {
     const a = ageAt(x.m.birthDate || decodeCf(x.m.cf).birthDate, at)
-    if (a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
+    if (maxAge && a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
     const leg = legamiOf(cfg).find((l) => l.key === x.m.legame)
     if (leg && leg.key !== 'TI' && leg.maxAge && a != null && a > leg.maxAge) x.alerts.push(`${leg.label.toLowerCase()} di ${a} anni: oltre l'età massima di ${leg.maxAge}`)
     if (x.m.exitDate && x.m.exitDate > at) x.alerts.push(`uscita comunicata dal ${fmtDate(x.m.exitDate)}`)
@@ -591,7 +653,9 @@ export function findHeader(rows, layout) {
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const cells = (rows[i] || []).map(normHead)
     const mapped = cells.map((h) => lcols[h] || null)
-    const named = (cells.includes('COGNOME') || mapped.includes('cognome')) && (cells.includes('NOME') || mapped.includes('nome'))
+    const syn = (f) => wordList(((layout && layout.words && layout.words.heads) || {})[f])
+    const named = (cells.includes('COGNOME') || mapped.includes('cognome') || syn('cognome').some((w) => cells.includes(w)))
+      && (cells.includes('NOME') || mapped.includes('nome') || syn('nome').some((w) => cells.includes(w)))
     if (!named) continue
     const map = {}
     const extras = []
@@ -603,8 +667,11 @@ export function findHeader(rows, layout) {
       if (f === 'extra') extras.push({ col, head: cellStr((rows[i] || [])[col]) })
       else if (f !== 'skip' && !(f in map)) map[f] = col
     })
+    const extraHeads = Object.entries((layout && layout.words && layout.words.heads) || {})
     cells.forEach((h, col) => {
-      if (used.has(col)) return
+      if (used.has(col) || !h) return
+      // intestazioni aggiunte nelle impostazioni (parole del programma), poi quelle di sempre
+      for (const [key, words] of extraHeads) if (!(key in map) && wordList(words).some((w) => h === w || h.startsWith(`${w} `))) { map[key] = col; used.add(col); return }
       for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
     })
     return { row: i, map, extras }
@@ -743,7 +810,7 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
       if (found) category = found.category
     }
     if (!r.legame) issues.push({ code: 'legame', level: 'error', text: `Legame «${r.legameRaw || 'vuoto'}» non riconosciuto (TI, CO, FI o FA).` })
-    if (!category) issues.push({ code: 'categoria', level: 'error', text: 'Categoria mancante (Dirigente, Funzionario o Impiegato).' })
+    if (!category) issues.push({ code: 'categoria', level: 'error', text: `Categoria mancante (${(cfg.categories || []).map((c) => c.label).join(', ')}).` })
     const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
     issues.push(...person.issues)
     if (r.cfMoved) issues.push({ code: 'cf-colonna', level: 'warning', text: `Il codice fiscale ${r.cf} era nella colonna del titolare: è di questa persona${r.cfTitolare ? `, titolare ${r.cfTitolare}` : ''}.` })
@@ -809,27 +876,28 @@ export function prepareCommunication(cfg, parsed, existing, communicated) {
  */
 export const mailIssues = (r) => r.issues.filter((i) => i.level === 'error' && i.mail !== false)
 
-export function buildErrorMail({ fileName, receivedOn, rows, to, cc, signature }) {
+export function buildErrorMail({ fileName, receivedOn, rows, to, cc, signature, cfg }) {
+  const T = mailTextsOf(cfg)
   const bad = rows.filter((r) => mailIssues(r).length)
   const lines = bad.map((r) => {
     const who = `${String(r.cognome || '').toUpperCase()} ${String(r.nome || '').toUpperCase()}`.trim() || '(senza nome)'
     const errs = mailIssues(r).map((i) => `   - ${i.text}`).join('\n')
     return `• ${who} (riga ${r.rowNumber})\n${errs}`
   })
-  const subject = `Verifica dati – ${fileName || 'comunicazione inclusioni'}`
+  const subject = fill(T.subject, { file: fileName || 'comunicazione inclusioni' })
   const ok = rows.filter((r) => !r.hasError).length
   const body = [
-    'Buongiorno,',
+    T.greeting,
     '',
-    `nel file «${fileName || ''}»${receivedOn ? ` ricevuto il ${fmtDate(receivedOn)}` : ''} abbiamo riscontrato i seguenti dati da verificare:`,
+    fill(T.intro, { file: fileName || '', data: receivedOn ? ` ricevuto il ${fmtDate(receivedOn)}` : '', n: bad.length }),
     '',
     ...lines,
     '',
     ok === 0
-      ? 'Vi chiediamo di controllarli e di inviarci il file corretto.'
-      : `Vi chiediamo di controllarli e di inviarci il file corretto per queste righe. ${ok === 1 ? 'L\'altra riga del file è stata registrata' : `Le altre ${ok} righe del file sono state registrate`} regolarmente.`,
+      ? fill(T.askAll, { file: fileName || '', n: bad.length })
+      : fill(T.askSome, { file: fileName || '', n: bad.length, altre: `${ok === 1 ? 'L\'altra riga del file è stata registrata' : `Le altre ${ok} righe del file sono state registrate`} regolarmente.` }),
     '',
-    'Grazie, cordiali saluti',
+    T.closing,
     ...(signature ? ['', signature] : []),
   ].join('\n')
   return { to: to || '', cc: cc || '', subject, body, count: bad.length }
@@ -859,7 +927,7 @@ export function buildEml({ to, cc, subject, body }) {
 
 /* ─── Import dello stato di rischio (il loro Excel) ─────────────────────── */
 
-const yes = (v) => /^S[IÌ]$/i.test(String(v ?? '').trim())
+const yes = (v, cfg) => { const t = normHead(v); return !!t && wordList(wordsOf(cfg).yes).includes(t) }
 
 /**
  * Stato di rischio del cliente: un foglio per categoria (situazione al 01/01)
@@ -872,12 +940,12 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const layout = readLayout(cfg)
   const members = []
   const warnings = []
-  const catOfSheet = (name) => normCategory(String(name).replace(/^VARIAZIONI\s*/i, ''), cfg.categories).key
+  const catOfSheet = (name) => normCategory(isVarSheet(name, cfg) ? stripVarWord(name, cfg) : String(name), cfg.categories).key
   const names = Object.keys(sheets)
   // Tracciato di riferimento: le colonne del foglio con l'intestazione più completa.
   // Servono ai fogli che il cliente manda SENZA riga d'intestazione (IMPIEGATI del
   // file di rinnovo 2026): stesse colonne, nello stesso ordine.
-  const isVar = (n) => /^VARIAZ/i.test(String(n).trim())
+  const isVar = (n) => isVarSheet(n, cfg)
   const refStato = referenceHeader(sheets, (n) => !isVar(n), layout)
   const refVar = referenceHeader(sheets, isVar, layout)
   /**
@@ -903,7 +971,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     if (p.header && p.header.fromFallback) warnings.push(`Foglio «${name}»: manca la riga di intestazione, ho letto le colonne come nel foglio «${ref.sheet}». Controlla i nomi nell'anteprima.`)
   }
   // 1) fogli di stato al 01/01
-  for (const name of names.filter((n) => !/^VARIAZ/i.test(n.trim()))) {
+  for (const name of names.filter((n) => !isVar(n))) {
     const key = catOfSheet(name)
     // un foglio che non ha il nome di una categoria si legge solo se ha la colonna categoria
     if (!key) {
@@ -916,7 +984,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     const cats = rowCategories(name, p, key)
     const quiescTit = new Map()
     for (const r of p.rows) {
-      if (r.legame === 'TI') quiescTit.set(r.cf, cats.get(r).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente]))
+      if (r.legame === 'TI') quiescTit.set(r.cf, cats.get(r).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente], cfg))
     }
     for (const r of p.rows) {
       if (!r.legame) { warnings.push(`«${name}» riga ${r.rowNumber}: legame «${r.legameRaw || 'vuoto'}» non riconosciuto, riga saltata.`); continue }
@@ -953,7 +1021,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   // 2) variazioni: prima le entrate, poi le uscite (chi esce può essere entrato in corso d'anno)
   const varRows = []
   let outOfPeriod = 0, datedRows = 0
-  for (const name of names.filter((n) => /^VARIAZ/i.test(n.trim()))) {
+  for (const name of names.filter((n) => isVar(n))) {
     const key = catOfSheet(name)
     const p = parseCommunicationRows(sheets[name], refYear, key ? refVar.map : null, layout)
     if (!key && (p.error || p.header.map.categoria == null)) continue
@@ -964,7 +1032,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     for (const r of p.rows) {
       const rowKey = cats.get(r).key
       if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
-      varRows.push({ ...r, key: rowKey, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol]) })
+      varRows.push({ ...r, key: rowKey, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol], cfg) })
       for (const d of [r.entryDate, r.exitDate].filter(Boolean)) {
         datedRows++
         if (d < cfg.periodStart || d >= cfg.periodEnd) outOfPeriod++
@@ -1067,8 +1135,9 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     // FUNZIONARI»): pre-seleziona la risposta, che l'operatore conferma o cambia.
     const notes = [...new Set(g.rows.flatMap((r) => [r.exit && r.exit.note, r.entry && r.entry.note]).filter(Boolean))].join(' · ')
     let suggest = null
-    if (/PASSAGG|PROMO[SZ]|NOMIN/i.test(notes)) suggest = 'promozione'
-    else if (/CESSAZ|DIMISS|LICENZ|PENSION/i.test(notes) && g.type !== 'senza-uscita') suggest = g.type === 'non-segnata' ? 'separati' : 'cessazione'
+    const W = wordsOf(cfg)
+    if (hasWord(notes, W.promoNotes)) suggest = 'promozione'
+    else if (hasWord(notes, W.cessNotes) && g.type !== 'senza-uscita') suggest = g.type === 'non-segnata' ? 'separati' : 'cessazione'
     anomalies.push({
       key: g.key, type: g.type, from: g.from, to: g.to, date: g.date, cf: g.cf, people, text,
       suggest, suggestNote: suggest ? notes : null,
@@ -1106,8 +1175,8 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
  */
 export function tariffsFromWorkbook(cfg, sheets) {
   const out = {}
-  const ref = referenceHeader(sheets, (n) => !/^VARIAZ/i.test(String(n).trim()))
-  for (const name of Object.keys(sheets).filter((n) => !/^VARIAZ/i.test(n.trim()))) {
+  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg))
+  for (const name of Object.keys(sheets).filter((n) => !isVarSheet(n, cfg))) {
     const key = normCategory(name, cfg.categories).key
     if (!key) continue
     const rows = sheets[name] || []

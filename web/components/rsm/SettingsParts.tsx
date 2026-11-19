@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import ValueInput from '@/components/ValueInput'
 import { eur } from '@/components/rsm/useRsm'
-import { compareConfigs, entryStepsOf, exampleCalc, fmtDate, legamiOf, refundTaxOf, legameLabel } from '@/lib/rsm/rules.js'
+import { DEFAULT_MAIL_TEXTS, DEFAULT_WORDS, LAYOUT_FIELDS, compareConfigs, entryStepsOf, exampleCalc, fmtDate, legamiOf, refundTaxOf, legameLabel } from '@/lib/rsm/rules.js'
 import { describeValue } from '@/lib/configValue.js'
 import type { ConfigValue, RsmCategory, RsmConfig, RsmLegame, RsmMember, RsmTariffs } from '@/lib/rsm/types'
 
@@ -188,6 +188,26 @@ export function RuleChoices({ cfg, ro, setRule }: { cfg: RsmConfig; ro: boolean;
         </select>
         <span className="rsm-help">{t(`rsm.r.exitHelp.${exitMode}`)}</span>
       </label>
+      <label className="rsm-field">{t('rsm.r.quotaWho')}
+        <select value={r.quotaWho || 'titolare'} disabled={ro} onChange={(e) => setRule('quotaWho', e.target.value)}>
+          <option value="titolare">{t('rsm.r.quotaWhoTit')}</option>
+          <option value="tutti">{t('rsm.r.quotaWhoAll')}</option>
+        </select>
+      </label>
+      <label className="rsm-field">{t('rsm.r.quotaMode')}
+        <select value={r.quotaMode || 'intera'} disabled={ro} onChange={(e) => setRule('quotaMode', e.target.value)}>
+          <option value="intera">{t('rsm.r.quotaFull')}</option>
+          <option value="comePremio">{t('rsm.r.quotaLikePremium')}</option>
+        </select>
+      </label>
+      <label className="rsm-rule"><input type="checkbox" checked={!!r.quotaRefund} disabled={ro} onChange={(e) => setRule('quotaRefund', e.target.checked)} />
+        <span>{t('rsm.r.quotaRefund')}</span></label>
+      <label className="rsm-field">{t('rsm.r.promoEntry')}
+        <select value={r.promotionEntry || 'prorata'} disabled={ro} onChange={(e) => setRule('promotionEntry', e.target.value)}>
+          <option value="prorata">{t('rsm.r.promoProrata')}</option>
+          <option value="comeEntrata">{t('rsm.r.promoLikeEntry')}</option>
+        </select>
+      </label>
     </div>
   )
 }
@@ -313,5 +333,60 @@ export function LayoutSummary({ cfg, ro, onForget }: { cfg: RsmConfig; ro: boole
         {Object.keys(l.legameCodes).length > 0 && <div className="rsm-chips">{Object.entries(l.legameCodes).map(([c, k]) => <span key={c} className="chip">«{c}» = <b>{legameLabel(cfg, k)}</b></span>)}</div>}
       </div>
     </div>
+  )
+}
+
+/**
+ * PAROLE DEI FILE: come il cliente scrive «sì», cosa nelle note suggerisce una
+ * promozione o una cessazione, come si chiama il foglio delle variazioni, e
+ * intestazioni in più per ogni colonna. Si aggiungono a quelle di sempre.
+ */
+export function WordsBox({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; onChange: (w: NonNullable<RsmConfig['words']>) => void }) {
+  const { t } = useI18n()
+  const w = cfg.words || {}
+  const set = (p: Partial<NonNullable<RsmConfig['words']>>) => onChange({ ...w, ...p })
+  const field = (k: 'yes' | 'promoNotes' | 'cessNotes' | 'varSheet') => (
+    <label className="rsm-field" key={k}>{t(`rsm.w.${k}`)}
+      <input value={w[k] ?? ''} placeholder={DEFAULT_WORDS[k]} disabled={ro} onChange={(e) => set({ [k]: e.target.value })} style={{ width: 320 }} />
+    </label>
+  )
+  return (
+    <div className="rsm-box">
+      <div className="rsm-box-head"><div><div className="rsm-box-title">{t('rsm.w.title')}</div><span className="rsm-note">{t('rsm.w.hint')}</span></div></div>
+      <div className="rsm-box-body">
+        <div className="rsm-row">{field('yes')}{field('varSheet')}</div>
+        <div className="rsm-row">{field('promoNotes')}{field('cessNotes')}</div>
+        <details>
+          <summary className="rsm-muted" style={{ cursor: 'pointer' }}>{t('rsm.w.heads')}</summary>
+          <div className="rsm-row" style={{ marginTop: 8 }}>
+            {(LAYOUT_FIELDS as string[]).map((f) => (
+              <label className="rsm-field" key={f}>{t(`rsm.f.${f}`)}
+                <input value={(w.heads || {})[f] || ''} disabled={ro} placeholder={t('rsm.w.headsPh')} onChange={(e) => set({ heads: { ...(w.heads || {}), [f]: e.target.value } })} style={{ width: 220 }} />
+              </label>
+            ))}
+          </div>
+        </details>
+      </div>
+    </div>
+  )
+}
+
+/** Testi della mail per i dati errati, con i segnaposto {file} {data} {altre}. */
+export function MailTexts({ cfg, ro, onChange }: { cfg: RsmConfig; ro: boolean; onChange: (m: RsmConfig['mail']) => void }) {
+  const { t } = useI18n()
+  const m = cfg.mail
+  const keys = ['subject', 'greeting', 'intro', 'askAll', 'askSome', 'closing'] as const
+  return (
+    <details>
+      <summary className="rsm-muted" style={{ cursor: 'pointer' }}>{t('rsm.mt.title')}</summary>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+        {keys.map((k) => (
+          <label className="rsm-field" key={k}>{t(`rsm.mt.${k}`)}
+            <input value={m[k] ?? ''} placeholder={DEFAULT_MAIL_TEXTS[k]} disabled={ro} onChange={(e) => onChange({ ...m, [k]: e.target.value })} />
+          </label>
+        ))}
+        <span className="rsm-help">{t('rsm.mt.help')}</span>
+      </div>
+    </details>
   )
 }

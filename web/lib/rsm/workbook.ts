@@ -10,7 +10,7 @@
 // Solo valori, nessuna formula: gli importi sono quelli di rules.js.
 import ExcelJS from 'exceljs'
 import { describeValue } from '../configValue.js'
-import { quotaOf, refundTaxOf } from './rules.js'
+import { maxAgeOf, quotaOf, refundTaxOf } from './rules.js'
 import { addDays, annualPremium, categoryOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
 import type { RsmMember, RsmProgram } from './types'
 
@@ -189,7 +189,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
         }
       }
       sum.addRow([])
-      sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · colonne del file della società · premi con le tariffe ${program.year} (da aggiornare se cambiano nel ${nextYear}) · limite d'età ${Number(cfg.rules.maxAge) || 80} anni (solo avviso) · esportato il ${fmtDate(at)}`])
+      sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · colonne del file della società · premi con le tariffe ${program.year} (da aggiornare se cambiano nel ${nextYear}) · ${maxAgeOf(cfg) ? `limite d'età ${maxAgeOf(cfg)} anni (solo avviso)` : 'nessun limite d\'età'} · esportato il ${fmtDate(at)}`])
       return Buffer.from(await wb.xlsx.writeBuffer())
     }
     const sum = wb.addWorksheet('Riepilogo')
@@ -232,7 +232,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       }
     }
     sum.addRow([])
-    sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · limite d'età ${Number(cfg.rules.maxAge) || 80} anni (solo avviso) · esportato il ${fmtDate(at)}`])
+    sum.addRow([`${program.name} · stato di rischio per il ${nextYear}: chi è in copertura al ${fmtDate(start)} · ${maxAgeOf(cfg) ? `limite d'età ${maxAgeOf(cfg)} anni (solo avviso)` : 'nessun limite d\'età'} · esportato il ${fmtDate(at)}`])
     return Buffer.from(await wb.xlsx.writeBuffer())
   }
 
