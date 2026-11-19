@@ -5293,6 +5293,48 @@ export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI t
   'Tieni SOLO le voci che la descrizione ammette, rispettando le sue esclusioni (le frasi "NON ..."). Non aggiungere voci, non riscriverle. ' +
   'FORMATO: un oggetto JSON {"tenere": [indici delle voci da tenere]}; {"tenere": []} se nessuna voce corrisponde alla descrizione.'
 
+export const LIST_FILTER_SYSTEM_CTX = LIST_FILTER_SYSTEM +
+  ' Sotto ogni voce c\'è il TESTO DEL DOCUMENTO dove compare: giudica la voce da quel testo (che cosa è nel documento), non solo dal suo nome.'
+
+/**
+ * [flag filtrocontesto] Righe della griglia attorno a una voce di elenco: la
+ * riga con più parole della voce (≥ 4 lettere, almeno il 60%), nella pagina
+ * della fonte se c'è, altrimenti in tutto il fascicolo; due righe sopra e tre
+ * sotto, spazi compressi, al massimo 700 caratteri.
+ */
+export function listItemContext(analyzed, item, file = null, page = null) {
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const toks = [...new Set(norm(item).split(/[^a-z0-9]+/).filter((w) => w.length >= 4))]
+  if (!toks.length) return null
+  const need = Math.max(Math.min(2, toks.length), Math.ceil(toks.length * 0.6))
+  const pick = (lines) => {
+    let bestI = -1
+    let bestN = 0
+    for (let i = 0; i < lines.length; i++) {
+      const l = norm(lines[i] + ' ' + (lines[i + 1] || ''))
+      const n = toks.filter((t) => l.includes(t)).length
+      if (n > bestN) { bestN = n; bestI = i }
+    }
+    return bestN >= need ? bestI : -1
+  }
+  const out = (lines, i) => lines.slice(Math.max(0, i - 2), i + 4).map((l) => l.replace(/\s{2,}/g, '  ').trim()).filter(Boolean).join('\n').slice(0, 700)
+  const docs = analyzed || []
+  const src = file ? docs.find((d) => d.name === file) : null
+  if (src && page) {
+    const lines = String(gridPagesOf(src)[page - 1] || '').split('\n')
+    const i = pick(lines)
+    if (i !== -1) return out(lines, i)
+  }
+  for (const d of docs) {
+    for (const pg of gridPagesOf(d)) {
+      const lines = String(pg || '').split('\n')
+      const i = pick(lines)
+      if (i !== -1) return out(lines, i)
+    }
+  }
+  return null
+}
+
 /** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
 export function isListDescription(description) {
   const head = String(description || '').split(':')[0]
@@ -6306,6 +6348,26 @@ export function negatedLabelHit(field, cleaned, affPair, text) {
   return phrases.length ? negatedPhraseLabelling(String(text || ''), cleaned, phrases) : null
 }
 
+/**
+ * [flag questionariodati] true se il valore di `field` letto in (file, page)
+ * viene da una pagina di questionario/proposta e il campo NON può prenderlo da
+ * lì: non è un campo d'identità (lo dice la parte POSITIVA della descrizione:
+ * niente massimali, franchigie, garanzie, attività/retroattività, premi,
+ * importi, né una data) e la descrizione non nomina il questionario o la
+ * proposta come fonte. Le verifiche hanno la loro regola (pagina-questionario).
+ */
+export function isQuestionnaireSourced(field, file, page, questionnairePages, optionDocs = null) {
+  if (!field || !file) return false
+  const desc = String(field.description || '')
+  if (descriptionAsksVerification(desc) || descriptionNamesQuestionnaire(field)) return false
+  const pos = positiveDescriptionText(desc)
+  const termOfPolicy = /massimal|franchig|scopert|attivit|prodott|qualific|garanz|premio|tasso|impost|importo|parametro|preventiv|condizion|sottolimit|estension|esclusion/i.test(pos)
+    || fieldValueKind(field) === 'date' || ['amount', 'rate'].includes(fieldValueKind(field))
+  if (!termOfPolicy) return false
+  if (optionDocs && optionDocs.has(file)) return true
+  return !!(page && questionnairePages && questionnairePages.has(`${file}|${page}`))
+}
+
 export async function absorbStagedEntries(parsed, groupFields, best, kindOf, analyzed, normCtx, usedNames, counters, report = null, affinityFor = null, factsRegistry = null, optionDocs = null, optionPages = null, rawCtx = null, verificationObjects = null) {
   const byId = Object.fromEntries(groupFields.map((f) => [f.id, f]))
   // Il prompt può rispondere con chiavi di INDICE `c{N}` (allineate all'ordine
@@ -6361,7 +6423,12 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     const cleaned = sanitizeFieldValue(field, val2)
     if (cleaned == null || cleaned === '') { counters.sanitized++; note(k, 'sanitizzato', val); continue }
     const evQuote = (e && typeof e === 'object' && typeof e.evidenza === 'string') ? e.evidenza : ''
-    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx) && !(STAGED_FLAGS.get(best)?.opzioni && optionHasEvidence(field, cleaned, rawCtx || ''))) { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
+    if (!passesStagedEvidence(field, cleaned, e, normCtx, rawCtx) && !(STAGED_FLAGS.get(best)?.opzioni && optionHasEvidence(field, cleaned, rawCtx || ''))) {
+      // [flag citazionicolonne] citazione cucita tra le due colonne della griglia
+      if (STAGED_FLAGS.get(best)?.citazionicolonne && passesStagedEvidence(field, cleaned, e, normCtx, rawCtx, { columns: true })) {
+        note(k, 'evidenza:due-colonne', cleaned, null, evQuote)
+      } else { counters.noEvidence++; note(k, 'senza-evidenza', cleaned, null, evQuote); continue }
+    }
     // ECO della descrizione di un ALTRO campo della chiamata, assente dal testo
     // ("Non operante" delle Condizioni finito nelle Esclusioni, RCP SAPORITI).
     {
@@ -6434,6 +6501,18 @@ export async function absorbStagedEntries(parsed, groupFields, best, kindOf, ana
     if (source && descriptionAsksVerification(field.description) && !descriptionNamesQuestionnaire(field)
         && ((source.page && optionPages && optionPages.has(`${source.file}|${source.page}`)) || (optionDocs && optionDocs.has(source.file)))) {
       counters.noEvidence++; note(k, 'evidenza:pagina-questionario', cleaned, null, evQuote); continue
+    }
+    // [flag questionariodati] Dato della POLIZZA letto in una pagina di
+    // QUESTIONARIO/PROPOSTA (titolo della pagina, isQuestionnairePageTitle, o
+    // documento-questionario): date, massimali, franchigie, retroattività, premi
+    // stampati lì sono quelli RICHIESTI o della polizza PRECEDENTE («Precedenti
+    // Coperture … Scadenza 30/09/2026 · Franchigie 1.500,00», Lloyd's Dell'Oro,
+    // questionario rilegato dentro la polizza a pag. 26), non quelli emessi.
+    // Restano i campi d'IDENTITÀ (contraente, P.IVA, indirizzo: stessi in ogni
+    // documento) e i campi la cui descrizione nomina il questionario come fonte
+    // (fatturato, sinistri dichiarati). Le verifiche hanno la loro regola sopra.
+    if (source && STAGED_FLAGS.get(best)?.questionariodati && isQuestionnaireSourced(field, source.file, source.page, STAGED_OPTS.get(best)?.questionnairePages, optionDocs)) {
+      counters.guardrail++; note(k, 'fonte:pagina-questionario', cleaned, null, evQuote); continue
     }
     const srcDoc = source?.doc || matchRealDoc(analyzed, modelDoc)
     // Guardia "premio da copertura diversa" (PROF.LE): il premio 25,00 da un
@@ -6632,7 +6711,7 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   const fieldsById = Object.fromEntries(activeFields.map(f => [f.id, f]))
   const diag = []
   const best = {}   // id → candidato vincente { valore, effDate, docType, file, page, … }
-  STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni'), separatori: engineFlag(settings, 'separatori') })
+  STAGED_FLAGS.set(best, { opzioni: engineFlag(settings, 'opzioni'), separatori: engineFlag(settings, 'separatori'), citazionicolonne: engineFlag(settings, 'citazionicolonne'), questionariodati: engineFlag(settings, 'questionariodati') })
   STAGED_OPTS.set(best, { lists: engineFlag(settings, 'elenchi') })
 
   // Ogni chiamata dell'estrazione passa da s2 (modello d'estrazione, polizzaWholeDossierModel):
@@ -6727,6 +6806,17 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
   }
   if (optionDocs.size) diag.push(`Documenti-questionario/opzioni (per contenuto): ${[...optionDocs].join(', ')} — i loro importi NON valgono come dati strutturali dei campi`)
   if (optionPages.size) diag.push(`Pagine-opzione: ${[...optionPages].slice(0, 12).map((k) => k.replace(/\|.*/, `·p${k.split('|')[1]}`)).join(', ')}${optionPages.size > 12 ? ' …' : ''} — un importo presente anche in una pagina NON-opzione non è vetato`)
+  // [flag questionariodati] Pagine di QUESTIONARIO/PROPOSTA per titolo della
+  // pagina (anche dentro il PDF della polizza) e documenti-questionario.
+  const questionnairePages = new Set()
+  for (const d of analyzed) {
+    const grid = gridPagesOf(d)
+    for (let pi = 0; pi < grid.length; pi++) {
+      if (optionDocs.has(d.name) || isQuestionnairePageTitle(grid[pi] || '')) questionnairePages.add(`${d.name}|${pi + 1}`)
+    }
+  }
+  STAGED_OPTS.get(best).questionnairePages = questionnairePages
+  if (engineFlag(settings, 'questionariodati') && questionnairePages.size) diag.push(`Pagine di questionario/proposta (titolo): ${[...questionnairePages].slice(0, 12).map((k) => k.replace(/\|.*/, `·p${k.split('|')[1]}`)).join(', ')}${questionnairePages.size > 12 ? ' …' : ''} — date, importi e condizioni della polizza non si leggono lì (solo identità e campi che nominano il questionario)`)
   diag.push(`Registro fatti: ${factsRegistry.facts.length} voci numeriche su ${analyzed.length} documenti (guardia anti-fantasma, deterministica)`)
   const typeCounts = {}
   let undated = 0
@@ -7790,6 +7880,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
             const rowCarries = rowHit && (rowHit.row?.cols || []).some((c) => { const n = normForMatch(c.value); return !!n && !!vnorm && (n === vnorm || n.includes(vnorm)) })
             const page = rowCarries ? rowHit.page
               : (sent.find(({ b }) => vnorm && normForMatch(b).includes(vnorm)) || sent[0]).page
+            if (engineFlag(settings, 'questionariodati') && isQuestionnaireSourced(f, d.name, page, STAGED_OPTS.get(best)?.questionnairePages, optionDocs)) {
+              diag.push(`Tabella-focus[${f.label}]: "${cleaned}" scartato — riga di una pagina di questionario/proposta (${d.name} p.${page}): non è il dato della polizza emessa`)
+              continue
+            }
             const structLex = Math.max(rowLex, colLex)
             const baseAff = affPair && typeof affPair === 'object' ? affPair.aff : affPair
             const cand = {
@@ -9487,8 +9581,19 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       const items = splitListItems(e.valore)
       if (!items.length) continue
       try {
-        const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVOCI TROVATE NEI DOCUMENTI (numerate):\n${items.map((t, i) => `${i}. ${t}`).join('\n')}\n\nRispondi SOLO con l'oggetto JSON {"tenere": [...]}.`
-        const raw = await callOllamaRolling(s2, LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
+        // [flag filtrocontesto] ogni voce col TESTO del documento dove compare:
+        // senza, il modello giudicava il solo nome («Attività di Consigliere di
+        // Amministrazione in società di capitali o Enti», la condizione
+        // aggiuntiva 10.2 che l'appendice Casella dichiara estesa) e toglieva
+        // un'estensione vera dalle Estensioni operative.
+        const ctxOn = engineFlag(settings, 'filtrocontesto')
+        const itemLines = items.map((t, i) => {
+          if (!ctxOn) return `${i}. ${t}`
+          const c = listItemContext(analyzed, t, e.file, e.page)
+          return c ? `${i}. ${t}\n   TESTO DEL DOCUMENTO DOVE COMPARE:\n${c.split('\n').map((l) => `   | ${l}`).join('\n')}` : `${i}. ${t}\n   (voce non ritrovata nel testo dei documenti)`
+        })
+        const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVOCI TROVATE NEI DOCUMENTI (numerate):\n${itemLines.join('\n')}\n\nRispondi SOLO con l'oggetto JSON {"tenere": [...]}.`
+        const raw = await callOllamaRolling(s2, ctxOn ? LIST_FILTER_SYSTEM_CTX : LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
         let parsed = null
         try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
         const keep = parsed && Array.isArray(parsed.tenere)

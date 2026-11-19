@@ -1852,7 +1852,7 @@ export function contextPagesNorm(rawCtx) {
  * è testo normalizzato CONTIGUO della STESSA pagina, nell'ordine della
  * citazione. Senza testo grezzo si usa il contesto normalizzato intero.
  */
-export function evidenceInContext(evidenza, normCtx, rawCtx = null) {
+export function evidenceInContext(evidenza, normCtx, rawCtx = null, { columns = false } = {}) {
   const segs = evidenceSegments(evidenza)
   if (!segs.length) return false
   const pages = rawCtx ? contextPagesNorm(rawCtx) : [String(normCtx || '')]
@@ -1860,11 +1860,60 @@ export function evidenceInContext(evidenza, normCtx, rawCtx = null) {
     let at = 0
     for (const s of segs) {
       const i = p.indexOf(s, at)
-      if (i === -1) return false
-      at = i + s.length
+      if (i !== -1) { at = i + s.length; continue }
+      if (!columns) return false
+      const end = segmentAcrossColumns(s, p, at)
+      if (end === -1) return false
+      at = end
     }
     return true
   })
+}
+
+// [flag citazionicolonne] Citazione da un testo a DUE COLONNE. Nella griglia le
+// righe delle due colonne si alternano: «▪ Attività di verifica … ai sensi ▪
+// Incarichi di consulente tecnico d'ufficio nominato» poi «dell'Articolo 30 …
+// 166/2; dall'Autorità Giudiziaria;». Il modello cita la voce della colonna
+// destra di seguito («Incarichi di consulente tecnico d'ufficio nominato
+// dall'Autorità Giudiziaria») e la citazione non è più contigua nel testo
+// (Dell'Oro, Lloyd's Area Tecnica: incarichi giudiziari, progettazione, Merloni
+// risposti giusti e scartati «senza evidenza»). Vale se il segmento è fatto di
+// al massimo COL_MAX_PIECES pezzi CONTIGUI del testo, ognuno di almeno
+// COL_MIN_PIECE caratteri normalizzati, nell'ordine, ciascuno entro COL_MAX_GAP
+// caratteri dal precedente (l'altra colonna della stessa riga). Pezzi presi i
+// più lunghi possibile; una citazione inventata non si ricompone da pezzi lunghi
+// tutti vicini. Le citazioni corte restano esatte.
+const COL_MIN_PIECE = 10
+const COL_MAX_GAP = 240
+const COL_MAX_PIECES = 4
+const COL_MIN_QUOTE = 24
+export function segmentAcrossColumns(seg, page, from = 0) {
+  const q0 = String(seg || '')
+  const p = String(page || '')
+  if (q0.length < COL_MIN_QUOTE) return -1
+  let q = q0
+  let at = from
+  let pieces = 0
+  while (q.length) {
+    const within = (idx) => idx !== -1 && (pieces === 0 || idx - at <= COL_MAX_GAP)
+    const minK = Math.min(COL_MIN_PIECE, q.length)
+    if (!within(p.indexOf(q.slice(0, minK), at))) return -1
+    let lo = minK
+    let hi = q.length
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (within(p.indexOf(q.slice(0, mid), at))) lo = mid
+      else hi = mid - 1
+    }
+    const idx = p.indexOf(q.slice(0, lo), at)
+    pieces++
+    if (pieces > COL_MAX_PIECES) return -1
+    at = idx + lo
+    q = q.slice(lo)
+    // L'ultimo pezzo può essere corto solo se è la coda (≥ 4 caratteri).
+    if (q.length && q.length < COL_MIN_PIECE && q.length < 4) return -1
+  }
+  return at
 }
 
 // Parte POSITIVA di una descrizione (senza "NON è…", "mai…"): stessa regola di
@@ -1942,7 +1991,8 @@ export function descriptionEchoPhrase(field, value, callFields, normCtx) {
  * @param {string} normCtx  normForMatch() del contesto ESATTO inviato al modello
  * @returns {boolean} true = il valore e' supportato dal testo
  */
-export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = null) {
+export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = null, opts = {}) {
+  const colOpt = { columns: !!opts?.columns }
   const evidenza = (entry && typeof entry === 'object' && typeof entry.evidenza === 'string' && entry.evidenza.trim())
     ? entry.evidenza.trim() : null
 
@@ -1956,7 +2006,7 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
   // (GUFFANTI RC 2026: "Sì" alla Legge Merloni scartato per una citazione
   // cucita tra i punti elenco del 2.10).
   if (field && descriptionAsksVerification(field.description)) {
-    return evidenceInContext(evidenza, normCtx, rawCtx)
+    return evidenceInContext(evidenza, normCtx, rawCtx, colOpt)
   }
   // RISPOSTE PRESCRITTE dalla descrizione ("scrivi 'Nessuna'" se le estensioni
   // della scheda sono tutte barrate NO): il modello le DEDUCE, quindi si
@@ -1973,7 +2023,7 @@ export function passesStagedEvidence(field, cleaned, entry, normCtx, rawCtx = nu
   if (field && isPrescribedAnswer(field, cleaned)) {
     const nv = normForMatch(cleaned)
     if (!evidenza) return nv.length >= 4 && normCtx.includes(nv)
-    if (evidenceInContext(evidenza, normCtx, rawCtx)) return true
+    if (evidenceInContext(evidenza, normCtx, rawCtx, colOpt)) return true
     if (!normForMatch(evidenza).includes(nv)) return false
     const toks = matchTokens(evidenza)
     const pages = rawCtx ? contextPagesNorm(rawCtx) : [String(normCtx || '')]

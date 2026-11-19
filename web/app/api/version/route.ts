@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 // l'istanza che risponde la sta servendo — indipendentemente da cache del
 // browser o proxy.
 const BUILD_FEATURES = [
+  'flag-rc-filtri', // flag citazionicolonne, questionariodati, filtrocontesto (spenti, da misurare): citazioni su due colonne, dati della polizza mai dalle pagine di questionario, filtro elenchi col testo della voce (19/11/2026)
   'vita-mensile-opzioni', // Vita: decorrenza dei passaggi del file mensile configurabile, file mensile di un solo contraente (19/11/2026)
   'rsm-rinnovo-categorie', // RSM: stato per l'anno dopo col tracciato = un foglio per categoria + Variazioni, colonne calcolate; barra società sempre visibile (19/11/2026)
   'rsm-config',           // RSM: fasce d'età, regole componibili, tracciato del file, prova prima di salvare (18/11/2026)
