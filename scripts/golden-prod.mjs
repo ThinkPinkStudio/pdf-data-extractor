@@ -94,7 +94,11 @@ if (existsSync(join(root, '.goldens-out', 'SKIP_QUEUED')) && !process.argv.inclu
 if (FROM && !OVERRIDE) { console.error('--from ha senso solo con --model, --extract-model, --strategy, --think, --ctx, --ocr o --flags'); process.exit(2) }
 if (!EMAIL) { console.error('Uso: node scripts/golden-prod.mjs --base <url> --email <utente> [--only a,b] [--model m] [--out dir]'); process.exit(2) }
 mkdirSync(OUT, { recursive: true })
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // certificato interno
+// Certificato dell'app: con APP_PIN_DIR (traefik.pem + pin.txt) si accetta solo
+// quel certificato (scripts/helpers/pinnedFetch.mjs); altrimenti la deroga di sempre.
+const fetch = process.env.APP_PIN_DIR
+  ? (await import('./helpers/pinnedFetch.mjs')).makePinnedFetch(process.env.APP_PIN_DIR)
+  : (process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0', globalThis.fetch) // certificato interno
 
 let cookie = ''
 async function login() {
