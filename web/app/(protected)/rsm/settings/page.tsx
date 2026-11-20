@@ -154,8 +154,8 @@ export default function RsmSettingsPage() {
                 <tbody>
                   {cfg.categories.map((c, i) => (
                     <tr key={i}>
-                      <td><input value={c.label} disabled={ro} onChange={(e) => setCat(i, { label: e.target.value })} style={{ width: 130 }} />
-                        <input value={c.words || ''} disabled={ro} onChange={(e) => setCat(i, { words: e.target.value })} placeholder={t('rsm.set.words')} aria-label={`${c.label} ${t('rsm.set.words')}`} style={{ width: 130, marginTop: 4, height: 26, fontSize: 11.5 }} /></td>
+                      <td><input value={c.label} disabled={ro} onChange={(e) => setCat(i, { label: e.target.value })} style={{ width: 180 }} />
+                        <input value={c.words || ''} disabled={ro} onChange={(e) => setCat(i, { words: e.target.value })} placeholder={t('rsm.set.words')} aria-label={`${c.label} ${t('rsm.set.words')}`} style={{ width: 180, marginTop: 4, height: 26, fontSize: 11.5 }} /></td>
                       <td><input value={c.policy} disabled={ro} onChange={(e) => setCat(i, { policy: e.target.value })} style={{ width: 100 }} /></td>
                       <td><select value={c.mode} disabled={ro} onChange={(e) => setCat(i, { mode: e.target.value as RsmCategory['mode'] })} style={{ width: 120 }}>
                         <option value="nucleo">{t('rsm.set.nucleo')}</option><option value="persona">{t('rsm.set.persona')}</option>
