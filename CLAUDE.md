@@ -2330,6 +2330,9 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   dove c'è), capitale non coperto per la documentazione sanitaria mancante,
   da ricordare al cliente; nel Riepilogo quanti ce l'hanno e il totale. Il
   caricamento delle RAL la ignora (SCOPERTURA è tra le colonne calcolate).
+  Anche nella pagina Rinnovo (richiesta di Lidia: «a programma, non solo
+  esportato»): riquadro «Scopertura <anno>» col totale e quanti, colonna in
+  evidenza nella tabella e voce «da ricordare al cliente» in «Da controllare».
   **Le tre domande a Lidia diventano impostazioni (19/11/2026, scelta
   dell'utente)**: decorrenza dei passaggi di livello del file mensile
   (`rules.transferDate`: data del file | 1° del mese | giorno dopo | 1° del

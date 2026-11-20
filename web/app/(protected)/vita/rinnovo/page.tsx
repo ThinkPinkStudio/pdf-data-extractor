@@ -28,6 +28,8 @@ export default function VitaRinnovoPage() {
     const nx = n == null || !cfg ? null : computeInsured({ birthDate: r.birthDate, ral: n, keyFigure: r.keyFigure, doc: r.doc, sovrPct: r.sovrPct }, cfg.rates, nextStart, cfg.rules) as typeof r.c
     const flags: { tone: string; text: string }[] = []
     if (n == null) flags.push({ tone: 'err', text: `RAL ${next} non comunicata` })
+    // scopertura dell'anno che finisce: da ricordare al cliente (Lidia, 20/11/2026)
+    if (r.c.scopertura > 0) flags.push({ tone: 'warn', text: `Scopertura ${year}: ${eur(r.c.scopertura)} da ricordare al cliente` })
     if (nx) {
       // Una fascia sanitaria più alta vuole documenti nuovi, anche partendo da «visita».
       const level = (b: string) => (b === 'nessuna' ? 0 : b === 'visita' ? 1 : 2)
@@ -35,7 +37,7 @@ export default function VitaRinnovoPage() {
       if (nx.cover !== r.c.cover) flags.push({ tone: nx.cover === 'FUORI COPERTURA' ? 'err' : 'warn', text: nx.cover === 'SOLO CASO MORTE' ? `Compie ${cfg!.rules.ipMaxAge + 1} anni: solo caso morte` : nx.cover === 'FUORI COPERTURA' ? `Oltre gli ${cfg!.rules.deathMaxAge} anni: da segnalare al cliente` : 'Cambia la garanzia' })
     }
     return { r, n, nx, flags }
-  }), [vita.rows, cfg, nextStart, next])
+  }), [vita.rows, cfg, nextStart, next, year])
 
   const changed = rows.filter((x) => x.flags.length > 0)
   const missing = rows.filter((x) => x.n == null).length
@@ -43,6 +45,8 @@ export default function VitaRinnovoPage() {
   const withRal = rows.filter((x) => x.nx)
   const premNow = withRal.reduce((s, x) => s + (x.r.c.gross || 0), 0)
   const premNext = withRal.reduce((s, x) => s + (x.nx?.gross || 0), 0)
+  const withScop = rows.filter((x) => x.r.c.scopertura > 0)
+  const scopTot = withScop.reduce((s, x) => s + x.r.c.scopertura, 0)
 
   async function send(confirm: boolean) {
     if (!file) return
@@ -151,7 +155,8 @@ export default function VitaRinnovoPage() {
 
           <div className="rsm-kpis">
             <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Premio lordo annuo {next}</span></div><div className="rsm-kpi-num">{eur(premNext)}</div><div className="rsm-kpi-line">{year}: {eur(premNow)} · {premNext >= premNow ? '+' : '−'}{eur(Math.abs(premNext - premNow))}{missing > 0 ? ` · ${withRal.length} di ${rows.length} assicurati` : ''}</div></div>
-            <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Da guardare</span></div><div className="rsm-kpi-num" style={{ color: changed.length ? 'var(--c-warning)' : undefined }}>{changed.length}</div><div className="rsm-kpi-line">cambiano fascia, garanzia o mancano dati</div></div>
+            <div className="rsm-kpi"><div className="rsm-kpi-top"><span>Da guardare</span></div><div className="rsm-kpi-num" style={{ color: changed.length ? 'var(--c-warning)' : undefined }}>{changed.length}</div><div className="rsm-kpi-line">cambiano fascia o garanzia, mancano dati o c&apos;è una scopertura</div></div>
+            <div className="rsm-kpi" style={withScop.length ? { background: 'rgba(245,158,11,0.10)', borderColor: 'rgba(245,158,11,0.45)' } : undefined}><div className="rsm-kpi-top"><span>Scopertura {year}</span></div><div className="rsm-kpi-num" style={{ color: withScop.length ? 'var(--c-error)' : undefined }}>{eur(scopTot)}</div><div className="rsm-kpi-line">{withScop.length ? `${withScop.length} assicurati con capitale non coperto: da ricordare al cliente` : 'nessun capitale scoperto'}</div></div>
             <div className="rsm-kpi"><div className="rsm-kpi-top"><span>RAL mancanti</span></div><div className="rsm-kpi-num" style={{ color: missing ? 'var(--c-error)' : undefined }}>{missing}</div><div className="rsm-kpi-line">da chiedere prima di rinnovare</div></div>
           </div>
 
@@ -159,7 +164,7 @@ export default function VitaRinnovoPage() {
             <div className="rsm-box-head"><span className="rsm-box-title">Cosa cambia per ogni assicurato</span><span className="rsm-muted">età e tasso al {fmtDate(nextStart)}</span></div>
             <div className="rsm-scroll tall">
               <table className="rsm-table">
-                <thead><tr><th>Assicurato</th><th>Polizza</th><th className="num">RAL {year} → {next}</th><th className="num">Età</th><th className="num">Tasso ‰</th><th className="num">Capitale {next}</th><th className="num">Premio {year} → {next}</th><th>Garanzie</th><th>Da controllare</th></tr></thead>
+                <thead><tr><th>Assicurato</th><th>Polizza</th><th className="num">RAL {year} → {next}</th><th className="num">Età</th><th className="num">Tasso ‰</th><th className="num">Scopertura {year}</th><th className="num">Capitale {next}</th><th className="num">Premio {year} → {next}</th><th>Garanzie</th><th>Da controllare</th></tr></thead>
                 <tbody>
                   {[...rows].sort((a, b) => b.flags.length - a.flags.length || a.r.cognome.localeCompare(b.r.cognome)).map(({ r, n, nx, flags }) => (
                     <tr key={r.id}>
@@ -168,6 +173,7 @@ export default function VitaRinnovoPage() {
                       <td className="num">{eur(r.ral)} → {n == null ? <span style={{ color: 'var(--c-error)' }}>mancante</span> : eur(n)}</td>
                       <td className="num">{r.c.age ?? '—'} → {nx?.age ?? '—'}</td>
                       <td className="num">{rate4(nx?.rate ?? null)}</td>
+                      <td className="num" style={r.c.scopertura > 0 ? { background: 'rgba(245,158,11,0.16)', color: 'var(--c-error)', fontWeight: 700 } : undefined}>{r.c.scopertura > 0 ? eur(r.c.scopertura) : <span className="rsm-sub">—</span>}</td>
                       <td className="num">{nx ? eur(nx.capital) : '—'}{nx && nx.scopertura > 0 && <div className="rsm-sub" style={{ color: 'var(--c-error)' }}>non coperti {eur(nx.scopertura)}</div>}</td>
                       <td className="num">{eur(r.c.gross)} → {eur(nx?.gross ?? null)}</td>
                       <td>{nx ? <CoverPill cover={nx.cover} /> : '—'}</td>
