@@ -114,7 +114,7 @@ export default function RsmImportPage() {
    * corrispondono a nessun foglio del file prende le categorie del file
    * (Amundi: «SGR Dipendenti», «Real Estate Dirigenti»…).
    */
-  function draftFor(targetId: string, y: number, ins: Inspect) {
+  function draftFor(targetId: string, y: number, ins: Inspect, emptyTarget = false) {
     const base: RsmConfig = targetId === 'new'
       ? (defaultProgramConfig(y) as RsmConfig)
       : clone(programs.find((p) => p.id === targetId)!.config)
@@ -122,7 +122,9 @@ export default function RsmImportPage() {
     // sulla stessa categoria («SGR Dirigenti» e «Real Estate Dirigenti» su «Dirigenti»)
     const fc = ins.fileCategories || []
     const strictKeys = fc.map((x) => sheetCategory(x.label, base, true).key)
-    if (targetId === 'new' && fc.length && (strictKeys.some((k) => !k) || new Set(strictKeys).size < strictKeys.length)) {
+    // anche un programma che c'è ma è ancora VUOTO (nessun assicurato): un
+    // tentativo precedente lo ha creato con le categorie di partenza
+    if ((targetId === 'new' || emptyTarget) && fc.length && (strictKeys.some((k) => !k) || new Set(strictKeys).size < strictKeys.length)) {
       base.categories = fc.map((x) => ({ ...clone(x), words: x.words || x.label }))
       return base
     }
@@ -134,6 +136,12 @@ export default function RsmImportPage() {
       return { ...c, tariffs, policy: c.policy || f.policy || '', variants: c.variants && c.variants.length ? c.variants : f.variants }
     })
     return base
+  }
+
+  /** Assicurati già registrati nel programma (0 per uno nuovo o vuoto). */
+  async function membersOf(id: string) {
+    if (id === 'new') return 0
+    try { return ((await api(`/api/rsm/programs/${id}`, 'GET')).members || []).length as number } catch { return -1 }
   }
 
   async function pick(f: File | null) {
@@ -164,21 +172,25 @@ export default function RsmImportPage() {
       setNewCompany(co); setNameTouched(false); setCopied(null)
       setNewName(co ? programName(co, y) : `RSM ${y}`)
       setCopySrc(defaultSource(tgt, co, y))
-      const draft = draftFor(tgt, y, j)
+      const n = await membersOf(tgt)
+      setExisting(Math.max(0, n))
+      const draft = draftFor(tgt, y, j, n === 0)
       setCfg(draft)
       initMap(j.columns || { sheet: null, columns: [] }, layoutFor(tgt, co), draft.categories)
       setStep(2)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  function changeTarget(id: string) {
+  async function changeTarget(id: string) {
     setTarget(id)
     setCopied(null)
     const p = programs.find((x) => x.id === id)
     if (p) setYear(p.year)
     setCopySrc(defaultSource(id, p ? p.company : newCompany, p ? p.year : year))
     if (insp) {
-      const draft = draftFor(id, p ? p.year : year, insp)
+      const n = await membersOf(id)
+      setExisting(Math.max(0, n))
+      const draft = draftFor(id, p ? p.year : year, insp, n === 0)
       setCfg(draft)
       initMap(insp.columns || { sheet: null, columns: [] }, layoutFor(id, p ? p.company : newCompany), draft.categories)
     }
@@ -435,10 +447,10 @@ export default function RsmImportPage() {
                 <div className="rsm-issue warning" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span>{t('rsm.imp.fileCats', { c: missingCats.map((x) => x.label).join(', ') })}</span>
                   <button className="rsm-mini" onClick={() => addFileCategories(false)}>{t('rsm.imp.fileCatsAdd')}</button>
-                  {target === 'new' && <button className="rsm-mini" onClick={() => addFileCategories(true)}>{t('rsm.imp.fileCatsUse')}</button>}
+                  {(target === 'new' || existing === 0) && <button className="rsm-mini" onClick={() => addFileCategories(true)}>{t('rsm.imp.fileCatsUse')}</button>}
                 </div>
               )}
-              {!missingCats.length && target === 'new' && (insp.fileCategories || []).length > 0 && cfg.categories.every((c) => (insp.fileCategories || []).some((x) => x.label === c.label)) && (
+              {!missingCats.length && (target === 'new' || existing === 0) && (insp.fileCategories || []).length > 0 && cfg.categories.every((c) => (insp.fileCategories || []).some((x) => x.label === c.label)) && (
                 <div className="rsm-note">{t('rsm.imp.fileCatsAuto', { c: cfg.categories.map((c) => c.label).join(', ') })}</div>
               )}
               <table className="rsm-cats">
