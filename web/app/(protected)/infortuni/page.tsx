@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import InfortuniForm, { Warnings, downloadBlob, fileNameOf, type InfConfig, type InfRecord } from '@/components/infortuni/InfortuniForm'
-import { defaultConfig, validateAdesione, normalizeAdesione } from '@/lib/infortuni/rules.js'
+import { defaultConfig, validateAdesione, normalizeAdesione, renewalDraft } from '@/lib/infortuni/rules.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const EMPTY: InfRecord = { questionario: {} }
@@ -22,6 +22,17 @@ export default function InfortuniNewPage() {
     setNextNumber(d.nextNumber || '')
   }).catch(() => {})
   useEffect(() => { loadConfig() }, [])
+
+  // Rinnovo da «Scadenze» (?rinnova=<id>): modulo già compilato coi dati
+  // dell'adesione che scade, copertura dal giorno della sua scadenza.
+  const [renewOf, setRenewOf] = useState<string | null>(null)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('rinnova')
+    if (!id) return
+    fetch(`/api/infortuni/records/${encodeURIComponent(id)}`).then((r) => { if (!r.ok) throw new Error(); return r.json() })
+      .then((d) => { setRecord(renewalDraft(d.record.data, d.record.id) as InfRecord); setRenewOf(d.record.numero) })
+      .catch(() => setMsg({ ok: false, text: t('inf.new.renewLoadError') }))
+  }, [t])
 
   // Avvisi in tempo reale (non bloccano): nome/codice fiscale, risposte NO.
   const { warnings } = validateAdesione(normalizeAdesione(record, config), config) as { warnings: string[] }
@@ -63,7 +74,8 @@ export default function InfortuniNewPage() {
   }
 
   function startNew() {
-    setRecord(EMPTY); setErrors({}); setSaved(null); setMsg(null)
+    setRecord(EMPTY); setErrors({}); setSaved(null); setMsg(null); setRenewOf(null)
+    if (window.location.search) window.history.replaceState(null, '', window.location.pathname)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -79,6 +91,10 @@ export default function InfortuniNewPage() {
         </div>
         <span style={{ fontSize: 12, color: 'var(--c-text-muted)', marginLeft: 'auto' }}>{t('inf.new.numberHint')}</span>
       </div>
+
+      {renewOf && !saved && (
+        <div className="alert" style={{ marginBottom: 16, borderColor: 'var(--c-info)', color: 'var(--c-text-primary)' }}>{t('inf.new.renewing', { n: renewOf })}</div>
+      )}
 
       {msg && (
         <div className={`alert ${msg.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

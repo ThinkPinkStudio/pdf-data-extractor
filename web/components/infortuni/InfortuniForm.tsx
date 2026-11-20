@@ -3,12 +3,12 @@
 // Modulo di un'adesione CSA Adesioni Infortuni: i campi sono le colonne del
 // BDX (lib/infortuni/rules.js FIELDS), più le 4 risposte del questionario.
 // Usato da «Nuova adesione» e dalla modifica in archivio.
-import { FIELDS, QUESTIONS, VEHICLE_TYPES, defaultScadenza, optionOf } from '@/lib/infortuni/rules.js'
+import { FIELDS, QUESTIONS, VEHICLE_TYPES, defaultScadenza, optionOf, isRequired, isCompany } from '@/lib/infortuni/rules.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 export type InfRecord = Record<string, unknown> & { questionario?: Record<string, string> }
 export interface InfOption { key: string; name: string; premio: string; imposte: string; morte: string; invalidita: string; franchigia: string; speseMediche: string; franchigiaSpese: string }
-export interface InfConfig { polizzaCollettiva: string; options: InfOption[]; pagamento: string; mailTo: string; mailCc: string; mailSubject: string; showRagioneSociale?: boolean; showFranchigiaSpese?: boolean; questionarioNumero?: boolean }
+export interface InfConfig { polizzaCollettiva: string; options: InfOption[]; pagamento: string; mailTo: string; mailCc: string; mailSubject: string; showRagioneSociale?: boolean; showFranchigiaSpese?: boolean; questionarioNumero?: boolean; sectionName?: string; logo?: string; logoQuestionario?: boolean; logoCertificato?: boolean; bdxRagioneInCognome?: boolean }
 
 type Field = { id: string; type: string; required?: boolean }
 const byId = (id: string) => (FIELDS as Field[]).find((f) => f.id === id) as Field
@@ -37,6 +37,7 @@ export default function InfortuniForm({ config, record, errors, onChange }: {
   }
   const setAnswer = (q: string, v: string) => onChange({ ...record, questionario: { ...(record.questionario || {}), [q]: v } })
   const opt = optionOf(config, record.opzione) as InfOption | null
+  const company = isCompany(record, config)
   const errStyle = (id: string) => (errors[id] ? { borderColor: 'var(--c-error)' } : undefined)
 
   const input = (id: string) => {
@@ -68,7 +69,7 @@ export default function InfortuniForm({ config, record, errors, onChange }: {
     }
     return (
       <div className="form-group" key={id} style={{ marginBottom: 12, ...(id === 'note' ? { gridColumn: '1 / -1' } : {}) }}>
-        <label className="label" htmlFor={`inf-${id}`}>{t(`inf.f.${id}`)}{f.required ? ' *' : ''}</label>
+        <label className="label" htmlFor={`inf-${id}`}>{t(`inf.f.${id}`)}{isRequired(f, record, config) ? ' *' : ''}</label>
         {control}
         {err && <span style={{ fontSize: 11, color: 'var(--c-error)' }}>{err}</span>}
         {id === 'data_scadenza' && !err && <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{t('inf.scadenzaAuto')}</span>}
@@ -93,6 +94,7 @@ export default function InfortuniForm({ config, record, errors, onChange }: {
               <div className="form-group" style={{ marginBottom: 12 }}>
                 <label className="label" htmlFor="inf-ragione_sociale">{t('inf.f.ragione_sociale')}</label>
                 <input id="inf-ragione_sociale" value={String(record.ragione_sociale ?? '')} onChange={(e) => set('ragione_sociale', e.target.value)} />
+                <span style={{ fontSize: 11, color: company ? 'var(--c-accent)' : 'var(--c-text-muted)' }}>{t(company ? 'inf.companyOn' : 'inf.companyHint')}</span>
               </div>
             )}
           </div>

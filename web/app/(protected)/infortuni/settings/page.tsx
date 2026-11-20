@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { DEFAULT_SECTION_NAME, LOGO_MAX_CHARS } from '@/lib/infortuni/rules.js'
 import type { InfConfig, InfOption } from '@/components/infortuni/InfortuniForm'
 import { useT } from '@/lib/i18n/I18nProvider'
 
@@ -17,6 +19,7 @@ const OPTION_COLS: { key: keyof InfOption; label: string; width?: number }[] = [
 
 export default function InfortuniSettingsPage() {
   const t = useT()
+  const router = useRouter()
   const [config, setConfig] = useState<InfConfig | null>(null)
   const [nextNumber, setNextNumber] = useState('')
   const [loadErr, setLoadErr] = useState(false)
@@ -44,11 +47,25 @@ export default function InfortuniSettingsPage() {
       if (!res.ok) throw new Error(d.error || 'Errore')
       setConfig(d.config); setNextNumber(d.nextNumber)
       setMsg({ ok: true, text: t('inf.set.saved') })
+      router.refresh() // nome della sezione nel menu
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
     } finally {
       setBusy(false)
     }
+  }
+
+  // Logo: immagine PNG/JPEG/WebP letta nel browser e salvata con la configurazione.
+  function pickLogo(file: File | undefined) {
+    if (!file) return
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { setMsg({ ok: false, text: t('inf.set.logoType') }); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = String(reader.result || '')
+      if (data.length > LOGO_MAX_CHARS) { setMsg({ ok: false, text: t('inf.set.logoSize') }); return }
+      up({ logo: data })
+    }
+    reader.readAsDataURL(file)
   }
 
   const label = (text: string) => <label className="label">{text}</label>
@@ -81,6 +98,44 @@ export default function InfortuniSettingsPage() {
           </div>
         </div>
 
+        <div className="card">
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('inf.set.look')}</h2>
+          <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 12 }}>{t('inf.set.lookHint')}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px 16px', alignItems: 'start' }}>
+            <div className="form-group">
+              {label(t('inf.set.sectionName'))}
+              <input value={config.sectionName || ''} placeholder={DEFAULT_SECTION_NAME} onChange={(e) => up({ sectionName: e.target.value })} />
+              {hint(t('inf.set.sectionNameHint'))}
+            </div>
+            <div className="form-group">
+              {label(t('inf.set.logo'))}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ background: '#fff', borderRadius: 6, padding: 6, border: '1px solid var(--c-separator)', display: 'flex' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={config.logo || '/csa-logo.png'} alt="" style={{ height: 48, maxWidth: 160, objectFit: 'contain' }} />
+                </div>
+                <label className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
+                  {t('inf.set.logoChange')}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => { pickLogo(e.target.files?.[0]); e.target.value = '' }} />
+                </label>
+                {config.logo && <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => up({ logo: '' })}>{t('inf.set.logoReset')}</button>}
+              </div>
+              {hint(t(config.logo ? 'inf.set.logoCustom' : 'inf.set.logoDefault'))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 14 }}>
+            {([
+              ['logoQuestionario', 'inf.set.swLogoQ', 'inf.set.swLogoQHint', true],
+              ['logoCertificato', 'inf.set.swLogoC', 'inf.set.swLogoCHint', false],
+            ] as const).map(([key, lab, h, def]) => (
+              <label key={key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="checkbox" style={{ marginTop: 3 }} checked={config[key] ?? def} onChange={(e) => up({ [key]: e.target.checked })} />
+                <span><span style={{ fontSize: 13, fontWeight: 600 }}>{t(lab)}</span><br /><span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>{t(h)}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
+
         <div className="card" style={{ overflowX: 'auto' }}>
           <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t('inf.set.options')}</h2>
           <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 0, marginBottom: 12 }}>{t('inf.set.optionsHint')}</p>
@@ -108,6 +163,7 @@ export default function InfortuniSettingsPage() {
               ['showRagioneSociale', 'inf.set.swRagione', 'inf.set.swRagioneHint', false],
               ['showFranchigiaSpese', 'inf.set.swFranchigia', 'inf.set.swFranchigiaHint', true],
               ['questionarioNumero', 'inf.set.swNumero', 'inf.set.swNumeroHint', true],
+              ['bdxRagioneInCognome', 'inf.set.swBdxRagione', 'inf.set.swBdxRagioneHint', true],
             ] as const).map(([key, lab, hint, def]) => (
               <label key={key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                 <input type="checkbox" style={{ marginTop: 3 }} checked={config[key] ?? def} onChange={(e) => up({ [key]: e.target.checked })} />

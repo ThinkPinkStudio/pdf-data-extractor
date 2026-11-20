@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import InfortuniForm, { Warnings, downloadBlob, fileNameOf, type InfConfig, type InfRecord } from '@/components/infortuni/InfortuniForm'
-import { defaultConfig, validateAdesione, normalizeAdesione, optionOf, fmtDate, splitAddresses, configForRecord } from '@/lib/infortuni/rules.js'
+import { defaultConfig, validateAdesione, normalizeAdesione, optionOf, fmtDate, splitAddresses, configForRecord, holderName } from '@/lib/infortuni/rules.js'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 interface Row {
@@ -99,7 +99,7 @@ export default function InfortuniArchivePage() {
   }
 
   async function del(r: Row) {
-    const text = t('inf.arc.confirmDelete', { n: r.numero, who: `${r.cognome} ${r.nome}` }) + (r.status === 'sent' ? `\n\n${t('inf.arc.confirmDeleteSent')}` : '')
+    const text = t('inf.arc.confirmDelete', { n: r.numero, who: holderName({ ...r.data, cognome: r.cognome, nome: r.nome }) }) + (r.status === 'sent' ? `\n\n${t('inf.arc.confirmDeleteSent')}` : '')
     if (!(await ask(text, { danger: true }))) return
     await run(async () => {
       const res = await fetch(`/api/infortuni/records/${r.id}`, { method: 'DELETE' })
@@ -166,9 +166,9 @@ export default function InfortuniArchivePage() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} style={editing?.id === r.id ? { background: 'var(--c-accent-faint)' } : undefined}>
-                  <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.numero} ${r.cognome} ${r.nome}`} /></td>
+                  <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.numero} ${holderName({ ...r.data, cognome: r.cognome, nome: r.nome })}`} /></td>
                   <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{r.numero}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{r.cognome} {r.nome}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{holderName({ ...r.data, cognome: r.cognome, nome: r.nome })}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.codice_fiscale}</td>
                   <td>{r.targa}</td>
                   <td>{(optionOf(config, r.opzione) as { name: string } | null)?.name || r.opzione}</td>

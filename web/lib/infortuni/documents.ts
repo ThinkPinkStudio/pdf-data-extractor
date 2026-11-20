@@ -6,7 +6,7 @@
 // (certificateHtml, questionnaireHtml: test senza browser); renderPdf stampa.
 import { readFileSync, existsSync } from 'fs'
 import JSZip from 'jszip'
-import { fmtDate, optionOf, shortEuro, QUESTIONS, docBaseName, configForRecord } from './rules.js'
+import { fmtDate, optionOf, shortEuro, QUESTIONS, docBaseName, configForRecord, cleanLogo, isCompany } from './rules.js'
 import { infortuniAssetPath } from './bdx'
 import type { Rec } from './store'
 import type { InfortuniConfig } from './store'
@@ -30,7 +30,12 @@ const BASE_CSS = `
 
 /* ─── Certificato di adesione ──────────────────────────────────────────── */
 
-export function certificateHtml(rec: Rec, current: InfortuniConfig, images: { logo?: string; firma?: string } = {}): string {
+/** Logo di sinistra: quello caricato nelle Impostazioni, altrimenti il logo CSA. */
+export function leftLogo(config: InfortuniConfig, fallback: string): string {
+  return cleanLogo(config.logo) || fallback
+}
+
+export function certificateHtml(rec: Rec, current: InfortuniConfig, images: { logo?: string; firma?: string; csa?: string } = {}): string {
   // Premi e massimali della tariffa dell'adesione, interruttori attuali.
   const config = configForRecord(current, rec) as InfortuniConfig
   const opt = optionOf(config, rec.opzione)
@@ -49,12 +54,14 @@ export function certificateHtml(rec: Rec, current: InfortuniConfig, images: { lo
       </div>`
   }
   const pagamento = String(config.pagamento || '').trim() || '[…]'
+  const csa = config.logoCertificato ? leftLogo(config, images.csa || '') : ''
   return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Certificato ${esc(rec.numero)}</title><style>
     ${BASE_CSS}
     body { font-family: "Times New Roman", "Liberation Serif", Times, serif; font-size: 10.5pt; line-height: 1.3; }
     .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { font-size: 15pt; margin: 0; flex: 1; text-align: center; }
     .logo { height: 40px; }
+    .logo-csa { max-height: 48px; max-width: 120px; object-fit: contain; }
     .sub { text-align: center; font-weight: bold; font-size: 10pt; margin: 10px 0 18px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
     .cap { background: ${NAVY}; color: #fff; font-weight: bold; text-align: center; padding: 4px 6px; font-size: 11pt; border: 1px solid ${NAVY}; }
@@ -80,7 +87,7 @@ export function certificateHtml(rec: Rec, current: InfortuniConfig, images: { lo
     .avoid { break-inside: avoid; }
   </style></head><body>
     <div class="top">
-      <span style="width:80px"></span>
+      ${csa ? `<img class="logo-csa" src="${csa}" alt="CSA">` : '<span style="width:80px"></span>'}
       <h1>CERTIFICATO DI ADESIONE N° ${esc(rec.numero)}</h1>
       ${images.logo ? `<img class="logo" src="${images.logo}" alt="AIG">` : '<span style="width:80px"></span>'}
     </div>
@@ -164,10 +171,12 @@ export const CERTIFICATE_FOOTER = `<div style="width:100%;font-family:Arial,'Lib
 
 /* ─── Questionario delle richieste ed esigenze ─────────────────────────── */
 
-export function questionnaireHtml(rec: Rec, config: InfortuniConfig): string {
+export function questionnaireHtml(rec: Rec, config: InfortuniConfig, images: { csa?: string } = {}): string {
   const answers = rec.questionario || {}
+  const logo = config.logoQuestionario !== false ? leftLogo(config, images.csa || '') : ''
   const opt = (q: string, v: 'SI' | 'NO') => `<div class="ans"><span class="dot">${answers[q] === v ? '&#9679;' : '&#9675;'}</span> ${v === 'SI' ? 'SI;' : 'NO.'}</div>`
-  const who = [rec.cognome, rec.nome].filter(Boolean).join(' ') || (config.showRagioneSociale ? rec.ragione_sociale : '') || ''
+  // Azienda (ragione sociale compilata): la ragione sociale; altrimenti «Cognome Nome».
+  const who = isCompany(rec, config) ? String(rec.ragione_sociale).trim() : [rec.cognome, rec.nome].filter(Boolean).join(' ')
   return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Questionario ${esc(rec.numero)}</title><style>
     ${BASE_CSS}
     body { font-family: Arial, "Liberation Sans", Helvetica, sans-serif; font-size: 10pt; line-height: 1.35; }
@@ -180,7 +189,9 @@ export function questionnaireHtml(rec: Rec, config: InfortuniConfig): string {
     .ans { margin: 6px 0 0 2px; }
     .dot { font-size: 12pt; }
     .num { font-size: 8pt; color: #333; margin-top: 4px; }
+    .logo-csa { display: block; max-height: 56px; max-width: 150px; object-fit: contain; margin: 0 0 14px; }
   </style></head><body>
+    ${logo ? `<img class="logo-csa" src="${logo}" alt="CSA">` : ''}
     <h1>QUESTIONARIO SULLA VALUTAZIONE DELLE RICHIESTE ED ESIGENZE DEL CONTRAENTE<br>AIG INFORTUNI CONDUCENTI</h1>
     <p>II presente questionario, la cui proposizione è obbligatoria ai sensi della normativa vigente, ha lo scopo di acquisire le informazioni necessarie a valutare I‘ adeguatezza del contratto rispetto alle richieste ed esigenze assicurative del contraente.</p>
     <div class="sec">INFORMAZIONI SULL’ADERENTE/ ASSICURATO</div>
@@ -223,14 +234,14 @@ async function printPdf(browser: Browser, html: string, footer: string): Promise
 /** Certificato e questionario di ogni adesione, in uno ZIP. */
 export async function documentsZip(records: Rec[], config: InfortuniConfig): Promise<Buffer> {
   const { chromium } = await import('playwright')
-  const images = { logo: dataUri('aig-logo.png'), firma: dataUri('aig-firma.png') }
+  const images = { logo: dataUri('aig-logo.png'), firma: dataUri('aig-firma.png'), csa: dataUri('csa-logo.png') }
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
   const zip = new JSZip()
   try {
     for (const rec of records) {
       const base = docBaseName(rec)
       zip.file(`${base}_Certificato.pdf`, await printPdf(browser, certificateHtml(rec, config, images), CERTIFICATE_FOOTER))
-      zip.file(`${base}_Questionario.pdf`, await printPdf(browser, questionnaireHtml(rec, config), QUESTIONNAIRE_FOOTER))
+      zip.file(`${base}_Questionario.pdf`, await printPdf(browser, questionnaireHtml(rec, config, images), QUESTIONNAIRE_FOOTER))
     }
   } finally {
     await browser.close()

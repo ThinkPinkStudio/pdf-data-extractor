@@ -164,6 +164,7 @@ const NAV_ADESIONI: NavItem[] = [
 const NAV_INFORTUNI: NavItem[] = [
   { href: '/infortuni', key: 'nav.infNew', icon: <IconForm /> },
   { href: '/infortuni/archivio', key: 'nav.infArchive', icon: <IconHistory /> },
+  { href: '/infortuni/scadenze', key: 'nav.infScadenze', icon: <IconCalendar /> },
   { href: '/infortuni/settings', key: 'nav.infSettings', icon: <IconSettings /> },
 ]
 
@@ -217,21 +218,22 @@ const SECTION_META: Record<Section, { name: string; subKey: string; nav: NavItem
   extractor: { name: 'PDF Extractor', subKey: 'nav.subExtractor', nav: NAV_EXTRACTOR },
   compare: { name: 'Portafoglio Compare', subKey: 'nav.subCompare', nav: NAV_COMPARE },
   adesioni: { name: 'CSA Adesioni', subKey: 'nav.subAdesioni', nav: NAV_ADESIONI },
-  infortuni: { name: 'CSA Adesioni Infortuni', subKey: 'nav.subInfortuni', nav: NAV_INFORTUNI },
+  infortuni: { name: 'CSA Adesioni Infortuni conducente', subKey: 'nav.subInfortuni', nav: NAV_INFORTUNI },
   premio: { name: 'Premio Lordo', subKey: 'nav.subPremio', nav: NAV_PREMIO },
   rsm: { name: 'Anagrafiche RSM', subKey: 'nav.subRsm', nav: NAV_RSM },
   vita: { name: 'Polizza Vita', subKey: 'nav.subVita', nav: NAV_VITA },
   hub: { name: 'CSA Suite', subKey: 'nav.subHub', nav: NAV_HUB },
 }
 
-export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible, vitaVisible }: { email: string; navHidden?: string[]; rsmVisible?: boolean; infortuniVisible?: boolean; vitaVisible?: boolean }) {
+export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible, vitaVisible, infortuniName }: { email: string; navHidden?: string[]; rsmVisible?: boolean; infortuniVisible?: boolean; vitaVisible?: boolean; infortuniName?: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const { lang, setLang, t } = useI18n()
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 
   const section = sectionFor(pathname)
-  const meta = SECTION_META[section]
+  // Nome della sezione Infortuni: quello scelto nelle sue Impostazioni.
+  const meta = section === 'infortuni' && infortuniName ? { ...SECTION_META.infortuni, name: infortuniName } : SECTION_META[section]
   // Sezione PDF Extractor: solo le voci non nascoste dalle Impostazioni tecniche.
   const visible = section === 'extractor' ? new Set(visibleExtractorNav(navHidden).map((i) => i.href)) : null
   // Anagrafiche RSM fuori dal menu delle sezioni finché non la si accende (Impostazioni tecniche).
@@ -307,7 +309,7 @@ export default function Sidebar({ email, navHidden, rsmVisible, infortuniVisible
             aria-current={item.href === activeHref ? 'page' : undefined}
           >
             {item.icon}
-            <span>{t(item.key)}</span>
+            <span>{item.key === 'nav.secInfortuni' && infortuniName ? infortuniName : t(item.key)}</span>
             {item.href === '/polizza/riepiloghi' && !summariesSeen && <span className="nav-new">{t('nav.new')}</span>}
           </Link>
         ))}

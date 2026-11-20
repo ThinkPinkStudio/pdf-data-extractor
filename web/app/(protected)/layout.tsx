@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { getSettings } from '@/lib/settingsStore'
 import Sidebar from '@/components/Sidebar'
+import { getConfig as getInfortuniConfig } from '@/lib/infortuni/store'
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession()
@@ -22,10 +23,13 @@ export default async function ProtectedLayout({ children }: { children: React.Re
     infortuniVisible = !!st.infortuniVisible
     vitaVisible = !!st.vitaVisible
   } catch { navHidden = [] }
+  // Nome della sezione Infortuni scelto nelle sue Impostazioni.
+  let infortuniName: string | undefined
+  try { infortuniName = (await getInfortuniConfig()).sectionName } catch { infortuniName = undefined }
 
   return (
     <div className="app-shell">
-      <Sidebar email={session.email} navHidden={navHidden} rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} vitaVisible={vitaVisible} />
+      <Sidebar email={session.email} navHidden={navHidden} rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} vitaVisible={vitaVisible} infortuniName={infortuniName} />
       <main className="main-content">{children}</main>
     </div>
   )

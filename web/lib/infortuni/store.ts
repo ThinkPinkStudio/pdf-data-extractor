@@ -143,7 +143,7 @@ export async function listRecords(q?: string, status?: Status): Promise<Infortun
   if (q && q.trim()) {
     params.push(`%${q.trim().toLowerCase()}%`)
     const p = `$${params.length}`
-    where.push(`(LOWER(cognome) LIKE ${p} OR LOWER(nome) LIKE ${p} OR LOWER(codice_fiscale) LIKE ${p} OR LOWER(targa) LIKE ${p} OR LOWER(numero) LIKE ${p})`)
+    where.push(`(LOWER(cognome) LIKE ${p} OR LOWER(nome) LIKE ${p} OR LOWER(codice_fiscale) LIKE ${p} OR LOWER(targa) LIKE ${p} OR LOWER(numero) LIKE ${p} OR LOWER(COALESCE(data->>'ragione_sociale', '')) LIKE ${p})`)
   }
   if (status) { params.push(status); where.push(`status = $${params.length}`) }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : ''
@@ -169,6 +169,17 @@ export async function markSent(ids: string[], to: string): Promise<void> {
     `UPDATE infortuni_records SET status='sent', sent_at=EXTRACT(EPOCH FROM NOW())::BIGINT, sent_to=$2 WHERE id = ANY($1::text[])`,
     [ids, to]
   )
+}
+
+/** Adesioni che scadono dal mese scorso al mese prossimo, più quelle che le rinnovano. */
+export async function expiringRecords(fromIso: string, toIso: string): Promise<InfortuniRow[]> {
+  const { rows } = await pool.query<InfortuniRow>(
+    `SELECT * FROM infortuni_records
+      WHERE (data_scadenza >= $1 AND data_scadenza <= $2) OR (data->>'rinnovo_di') IS NOT NULL
+      ORDER BY data_scadenza, LENGTH(numero), numero`,
+    [fromIso, toIso]
+  )
+  return rows
 }
 
 export async function deleteRecord(id: string): Promise<boolean> {

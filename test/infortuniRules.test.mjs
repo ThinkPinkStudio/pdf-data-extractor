@@ -10,6 +10,7 @@ import {
   FIELDS, QUESTIONS, DEFAULT_FIRST_NUMBER, defaultConfig, withDefaults, optionOf,
   nextNumber, defaultScadenza, validateAdesione, normalizeAdesione, bdxRow,
   parseEuro, shortEuro, splitAddresses, docBaseName, configForRecord, todayRome,
+  isCompany, holderName, expiryBucket, groupByExpiry, renewalDraft, cleanLogo, DEFAULT_SECTION_NAME,
 } from '../web/lib/infortuni/rules.js'
 import { decodeCf } from '../web/lib/rsm/rules.js'
 
@@ -150,4 +151,86 @@ test('tariffa fissata all\'adesione: le tariffe nuove non cambiano premio e BDX 
 test('data del file BDX in ora italiana', () => {
   assert.equal(todayRome(new Date('2026-11-08T23:30:00Z')), '2026-11-09')
   assert.equal(todayRome(new Date('2026-07-01T10:00:00Z')), '2026-07-01')
+})
+
+test('azienda (ragione sociale compilata): nome, cognome e data di nascita facoltativi', () => {
+  const on = { ...config, showRagioneSociale: true }
+  const company = { ...ok(), nome: '', cognome: '', data_nascita: '', codice_fiscale: '02837290341', ragione_sociale: 'Rafmax Srl' }
+  const v = validateAdesione(normalizeAdesione(company, on), on)
+  assert.equal(v.valid, true, JSON.stringify(v.errors))
+  assert.equal(isCompany(company, on), true)
+  // Campo spento nelle Impostazioni: la ragione sociale non conta, servono i dati della persona.
+  const off = validateAdesione(normalizeAdesione(company, config), config)
+  assert.deepEqual(Object.keys(off.errors).sort(), ['cognome', 'data_nascita', 'nome'])
+  // Ragione sociale vuota: persona, campi obbligatori.
+  const empty = validateAdesione(normalizeAdesione({ ...company, ragione_sociale: '  ' }, on), on)
+  assert.deepEqual(Object.keys(empty.errors).sort(), ['cognome', 'data_nascita', 'nome'])
+  // Azienda con codice fiscale di persona e senza nome: nessun avviso sul nome.
+  const cfPerson = validateAdesione(normalizeAdesione({ ...company, codice_fiscale: CF }, on), on)
+  assert.equal(cfPerson.valid, true)
+  assert.deepEqual(cfPerson.warnings, [])
+  // Data di nascita scritta: si controlla ancora.
+  assert.equal(validateAdesione(normalizeAdesione({ ...company, data_nascita: '2030-01-01' }, on), on).errors.data_nascita, 'La data di nascita deve essere prima dell\'adesione')
+  assert.equal(holderName(company), 'Rafmax Srl')
+  assert.equal(holderName(ok()), 'Rossi Mario')
+  assert.equal(docBaseName({ ...company, numero: 'IAH0015842/007' }), 'IAH0015842_007_Rafmax_Srl')
+})
+
+test('BDX di un\'azienda: ragione sociale nella colonna Cognome Cliente (interruttore)', () => {
+  const on = { ...config, showRagioneSociale: true }
+  const company = normalizeAdesione({ ...ok(), nome: '', cognome: '', data_nascita: '', codice_fiscale: '02837290341', ragione_sociale: 'Rafmax Srl' }, on)
+  const iCognome = FIELDS.findIndex((f) => f.id === 'cognome')
+  const iNome = FIELDS.findIndex((f) => f.id === 'nome')
+  assert.equal(bdxRow(company, on)[iCognome], 'Rafmax Srl')
+  assert.equal(bdxRow(company, on)[iNome], null)
+  assert.equal(bdxRow(company, { ...on, bdxRagioneInCognome: false })[iCognome], null)
+  // Con nome e cognome compilati restano quelli.
+  assert.equal(bdxRow(normalizeAdesione({ ...ok(), ragione_sociale: 'Rafmax Srl' }, on), on)[iCognome], 'Rossi')
+})
+
+test('nome della sezione e logo: default, valori salvati, immagini non valide scartate', () => {
+  assert.equal(defaultConfig().sectionName, 'CSA Adesioni Infortuni conducente')
+  assert.equal(withDefaults({ sectionName: '  ' }).sectionName, DEFAULT_SECTION_NAME)
+  assert.equal(withDefaults({ sectionName: ' Infortuni CSA ' }).sectionName, 'Infortuni CSA')
+  const png = 'data:image/png;base64,iVBORw0KGgo='
+  assert.equal(withDefaults({ logo: png }).logo, png)
+  assert.equal(cleanLogo('data:image/svg+xml;base64,PHN2Zz4='), '')
+  assert.equal(cleanLogo('javascript:alert(1)'), '')
+  assert.equal(cleanLogo('data:image/png;base64,' + 'A'.repeat(1_500_000)), '')
+  assert.equal(defaultConfig().logoQuestionario, true)
+  assert.equal(defaultConfig().logoCertificato, false)
+})
+
+test('scadenze: mese scorso, questo mese, mese prossimo; rinnovate col numero nuovo', () => {
+  assert.equal(expiryBucket('2026-10-31', '2026-11-20'), 'past')
+  assert.equal(expiryBucket('2026-11-01', '2026-11-20'), 'current')
+  assert.equal(expiryBucket('2026-12-31', '2026-11-20'), 'next')
+  assert.equal(expiryBucket('2027-01-01', '2026-11-20'), null)
+  assert.equal(expiryBucket('2026-01-15', '2026-01-02'), 'current')
+  assert.equal(expiryBucket('2025-12-15', '2026-01-02'), 'past')
+  assert.equal(expiryBucket('', '2026-11-20'), null)
+  const rows = [
+    { id: 'a', numero: 'IAH0015842/002', data_scadenza: '2026-11-30', data: {} },
+    { id: 'b', numero: 'IAH0015842/001', data_scadenza: '2026-11-05', data: {} },
+    { id: 'c', numero: 'IAH0015842/010', data_scadenza: '2027-11-05', data: { rinnovo_di: 'b' } },
+  ]
+  const g = groupByExpiry(rows, '2026-11-20')
+  assert.deepEqual(g.current.map((r) => [r.id, r.renewedBy]), [['b', 'IAH0015842/010'], ['a', null]])
+  assert.deepEqual(g.past, [])
+})
+
+test('bozza del rinnovo: stessi dati, copertura dalla vecchia scadenza, niente numero né tariffa', () => {
+  const old = { ...normalizeAdesione(ok(), config), numero: 'IAH0015842/001', note: 'x' }
+  const d = renewalDraft(old, 'id-1')
+  assert.equal(d.numero, undefined)
+  assert.equal(d.tariffa, undefined)
+  assert.equal(d.note, undefined)
+  assert.equal(d.data_adesione, '2027-11-15')
+  assert.equal(d.data_scadenza, '2028-11-15')
+  assert.equal(d.rinnovo_di, 'id-1')
+  assert.deepEqual(d.questionario, old.questionario)
+  assert.notEqual(d.questionario, old.questionario)
+  const saved = normalizeAdesione(d, config)
+  assert.equal(validateAdesione(saved, config).valid, true)
+  assert.equal(saved.rinnovo_di, 'id-1')
 })

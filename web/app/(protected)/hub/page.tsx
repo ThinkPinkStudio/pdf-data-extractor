@@ -1,5 +1,6 @@
 import { getSettings } from '@/lib/settingsStore'
 import HubClient from './HubClient'
+import { getConfig as getInfortuniConfig } from '@/lib/infortuni/store'
 
 // Le sezioni Anagrafiche RSM e CSA Adesioni Infortuni compaiono solo se accese
 // in Impostazioni tecniche (`rsmVisible`, `infortuniVisible`, spente di default).
@@ -13,5 +14,7 @@ export default async function HubPage() {
     infortuniVisible = !!st.infortuniVisible
     vitaVisible = !!st.vitaVisible
   } catch { rsmVisible = false }
-  return <HubClient rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} vitaVisible={vitaVisible} />
+  let infortuniName: string | undefined
+  if (infortuniVisible) { try { infortuniName = (await getInfortuniConfig()).sectionName } catch { infortuniName = undefined } }
+  return <HubClient rsmVisible={rsmVisible} infortuniVisible={infortuniVisible} vitaVisible={vitaVisible} infortuniName={infortuniName} />
 }

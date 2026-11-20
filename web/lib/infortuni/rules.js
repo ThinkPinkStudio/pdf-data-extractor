@@ -37,7 +37,26 @@ export function defaultConfig() {
     mailTo: '',
     mailCc: '',
     mailSubject: 'CSA Adesioni Infortuni — BDX inclusioni',
+    // Nome della sezione nel menu e nella pagina iniziale (Impostazioni → Aspetto).
+    sectionName: DEFAULT_SECTION_NAME,
+    // Logo in alto a sinistra: '' = logo CSA di sempre (assets), altrimenti
+    // un'immagine caricata dalle Impostazioni (data:image/png|jpeg|webp;base64).
+    logo: '',
+    logoQuestionario: true, // logo a sinistra sul questionario
+    logoCertificato: false, // logo a sinistra sul certificato (a destra resta AIG)
+    // BDX: con la ragione sociale e senza nome/cognome (azienda) la ragione
+    // sociale va nella colonna «Cognome Cliente», che altrimenti resterebbe vuota.
+    bdxRagioneInCognome: true,
   }
+}
+
+export const DEFAULT_SECTION_NAME = 'CSA Adesioni Infortuni conducente'
+
+/** Logo caricato accettabile: immagine raster in data URI, al massimo ~1 MB. */
+export const LOGO_MAX_CHARS = 1_400_000
+export function cleanLogo(v) {
+  const s = String(v || '')
+  return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(s) && s.length <= LOGO_MAX_CHARS ? s : ''
 }
 
 /** Configurazione salvata completata coi default (campi nuovi, opzioni vuote). */
@@ -45,7 +64,13 @@ export function withDefaults(saved) {
   const base = defaultConfig()
   const s = saved && typeof saved === 'object' ? saved : {}
   const options = Array.isArray(s.options) && s.options.length ? s.options : base.options
-  return { ...base, ...s, options: options.map((o) => ({ ...DEFAULT_OPTIONS[0], ...o, key: String(o.key || o.name || '').trim().toLowerCase() })) }
+  return {
+    ...base,
+    ...s,
+    sectionName: String(s.sectionName ?? '').trim() || base.sectionName,
+    logo: cleanLogo(s.logo),
+    options: options.map((o) => ({ ...DEFAULT_OPTIONS[0], ...o, key: String(o.key || o.name || '').trim().toLowerCase() })),
+  }
 }
 
 export const optionOf = (config, key) => (config.options || []).find((o) => o.key === String(key || '').toLowerCase()) || null
@@ -140,6 +165,30 @@ export function shortEuro(v) {
   return Number.isInteger(n) ? String(n).replace(/\B(?=(\d{3})+$)/g, '.') : fmtEuro(n)
 }
 
+/* ─── Aderente persona o azienda ───────────────────────────────────────── */
+
+// Campi della persona che diventano facoltativi quando l'aderente è
+// un'azienda (ragione sociale compilata, campo acceso nelle Impostazioni).
+export const PERSON_FIELDS = ['nome', 'cognome', 'data_nascita']
+
+/** L'aderente è un'azienda: campo «Ragione sociale» acceso e compilato. */
+export function isCompany(rec, config) {
+  return !!(config && config.showRagioneSociale) && !!String((rec && rec.ragione_sociale) || '').trim()
+}
+
+/** Campo obbligatorio per QUESTA adesione (nome, cognome e nascita no per un'azienda). */
+export function isRequired(field, rec, config) {
+  if (!field || !field.required) return false
+  return !(PERSON_FIELDS.includes(field.id) && isCompany(rec, config))
+}
+
+/** «Cognome Nome», oppure la ragione sociale per un'azienda senza nome. */
+export function holderName(rec) {
+  const r = rec || {}
+  const person = [r.cognome, r.nome].map((v) => String(v || '').trim()).filter(Boolean).join(' ')
+  return person || String(r.ragione_sociale || '').trim()
+}
+
 /* ─── Controlli ────────────────────────────────────────────────────────── */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -162,7 +211,7 @@ export function validateAdesione(rec, config, refYear = new Date().getFullYear()
   const warnings = []
   const val = (id) => String(r[id] ?? '').trim()
   for (const f of FIELDS) {
-    if (f.required && !val(f.id)) errors[f.id] = 'Campo obbligatorio'
+    if (isRequired(f, r, config) && !val(f.id)) errors[f.id] = 'Campo obbligatorio'
   }
   for (const f of FIELDS) {
     if (f.type === 'date' && val(f.id) && !isIsoDate(val(f.id))) errors[f.id] = 'Data non valida'
@@ -180,7 +229,7 @@ export function validateAdesione(rec, config, refYear = new Date().getFullYear()
     const d = decodeCf(cf, refYear)
     if (!d.valid) errors.codice_fiscale = 'Codice fiscale non valido: 16 caratteri (persona) o 11 cifre (partita IVA)'
     else if (!d.checkOk) errors.codice_fiscale = 'Il carattere di controllo del codice fiscale non torna: probabile errore di battitura'
-    else {
+    else if (val('nome') || val('cognome') || !isCompany(r, config)) {
       const { issues } = checkPerson({ cognome: val('cognome'), nome: val('nome'), cf, birthDate: isIsoDate(val('data_nascita')) ? val('data_nascita') : null }, refYear)
       for (const i of issues) if (i.level === 'error' && !/^cf-(formato|controllo|mancante)$/.test(i.code)) warnings.push(i.text)
     }
@@ -226,13 +275,64 @@ export { nextIdentificativo as nextNumber }
 /** Valori di una riga del BDX nell'ordine di FIELDS (date come Date UTC, premio numero). */
 export function bdxRow(rec, config) {
   const opt = optionOf(configForRecord(config, rec), rec.opzione)
+  const companyInCognome = config.bdxRagioneInCognome !== false && !String(rec.nome || '').trim() && !String(rec.cognome || '').trim() && isCompany(rec, config)
   return FIELDS.map((f) => {
-    const v = rec[f.id]
+    const v = f.id === 'cognome' && companyInCognome ? String(rec.ragione_sociale).trim() : rec[f.id]
     if (f.type === 'date') return isIsoDate(v) ? new Date(`${v}T00:00:00Z`) : (v || null)
     if (f.id === 'opzione') return opt ? opt.name : (v || '')
     if (f.id === 'premio') { const n = parseEuro(opt ? opt.premio : v); return Number.isFinite(n) ? n : null }
     return v == null || v === '' ? null : String(v)
   })
+}
+
+/* ─── Scadenze (come la prima versione di CSA Adesioni) ────────────────── */
+
+const ym = (iso) => { const [y, m] = String(iso).split('-').map(Number); return y * 12 + (m - 1) }
+
+/**
+ * Mese della scadenza rispetto a oggi (date AAAA-MM-GG): 'past' = mese scorso,
+ * 'current' = questo mese, 'next' = mese prossimo, null = fuori finestra.
+ */
+export function expiryBucket(iso, today) {
+  if (!isIsoDate(iso) || !isIsoDate(today)) return null
+  const diff = ym(iso) - ym(today)
+  return diff === -1 ? 'past' : diff === 0 ? 'current' : diff === 1 ? 'next' : null
+}
+
+/**
+ * Adesioni raggruppate per mese di scadenza, ognuna con `renewedBy` (numero
+ * dell'adesione che la rinnova: quella salvata da «Rinnova», campo
+ * `rinnovo_di`), in ordine di scadenza.
+ */
+export function groupByExpiry(rows, today) {
+  const renewal = new Map()
+  for (const r of rows || []) {
+    const from = r && r.data && r.data.rinnovo_di
+    if (from) renewal.set(String(from), r.numero)
+  }
+  const groups = { past: [], current: [], next: [] }
+  for (const r of rows || []) {
+    const b = expiryBucket(r.data_scadenza, today)
+    if (b) groups[b].push({ ...r, renewedBy: renewal.get(String(r.id)) || null })
+  }
+  for (const k of Object.keys(groups)) groups[k].sort((a, b) => String(a.data_scadenza).localeCompare(String(b.data_scadenza)) || String(a.numero).localeCompare(String(b.numero)))
+  return groups
+}
+
+/**
+ * Bozza del rinnovo: stessi dati, opzione e risposte (da ricontrollare col
+ * cliente), copertura dal giorno della vecchia scadenza per un anno, senza
+ * numero, premio, tariffa e note (li rifà il salvataggio).
+ */
+export function renewalDraft(rec, id) {
+  const r = { ...(rec || {}) }
+  for (const k of ['numero', 'premio', 'tariffa', 'note', 'rinnovo_di']) delete r[k]
+  const from = isIsoDate(r.data_scadenza) ? r.data_scadenza : ''
+  r.data_adesione = from
+  r.data_scadenza = defaultScadenza(from)
+  r.questionario = { ...((rec && rec.questionario) || {}) }
+  if (id) r.rinnovo_di = String(id)
+  return r
 }
 
 /** Data di oggi in Italia (AAAA-MM-GG): dopo mezzanotte l'UTC è ancora ieri. */
@@ -243,6 +343,6 @@ export function todayRome(date = new Date()) {
 /** Nome file sicuro per i documenti di un'adesione. */
 export function docBaseName(rec) {
   const num = String(rec.numero || '').replace(/[^\w-]+/g, '_')
-  const who = [rec.cognome, rec.nome].filter(Boolean).join('_').replace(/[^\w-]+/g, '_')
+  const who = holderName(rec).replace(/[^\w-]+/g, '_')
   return [num, who].filter(Boolean).join('_') || 'adesione'
 }
