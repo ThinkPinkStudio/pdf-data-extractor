@@ -2324,6 +2324,12 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   (capitale 13.201…, polizza 60021…), 18 passaggi a quadro 30/06 inclusi dal
   01/06 (da chiedere). Test `test/vitaCategory.test.mjs`. Guida:
   `.goldens-out/rsm-docs/Guida Polizza Vita - Agos, polizze per categoria e file mensile.pdf`.
+  **Scopertura nello stato per l'anno dopo (20/11/2026, richiesta di
+  Lidia)**: «Scarica lo stato per il <anno>» (Vita a RAL, Amundi) ha la
+  colonna «SCOPERTURA <anno in corso>» in evidenza (gialla, importo in rosso
+  dove c'è), capitale non coperto per la documentazione sanitaria mancante,
+  da ricordare al cliente; nel Riepilogo quanti ce l'hanno e il totale. Il
+  caricamento delle RAL la ignora (SCOPERTURA è tra le colonne calcolate).
   **Le tre domande a Lidia diventano impostazioni (19/11/2026, scelta
   dell'utente)**: decorrenza dei passaggi di livello del file mensile
   (`rules.transferDate`: data del file | 1° del mese | giorno dopo | 1° del

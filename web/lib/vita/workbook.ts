@@ -116,16 +116,26 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       { h: 'CODICE FISCALE', w: 19 }, { h: 'LIVELLO', w: 22 }, { h: 'DATA DI NASCITA', w: 14, fmt: FMT_DATE },
       { h: 'DATA INSERIMENTO', w: 15, fmt: FMT_DATE }, { h: `ETA' AL ${fmtDate(start)}`, w: 10 },
       { h: `RAL ANNUA ${program.year}`, w: 14, fmt: FMT_EUR }, { h: `RAL ANNUA ${next}`, w: 14, fmt: FMT_EUR },
+      // scopertura dell'anno che finisce (capitale non coperto per la documentazione
+      // sanitaria mancante), in evidenza: da ricordare al cliente (Lidia, 20/11/2026)
+      { h: `SCOPERTURA ${program.year}`, w: 15, fmt: FMT_EUR },
       { h: 'FIGURA CHIAVE', w: 13 }, { h: `TIPO COPERTURA AL ${fmtDate(start)}`, w: 20 }, { h: 'AVVISI', w: 50 }, { h: 'NOTE', w: 40 },
     ]
+    const SCOP_COL = 12, ALERT_COL = 15
+    const scopOf = (p: VitaInsured) => calc(p, p.entryDate || cfg.periodStart).scopertura || 0
     const row = (p: VitaInsured, ageNext: number | null, cover: string, alerts: string[]) => [
       companyName(p.company), policy(p.company) || null, p.cognome, p.nome, p.cf, p.level, toDate(p.birthDate), toDate(p.entryDate),
-      ageNext, p.ral, p.nextRal, p.keyFigure ? 'SI' : 'NO', cover, alerts.join('; '), p.note || '',
+      ageNext, p.ral, p.nextRal, scopOf(p) || null, p.keyFigure ? 'SI' : 'NO', cover, alerts.join('; '), p.note || '',
     ]
+    const SCOP_FILL = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFE8A3' } }
+    const markScop = (r: ExcelJS.Row, p: VitaInsured) => {
+      if (scopOf(p) > 0) { const c = r.getCell(SCOP_COL); c.fill = SCOP_FILL; c.font = { bold: true, color: { argb: 'FFB42318' } } }
+    }
     const byName = <T extends { p: VitaInsured }>(l: T[]) => [...l].sort((a, b) => `${a.p.cognome} ${a.p.nome}`.localeCompare(`${b.p.cognome} ${b.p.nome}`, 'it'))
     const sum = wb.addWorksheet('Riepilogo')
     header(sum, [{ h: 'AZIENDA', w: 20 }, { h: 'NR. POLIZZA', w: 13 }, { h: `IN COPERTURA AL ${fmtDate(start)}`, w: 16 },
-      { h: `USCITI NEL ${program.year}`, w: 12 }, { h: `DA INSERIRE NEL ${next}`, w: 14 }, { h: 'CON AVVISI', w: 11 }])
+      { h: `USCITI NEL ${program.year}`, w: 12 }, { h: `DA INSERIRE NEL ${next}`, w: 14 }, { h: 'CON AVVISI', w: 11 },
+      { h: `CON SCOPERTURA ${program.year}`, w: 15 }, { h: `SCOPERTURA ${program.year}`, w: 15, fmt: FMT_EUR }])
     for (const comp of cfg.companies) {
       const keep = byName(plan.keep.filter((x) => x.p.company === comp.key))
       const nxt = byName(plan.next.filter((x) => x.p.company === comp.key))
@@ -133,9 +143,12 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       if (!keep.length && !nxt.length && !out.length) continue
       const ws = wb.addWorksheet(sheetName(comp.name))
       header(ws, cols)
+      ws.getRow(1).getCell(SCOP_COL).fill = SCOP_FILL
+      ws.getRow(1).getCell(SCOP_COL).font = { bold: true, color: { argb: 'FF6B3E00' } } // l'intestazione bianca sul giallo non si leggerebbe
       for (const x of keep) {
         const r = ws.addRow(row(x.p, x.next.age, x.next.cover, x.alerts))
-        if (x.alerts.length) r.getCell(14).font = { bold: true, color: { argb: 'FFB42318' } }
+        if (x.alerts.length) r.getCell(ALERT_COL).font = { bold: true, color: { argb: 'FFB42318' } }
+        markScop(r, x.p)
       }
       const tot = ws.addRow([`TOTALE ${keep.length} ASSICURATI`])
       tot.font = { bold: true }
@@ -147,9 +160,14 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
           const c = calc(x.p, x.p.entryDate || start)
           const r = ws.addRow(row(x.p, c.age, c.cover, x.alerts))
           r.font = { italic: true }
+          markScop(r, x.p)
         }
       }
-      sum.addRow([comp.name, comp.policy, keep.length, out.length, nxt.length, keep.concat(nxt as typeof keep).filter((x) => x.alerts.length).length])
+      const withScop = keep.filter((x) => scopOf(x.p) > 0)
+      const sr = sum.addRow([comp.name, comp.policy, keep.length, out.length, nxt.length, keep.concat(nxt as typeof keep).filter((x) => x.alerts.length).length,
+        withScop.length, Math.round(withScop.reduce((t, x) => t + scopOf(x.p), 0) * 100) / 100 || null])
+      sr.getCell(8).numFmt = FMT_EUR
+      if (withScop.length) { sr.getCell(7).fill = SCOP_FILL; sr.getCell(8).fill = SCOP_FILL }
     }
     if (plan.dropped.length) {
       const ws = wb.addWorksheet(sheetName(`Usciti nel ${program.year}`))
@@ -163,7 +181,7 @@ export async function vitaWorkbook(program: VitaProgram, insured: VitaInsured[],
       }
     }
     sum.addRow([])
-    sum.addRow([`${program.name} · stato di rischio per il ${next}: chi è in copertura al ${fmtDate(start)} · limiti d'età ${cfg.rules.ipMaxAge} (IPT) e ${cfg.rules.deathMaxAge} (caso morte): solo avviso · compilare la colonna «RAL ANNUA ${next}» · esportato il ${fmtDate(at)}`])
+    sum.addRow([`${program.name} · stato di rischio per il ${next}: chi è in copertura al ${fmtDate(start)} · limiti d'età ${cfg.rules.ipMaxAge} (IPT) e ${cfg.rules.deathMaxAge} (caso morte): solo avviso · compilare la colonna «RAL ANNUA ${next}» · in evidenza la scopertura ${program.year} (capitale non coperto per la documentazione sanitaria mancante) · esportato il ${fmtDate(at)}`])
     return Buffer.from(await (applyLabels(wb, cfg.excelLabels), wb.xlsx.writeBuffer()))
   }
 
