@@ -262,12 +262,9 @@ export function VitaEmpty({ what }: { what: string }) {
   )
 }
 
-export async function api(url: string, method: string, body?: unknown) {
-  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) })
-  const j = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(j.error || 'Errore')
-  return j
-}
+// stesse chiamate di Anagrafiche RSM: errori con codice e motivi per il pannello di avviso
+import { api } from '@/components/rsm/useRsm'
+export { api }
 
 export function saveBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob)

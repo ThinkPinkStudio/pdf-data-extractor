@@ -8,6 +8,7 @@
 // le sue impostazioni al passaggio 2 → 3.
 import Link from 'next/link'
 import { useRef, useState } from 'react'
+import SaveErrorDrawer, { saveErrorOf, type SaveError } from '@/components/rsm/SaveErrorDrawer'
 import { VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
 import { CalcModeBox, CategoriesBox, MovementRulesBox } from '@/components/vita/VitaConfigParts'
 import { clientOf, defaultVitaConfig } from '@/lib/vita/types'
@@ -99,6 +100,7 @@ export default function VitaImportPage() {
   const [mode, setMode] = useState<'merge' | 'replace'>('merge')
   const [drag, setDrag] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [saveErr, setSaveErr] = useState<SaveError | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const { setFlash, node: flashNode } = useFlash(vita)
 
@@ -209,13 +211,24 @@ export default function VitaImportPage() {
   async function toCheck() {
     if (!cfg || !file) return
     setBusy(true); setErr(null)
+    let stage: 'create' | 'save' | 'check' = 'create'
+    let created = false
     try {
       let id = target
       if (target === 'new') {
         const j = await api('/api/vita/programs', 'POST', { name: name.trim() || `Polizza Vita ${year}`, year, company: client.trim() })
         id = j.program.id
+        created = true
       }
-      await api(`/api/vita/programs/${id}`, 'PUT', { name: target === 'new' ? name.trim() || `Polizza Vita ${year}` : undefined, year, config: cfg, company: target === 'new' ? client.trim() : undefined })
+      stage = 'save'
+      try {
+        await api(`/api/vita/programs/${id}`, 'PUT', { name: target === 'new' ? name.trim() || `Polizza Vita ${year}` : undefined, year, config: cfg, company: target === 'new' ? client.trim() : undefined })
+      } catch (e) {
+        // un programma appena creato senza le sue impostazioni non deve restare
+        if (created) await api(`/api/vita/programs/${id}`, 'DELETE').catch(() => null)
+        throw e
+      }
+      stage = 'check'
       await vita.reload()
       vita.setProgramId(id)
       setTarget(id)
@@ -225,7 +238,14 @@ export default function VitaImportPage() {
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Errore')
       setDry(j); setStep(3)
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    } catch (e) {
+      setErr((e as Error).message)
+      setSaveErr(saveErrorOf(e,
+        stage === 'check' ? "La prova dell'import non è riuscita" : stage === 'create' ? 'Il programma non è stato creato' : 'Il programma non è stato salvato',
+        stage === 'check' ? 'Le impostazioni del programma sono salvate; non è stato caricato nessun assicurato. Puoi riprovare.'
+          : created ? 'Non è stato salvato nulla: il programma appena creato è stato tolto e gli assicurati non sono stati caricati. Il file e le scelte di questa pagina sono ancora qui: correggi e riprova.'
+            : "Non è stato salvato nulla: il programma è rimasto com'era. Il file e le scelte di questa pagina sono ancora qui: correggi e riprova."))
+    } finally { setBusy(false) }
   }
 
   async function confirm() {
@@ -454,6 +474,7 @@ export default function VitaImportPage() {
           </div>
         </>
       )}
+      <SaveErrorDrawer error={saveErr} onClose={() => setSaveErr(null)} />
     </div>
   )
 }

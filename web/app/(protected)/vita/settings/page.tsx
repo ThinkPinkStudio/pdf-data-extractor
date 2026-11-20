@@ -4,6 +4,7 @@
 // modifica da qui, senza interventi sul programma. I tassi stanno nel programma
 // perché cambiano ogni anno.
 import { useEffect, useRef, useState } from 'react'
+import SaveErrorDrawer, { saveErrorOf, type SaveError } from '@/components/rsm/SaveErrorDrawer'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { VitaGate, VitaHeader, api, eur, useFlash, useVita } from '@/components/vita/useVita'
 import { CalcModeBox, CategoriesBox, MedicalBands, MovementRulesBox, VitaExample, VitaTextsBox } from '@/components/vita/VitaConfigParts'
@@ -18,6 +19,7 @@ export default function VitaSettingsPage() {
   const vita = useVita()
   const { ask, panel } = useConfirmPanel()
   const [cfg, setCfg] = useState<VitaConfig | null>(null)
+  const [saveErr, setSaveErr] = useState<SaveError | null>(null)
   const [name, setName] = useState('')
   const [client, setClient] = useState('')
   const [busy, setBusy] = useState(false)
@@ -68,7 +70,7 @@ export default function VitaSettingsPage() {
       await api(`/api/vita/programs/${vita.programId}`, 'PUT', { name, year: vita.program!.year, config: cfg, company: client.trim() })
       await vita.reload()
       setFlash({ ok: true, text: 'Impostazioni salvate. Gli importi si ricalcolano da soli, anche per il passato.' })
-    } catch (e) { setFlash({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+    } catch (e) { setFlash({ ok: false, text: (e as Error).message }); setSaveErr(saveErrorOf(e, 'Il salvataggio non è riuscito')) } finally { setBusy(false) }
   }
 
   async function createProgram() {
@@ -269,6 +271,7 @@ export default function VitaSettingsPage() {
         </VitaGate>
       )}
       {panel}
+      <SaveErrorDrawer error={saveErr} onClose={() => setSaveErr(null)} />
     </div>
   )
 }
