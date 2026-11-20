@@ -972,16 +972,26 @@ export function applyDeterministicOverrides(best, activeFields, docs, diag = [],
 // Natura più fine di scanKindForField: serve a distinguere persona/prestatore/
 // danni/scoperto/franchigia che la scan tratta insieme quando sceglie l'hint.
 // Type-blind: legge label/description e id (nessun id hardcoded).
-function structuralNature(field) {
-  const blob = `${String(field?.id || '')} ${String(field?.label || '')} ${String(field?.description || '')}`
-  const low = ' ' + blob.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
-  if (!/massimal|scopert|franchig/.test(low)) return null
+export function structuralNature(field) {
+  // SOLO la DESCRIZIONE, e la sua TESTA (prima dei due punti): è lì che il campo
+  // dice la sua grandezza. Il resto della descrizione la cita per contrasto
+  // ("per i Danni cagionati dagli Assicurati", "NON un sottolimite"): con il
+  // blob intero il "Massimale per sinistro" RC V3 usciva di natura "danni" e la
+  // guardia lo svuotava quando coincideva con l'annuo (il caso normale). Mai
+  // id/label (Regola 1: la label non guida nulla).
+  const desc = String(field?.description || '')
+  const head = desc.includes(':') ? desc.split(':')[0] : desc
+  const low = ' ' + head.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' '
+  if (!/massimal|scopert|franchig|limite\s+massimo|limite\s+di\s+indennizzo/.test(low)) return null
   if (/franchig/.test(low)) return 'franchigia'
   if (/scopert/.test(low)) return 'scoperto'
+  // "per sinistro" esplicito vince su ogni altra parola: è la grandezza.
+  if (/per\s+(?:singolo\s+|ogni\s+|ciascun\s+)?sinistro|unico\s+per\s+sinistro/.test(low)
+      && !/\bannuo\b|periodo\s+assicurativ|aggregat/.test(low)) return 'per-sinistro'
+  if (/\bannuo\b|periodo\s+assicurativ|aggregat/.test(low)) return 'annuo'
   if (/\bdann\w*/.test(low)) return 'danni'
   if (/\bprestat\w*/.test(low)) return 'prestatore'
   if (/\bperson\w*/.test(low)) return 'persona'
-  if (/\bannuo\b|periodo\s+assicurativ|aggregat/.test(low)) return 'annuo'
   if (/\bsinistr/.test(low)) return 'per-sinistro'
   return 'altro'
 }

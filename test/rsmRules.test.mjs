@@ -1,0 +1,726 @@
+/**
+ * Anagrafiche RSM: regole pure (web/lib/rsm/rules.js). I numeri attesi delle
+ * promozioni sono quelli del file del cliente (Stato di rischio RSM 2026):
+ * 5.086 / 1,025 × 275/365 = 3.738,46 di rimborso, 9.146 × 9/12 = 6.859,50
+ * di entrata a mesi.
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  normDate, daysBetween, days360, decodeCf, surnameCode, nameCode, checkPerson,
+  defaultProgramConfig, computeMember, statusAt, decorrenza, previewPromotion,
+  parseCommunicationRows, prepareCommunication, buildErrorMail, buildEml,
+  parseStatoWorkbook, normCategory, tariffsFromWorkbook, workbookYear, parseCessationText, emlToText,
+  headerFits, referenceHeader, workbookCompany, sameFileCompany,
+} from '../web/lib/rsm/rules.js'
+
+function cfg2026() {
+  const c = defaultProgramConfig(2026)
+  const t = Object.fromEntries(c.categories.map((x) => [x.key, x]))
+  t.dirigenti.tariffs = { titolare: 9146, quiescente: 10123 }
+  t.funzionari.tariffs = { titolare: 5086, quiescente: 6554 }
+  t.impiegati.tariffs = { titolare: 1348, coniuge: 646, figlio: 558 }
+  t.dirigenti.policy = '11341612'; t.funzionari.policy = '11341765'; t.impiegati.policy = '11341763'
+  return c
+}
+
+test('date: Excel, gg/mm/aa, seriale, 30/360', () => {
+  assert.equal(normDate('01/04/2026'), '2026-04-01')
+  assert.equal(normDate('4.10.26', 2026), '2026-10-04')
+  assert.equal(normDate('16/12/68', 2026), '1968-12-16')
+  assert.equal(normDate(46023), '2026-01-01')
+  assert.equal(normDate(new Date(2026, 6, 13)), '2026-07-13')
+  assert.equal(normDate('31/02/2026'), null)
+  assert.equal(daysBetween('2026-04-01', '2027-01-01'), 275)
+  assert.equal(days360('2026-04-01', '2027-01-01'), 270)
+})
+
+test('codice fiscale: decodifica, controllo, omocodia', () => {
+  const d = decodeCf('RSSMRA85T10A562S', 2026)
+  assert.equal(d.valid, true)
+  assert.equal(d.checkOk, true)
+  assert.equal(d.birthDate, '1985-12-10')
+  assert.equal(d.sex, 'M')
+  assert.equal(decodeCf('RSSMRA85T10A562T').checkOk, false)
+  // omocodia: 5 → R nella cifra del giorno (le lettere sostituiscono le cifre)
+  const omo = decodeCf('RSSMRA85T1LA562V', 2026)
+  assert.equal(omo.valid, true)
+  assert.equal(omo.birthDate, '1985-12-10')
+  // donna: giorno + 40
+  assert.equal(decodeCf('BNCLRA90A41F205I', 2026).sex, 'F')
+  assert.equal(decodeCf('BNCLRA90A41F205I', 2026).birthDate, '1990-01-01')
+})
+
+test('codici di cognome e nome', () => {
+  assert.equal(surnameCode('Rossi'), 'RSS')
+  assert.equal(nameCode('Mario'), 'MRA')
+  assert.equal(nameCode('Gianfranco'), 'GFR') // ≥4 consonanti: 1ª, 3ª, 4ª
+  assert.equal(surnameCode("D'Isabella"), 'DSB')
+  assert.equal(surnameCode('Fo'), 'FOX')
+  assert.equal(nameCode('Filippo Biagio'), 'FPP')
+})
+
+test('controlli persona: nome, cognome, data di nascita', () => {
+  const ok = checkPerson({ cognome: 'ROSSI', nome: 'MARIO', cf: 'RSSMRA85T10A562S', birthDate: '1985-12-10' }, 2026)
+  assert.deepEqual(ok.issues, [])
+  const wrongName = checkPerson({ cognome: 'PORTA', nome: 'ANDREA', cf: 'RSSMRA85T10A562S' }, 2026)
+  assert.ok(wrongName.issues.some((i) => i.code === 'cf-cognome'))
+  assert.ok(wrongName.issues.some((i) => i.code === 'cf-nome'))
+  assert.equal(wrongName.birthDate, '1985-12-10', 'data ricavata dal codice fiscale')
+  const swapped = checkPerson({ cognome: 'MARIO', nome: 'ROSSI', cf: 'RSSMRA85T10A562S' }, 2026)
+  assert.deepEqual(swapped.issues.filter((i) => i.level === 'error').map((i) => i.code), ['cf-invertiti'])
+  const wrongBirth = checkPerson({ cognome: 'ROSSI', nome: 'MARIO', cf: 'RSSMRA85T10A562S', birthDate: '1985-10-12' }, 2026)
+  assert.deepEqual(wrongBirth.issues.map((i) => i.code), ['nascita'])
+})
+
+test('premi: nucleo, persona, semestre, quota associativa', () => {
+  const c = cfg2026()
+  const base = { entryKind: 'inclusione', exitDate: null, exitKind: null, quiescente: false }
+  assert.equal(computeMember(c, { ...base, category: 'dirigenti', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-01-01' }).dovuto, 9156)
+  assert.equal(computeMember(c, { ...base, category: 'dirigenti', legame: 'TI', quiescente: true, entryKind: 'iniziale', entryDate: '2026-01-01' }).dovuto, 10133)
+  assert.equal(computeMember(c, { ...base, category: 'dirigenti', legame: 'CO', entryDate: '2026-01-01' }).dovuto, 0)
+  // 2° semestre: 50% (file: Funzionari 13/07 → 2.553,00; Impiegati coniuge 01/09 → 323,00)
+  assert.equal(computeMember(c, { ...base, category: 'funzionari', legame: 'TI', entryDate: '2026-07-13' }).dovuto, 2553)
+  assert.equal(computeMember(c, { ...base, category: 'impiegati', legame: 'CO', entryDate: '2026-09-01' }).dovuto, 323)
+  assert.equal(computeMember(c, { ...base, category: 'impiegati', legame: 'FI', entryDate: '2026-09-15' }).dovuto, 279)
+  // 30/06 incluso nel 1° semestre
+  assert.equal(computeMember(c, { ...base, category: 'impiegati', legame: 'TI', entryDate: '2026-06-30' }).dovuto, 1358)
+  assert.equal(computeMember(c, { ...base, category: 'impiegati', legame: 'TI', entryDate: '2026-07-01' }).dovuto, 684)
+})
+
+test('promozione: rimborso netto a giorni, entrata a giorni o a mesi', () => {
+  const c = cfg2026()
+  const nucleus = [
+    { cf: 'A', legame: 'TI', category: 'funzionari', entryKind: 'iniziale', entryDate: '2026-01-01', quiescente: false },
+    { cf: 'B', legame: 'CO', category: 'funzionari', entryKind: 'iniziale', entryDate: '2026-01-01', quiescente: false },
+    { cf: 'C', legame: 'FI', category: 'funzionari', entryKind: 'iniziale', entryDate: '2026-01-01', quiescente: false },
+  ]
+  const p = previewPromotion(c, nucleus, 'dirigenti', '2026-04-01')
+  assert.equal(p.rimborso, 3738.46, 'un rimborso per nucleo, come nel file del cliente')
+  assert.equal(p.dovuto, 6900.82) // 9.146 × 275/365 + 10
+  c.rules.prorata = 'mesi'
+  assert.equal(previewPromotion(c, nucleus, 'dirigenti', '2026-04-01').dovuto, 6869.5) // come il file
+  // Impiegati (a persona): ogni membro ha il suo rimborso
+  c.rules.prorata = 'giorni'
+  const imp = nucleus.map((m) => ({ ...m, category: 'impiegati' }))
+  const q = previewPromotion(c, imp, 'funzionari', '2026-03-01')
+  assert.equal(q.exits.filter((e) => e.calc.rimborso > 0).length, 3)
+})
+
+test('stato a una data: cessazione coperta fino a fine anno, promozione fuori', () => {
+  const c = cfg2026()
+  const ces = { entryDate: '2026-01-01', exitDate: '2026-10-04', exitKind: 'cessazione' }
+  assert.equal(statusAt(c, ces, '2026-09-01'), 'attivo')
+  assert.equal(statusAt(c, ces, '2026-11-01'), 'cessazione')
+  assert.equal(statusAt(c, ces, '2027-01-01'), 'uscito')
+  assert.equal(statusAt(c, { entryDate: '2026-01-01', exitDate: '2026-04-01', exitKind: 'promozione' }, '2026-04-01'), 'promosso')
+  assert.equal(statusAt(c, { entryDate: '2026-10-26' }, '2026-10-01'), 'futuro')
+})
+
+test('decorrenza: entro 30 giorni la data richiesta, poi la comunicazione, forzata vince', () => {
+  const c = cfg2026()
+  assert.deepEqual(decorrenza(c, '2026-03-01', '2026-03-31', null), { date: '2026-03-01', reason: 'richiesta' })
+  assert.deepEqual(decorrenza(c, '2026-03-01', '2026-04-15', null), { date: '2026-04-15', reason: 'tardiva' })
+  assert.deepEqual(decorrenza(c, '2026-03-01', '2026-04-15', '2026-03-01'), { date: '2026-03-01', reason: 'forzata' })
+})
+
+test('file di comunicazione: intestazione, legenda, eredità dal titolare, controlli, mail', () => {
+  const c = cfg2026()
+  const rows = [
+    ["SOCIETA' DI APPARTENENZA", 'CATEGORIA', 'AZIONE', 'NUMERO POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. ASSICURATO', 'C.F.TITOLARE', 'LEGAME', 'A CARICO SI/ NO', 'DATA ENTRATA', 'NOTE'],
+    ['Crédit Agricole Vita', 'IMPIEGATI', 'N', '11341763', 'Rossi', 'Mario', '10/12/1985', null, 'RSSMRA85T10A562S', 'TI', null, '01/10/2026', ''],
+    ['Crédit Agricole Vita', null, 'N', '', 'Bianchi', 'Laura', '01/01/1990', 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', 'CO ', 'No', null, ''],
+    ['Crédit Agricole Vita', 'IMPIEGATI', 'N', '11341763', 'Porta', 'Andrea', null, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', null, '26/10/2026', ''],
+    ['Crédit Agricole Vita', null, null, '', null, null, null, null, null, null, null, null, ''],
+    ['AZIONE'], ['N', 'Nuova entrata'], ['LEGAME'], ['TI', 'Titolare di polizza'],
+  ]
+  const parsed = parseCommunicationRows(rows, 2026)
+  assert.equal(parsed.rows.length, 3, 'righe vuote e legenda saltate')
+  const prep = prepareCommunication(c, parsed.rows, [], '2026-10-05')
+  assert.equal(prep[0].member.cf, 'RSSMRA85T10A562S', 'il titolare senza C.F. assicurato prende quello del titolare')
+  assert.equal(prep[0].calc.dovuto, 684)
+  assert.equal(prep[1].member.category, 'impiegati', 'categoria ereditata dal titolare')
+  assert.equal(prep[1].member.entryDate, '2026-10-01', 'data ereditata dal titolare')
+  assert.equal(prep[1].calc.dovuto, 323)
+  assert.equal(prep[0].hasError, false)
+  assert.equal(prep[1].hasError, false)
+  assert.equal(prep[2].hasError, true)
+  const mail = buildErrorMail({ fileName: 'teste.xlsx', receivedOn: '2026-10-27', rows: prep, to: 'hr@example.com', cc: 'a@example.com' })
+  assert.equal(mail.count, 1)
+  assert.match(mail.body, /PORTA ANDREA \(riga 4\)/)
+  assert.match(mail.body, /Le altre 2 righe del file sono state registrate/)
+  const eml = buildEml(mail)
+  assert.match(eml, /^To: hr@example.com\r\nCc: a@example.com\r\n/)
+  assert.match(eml, /X-Unsent: 1/)
+})
+
+test('categorie dal testo del cliente', () => {
+  const c = cfg2026()
+  assert.deepEqual(normCategory('DIRIGENTI QUIESCENTI', c.categories), { key: 'dirigenti', quiescente: true })
+  assert.deepEqual(normCategory('IMPIEGATO', c.categories), { key: 'impiegati', quiescente: false })
+  assert.deepEqual(normCategory('Funzionario', c.categories), { key: 'funzionari', quiescente: false })
+})
+
+test('stato di rischio: fogli al 01/01, variazioni, promozioni legate', () => {
+  const c = cfg2026()
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', " ETA' ", 'SESSO', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'TITOLARE NUCLEO', 'LEGAME', 'DATA ENTRATA', ' PREMIO ANNUO ', ' Q. A. ', ' TOTALE ', ' QUIESCENTE ']
+  const varHead = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', "ETA'", 'C.F. ASSICURATO', 'C.F. TITOLARE', 'NUCLEO', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'RATEO LORDO', 'QUOTA ASSOCIATIVA', 'RATEO COMPLESSIVO', 'RIMBORSO', 'AZIONE', 'PROMOZIONE', 'NOTE']
+  const sheets = {
+    DIRIGENTI: [head],
+    'Variazioni DIRIGENTI': [[null, 'C.A. Vita'], varHead,
+      ['C.A. VITA', 'DIRIGENTI', '90/01', '8637', '11341612', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', '01/04/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI'],
+      ['C.A. VITA', '', '90/01', '8637', '11341612', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', 'ROSSI MARIO', 'CO', '01/04/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI']],
+    FUNZIONARI: [head,
+      ['C.A. VITA', 'FUNZIONARI', '90/01', '8636', '11341765', 'ROSSI', 'MARIO', null, 0, 'M', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', ' ', 'TI', '01/01/2026', 0, 0, 0, ' NO '],
+      ['C.A. VITA', '', '90/01', '8636', '11341765', 'BIANCHI', 'LAURA', null, 0, 'F', 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', 'ROSSI MARIO', 'CO', '01/01/2026', 0, 0, 0, ' NO ']],
+    'Variazioni FUNZIONARI': [[null, 'C.A. Vita'], varHead,
+      ['C.A. VITA', 'FUNZIONARI', '90/01', '8636', '11341765', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', null, '01/04/2026', 0, 0, 0, 0, ' USCITA ', 'SI'],
+      ['C.A. VITA', '', '90/01', '8636', '11341765', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', 'ROSSI MARIO', 'CO', null, '01/04/2026', 0, 0, 0, 0, ' USCITA ', 'SI']],
+  }
+  const { members, warnings } = parseStatoWorkbook(c, sheets)
+  assert.equal(members.length, 4)
+  const out = members.find((m) => m.category === 'funzionari' && m.legame === 'TI')
+  const inn = members.find((m) => m.category === 'dirigenti' && m.legame === 'TI')
+  assert.equal(out.exitKind, 'promozione')
+  assert.equal(inn.entryKind, 'promozione')
+  assert.equal(out.exitPromotionId, inn.promotionId)
+  assert.equal(out.promotionId, undefined, 'la riga che esce non è «creata» da una promozione')
+  assert.equal(new Set(members.map((m) => m.promotionId || m.exitPromotionId)).size, 1, 'una promozione per nucleo')
+  assert.equal(computeMember(c, out).rimborso, 3738.46)
+  assert.ok(warnings.length === 0, warnings.join('\n'))
+})
+
+test('import: promozione non segnata = anomalia da risolvere, mai indovinata', () => {
+  const c = cfg2026()
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', " ETA' ", 'SESSO', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'TITOLARE NUCLEO', 'LEGAME', 'DATA ENTRATA']
+  const varHead = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', "ETA'", 'C.F. ASSICURATO', 'C.F. TITOLARE', 'NUCLEO', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'RATEO LORDO', 'QUOTA ASSOCIATIVA', 'RATEO COMPLESSIVO', 'RIMBORSO', 'AZIONE', 'PROMOZIONE', 'NOTE']
+  const sheets = () => ({
+    IMPIEGATI: [head,
+      ['C.A. VITA', 'IMPIEGATI', '', '', '', 'ROSSI', 'MARIO', null, 0, 'M', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', '', 'TI', '01/01/2026'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'F', 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', '', 'CO', '01/01/2026'],
+      ['C.A. VITA', 'IMPIEGATI', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'M', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', '', 'TI', '01/01/2026']],
+    'Variazioni IMPIEGATI': [[null], varHead,
+      // il cliente ha dimenticato PROMOZIONE = SI sulle uscite del nucleo
+      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO', 'ESCLUSO DAL 01/03/2026 PASSAGGIO IN POL. FUNZIONARI'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', null, 'CO', null, '01/03/2026', 0, 0, 0, 0, ' USCITA ', 'NO'],
+      // uscita con PROMOZIONE = SI ma nessuna entrata altrove
+      ['C.A. VITA', 'IMPIEGATO', '', '', '', 'VERDI', 'GIUSEPPE', null, 0, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', null, 'TI', null, '31/05/2026', 0, 0, 0, 0, ' USCITA ', 'SI']],
+    FUNZIONARI: [head],
+    'Variazioni FUNZIONARI': [[null], varHead,
+      ['C.A. VITA', 'FUNZIONARI', '', '', '', 'ROSSI', 'MARIO', null, 0, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', null, 'TI', '01/03/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI'],
+      ['C.A. VITA', '', '', '', '', 'BIANCHI', 'LAURA', null, 0, 'BNCLRA90A41F205I', 'RSSMRA85T10A562S', null, 'CO', '01/03/2026', null, 0, 0, 0, 0, ' ENTRATA ', 'SI']],
+  })
+  const first = parseStatoWorkbook(c, sheets())
+  assert.deepEqual(first.anomalies.map((a) => a.type).sort(), ['non-segnata', 'senza-entrata'])
+  const nonSeg = first.anomalies.find((a) => a.type === 'non-segnata')
+  assert.equal(nonSeg.people.length, 2, 'un\'anomalia per nucleo')
+  assert.match(nonSeg.text, /l'uscita da Impiegati non è segnata/)
+  assert.equal(nonSeg.suggest, 'promozione', 'proposta dalla nota del file')
+  assert.equal(first.anomalies.find((a) => a.type === 'senza-entrata').suggest, null, 'senza nota nessuna proposta')
+  const senza = first.anomalies.find((a) => a.type === 'senza-entrata')
+
+  const asPromo = parseStatoWorkbook(c, sheets(), { [nonSeg.key]: 'promozione', [senza.key]: 'cessazione' })
+  assert.ok(asPromo.anomalies.every((a) => a.choice))
+  const out = asPromo.members.find((m) => m.category === 'impiegati' && m.cf === 'RSSMRA85T10A562S')
+  const inn = asPromo.members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S')
+  assert.equal(out.exitKind, 'promozione')
+  assert.equal(out.exitPromotionId, inn.promotionId)
+  assert.ok(computeMember(c, out).rimborso > 0, 'impiegati: rimborso pro-rata per persona')
+  assert.equal(asPromo.members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, 'cessazione')
+
+  const separate = parseStatoWorkbook(c, sheets(), { [nonSeg.key]: 'separati', [senza.key]: 'promozione' })
+  assert.equal(separate.members.find((m) => m.category === 'impiegati' && m.cf === 'RSSMRA85T10A562S').exitKind, 'cessazione')
+  assert.equal(separate.members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S').entryKind, 'inclusione')
+})
+
+test('variazioni: inclusione di chi è già in un\'altra categoria = promozione da registrare, non nella mail', () => {
+  const c = cfg2026()
+  const existing = [{ id: 'm1', category: 'impiegati', cf: 'RSSMRA85T10A562S', cfTitolare: 'RSSMRA85T10A562S', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-01-01', exitDate: null, exitKind: null }]
+  const rows = [
+    ['COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F.TITOLARE', 'LEGAME', 'CATEGORIA', 'DATA ENTRATA'],
+    ['Rossi', 'Mario', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', 'FUNZIONARI', '01/09/2026'],
+  ]
+  const prep = prepareCommunication(c, parseCommunicationRows(rows, 2026).rows, existing, '2026-09-05')
+  const issue = prep[0].issues.find((i) => i.code === 'altra-categoria')
+  assert.ok(issue && prep[0].hasError)
+  assert.deepEqual(issue.promote, { memberId: 'm1', to: 'funzionari', date: '2026-09-01' })
+  assert.equal(buildErrorMail({ fileName: 'x.xlsx', rows: prep }).count, 0, 'errore interno: niente mail')
+})
+
+test('tariffe e polizze lette dal file dello stato di rischio', () => {
+  const c = defaultProgramConfig(2026)
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'LEGAME']
+  const sheets = {
+    IMPIEGATI: [head,
+      ['C.A. VITA', 'IMPIEGATI', '90/01', '8635', '11341763', 'ROSSI', 'MARIO', null, 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI'],
+      ['C.A. VITA', 'IMPIEGATI', '90/02', '8635', '11341763', 'VERDI', 'GIUSEPPE', null, 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI'],
+      [], ['IMPIEGATI', 2, 1348], ['CONIUGI/CONVIVENTI', 1, 646], ['FIGLI', 0, 558]],
+    DIRIGENTI: [head, ['DIRIGENTI', 13, 9146], ['DIRIGENTI QUIESCENTI', 1, 10123]],
+    'Variazioni IMPIEGATI': [[null, 'C.A. Vita', null, null, null, 'Regolazione', 'Premio']],
+  }
+  assert.deepEqual(tariffsFromWorkbook(c, sheets), {
+    impiegati: { tariffs: { titolare: 1348, coniuge: 646, figlio: 558 }, policy: '11341763' },
+    dirigenti: { tariffs: { titolare: 9146, quiescente: 10123 }, policy: '' },
+  })
+})
+
+test('anno di polizza letto dal file, prima di avere un programma', () => {
+  const varHead = ['AZIENDA', 'CATEGORIA', 'COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA']
+  // intestazione «Regolazione Premio 1/1/26 – 1/1/27» sopra le colonne
+  assert.equal(workbookYear({ 'Variazioni IMPIEGATI': [[null, 'C.A. Vita', 'Regolazione', 'Premio', new Date(2026, 0, 1), '-', new Date(2027, 0, 1)], varHead] }), 2026)
+  // senza intestazione: l'anno più frequente delle variazioni
+  assert.equal(workbookYear({ 'Variazioni FUNZIONARI': [varHead,
+    ['C.A. VITA', '', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/03/2027', null],
+    ['C.A. VITA', '', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', '01/09/2027', null]] }), 2027)
+  assert.equal(workbookYear({ Foglio1: [['niente']] }), null)
+})
+
+test('mail di cessazione: codici fiscali, date anche senza anno, .eml', () => {
+  // data prima del codice e senza anno, come nelle mail dell'ufficio personale
+  assert.deepEqual(parseCessationText('cessazione di Rossi Mario in data 4.10\nCf: RSSMRA85T10A562S\nSocietà: CAV', 2026),
+    [{ cf: 'RSSMRA85T10A562S', date: '2026-10-04' }])
+  // due persone, ognuna con la sua data dopo il codice; l'orario della mail non è una data
+  const two = parseCessationText('Inviato 29/10/2026 11:31\n> ROSSI MARIO CF:RSSMRA85T10A562S data cessazione 25.11.2026\n> BIANCHI LAURA CF BNCLRA90A41F205I data cessazione 30.11.2026', 2026)
+  assert.deepEqual(two, [{ cf: 'RSSMRA85T10A562S', date: '2026-11-25' }, { cf: 'BNCLRA90A41F205I', date: '2026-11-30' }])
+  const body = Buffer.from('Ciao, cessa Rossi Mario CF RSSMRA85T10A562S il 31.10.2026', 'utf8').toString('base64')
+  const eml = ['From: hr@example.com', 'Subject: CESSAZIONE', 'Date: Thu, 8 Oct 2026 08:53:49 +0000', 'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary="b1"', '', '--b1', 'Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', body, '--b1--', ''].join('\r\n')
+  const e = emlToText(eml)
+  assert.equal(e.date, '2026-10-08')
+  assert.deepEqual(parseCessationText(e.text, 2026), [{ cf: 'RSSMRA85T10A562S', date: '2026-10-31' }])
+})
+
+test('revisione: uscite da file, import senza data o CF, riga iniziale spostata, uscita il giorno prima', () => {
+  const c = cfg2026()
+  // (2) uscita da file di chi è già cessato o senza data: errore sulla riga, mai un 400 per tutto il file
+  const existing = [{ id: 'm1', category: 'impiegati', cf: 'RSSMRA85T10A562S', cfTitolare: 'RSSMRA85T10A562S', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-01-01', exitDate: '2026-10-31', exitKind: 'cessazione' }]
+  const head = ['COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F.TITOLARE', 'LEGAME', 'CATEGORIA', 'AZIONE', 'DATA ENTRATA', 'DATA USCITA']
+  const prep = prepareCommunication(c, parseCommunicationRows([head,
+    ['Rossi', 'Mario', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', 'IMPIEGATI', 'U', null, '30/11/2026'],
+    ['Verdi', 'Giuseppe', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', 'IMPIEGATI', 'U', null, null]], 2026).rows, existing, '2026-11-05')
+  assert.ok(prep[0].hasError && prep[0].issues.some((i) => i.code === 'gia-uscito' && i.mail === false))
+  assert.ok(prep[1].issues.some((i) => i.code === 'uscita-data'))
+  // (4) una riga di inizio anno con la data spostata in avanti paga col semestre
+  assert.equal(computeMember(c, { category: 'impiegati', legame: 'TI', entryKind: 'iniziale', entryDate: '2026-09-01' }).dovuto, 684)
+  // (3)(5)(6) import
+  const varHead = ['CATEGORIA', 'COGNOME', 'NOME', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'AZIONE', 'PROMOZIONE']
+  const stHead = ['CATEGORIA', 'COGNOME', 'NOME', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'LEGAME', 'DATA ENTRATA']
+  const { members, warnings } = parseStatoWorkbook(c, {
+    FUNZIONARI: [stHead, ['FUNZIONARI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/01/2026'],
+      ['FUNZIONARI', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', '01/01/2026']],
+    'Variazioni FUNZIONARI': [varHead,
+      ['FUNZIONARI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', null, '28/02/2026', 'USCITA', 'SI'],
+      ['FUNZIONARI', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', null, null, 'USCITA', 'NO'],
+      ['', 'BIANCHI', 'ANNA', '', 'VRDGPP70A01H501S', 'FI', null, '30/04/2026', 'USCITA', 'NO']],
+    DIRIGENTI: [stHead],
+    'Variazioni DIRIGENTI': [varHead, ['DIRIGENTI', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', '01/03/2026', null, 'ENTRATA', 'SI']],
+  })
+  const out = members.find((m) => m.category === 'funzionari' && m.cf === 'RSSMRA85T10A562S')
+  assert.equal(out.exitDate, '2026-03-01', 'uscita allineata all\'entrata: niente giorno scoperto')
+  assert.equal(members.find((m) => m.cf === 'VRDGPP70A01H501S').exitKind, null, 'uscita senza data saltata')
+  assert.ok(warnings.some((w) => /uscita senza data/.test(w)))
+  assert.ok(warnings.some((w) => /uscita senza codice fiscale/.test(w)))
+})
+
+/* ─── File di rinnovo del cliente: stesso tracciato, senza premi ─────────── */
+
+// Colonne del file che l'Azienda rimanda a fine anno (nessuna colonna di premio).
+const RENEW_HEAD = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'CODICE PRODOTTO', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', "ETA'", 'SESSO', 'C.F. FAMILIARE', 'C.F. CAPO NUCLEO', 'TITOLARE NUCLEO', 'LEGAME', 'DATA ENTRATA', 'QUIESCENTE', 'NOTE']
+const renewRow = (cat, pol, cognome, nome, cf, cfTit, legame, titolare) =>
+  ['C.A. VITA', cat, '90/01', 8637, pol, cognome, nome, null, 0, 'M', cf, cfTit, titolare || ' ', legame, '01/01/2026', 'NO', null]
+
+test('rinnovo: un foglio SENZA riga di intestazione si legge con le colonne degli altri', () => {
+  const c = cfg2026()
+  const sheets = {
+    DIRIGENTI: [RENEW_HEAD, renewRow('DIRIGENTI', '11341612', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI')],
+    // come nel file del cliente: la prima riga è già un dato
+    IMPIEGATI: [
+      renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI'),
+      renewRow('', '11341763', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'BNCLRA90A41F205I', 'CO', 'BIANCHI LAURA'),
+    ],
+  }
+  const { members, warnings } = parseStatoWorkbook(c, sheets)
+  assert.equal(members.length, 3, 'il foglio senza intestazione non si perde')
+  assert.equal(members.filter((m) => m.category === 'impiegati').length, 2)
+  assert.ok(warnings.some((w) => /IMPIEGATI.*intestazione/.test(w)), 'lo dice all\'operatore')
+  // i numeri di polizza si leggono anche dal foglio senza intestazione
+  assert.equal(tariffsFromWorkbook(c, sheets).impiegati.policy, '11341763')
+})
+
+test('un foglio senza intestazione si legge solo se le colonne combaciano davvero', () => {
+  const { map } = referenceHeader({ DIRIGENTI: [RENEW_HEAD] })
+  assert.ok(headerFits([renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI')], map))
+  // colonne sfalsate: il codice fiscale non è dove la mappa dice
+  assert.equal(headerFits([['C.A. VITA', 'IMPIEGATI', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I']], map), false)
+  assert.equal(headerFits([], map), false)
+  // senza tracciato di riferimento non si inventa niente
+  const sheets = { IMPIEGATI: [renewRow('IMPIEGATI', '11341763', 'BIANCHI', 'LAURA', 'BNCLRA90A41F205I', 'BNCLRA90A41F205I', 'TI')] }
+  const r = parseStatoWorkbook(cfg2026(), sheets)
+  assert.equal(r.members.length, 0)
+  assert.ok(r.warnings.some((w) => /Intestazione non trovata/.test(w)))
+})
+
+test('numero di polizza diverso da quello della categoria: si segnala', () => {
+  const c = cfg2026()
+  c.categories.find((x) => x.key === 'dirigenti').policy = '11341612'
+  const sheets = {
+    DIRIGENTI: [RENEW_HEAD,
+      renewRow('DIRIGENTI', '11341612', 'ROSSI', 'MARIO', 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI'),
+      renewRow('DIRIGENTI', '11341755', 'VERDI', 'GIUSEPPE', 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI')],
+  }
+  const { members, warnings } = parseStatoWorkbook(c, sheets)
+  assert.equal(members.length, 2, 'si importano comunque: il dato è del cliente')
+  const w = warnings.find((x) => /11341755/.test(x))
+  assert.ok(w, warnings.join('\n'))
+  assert.ok(/invece di 11341612/.test(w) && /Riga 3/.test(w))
+  // con la polizza non ancora configurata (primo import) non si dice nulla
+  const c2 = cfg2026()
+  c2.categories.forEach((x) => { x.policy = '' })
+  assert.equal(parseStatoWorkbook(c2, sheets).warnings.filter((x) => /polizza/.test(x)).length, 0)
+})
+
+test('società scritta nel file: colonna AZIENDA, valore più frequente', () => {
+  const head = ['AZIENDA', 'CATEGORIA', 'CONVENZIONE', 'X', 'NR. POLIZZA', 'COGNOME', 'NOME']
+  const sheets = {
+    DIRIGENTI: [head, ['C.A. VITA', 'DIRIGENTI'], ['C.A. VITA', 'DIRIGENTI'], ['ALTRA', 'DIRIGENTI']],
+    FUNZIONARI: [head, ['C.A. VITA', 'FUNZIONARI']],
+  }
+  assert.equal(workbookCompany(sheets), 'C.A. VITA')
+  assert.equal(workbookCompany({ IMPIEGATI: [['COGNOME', 'NOME'], ['ROSSI', 'MARIO']] }), '')
+  assert.ok(sameFileCompany('C.A. VITA', 'c.a. vita '))
+  assert.ok(!sameFileCompany('C.A. VITA', 'SOCIETA ESEMPIO'))
+  assert.ok(!sameFileCompany('', ''))
+})
+
+test('stato di rischio per il rinnovo: in copertura al 01/01, avvisi, promemoria', async () => {
+  const { renewalPlan, ageAt } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  const base = { quiescente: false, cfTitolare: null, entryKind: 'iniziale', exitDate: null, exitKind: null, birthDate: '1970-05-01' }
+  const m = (id, extra) => ({ id, category: 'impiegati', legame: 'TI', cf: `CF${id}`, cognome: id, nome: 'X', entryDate: '2026-01-01', ...base, ...extra })
+  const members = [
+    m('resta'),
+    m('cessato', { exitDate: '2026-06-01', exitKind: 'cessazione' }),
+    m('promosso', { exitDate: '2026-03-01', exitKind: 'promozione' }),
+    m('promossoNuovo', { category: 'funzionari', entryDate: '2026-03-01', entryKind: 'promozione' }),
+    m('dicembre', { entryDate: '2026-12-15', entryKind: 'inclusione' }),
+    m('gennaio', { entryDate: '2027-01-01', entryKind: 'inclusione' }),
+    m('anziano', { birthDate: '1946-12-31' }),
+    m('quasi', { birthDate: '1947-01-02' }),
+    m('esceDopo', { exitDate: '2027-02-01', exitKind: 'cessazione' }),
+    m('figlioOrfano', { legame: 'FI', cfTitolare: 'CFcessato' }),
+  ]
+  const p = renewalPlan(cfg, members)
+  const ids = (l) => l.map((x) => x.m.id).sort()
+  assert.equal(p.at, '2027-01-01')
+  assert.deepEqual(ids(p.keep), ['anziano', 'dicembre', 'esceDopo', 'figlioOrfano', 'promossoNuovo', 'quasi', 'resta'])
+  assert.deepEqual(ids(p.next), ['gennaio'])
+  assert.deepEqual(p.dropped.map((x) => `${x.m.id}:${x.reason}`).sort(), ['cessato:cessazione', 'promosso:promozione'])
+  const alerts = (id) => p.keep.find((x) => x.m.id === id).alerts.join(' ')
+  assert.match(alerts('anziano'), /80 anni.*limite di 80/)
+  assert.equal(alerts('quasi'), '')
+  assert.match(alerts('esceDopo'), /uscita comunicata dal 01\/02\/2027/)
+  assert.match(alerts('figlioOrfano'), /titolare del nucleo non è più in copertura/)
+  assert.equal(ageAt('1946-12-31', '2027-01-01'), 80)
+  // il limite si cambia dalle Impostazioni
+  cfg.rules.maxAge = 85
+  assert.equal(renewalPlan(cfg, members).keep.find((x) => x.m.id === 'anziano').alerts.length, 0)
+})
+
+test('anno del file del rinnovo: lo dice la riga «stato di rischio per il …»', async () => {
+  const { workbookYear } = await import('../web/lib/rsm/rules.js')
+  assert.equal(workbookYear({ Riepilogo: [['CATEGORIA'], [], ['Crédit Agricole Vita · RSM 2026 · stato di rischio per il 2027: chi è in copertura al 01/01/2027']] }), 2027)
+})
+
+/* ─── Regole componibili, tracciato della società, prova prima di salvare ─── */
+
+test('tariffe per fascia d\'età: la fascia dell\'età a inizio periodo (o alla decorrenza)', async () => {
+  const { annualPremium, computeMember, tariffsFor } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  const imp = cfg.categories.find((c) => c.key === 'impiegati')
+  imp.tariffBy = 'eta'
+  imp.ageBands = [{ upTo: null, titolare: 2050, coniuge: 980 }, { upTo: 40, titolare: 980, coniuge: 520, figlio: 410 }, { upTo: 55, titolare: 1240, coniuge: 610 }]
+  assert.equal(tariffsFor(imp, 30).titolare, 980)
+  assert.equal(tariffsFor(imp, 41).titolare, 1240)
+  assert.equal(tariffsFor(imp, 70).titolare, 2050)
+  assert.equal(tariffsFor(imp, null).titolare, 2050, 'età sconosciuta = ultima fascia')
+  assert.equal(annualPremium(cfg, 'impiegati', 'CO', false, 50), 610)
+  const m = { category: 'impiegati', legame: 'TI', quiescente: false, cf: '', birthDate: '1980-06-01', entryDate: '2026-01-01', entryKind: 'iniziale' }
+  assert.equal(computeMember(cfg, m).annuo, 1240) // 45 anni al 01/01/2026
+  // le altre categorie restano a tariffa unica
+  assert.equal(annualPremium(cfg, 'dirigenti', 'TI', false, 30), 9146)
+})
+
+test('decorrenza dal 1° del mese successivo, ingresso pro-rata o intero', async () => {
+  const { decorrenza, computeMember } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  assert.equal(decorrenza(cfg, '2026-09-12', '2026-09-20').date, '2026-09-12')
+  cfg.rules.decorrenzaMode = 'mese'
+  const d = decorrenza(cfg, '2026-09-12', '2026-09-20')
+  assert.equal(d.date, '2026-10-01'); assert.equal(d.shifted, '2026-09-12')
+  assert.equal(decorrenza(cfg, '2026-10-01', '2026-10-05').date, '2026-10-01', 'il primo del mese resta')
+  assert.equal(decorrenza(cfg, '2026-12-15', '2026-12-16').date, '2027-01-01')
+  const m = { category: 'impiegati', legame: 'TI', quiescente: false, cf: '', entryDate: '2026-10-01', entryKind: 'inclusione' }
+  assert.equal(computeMember(cfg, m).rateo, 674) // 2° semestre: 50% di 1348
+  cfg.rules.entryMode = 'intero'
+  assert.equal(computeMember(cfg, m).rateo, 1348)
+  cfg.rules.entryMode = 'prorata'
+  assert.equal(computeMember(cfg, m).rateo, Math.round(1348 * 92 / 365 * 100) / 100)
+})
+
+test('cessazione con rimborso: esce dalla data e ha il rimborso al netto dell\'imposta', async () => {
+  const { computeMember, statusAt } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  const m = { category: 'funzionari', legame: 'TI', quiescente: false, cf: '', entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: '2026-04-01', exitKind: 'cessazione' }
+  assert.equal(computeMember(cfg, m).rimborso, 0)
+  assert.equal(statusAt(cfg, m, '2026-05-01'), 'cessazione')
+  cfg.rules.exitMode = 'rimborso'
+  assert.equal(computeMember(cfg, m).rimborso, 3738.46) // come il rimborso della promozione: 5.086 / 1,025 × 275/365
+  assert.equal(statusAt(cfg, m, '2026-05-01'), 'uscito')
+  // i familiari del premio a nucleo non hanno un rimborso proprio
+  assert.equal(computeMember(cfg, { ...m, legame: 'CO' }).rimborso, 0)
+})
+
+test('età massima dei figli: avviso al rinnovo e nella comunicazione, mai un\'esclusione', async () => {
+  const { renewalPlan, prepareCommunication } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  cfg.rules.childMaxAge = 26
+  const kid = { id: 'k', category: 'impiegati', legame: 'FI', cf: 'X', cfTitolare: 'T', birthDate: '1999-05-01', entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: null, exitKind: null }
+  const tit = { id: 't', category: 'impiegati', legame: 'TI', cf: 'T', cfTitolare: 'T', birthDate: '1970-05-01', entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: null, exitKind: null }
+  const p = renewalPlan(cfg, [tit, kid])
+  assert.equal(p.keep.length, 2)
+  assert.match(p.keep.find((x) => x.m.id === 'k').alerts.join(' '), /27 anni: oltre l'età massima di 26/)
+  const rows = prepareCommunication(cfg, [{ rowNumber: 2, cognome: 'ROSSI', nome: 'LUCA', cf: '', cfTitolare: 'T', legame: 'FI', categoria: 'IMPIEGATI', azione: '', birthDate: '1998-01-01', entryDate: '2026-03-01', exitDate: null, note: '' }], [tit], '2026-03-05')
+  assert.ok(rows[0].issues.some((i) => i.code === 'figlio-eta' && i.level === 'warning'))
+})
+
+test('file di un\'altra società: colonne, codici di categoria e legame, colonne extra', async () => {
+  const { parseStatoWorkbook, inspectColumns, buildLayout, layoutCode } = await import('../web/lib/rsm/rules.js')
+  const cfg = cfg2026()
+  const sheets = {
+    Foglio1: [
+      ['ELENCO ASSICURATI SOCIETA B'],
+      ['SURNAME', 'FIRST NAME', 'COD. FISC.', 'QUALIFICA', 'REL. PARENTELA', 'CF DIPENDENTE', 'DT. ASSUNZIONE', 'CENTRO DI COSTO'],
+      ['ROSSI', 'MARIO', 'RSSMRA80A01F205X', 'QUADRO', 'D', 'RSSMRA80A01F205X', '01/01/2026', 'MI-04'],
+      ['BIANCHI', 'ANNA', 'BNCNNA82A41F205J', '', 'C', 'RSSMRA80A01F205X', '01/01/2026', 'MI-04'],
+      ['VERDI', 'LUIGI', 'VRDLGU70A01F205P', 'IMPIEG', 'D', 'VRDLGU70A01F205P', '01/03/2026', 'TO-01'],
+    ],
+  }
+  // senza tracciato: intestazione non riconosciuta, il programma la indovina e chiede
+  const insp = inspectColumns(sheets, null)
+  assert.equal(insp.guessed, true)
+  assert.equal(insp.columns.length, 8)
+  assert.deepEqual(insp.columns.find((c) => c.head === 'QUALIFICA').values.sort(), ['IMPIEG', 'QUADRO'])
+  const fields = { SURNAME: 'cognome', 'FIRST NAME': 'nome', 'COD. FISC.': 'cfAss', QUALIFICA: 'categoria', 'REL. PARENTELA': 'legame', 'CF DIPENDENTE': 'cfTit', 'DT. ASSUNZIONE': 'entrata', 'CENTRO DI COSTO': 'extra' }
+  cfg.fileLayout = buildLayout({
+    sheet: insp.sheet,
+    columns: insp.columns.map((c) => ({ ...c, field: fields[c.head] })),
+    categoryCodes: { QUADRO: 'funzionari', IMPIEG: 'impiegati' },
+    legameCodes: { D: 'TI', C: 'CO' },
+  })
+  const r = parseStatoWorkbook(cfg, sheets, {})
+  assert.equal(r.members.length, 3, JSON.stringify(r.warnings))
+  const [rossi, bianchi, verdi] = r.members
+  assert.equal(rossi.category, 'funzionari'); assert.equal(rossi.legame, 'TI')
+  assert.equal(bianchi.category, 'funzionari', 'il familiare prende la categoria del titolare'); assert.equal(bianchi.legame, 'CO')
+  assert.equal(verdi.category, 'impiegati'); assert.equal(verdi.entryKind, 'inclusione')
+  assert.deepEqual(rossi.extra, { 'CENTRO DI COSTO': 'MI-04' })
+  assert.equal(layoutCode(cfg.fileLayout, 'categoria', 'funzionari'), 'QUADRO')
+  assert.equal(layoutCode(cfg.fileLayout, 'legame', 'CO'), 'C')
+  // col tracciato salvato l'intestazione si riconosce da sola
+  assert.equal(inspectColumns(sheets, cfg.fileLayout).columns.find((c) => c.head === 'SURNAME').field, 'cognome')
+})
+
+test('prova prima di salvare: cosa cambia per categoria e per persona', async () => {
+  const { compareConfigs } = await import('../web/lib/rsm/rules.js')
+  const a = cfg2026()
+  const b = JSON.parse(JSON.stringify(a))
+  b.categories.find((c) => c.key === 'impiegati').tariffs.titolare = 1400
+  const members = [
+    { id: '1', category: 'impiegati', legame: 'TI', quiescente: false, cf: '', entryDate: '2026-01-01', entryKind: 'iniziale' },
+    { id: '2', category: 'impiegati', legame: 'CO', quiescente: false, cf: '', cfTitolare: '', entryDate: '2026-01-01', entryKind: 'iniziale' },
+    { id: '3', category: 'dirigenti', legame: 'TI', quiescente: false, cf: '', entryDate: '2026-01-01', entryKind: 'iniziale' },
+  ]
+  const r = compareConfigs(a, b, members)
+  assert.equal(r.changed.length, 1)
+  assert.equal(r.changed[0].m.id, '1')
+  const imp = r.categories.find((c) => c.key === 'impiegati')
+  assert.equal(imp.after - imp.before, 52)
+  assert.equal(r.totals.after - r.totals.before, 52)
+  assert.deepEqual(r.categories.map((c) => c.key), ['dirigenti', 'impiegati'])
+})
+
+test('legame «Altro familiare» (FA): lettura, tariffa propria, compreso nel nucleo', async () => {
+  const { normLegame, annualPremium, computeMember, defaultProgramConfig, tariffsFromWorkbook } = await import('../web/lib/rsm/rules.js')
+  for (const v of ['FA', 'Familiare', 'ALTRO FAMILIARE', 'altri familiari']) assert.equal(normLegame(v), 'FA', v)
+  assert.equal(normLegame('FIGLIO'), 'FI')
+  assert.equal(normLegame('FAMIL', { legameCodes: { FAMIL: 'CO' } }), 'CO') // il codice della società vince
+  const cfg = defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  const nuc = cfg.categories.find((c) => c.mode === 'nucleo')
+  imp.tariffs = { titolare: 1000, coniuge: 600, figlio: 400, familiare: 700 }
+  nuc.tariffs = { titolare: 9000, familiare: 700 }
+  assert.equal(annualPremium(cfg, imp.key, 'FA', false, null), 700)
+  assert.equal(annualPremium(cfg, nuc.key, 'FA', false, null), 0) // a nucleo paga solo il titolare
+  const c = computeMember(cfg, { category: imp.key, legame: 'FA', quiescente: false, entryDate: '2026-09-01', entryKind: 'inclusione', cf: 'RSSMRA50A01F205X', birthDate: '1950-01-01' })
+  assert.equal(c.quota, 0) // la quota associativa è solo del titolare
+  assert.equal(c.annuo, 700)
+  const t = tariffsFromWorkbook(cfg, { IMPIEGATI: [['COGNOME', 'NOME', 'C.F. FAMILIARE', 'LEGAME'], ['IMPIEGATI', '', 1000], ['ALTRI FAMILIARI', '', 700]] })
+  assert.deepEqual(t[imp.key].tariffs, { titolare: 1000, familiare: 700 })
+})
+
+test('tutto configurabile: legame aggiunto, tariffe e quota in percentuale, scaglioni, trattenuta fissa', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const { evalValue, describeValue, normValue } = await import('../web/lib/configValue.js')
+  // valore: fisso, percentuale e per mille della somma di più campi
+  assert.equal(evalValue(12, {}), 12)
+  assert.equal(evalValue({ mode: 'percentuale', value: 50, of: ['a', 'b'] }, { a: 100, b: 20 }), 60)
+  assert.equal(evalValue({ mode: 'permille', value: 2, of: ['c'] }, { c: 1000 }), 2)
+  assert.equal(describeValue({ mode: 'percentuale', value: 2.5, of: ['r'] }, { r: 'rimborso' }), '2,5% di rimborso')
+  assert.deepEqual(normValue(50, { mode: 'percentuale', of: ['premio'] }), { mode: 'percentuale', value: 50, of: ['premio'] })
+
+  const cfg = R.defaultProgramConfig(2026)
+  // un legame nuovo: «Genitore», con parole sue e un'età massima
+  cfg.legami = [...R.legamiOf(cfg), { key: 'GE', label: 'Genitore', tariff: 'genitore', words: 'GENITORE, PADRE, MADRE', maxAge: 85 }]
+  assert.equal(R.normLegame('Madre', null, cfg), 'GE')
+  assert.equal(R.normLegame('CONIUGE', null, cfg), 'CO')
+  assert.deepEqual(R.tariffKeys(cfg), ['titolare', 'quiescente', 'coniuge', 'figlio', 'familiare', 'genitore'])
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  // coniuge = 50% del titolare, genitore = 30% di titolare + coniuge (percentuale di una percentuale)
+  imp.tariffs = { titolare: 1000, coniuge: { mode: 'percentuale', value: 50, of: ['titolare'] }, figlio: 200, genitore: { mode: 'percentuale', value: 30, of: ['titolare', 'coniuge'] } }
+  assert.equal(R.annualPremium(cfg, imp.key, 'CO', false, null), 500)
+  assert.equal(R.annualPremium(cfg, imp.key, 'GE', false, null), 450)
+  // quota associativa = 1% del premio del titolare
+  imp.quota = { mode: 'percentuale', value: 1, of: ['premio'] }
+  const ti = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale' })
+  assert.equal(ti.quota, 10)
+  // tre scaglioni d'entrata: fino al 31/03 100%, fino al 30/09 60%, poi 100 € fissi
+  cfg.rules.entrySteps = [{ until: '03-31', value: 100 }, { until: '09-30', value: 60 }, { until: '12-31', value: { mode: 'fisso', value: 100 } }]
+  const at = (d) => R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: d, entryKind: 'inclusione' }).rateo
+  assert.equal(at('2026-02-10'), 1000)
+  assert.equal(at('2026-07-01'), 600)
+  assert.equal(at('2026-11-02'), 100)
+  // trattenuta sul rimborso: importo fisso invece dell'imposta scorporata
+  cfg.rules.exitMode = 'rimborso'
+  cfg.rules.refundTax = { mode: 'fisso', value: 20 }
+  const out = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' })
+  assert.equal(out.rimborso, Math.round((1000 * R.prorataFraction(cfg, '2026-07-02') - 20) * 100) / 100)
+  // avviso d'età del legame nuovo al rinnovo
+  const plan = R.renewalPlan(cfg, [{ category: imp.key, legame: 'GE', quiescente: false, cf: 'X', cfTitolare: 'T', birthDate: '1935-01-01', entryDate: '2026-01-01', entryKind: 'iniziale' }])
+  assert.ok(plan.keep[0].alerts.some((a) => /genitore di 92 anni/.test(a)))
+})
+
+test('configurazioni vecchie: stessi importi di prima (semestri, 2,5% scorporato, quota fissa)', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const cfg = R.defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  imp.tariffs = { titolare: 1000, coniuge: 600, figlio: 400 }
+  cfg.rules.exitMode = 'rimborso'
+  const m = (d, extra = {}) => R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: d, entryKind: 'inclusione', ...extra })
+  assert.equal(m('2026-06-30').rateo, 1000)
+  assert.equal(m('2026-06-30').calc, '1° semestre: 100%')
+  assert.equal(m('2026-07-01').rateo, 500)
+  assert.equal(m('2026-07-01').calc, '2° semestre: 50%')
+  assert.equal(m('2026-07-01').quota, 10)
+  const r = m('2026-01-01', { entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' }).rimborso
+  assert.equal(r, Math.round(1000 / 1.025 * R.prorataFraction(cfg, '2026-07-02') * 100) / 100)
+})
+
+test('parole dei file, testi della mail, quota e promozione configurabili', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const cfg = R.defaultProgramConfig(2026)
+  const imp = cfg.categories.find((c) => c.mode === 'persona')
+  imp.tariffs = { titolare: 1000, coniuge: 600 }
+  // intestazione in più: «MATR. FAM.» = codice fiscale assicurato no, «ASSICURATO» = cognome
+  cfg.words = { yes: 'SI, X, 1', varSheet: 'MOVIMENTI', heads: { cognome: 'ASSICURATO', cfAss: 'CODICE PERSONA' } }
+  const h = R.findHeader([['ASSICURATO', 'NOME', 'CODICE PERSONA', 'LEGAME']], R.readLayout(cfg))
+  assert.equal(h.map.cognome, 0)
+  assert.equal(h.map.cfAss, 2)
+  assert.equal(R.isVarSheet('MOVIMENTI IMPIEGATI', cfg), true)
+  assert.equal(R.isVarSheet('Variazioni IMPIEGATI', cfg), false)
+  assert.equal(R.isVarSheet('Variazioni IMPIEGATI', R.defaultProgramConfig(2026)), true)
+  assert.equal(R.hasWord('ESCLUSO PER TRASFERIMENTO', 'TRASFER'), true)
+  // testi della mail con segnaposto
+  cfg.mail = { cc: '', signature: '', subject: 'Errori nel file {file}', greeting: 'Gentile ufficio,' }
+  const mail = R.buildErrorMail({ fileName: 'gennaio.xlsx', rows: [{ cognome: 'Rossi', nome: 'A', rowNumber: 3, hasError: true, issues: [{ level: 'error', text: 'CF errato' }] }], cfg })
+  assert.equal(mail.subject, 'Errori nel file gennaio.xlsx')
+  assert.ok(mail.body.startsWith('Gentile ufficio,'))
+  assert.ok(mail.body.includes('Grazie, cordiali saluti')) // non toccato = testo di sempre
+  // limite d'età 0 = nessun avviso
+  cfg.rules.maxAge = 0
+  const old = { category: imp.key, legame: 'TI', quiescente: false, cf: 'X', cfTitolare: 'X', birthDate: '1930-01-01', entryDate: '2026-01-01', entryKind: 'iniziale' }
+  assert.equal(R.renewalPlan(cfg, [old]).keep[0].alerts.length, 0)
+  // quota: anche ai familiari, con la frazione del premio; rimborsata in pro-rata
+  cfg.rules.quotaWho = 'tutti'; cfg.rules.quotaMode = 'comePremio'
+  const co = R.computeMember(cfg, { category: imp.key, legame: 'CO', quiescente: false, entryDate: '2026-08-01', entryKind: 'inclusione' })
+  assert.equal(co.rateo, 300)
+  assert.equal(co.quota, 5) // 10 × 50%
+  cfg.rules.quotaRefund = true; cfg.rules.exitMode = 'rimborso'; cfg.rules.refundTax = { mode: 'fisso', value: 0 }
+  const out = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-01-01', entryKind: 'iniziale', exitDate: '2026-07-02', exitKind: 'cessazione' })
+  const f = R.prorataFraction(cfg, '2026-07-02')
+  assert.equal(out.rimborso, Math.round((1000 * f + 10 * f) * 100) / 100)
+  // promozione come le altre entrate: scaglioni invece del pro-rata
+  cfg.rules.promotionEntry = 'comeEntrata'
+  const pr = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-08-01', entryKind: 'promozione' })
+  assert.equal(pr.rateo, 500)
+})
+
+test('file di gruppo come Amundi: categorie dal file, sigle nei fogli, coperture con premio diverso', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const head = ['AZIENDA', 'CATEGORIA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'PREMIO ANNUO', 'COPERTURA', 'NOTE']
+  const varHead = ['AZIENDA', 'CATEGORIA', 'NR. POLIZZA', 'AZIONE', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'PROMOZIONE']
+  const d = (s) => new Date(`${s}T00:00:00Z`)
+  const sheets = {
+    RIEPILOGO: [['GRUPPO', d('2026-01-01')]],
+    'SGR Dipendenti': [
+      [...head, null, 'QUADRI E IMPIEGATI', 'NR', 'PREMIO PROCAPITE'],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ROSSI', 'MARIO', d('1985-12-10'), 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', d('2026-01-01'), 3640, 'RSM + IPM', null, null, 'ASSICURATI RSM + IPM', 2, 3640],
+      ['ALFA SGR', '', 40014648, 'ROSSI', 'ANNA', d('1987-01-01'), 'RSSNNA87A41F205X', 'RSSMRA85T10A562S', 'CO', d('2026-01-01'), 0, 'RSM', null, null, 'ASSICURATI SOLO IPM', 1, 744],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'VERDI', 'GIUSEPPE', d('1970-01-01'), 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', d('2026-01-01'), 744, 'SOLO IPM', null],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'BIANCHI', 'LUCA', d('1980-01-01'), 'BNCLCU80A01F205Z', 'BNCLCU80A01F205Z', 'TI', d('2026-01-01'), 3640, 'RSM + IPM', null],
+    ],
+    'Variazioni SGR Dipendenti': [['ALFA SGR', null, 'Regolazione', 'Premio', d('2026-01-01'), '-', d('2027-01-01')], varHead,
+      // figlio nato in corso d'anno: il titolare è nel foglio dello stato
+      ['ALFA SGR', '', 40014648, 'ENTRATA', 'ROSSI', 'LUCA', d('2026-03-01'), 'RSSLCU26C01F205X', 'RSSMRA85T10A562S', 'FI', d('2026-03-01'), null, 'NO'],
+      // entrato e uscito sulla stessa riga
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ENTRATA', 'NERI', 'PAOLO', d('1990-01-01'), 'NREPLA90A01F205Q', 'NREPLA90A01F205Q', 'TI', d('2026-01-01'), d('2026-04-30'), 'NO'],
+      // uscita il giorno della fine del periodo: fine naturale, niente da chiudere né da segnalare
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ENTRATA', 'GIALLI', 'ANNA', d('1990-01-01'), 'GLLNNA90A41F205P', 'GLLNNA90A41F205P', 'TI', d('2026-08-01'), d('2027-01-01'), 'NO'],
+    ],
+    'Real Estate Dirigenti': [head,
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'BLU', 'MARCO', d('1975-01-01'), 'BLUMRC75A01F205K', 'BLUMRC75A01F205K', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'ROSA', 'ELENA', d('1976-01-01'), 'RSOLNE76A41F205Z', 'RSOLNE76A41F205Z', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'GRIGI', 'ALDO', d('1977-01-01'), 'GRGLDA77A01F205T', 'GRGLDA77A01F205T', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+    ],
+    'Variazioni RE Dirigenti': [varHead,
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'USCITA', 'BLU', 'MARCO', d('1975-01-01'), 'BLUMRC75A01F205K', 'BLUMRC75A01F205K', 'TI', null, d('2026-06-30'), 'NO']],
+  }
+  assert.equal(R.workbookCompany(sheets), 'ALFA') // nome comune delle società del gruppo
+  const cats = R.categoriesFromWorkbook(sheets)
+  assert.deepEqual(cats.map((c) => [c.key, c.label, c.policy, c.mode, c.rank]), [
+    ['sgr-dipendenti', 'SGR Dipendenti', '40014648', 'nucleo', 1],
+    ['real-estate-dirigenti', 'Real Estate Dirigenti', '40014647', 'nucleo', 3],
+  ])
+  assert.deepEqual(cats[0].tariffs, { titolare: 3640 })
+  assert.deepEqual(cats[0].variants, [{ key: 'solo-ipm', label: 'SOLO IPM', words: 'SOLO IPM', tariffs: { titolare: 744 } }])
+  const cfg = R.defaultProgramConfig(2026)
+  cfg.categories = cats
+  // «RE» = «Real Estate»; «SGR Dipendenti» anche in un programma che ha solo «Dipendenti»
+  assert.equal(R.sheetCategory('Variazioni RE Dirigenti', cfg).key, 'real-estate-dirigenti')
+  assert.equal(R.sheetCategory('SGR Dipendenti', { categories: [{ key: 'dip', label: 'Dipendenti' }] }).key, 'dip')
+  assert.equal(R.sheetCategory('SGR Dipendenti', { categories: [{ key: 'x', label: 'Impiegati', words: 'SGR Dipendenti' }] }).key, 'x')
+  const res = R.parseStatoWorkbook(cfg, sheets, {})
+  assert.deepEqual(res.warnings.filter((w) => !/carattere di controllo/.test(w)), []) // codici fiscali inventati
+  const by = (cf) => res.members.find((m) => m.cf === cf)
+  assert.equal(by('RSSLCU26C01F205X').category, 'sgr-dipendenti')
+  assert.equal(by('NREPLA90A01F205Q').exitDate, '2026-04-30')
+  assert.equal(by('GLLNNA90A41F205P').exitDate, null)
+  assert.equal(by('BLUMRC75A01F205K').exitDate, '2026-06-30')
+  // la copertura scritta nel file decide la tariffa del titolare
+  assert.equal(R.coverageOf(cfg, by('VRDGPP70A01H501S')), 'SOLO IPM')
+  assert.equal(R.computeMember(cfg, by('VRDGPP70A01H501S')).annuo, 744)
+  assert.equal(R.computeMember(cfg, by('RSSMRA85T10A562S')).annuo, 3640)
+  assert.equal(R.computeMember(cfg, by('RSSNNA87A41F205X')).annuo, 0) // a nucleo
+  // tariffe lette dal file anche per un programma che le categorie le ha già
+  assert.deepEqual(R.tariffsFromWorkbook(cfg, sheets)['sgr-dipendenti'], { tariffs: { titolare: 3640 }, policy: '40014648', variants: cats[0].variants })
+})

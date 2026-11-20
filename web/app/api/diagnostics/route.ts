@@ -93,5 +93,23 @@ export async function GET() {
     services.email = { status: 'fail', detail: 'Né RESEND_API_KEY né SMTP_HOST configurati: il recupero password e le email di notifica NON possono partire.' }
   }
 
+  // Docling (PDF → markdown layout-aware): raggiungibilità del microservizio.
+  // Se configurato, il worker alza il markdown Docling per ogni PDF; se non
+  // configurato si usa pdf-inspector/OCR (il job va avanti comunque).
+  const doclingUrl = String(stored.doclingUrl || '').trim()
+  if (!doclingUrl) {
+    services.docling = { status: 'warn', detail: 'Non configurato (Impostazioni tecniche → Docling): il worker usa @firecrawl/pdf-inspector o OCR.' }
+  } else {
+    try {
+      const hres = await fetch(`${doclingUrl.replace(/\/+$/, '')}/health`, { signal: timeout(6000) })
+      if (!hres.ok) throw new Error(`HTTP ${hres.status}`)
+      const hjson: any = await hres.json().catch(() => ({}))
+      const ver = hjson?.docling ? ` · v${hjson.docling}` : ''
+      services.docling = { status: 'ok', detail: `Raggiungibile${ver} — i PDF passeranno da Docling per il markdown layout-aware.` }
+    } catch (err) {
+      services.docling = { status: 'fail', detail: `NON raggiungibile (${(err as Error).message}). Il container Docling è avviato? L'URL (Impostazioni tecniche) è raggiungibile dal SERVER web, non dal browser.` }
+    }
+  }
+
   return NextResponse.json({ system, endpoint: ep, layers, ocr, services })
 }

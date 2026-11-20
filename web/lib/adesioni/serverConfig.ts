@@ -2,18 +2,22 @@
 // (Postgres) e risolve i path degli asset. Non importare dai componenti client.
 import path from 'path'
 import { getSettings } from '../settingsStore'
-import { DEFAULT_FIELDS, DEFAULT_IDD, DEFAULT_PREZZI } from './tracciato.js'
+import { DEFAULT_FIELDS, DEFAULT_IDD, DEFAULT_PREZZI, withDefaultCodes } from './tracciato.js'
 import { getTemplateHtml } from './templatesStore'
 import type { AdesioniConfig, AdesioniField, IddQuestion, PrezzoRow } from './config'
 
 export async function getAdesioniConfig(): Promise<AdesioniConfig> {
   const s = await getSettings()
+  const codes = withDefaultCodes(
+    (s.adesioniFields as AdesioniField[] | undefined) ?? (DEFAULT_FIELDS as AdesioniField[]),
+    (s.adesioniPrezzi as Record<string, PrezzoRow> | undefined) ?? (DEFAULT_PREZZI as Record<string, PrezzoRow>),
+  )
   return {
-    fields: (s.adesioniFields as AdesioniField[] | undefined) ?? (DEFAULT_FIELDS as AdesioniField[]),
+    fields: codes.fields as AdesioniField[],
     // Un questionario salvato vuoto azzererebbe le colonne CODICE DOMANDA/RISPOSTA
     // del tracciato: in quel caso si torna alle domande di default.
     idd: (Array.isArray(s.adesioniIdd) && s.adesioniIdd.length ? (s.adesioniIdd as IddQuestion[]) : (DEFAULT_IDD as IddQuestion[])),
-    prezzi: (s.adesioniPrezzi as Record<string, PrezzoRow> | undefined) ?? (DEFAULT_PREZZI as Record<string, PrezzoRow>),
+    prezzi: codes.prezzi as Record<string, PrezzoRow>,
     dateOffsetDays: s.adesioniDateOffsetDays ?? 0,
   }
 }

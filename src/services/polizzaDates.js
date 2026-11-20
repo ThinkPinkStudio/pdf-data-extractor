@@ -82,22 +82,105 @@ export function parseLastDateFromContextLine(fullText, linePattern) {
 // Righe che indicano QUANDO il documento e' stato prodotto (emesso/stampato):
 // la loro data NON rappresenta il periodo coperto e va esclusa dalla recenza.
 const EMISSION_LINE_RE = /(EMESS|EMISSIONE|STAMPAT|RILASCIAT|DATA\s+DOC)/i
+// Righe sull'IMPRESA (iscrizione all'albo, autorizzazione, durata della
+// società): la loro data non è un periodo di copertura. Il piè di pagina ARAG
+// «Iscritta in data 20/08/2012 all'Albo Imprese» letto dall'OCR come
+// «20/08/2045» datava una regolazione del 2015 come il documento più recente
+// del fascicolo e apriva la cascata (SONZOGNI TL: numero di polizza vecchio,
+// premi del 2014); «durata della società Data termine: 31/12/2050» di una
+// visura camerale faceva lo stesso.
+const COMPANY_LINE_RE = /\b(?:iscritt[aoe]|iscrizione|autorizzat[aoe]|autorizzazione|albo|durata\s+della\s+societ)/i
+// Data seguita subito da un ORARIO (hh:mm): timbro di stampa/emissione
+// («[prnt 13/01/2026 19:15]» delle stampe ITAS, letto dall'OCR anche come
+// «28/04/2028 13:50»), mai un periodo di copertura.
+const TIMESTAMP_AFTER_RE = /^\s+\d{1,2}[:;]\d{2}\b/
+// «in data <data>»: la data di un EVENTO (stampata, redatto, aggiornato,
+// inviata, sinistro avvenuto, pagamento effettuato, estratto dal Registro
+// Imprese — tutte le occorrenze nel testo digitale del corpus), mai un periodo
+// di copertura. Copre anche il timbro di stampa storpiato dall'OCR («Pata In
+// data: 26/08/2028» per «Stampata in data: 26/08/2025»).
+const EVENT_DATE_BEFORE_RE = /\bin\s+data\s*(?::\s*)?$/i
+// Riga che parla di un PERIODO di copertura (testo OCR: opts.ocr).
+const PERIOD_LINE_RE = /\b(?:dal|dalle|al|alle|decorrenza|scadenza|effetto|periodo|validit\S*)\b/i
+
+// Parola di PERIODO legata per POSIZIONE alla data che segue: tra la parola e
+// la data solo ":" e spazi, o "ore NN del" ("dalle ore 24 del 31/01/26").
+// (`\s*(?::\s*)?` e non `\s*:?\s*`: le righe della griglia hanno lunghe run di
+// spazi e due `\s*` affiancati le proverebbero spezzate in tutti i modi.)
+const PERIOD_KEYWORD_BEFORE_RE = /\b(?:dal|dalle|al|alle|decorrenza|scadenza|effetto|periodo)\s*(?::\s*)?(?:ore\s+\d{1,2}(?:[.:]\d{2})?\s+del(?:l['’])?\s*)?$/i
+// Due date che formano un periodo: la seconda segue la prima dopo "al"/"alle"
+// o un trattino ("16/12/25 - 16/12/26").
+const PERIOD_JOIN_RE = /^\s*(?:al|alle|[-–—])\s*$/i
 
 /**
  * Ultima (massima) data GG/MM/AAAA presente nel testo, ESCLUDENDO le righe di
  * emissione/stampa. Fallback quando non si trovano scadenza/periodo/decorrenza.
  */
-export function latestDateExcludingEmission(text) {
-  let best = null
-  let bestTs = -Infinity
+export function latestDateExcludingEmission(text, opts = {}) {
+  const found = []
   for (const rawLine of String(text).split(/\r?\n/)) {
-    if (EMISSION_LINE_RE.test(rawLine)) continue
-    for (const m of rawLine.matchAll(/(\d{1,2})[/.](\d{1,2})[/.](20\d{2})/g)) {
-      const s = `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`
-      const ts = dateStrToTs(s)
-      if (ts != null && ts > bestTs) { bestTs = ts; best = s }
+    if (EMISSION_LINE_RE.test(rawLine) || COMPANY_LINE_RE.test(rawLine)) continue
+    const periodLine = PERIOD_LINE_RE.test(rawLine)
+    // Anche gli anni a DUE cifre delle quietanze ("Dal 16/12/25 al 16/12/26"):
+    // senza, la quietanza di rinnovo restava "senza data" e perdeva per recency
+    // contro la polizza dell'anno prima (SPALLINO TL: 16/12/2024 al posto di 2025).
+    // L'anno a 2 cifre vale SOLO se una parola di PERIODO è LEGATA ALLA DATA per
+    // posizione (la precede subito: "Dal 16/12/25", "Scadenza: 16/12/26",
+    // "dalle ore 24 del 31/01/26"), oppure se la data è la SECONDA di una
+    // coppia crescente unita da "al"/"alle"/trattino ("Periodo 16/12/25 -
+    // 16/12/26"), o solo da spazi quando la prima è a sua volta legata alla
+    // parola ("Dal  al 16/12/25 16/12/26": etichette in colonna prima dei
+    // valori). Una parola di periodo ALTROVE nella riga non conta più: il
+    // piè di pagina DAS «Aut. D.M. del 26.11.59 n.3646 Società appartenente al
+    // Gruppo Generali» aveva "al" nella riga e "26.11.59" diventava 26/11/2059;
+    // le due scansioni firmate SPALLINO TL, datate 2059, aprivano la cascata e
+    // decorrenza/scadenza restavano quelle della polizza 2024 invece del
+    // rinnovo 2025-2026 (lo stesso piè di pagina sta su ogni documento DAS).
+    // Prima ancora "045 8300010" o "00/84/90" di un piè di pagina davano al Set
+    // Informativo la data 00/84/2090 (GUFFANTI TL da 87% a 35%).
+    const dates = []
+    for (const m of rawLine.matchAll(/(?<![\d/.])(\d{1,2})[/.](\d{1,2})[/.](20\d{2}|\d{2})(?![\d/.])/g)) {
+      const dd = +m[1], mm = +m[2]
+      if (dd < 1 || dd > 31 || mm < 1 || mm > 12) continue // non è una data
+      if (TIMESTAMP_AFTER_RE.test(rawLine.slice(m.index + m[0].length))) continue
+      if (EVENT_DATE_BEFORE_RE.test(rawLine.slice(0, m.index))) continue
+      const yy = m[3].length === 2 ? `20${m[3]}` : m[3]
+      const s = `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}`
+      dates.push({ s, ts: dateStrToTs(s), short: m[3].length === 2, start: m.index, end: m.index + m[0].length })
+    }
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i]
+      if (d.short) {
+        d.bound = PERIOD_KEYWORD_BEFORE_RE.test(rawLine.slice(0, d.start))
+        if (!d.bound && i > 0) {
+          const prev = dates[i - 1]
+          const between = rawLine.slice(prev.end, d.start)
+          const increasing = prev.ts != null && d.ts != null && prev.ts < d.ts
+          d.bound = increasing && (PERIOD_JOIN_RE.test(between) || (prev.bound && /^\s+$/.test(between)))
+        }
+        if (!d.bound) continue
+      }
+      if (d.ts != null) found.push({ s: d.s, ts: d.ts, periodLine })
     }
   }
+  // TESTO OCR (opts.ocr): una cifra letta male fa un anno a caso, quasi sempre
+  // in un timbro o in un piè di pagina storpiato («15/09/2078 Stampala…»,
+  // «paoina 3 dia … N ATA 29/01/2028»). Una data vale se sta in una riga di
+  // PERIODO o se il documento la ripete; le date vere del contratto si
+  // ripetono (frontespizio, quietanza, firma), le letture storpiate no. Se
+  // nessuna data passa, vale la regola di sempre.
+  let pool = found
+  if (opts.ocr) {
+    const count = new Map()
+    for (const f of found) count.set(f.s, (count.get(f.s) || 0) + 1)
+    const confirmed = found.filter((f) => f.periodLine || count.get(f.s) >= 2)
+    if (confirmed.length) pool = confirmed
+    // opts.confirmedOnly: senza date confermate, nessuna data (niente ripiego).
+    else if (opts.confirmedOnly) return null
+  }
+  let best = null
+  let bestTs = -Infinity
+  for (const f of pool) if (f.ts > bestTs) { bestTs = f.ts; best = f.s }
   return best
 }
 
@@ -157,13 +240,24 @@ export function extractDocumentDate(text) {
 export function normalizeDateValue(raw) {
   const v = String(raw).trim()
   let d, m, y
-  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/)
-  if (match) { d = +match[1]; m = +match[2]; y = +match[3] }
-  else {
+  let match = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4}|\d{2})$/)
+  if (match) {
+    d = +match[1]; m = +match[2]; y = +match[3]
+    // Anno a due cifre ("Dal 31/01/26 al 31/01/27" sulle quietanze): 00-79 → 20xx,
+    // 80-99 → 19xx. Con il pattern vincolato a 4 cifre il modello completava
+    // "31/01/26" con le cifre successive del testo ("31/01/2631").
+    if (match[3].length === 2) y += y < 80 ? 2000 : 1900
+  } else {
     match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
     if (match) { y = +match[1]; m = +match[2]; d = +match[3] }
   }
   if (!match || d < 1 || d > 31 || m < 1 || m > 12) return null
+  // Anni fuori da ogni contratto possibile (2631, 0026): non è una data.
+  if (y < 1900 || y > 2100) return null
+  // Giorno che il mese non ha (31/09, 30/02, 29/02 di un anno non bisestile):
+  // una lettura sbagliata dell'OCR («31/10/2022» trascritto «31/09/2022» in
+  // ARENA), mai una data vera; prima passava e il calendario la spostava al 1/10.
+  if (d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
 }
 

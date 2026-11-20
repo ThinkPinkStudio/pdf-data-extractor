@@ -617,15 +617,18 @@ const XF_FIELDS = [
   { id: XF_IDS.premio_totale, label: 'Premio totale' },
 ]
 
-test('validateCrossFields: decorrenza ≥ scadenza → decorrenza svuotata', () => {
+test('validateCrossFields: decorrenza ≥ scadenza → SCADENZA svuotata (la decorrenza corretta si conserva)', () => {
   const best = {
     [XF_IDS.decorrenza]: { valore: '31/12/2025' },
     [XF_IDS.scadenza]: { valore: '31/12/2024' },
   }
   const notes = validateCrossFields(best, XF_FIELDS)
-  assert.equal(best[XF_IDS.decorrenza], undefined)
-  assert.equal(best[XF_IDS.scadenza].valore, '31/12/2024')
-  assert.ok(notes.some((n) => /decorrenza/.test(n)))
+  // La regola "decorrenza < scadenza" resta, ma si svuota la data chiaramente
+  // impossibile (la scadenza precedente/uguale alla decorrenza), NON la
+  // decorrenza corretta. La decorrenza viene conservata.
+  assert.equal(best[XF_IDS.decorrenza].valore, '31/12/2025', 'la decorrenza corretta si conserva')
+  assert.equal(best[XF_IDS.scadenza], undefined, 'la scadenza impossibile viene svuotata')
+  assert.ok(notes.some((n) => /scadenza/.test(n)))
 })
 
 test('validateCrossFields: massimale annuo < sinistro → annuo svuotato', () => {
@@ -877,4 +880,20 @@ test('descrizione riscritta: tacito rinnovo / frazionamento restano TESTO (MAI n
   assert.equal(isTextualNumericOnly(tacito, 'Sì'), false)
   assert.equal(isTextualNumericOnly(fraz, '75,00'), true)
   assert.equal(isTextualNumericOnly(fraz, 'annuale'), false)
+})
+
+test('validateCrossFields: imponibile = imposte non nulli → svuotati entrambi (stesso numero copiato)', () => {
+  const best = { [XF_IDS.premio_imponibile]: { valore: '30,01' }, [XF_IDS.imposta]: { valore: '30,01' }, [XF_IDS.premio_totale]: { valore: '2.804,00' } }
+  const notes = validateCrossFields(best, XF_FIELDS)
+  assert.equal(XF_IDS.premio_imponibile in best, false)
+  assert.equal(XF_IDS.imposta in best, false)
+  assert.equal(best[XF_IDS.premio_totale].valore, '2.804,00')
+  assert.ok(notes.some((n) => /stesso numero copiato/.test(n)))
+  // valori diversi o zeri: invariati
+  const ok = { [XF_IDS.premio_imponibile]: { valore: '207,83' }, [XF_IDS.imposta]: { valore: '44,17' } }
+  validateCrossFields(ok, XF_FIELDS)
+  assert.equal(ok[XF_IDS.premio_imponibile].valore, '207,83')
+  const zero = { [XF_IDS.premio_imponibile]: { valore: '0,00' }, [XF_IDS.imposta]: { valore: '0,00' } }
+  validateCrossFields(zero, XF_FIELDS)
+  assert.equal(zero[XF_IDS.imposta].valore, '0,00')
 })

@@ -21,7 +21,9 @@ let _pdfjs: any = null
 async function getPdfjs() {
   if (_pdfjs) return _pdfjs
   // Build "legacy" (CJS) di pdfjs 3.x: gira in Node senza worker DOM.
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js')
+  // Fuori da webpack (script, prove con Node) il modulo CJS arriva come { default }.
+  const mod: any = await import('pdfjs-dist/legacy/build/pdf.js')
+  const pdfjs = mod.getDocument ? mod : (mod.default || mod)
   // Nessun worker in Node: il fake worker della build legacy è sufficiente.
   if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
   _pdfjs = pdfjs
@@ -47,7 +49,11 @@ class NodeCanvasFactory {
 
 export interface ServerRenderedDoc {
   numPages: number
-  renderPage: (pageNum: number) => Promise<string> // PNG dataURL
+  // PNG dataURL. opts.longSide: lato lungo in pixel (default RENDER_LONG_SIDE,
+  // per Tesseract); opts.preprocess=false: niente scala di grigi/contrasto.
+  // Il modello visivo vuole ~1800 px a colori: a 4400 px una pagina costerebbe
+  // decine di migliaia di token-immagine.
+  renderPage: (pageNum: number, opts?: { longSide?: number; preprocess?: boolean }) => Promise<string>
   destroy: () => Promise<void>
 }
 
@@ -69,15 +75,15 @@ export async function loadPdfServer(buffer: Buffer | Uint8Array): Promise<Server
     disableFontFace: true,
   }).promise
 
-  const renderPage = async (pageNum: number): Promise<string> => {
+  const renderPage = async (pageNum: number, opts: { longSide?: number; preprocess?: boolean } = {}): Promise<string> => {
     const page = await doc.getPage(pageNum)
     const baseViewport = page.getViewport({ scale: 1 })
-    const scale = Math.min(RENDER_MAX_SCALE, RENDER_LONG_SIDE / Math.max(baseViewport.width, baseViewport.height))
+    const scale = Math.min(RENDER_MAX_SCALE, (opts.longSide || RENDER_LONG_SIDE) / Math.max(baseViewport.width, baseViewport.height))
     const viewport = page.getViewport({ scale })
     const cc = canvasFactory.create(viewport.width, viewport.height)
     await page.render({ canvasContext: cc.context, viewport, canvasFactory }).promise
     // Pre-processing pixel-only: scala di grigi + aumento contrasto → testo più nero.
-    try {
+    if (opts.preprocess !== false) try {
       const imgData = cc.context.getImageData(0, 0, cc.canvas.width, cc.canvas.height)
       const d = imgData.data
       const contrast = 1.35

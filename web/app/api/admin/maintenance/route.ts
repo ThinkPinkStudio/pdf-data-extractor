@@ -34,7 +34,7 @@ export async function GET() {
   return NextResponse.json({
     pg,
     qdrant,
-    batches: batches.map((b) => ({ id: b.id, label: b.label, email: b.email, total: b.total, running: b.running + b.queued })),
+    batches: batches.map((b) => ({ id: b.id, label: b.label, email: b.email, total: b.total, running: b.running + b.queued, createdAt: (b as any).created_at ?? null })),
     jobs,
   })
 }
@@ -74,6 +74,38 @@ export async function POST(req: NextRequest) {
       await cleanQdrant(jobIds)
       await logAction({ email: session.email, action: 'data.delete-batch', resource: String(body.batchId), ip, metadata: { jobs: jobIds.length } })
       return NextResponse.json({ ok: true, jobs: jobIds.length })
+    }
+    // Più batch insieme (Manutenzione: lista con caselle). Quelli con job attivi
+    // si saltano e si riportano; gli altri si eliminano uno per uno come sopra.
+    if (action === 'delete-batches') {
+      const ids: string[] = Array.isArray(body.batchIds) ? body.batchIds.map((x: unknown) => String(x)).filter(Boolean) : []
+      if (!ids.length) return NextResponse.json({ error: 'Nessun batch selezionato' }, { status: 400 })
+      let deleted = 0, jobs = 0
+      const skipped: string[] = []
+      for (const id of ids) {
+        const jobIds = await deleteBatch(id)
+        if (jobIds === null) { skipped.push(id); continue }
+        await cleanQdrant(jobIds)
+        deleted++; jobs += jobIds.length
+      }
+      await logAction({ email: session.email, action: 'data.delete-batches', resource: `${deleted} batch`, ip, metadata: { jobs, skipped: skipped.length } })
+      return NextResponse.json({ ok: true, deleted, jobs, skipped })
+    }
+    // Più polizze insieme (Elaborazioni: righe della ricerca selezionate). Quelle
+    // in corso o in coda si saltano e si riportano.
+    if (action === 'delete-jobs') {
+      const ids: string[] = Array.isArray(body.jobIds) ? body.jobIds.map((x: unknown) => String(x)).filter(Boolean) : []
+      if (!ids.length) return NextResponse.json({ error: 'Nessuna polizza selezionata' }, { status: 400 })
+      const done: string[] = []
+      const skipped: string[] = []
+      for (const id of ids) {
+        const job = await deleteJob(id)
+        if (!job) { skipped.push(id); continue }
+        done.push(job.id)
+      }
+      await cleanQdrant(done)
+      await logAction({ email: session.email, action: 'data.delete-jobs', resource: `${done.length} polizze`, ip, metadata: { skipped: skipped.length } })
+      return NextResponse.json({ ok: true, deleted: done.length, skipped })
     }
     if (action === 'clear-ocr-cache') {
       const n = await clearOcrCache()

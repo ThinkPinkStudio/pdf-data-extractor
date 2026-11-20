@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<!--
+  RIEPILOGO ANALISI SEZIONE PD EXTRACTOR (30/07/2026 -> 12/10/2026)
+  ------------------------------------------------------------------
+  Questo file e' la SORGENTE aggiornabile del riepilogo. Modifica qui e
+  rigenera il PDF con Chrome headless:
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+      --headless --disable-gpu --no-pdf-header-footer \
+      --print-to-pdf="Riepilogo-PD-Extractor-2026-07-30_2026-10-12.pdf" \
+      "file://$PWD/riepilogo-pd-extractor.html"
+
+  Se cambi l'intervallo delle date, aggiorna anche il nome del PDF e i
+  riferimenti in "Numeri chiave" / "Sintesi esecutiva" / piè di pagina.
+  Dati di supporto (rigenerabili): git log --all --since=... --numstat.
+-->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Analisi attivita sezione PD Extractor</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #1c2333; font-size: 10.5px; line-height: 1.5; margin: 0; }
+  h1 { font-size: 22px; margin: 0 0 4px; color: #0f2a4a; }
+  h2 { font-size: 15px; margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #0f2a4a; color: #0f2a4a; page-break-after: avoid; }
+  h3 { font-size: 12px; margin: 14px 0 6px; color: #17527f; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  .lead { color: #566; font-size: 11px; }
+  .subtitle { color: #566; font-size: 12px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 14px; page-break-inside: auto; }
+  th, td { border: 1px solid #cdd5df; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #0f2a4a; color: #fff; font-size: 10px; }
+  tr { page-break-inside: avoid; }
+  tbody tr:nth-child(even) { background: #f3f6fa; }
+  .num { text-align: right; white-space: nowrap; }
+  .tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 8px; color: #fff; white-space: nowrap; }
+  .b-dir { background: #7a1f5f; }
+  .b-bug { background: #b3202c; }
+  .b-proc { background: #1c7a4a; }
+  .box { border-left: 4px solid #17527f; background: #eef4fb; padding: 8px 12px; margin: 10px 0; }
+  .kpi { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .kpi div { border: 1px solid #cdd5df; border-radius: 6px; padding: 8px 12px; min-width: 120px; flex: 1; }
+  .kpi b { display: block; font-size: 18px; color: #0f2a4a; }
+  .kpi span { font-size: 9px; color: #667; }
+  .foot { font-size: 9px; color: #889; margin-top: 20px; }
+  .pagebreak { page-break-before: always; }
+  ul { margin: 6px 0; padding-left: 18px; }
+  li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<h1>Analisi attivita &mdash; Sezione PD Extractor</h1>
+<div class="subtitle">Periodo 30/07/2026 &rarr; 12/10/2026 &bull; repository <b>pdf-data-extractor</b> (ThinkPinkStudio) &bull; branch di produzione <b>test_branch</b></div>
+
+<div class="box">
+<b>Perimetro.</b> Solo le attivita della <b>sezione PD Extractor</b>: motore di estrazione delle polizze
+(instradamento, pertinenza, estrazione per stadi, riconciliazione, riepilogo, OCR, date), il profilo/descrizioni,
+la pipeline worker/Ollama, la diagnostica e gli strumenti di misura (golden/eval). <b>Escluse</b>: Adesioni,
+Premio Lordo, Comparatore, autenticazione/login, deploy/Coolify, grafica e i18n generici, se non funzionali al motore.
+</div>
+
+<h2>1. Sintesi esecutiva</h2>
+<p>Nel periodo considerato la sezione PD Extractor e' stata <b>riscritta e rifinita in modo profondo</b>: non un
+susseguirsi di piccoli fix, ma un <b>cambio strutturale dell'approccio di estrazione</b> (dal "tassonomia/campione per
+tipo documento" al "tutto guidato dalla descrizione del campo, documenti tutti uguali"), seguito da una lunga fase di
+<b>calibrazione a colpi di 62 interruttori (flag) misurati uno alla volta</b> su golden di produzione.</p>
+<ul>
+<li><b>3 categorie di intervento</b> individuate: <span class="tag b-dir">CAMBI DI DIREZIONE</span> (scelte strategiche che riscrivono l'approccio), <span class="tag b-bug">BUG / REGRESSIONI</span> (disfunzioni rispetto alla versione del 25/07 o introdotte durante il periodo), <span class="tag b-proc">PROCEDURA / MIGLIORAMENTI</span> (regole aggiunte man mano che uscivano nuove tipologie di polizza).</li>
+<li>Il grosso dell'impegno e' nella terza categoria: la matrice delle polizze reali (compagnie e formati diversi: RC Professionale, Tutela Legale, Allianz, DAS, GUFFANTI, RUZZA, BOIARDO, BOLCHINI, EULIP...) ha richiesto regole di volta in volta nuove.</li>
+<li><b>Stima di sforzo a persona</b> complessiva: <b>103 giorni-uomo</b>, pari a <b>822 ore-uomo</b> di lavoro equivalente, di cui 2/3 sulla categoria "procedura/miglioramenti". Il conteggio <b>include i cicli di misura come lavoro a tutti gli effetti</b>: eseguire una run golden/calibrazione, sorvegliarla, leggerne il punteggio, correggere e rilanciare &egrave; tempo presidiato dalla persona, non attesa passiva.</li>
+</ul>
+
+<h2>2. Metodo e perimetro tecnico</h2>
+<p>La stima deriva dall'analisi diretta della cronologia Git (tutti i branch), del volume di codice
+(numstat), della complessita' dei commit, del numero di cicli di misura/iterazione e della documentazione
+di progetto (CLAUDE.md, REGOLE_AGENTI.md). Il branch di produzione e' <b>test_branch</b> (non <code>main</code>,
+fermo alla 1.0.153): la maggior parte del lavoro e' transitata da li', con apporti da branch collaterali.</p>
+<p><b>Nota sulle stime:</b> sono stime ingegneristiche, non consuntivi a timbro. Il numero "a persona" indica lo
+sforzo che un singolo sviluppatore senior dovrebbe spendere per produrre lo stesso risultato. Nel periodo il
+progetto e' poi proseguito affidando all'AI <b>l'estrazione dei dati per i test e l'esecuzione dei test stessi</b>,
+resi necessari dal fatto che serviva estrarre <i>ogni singola voce</i> (attivita' incompatibile con i tempi manuali),
+il che ha compresso il tempo-calendario.
+<b>Convenzione sul tempo di test:</b> una run che richiede N ore di esecuzione conta come N ore-uomo, perch&eacute;
+la persona vi &egrave; stata dietro per tutto il tempo (sorveglianza, analisi del punteggio, correzione, rilancio);
+non &egrave; "tempo macchina" passivo.</p>
+
+<h2>3. Numeri chiave del periodo</h2>
+<div class="kpi">
+  <div><b>75</b><span>giorni di calendario (30/07 &rarr; 12/10)</span></div>
+  <div><b>40</b><span>giorni con attivita' su Git</span></div>
+  <div><b>358</b><span>commit su test_branch</span></div>
+  <div><b>170</b><span>commit sul motore polizza</span></div>
+  <div><b>62</b><span>flag del motore introdotti</span></div>
+  <div><b>46</b><span>commit con "fix/bug"</span></div>
+  <div><b>25</b><span>run di misura registrate</span></div>
+  <div><b>22h</b><span>pura esecuzione run (sottoinsieme)</span></div>
+</div>
+<table>
+<thead><tr><th>Metrica</th><th class="num">Lug 2026</th><th class="num">Ago 2026</th><th class="num">Set 2026</th><th class="num">Ott 2026</th><th class="num">Totale</th></tr></thead>
+<tbody>
+<tr><td>Righe aggiunte (tutti i file, test_branch)</td><td class="num">18.050</td><td class="num">16.140</td><td class="num">76.290</td><td class="num">9.107</td><td class="num">119.587</td></tr>
+<tr><td>Righe rimosse</td><td class="num">2.675</td><td class="num">1.771</td><td class="num">25.638</td><td class="num">1.619</td><td class="num">31.703</td></tr>
+<tr><td>Commit con commit="di default" (promozioni flag)</td><td class="num">-</td><td class="num">-</td><td class="num">1</td><td class="num">10</td><td class="num">11</td></tr>
+<tr><td>Ambiti ricorrenti (n. commit parlanti)</td><td colspan="4">pertinenza 18 &bull; OCR 28 &bull; riepilogo 16 &bull; riconciliazione 10</td><td class="num">72</td></tr>
+<tr><td>Cicli di misura &mdash; run con esito (<code>summary.json</code>) / deploy (<code>deploy-*.out</code>)</td><td colspan="4">evidenza in <code>.goldens-out</code> (sottoinsieme conservato)</td><td class="num">25 / 43</td></tr>
+</tbody>
+</table>
+<p class="lead">Le versioni applicative crescono da 1.0.90 (27/07) a 1.0.153 (06/09); da settembre le "bump version"
+automatiche non accompagnano piu' il lavoro (il container di produzione usa <code>test_branch</code> e la versione
+mostrata resta 1.0.153): i marcatori di feature in <code>/api/version</code> sostituiscono il numero di versione.</p>
+
+<h2>4. Categoria A &mdash; Cambi di direzione completi</h2>
+<p>Scelte strategiche/architetturali che hanno <b>riscritto l'impostazione precedente</b>. Molte nascono il 30/07 e
+il 04/10, giorni in cui l'utente ha preso decisioni definitive documentate in CLAUDE.md ("non riaprirle").</p>
+<table>
+<thead><tr><th style="width:16%">Data</th><th style="width:26%">Cambio di direzione</th><th>Contenuto e impatto</th></tr></thead>
+<tbody>
+<tr><td>30/07</td><td><b>Via la tassonomia dei campi</b></td><td>Instradamento e arbitrato semantici: a decidere e' la <i>descrizione</i> del campo, non piu' la classificazione per tipo (#91). Rifonda il modo in cui il valore viene scelto.</td></tr>
+<tr><td>30/07</td><td><b>Documenti TUTTI UGUALI</b></td><td>Vietata ogni logica per tipo documento (priorita' tassonomiche, ancore, dropdown "fonte"). Decidono descrizioni+evidenza+recency e, a pari data, lo spareggio lessicale (#103; anche branch <code>feat/documenti-tutti-uguali</code>).</td></tr>
+<tr><td>30/07</td><td><b>Percorso "vision" dismesso</b></td><td>Eliminazione dell'approccio a immagini come percorso di estrazione principale (#99).</td></tr>
+<tr><td>30/07</td><td>Dropdown "Fonte" / ancora di tipo (introdotti e poi abbandonati)</td><td>Alcuni tentativi (#101, #102) vengono introdotti nella stessa giornata e rientrano nel cambio "documenti tutti uguali".</td></tr>
+<tr><td>26/08</td><td><b>Id campo UUID + natura da label/description</b></td><td>Nuova identificazione dei campi; cambio del modello dati/profilo (<code>develop</code>).</td></tr>
+<tr><td>04-15/09</td><td><b>Pre-check di pertinenza obbligatorio</b></td><td>Switch <code>polizzaPrecheckMode</code>, default <i>semantic</i> dal 15/09: profilo&harr;fascicolo verificato prima dell'estrazione, blocco con "Procedi comunque" (#109).</td></tr>
+<tr><td>11/09</td><td><b>Un solo percorso testo (pdfjs)</b></td><td>La griglia spaziale pdfjs diventa unica per worker, script e test (era copiata in 4 posti): elimina il "in test funziona, online no".</td></tr>
+<tr><td>25/09</td><td><b>OCR con modello visivo</b></td><td>Tesseract &rarr; modello multimodale che vede le immagini (qwen2.5vl): Tesseract sbagliava "&euro; 1.000.000,00" e i codici. Cache OCR per motore.</td></tr>
+<tr><td>25-26/09</td><td><b>Motore a stadi + sistema di FLAG</b></td><td>Ogni correzione entra <i>spenta</i> dietro un flag (<code>engineFlags.js</code>) e si misura da sola sull'app deployata (golden-prod). Cambia il <b>processo di sviluppo</b> del motore.</td></tr>
+<tr><td>25/09</td><td><b>Misura in produzione / golden a verita' piena</b></td><td>Il deploy passa a <code>test_branch</code>; nasce <code>golden-prod</code>/<code>rescore-prod</code>, calibratori, verita' piena per profilo.</td></tr>
+<tr><td>26/09</td><td><b>Campi compilabili (AcroForm)</b></td><td>I valori dei campi di un PDF compilabile entrano nella griglia del text layer.</td></tr>
+<tr><td>04/10</td><td><b>Riconciliazione solo dal contenuto</b></td><td>Riunione dei dossier per numero di polizza letto dal contenuto (non dal nome file); PDF con piu' polizze divisi per pagine (decisione utente 04/10).</td></tr>
+<tr><td>10/10</td><td><b>Descrizioni congelate / reprofile</b></td><td>La rielaborazione tiene le descrizioni congelate; per le nuove serve un "reprofile" (ridefinizione del profilo).</td></tr>
+</tbody>
+</table>
+
+<div class="pagebreak"></div>
+<h2>5. Categoria B &mdash; Bug e regressioni</h2>
+<p>Disfunzioni rispetto al comportamento atteso della versione del <b>25/07</b>, oppure <b>regressioni introdotte
+durante il periodo</b> e poi corrette (incluse le correzioni "misurate e bocciate" che vengono rimosse). E' la
+categoria piu' "difensiva": 46 commit contengono "fix", piu' le diagnostiche che hanno rivelato le cause.</p>
+<table>
+<thead><tr><th style="width:14%">Quando</th><th style="width:34%">Problema</th><th>Correzione</th></tr></thead>
+<tbody>
+<tr><td>30/07</td><td>Salvataggio "switch strategia" che perdeva/forzava la configurazione</td><td>Fix salvataggio immediato, gate sulle combinazioni canoniche, strategia in diagnostica (#94, #95, #96).</td></tr>
+<tr><td>30/07</td><td>Valori sbagliati: descrizioni troncate, affinita' "cieca", batch diluiti</td><td>Diagnosi delle tre cause e correzione alla radice (#104).</td></tr>
+<tr><td>13/08 &ndash; 26/08</td><td>Instabilita' del motore a stadi su errori deterministici e di spill VRAM</td><td><code>fix(polizza)</code> stabilizzazione del motore a stadi (26/08).</td></tr>
+<tr><td>07/09</td><td>Veto "franchigia" invertito in modo dannoso (massimale aggregato scartato; piccola franchigia promossa a massimale)</td><td><i>Revert</i> al veto originale con motivazione (<code>483c932</code>).</td></tr>
+<tr><td>09-11/09</td><td>Pre-check non si caricava piu' (numero di riga incollato nel sorgente); filtro saltato con i campi globali; fiducia nel markdown solo-marcatori dei PDF scansionati</td><td>Ripristino del pre-check, filtro attivo col profilo, guardia sul markdown (§ <code>0597fa2</code>, <code>408f203</code>, <code>be2ea11</code>).</td></tr>
+<tr><td>11/09</td><td>Timeout header di 300s di <code>fetch</code> perdeva i batch lenti; cache OCR avvelenata; escape HTML/underscore nel markdown Docling ("&amp;amp;" nei valori)</td><td>Streaming via <code>node:http</code>, invalidazione cache (<code>OCR_FORMAT=3</code>) + guardia anti-blob, fix escape Docling.</td></tr>
+<tr><td>03-04/09</td><td>Guardrail: modello diverso da Ollama e label al comando; overrides hardcoded per compagnia</td><td>Solo Ollama + descrizione al comando (#128); overrides tipo-blind senza hardcoded (#133).</td></tr>
+<tr><td>06/09</td><td>Pre-check del contenuto non valutava le parole da cercare a switch off</td><td>Fix (#137).</td></tr>
+<tr><td>03/10</td><td>Preventivi/proposte trattati come polizza; date dell'impresa/timbri/eventi come data documento</td><td>Esclusione preventivi; regole di datazione; A.8 dal documento piu' recente.</td></tr>
+<tr><td>04/10</td><td>"Sandwich Docling" portava testo OCR illeggibile tra i candidati e non sistemava le date</td><td>Ritiro del ramo <code>sandwich-docling</code> (<code>17bcb31</code>).</td></tr>
+<tr><td>06-08/10</td><td>Flag misurati in negativo (peggioravano la resa): ocrtabelle, ancoracolonna, pulisciocr, zeri, negatestadi, negazioni</td><td>Rimozione dei flag e del codice (misurati e bocciati).</td></tr>
+<tr><td>06/10</td><td>Date impossibili (31/09, 30/02); tasso per mille letto da una percentuale; imponibile=lordo e diritti=premio (copie); "gemelli" massimale per sinistro/anno</td><td>Scarto date impossibili; regole di coerenza premio; svuotamento importi-copia.</td></tr>
+<tr><td>07/10</td><td>OCR visivo con la "pulizia del ragionamento" (anche in cache) peggiorava i valori</td><td>Rimozione del ragionamento di qwen3-vl dalla trascrizione.</td></tr>
+<tr><td>07/10</td><td>Identificativi (P.IVA/CF) presi solo dal pie' di pagina dell'assicuratore; riga del premio non completata dagli altri documenti</td><td>Flag <code>pivapiede</code> e <code>rigaaltrove</code>.</td></tr>
+<tr><td>09-10/10</td><td>Regole TL3 che sbagliavano sull'RC; etichette negate ("NATO IL" scartava l'indirizzo giusto)</td><td>Fix <code>etichettadata</code> e testa di <code>elencotitolo</code>; rimozione <code>negatestadi</code>.</td></tr>
+</tbody>
+</table>
+
+<div class="pagebreak"></div>
+<h2>6. Categoria C &mdash; Aggiornamenti di procedura e miglioramenti</h2>
+<p>E' la categoria piu' ampia e sostanzialmente <b>reattiva al contenuto delle polizze</b>: man mano che emergevano
+nuovi formati/compagnie, si aggiungeva una regola o un flag. Non sono bug (il sistema funzionava) ma
+<b>estensioni necessarie</b> per coprire casi reali. 62 flag introdotti, decine promossi di default.</p>
+
+<h3>6.1 Pertinenza profilo&harr;fascicolo (18 commit)</h3>
+<ul>
+<li>Intestazione di copertura su una riga, importo in cella propria sotto l'intestazione piu' vicina, casella solo accanto al nome; il premio del prodotto nella colonna intestata alla copertura.</li>
+<li>Un batch illeggibile si divide di nuovo (meta', poi quarti, fino alla pagina singola); "non determinabile" non contraddice un "non operante" provato dal contratto.</li>
+<li>Copertura mai nominata = non operante senza modello; la spunta "&#10003;" punto elenco non e' una casella spuntata.</li>
+<li>Flag <code>coppietesto</code>, <code>citazioneriga</code>, <code>coppiecopertura</code> (coppie etichetta&rarr;valore, anche per i testi).</li>
+</ul>
+
+<h3>6.2 Estrazione e selezione del valore (il cuore)</h3>
+<ul>
+<li><b>Riga del premio / riga della copertura</b> nella griglia dopo il merge (<code>rigagriglia</code>); mai dal premio di sezione alla sua prima garanzia.</li>
+<li><b>Riepilogo</b> (16 commit): importi legati alla stessa riga/riepilogo, campo "comprensivo di" altre voci, legame transitivo del lordo all'imponibile, confronto per valore, premio annuo dalla colonna della copertura, voci del lordo separate, garanzie dalle righe col premio.</li>
+<li><b>A.7 / A.8</b>: la riga la sceglie la descrizione (non il "TOTALE dell'intero periodo"); proposte provvisorie; <code>a7ripiego</code>/<code>a7ripiegotesti</code>; <code>elencotitolo</code>; <code>aliquota</code> (imponibile+imposte da x&middot;p%+y=lordo).</li>
+<li>Coerenza e sanificazione: scelta chiusa (valori fuori dalle opzioni si svuotano), <code>categoriaaltrui</code>, <code>testolettere</code>, <code>etichettariga</code>, <code>gemelli</code>, <code>zeri</code>, <code>paginecopertura</code>, <code>elenconegato</code>, <code>altresezioni</code>.</li>
+<li><b>Date</b>: 2 cifre solo se legate al periodo, <code>date8</code>, <code>datagriglia</code>, A.8 dal documento piu' recente.</li>
+</ul>
+
+<h3>6.3 OCR e lettura documenti (28 commit)</h3>
+<ul>
+<li>Testo OCR <b>spaziale</b> (griglia a colonne monospace) per mantenere incolonnati i layout tabellari nei prompt; pagina piatta derivata per regex/embedding.</li>
+<li>Modello visivo per pagine senza text layer; cache OCR versionata per motore; <code>ocrsoloscansioni</code> (OCR visivo solo nei fascicoli di sole scansioni).</li>
+<li><code>tabelleocr</code>/<code>tabelleocr</code> scansioni: tabelle da rilevatore di layout + GLM-OCR, attive di default (+5 su 5 posizioni misurate).</li>
+<li>Ricomposizione numeri spezzati dal kerning (<code>splitNumbers.js</code>, <code>rejoinCachedGrid</code>).</li>
+</ul>
+
+<h3>6.4 Riconciliazione (10 commit)</h3>
+<ul>
+<li>Riunione automatica dei dossier per numero di polizza; frammenti OCR dello stesso numero (I/1, O/0, R/1, S/5, B/8, Z/2) = stessa polizza; "Separa per cartella d'origine".</li>
+<li>Solo dal contenuto (04/10); niente codice fiscale come numero di polizza.</li>
+</ul>
+
+<h3>6.5 Contesto, modelli, infrastruttura di misura e UI</h3>
+<ul>
+<li>Contesto da 8192 fino a 32768 / 131072 / 262144 configurabile; "Riabbina ed estrai" in un colpo.</li>
+<li>Prove modelli: <code>qwen3:8b</code> per fascicolo; <code>gemma3:27b</code> provato e fermato (&minus;36 su 16 posizioni); mistral fermato; guardrail solo Ollama.</li>
+<li>Harness di eval sul golden EULIP, coverage-check, calibrazione-goldens, golden a verita' piena, golden-prod/bulk-prod, rescore-prod, diagnostica testo (<code>GET /api/polizza/job/[id]/text</code>), diagnostica modelli per documenti.</li>
+<li>Elaborazioni/UI: virtualizzazione elenco bulk, ZIP dei PDF, azioni collettive, riorganizzazione a card/tabelle, rielaborazione job con nuovo profilo.</li>
+</ul>
+
+<div class="pagebreak"></div>
+<h2>7. Apporti dagli altri branch</h2>
+<p>Oltre a <code>test_branch</code> (produzione), sono stati analizzati i branch collaterali con attivita' nel periodo.
+Quelli con contenuti <b>di perimetro PD Extractor</b>:</p>
+<table>
+<thead><tr><th style="width:22%">Branch</th><th style="width:12%">Data</th><th>Contributo alla sezione PD Extractor</th></tr></thead>
+<tbody>
+<tr><td><code>feat/documenti-tutti-uguali</code></td><td>30/07</td><td>"Documenti TUTTI UGUALI" (decisione definitiva) + Annulla che ferma Ollama davvero.</td></tr>
+<tr><td><code>feat/polizza-extract-improve</code></td><td>24/08</td><td>Abbinamento contenuto, coppie colonnari, guardie di estrazione; stem sanitari/medico per Cedam.</td></tr>
+<tr><td><code>test/qwen3-guffanti-validazione</code></td><td>03/09</td><td><code>qwen3:8b</code> per fascicolo; evidenza con "chi" e "tipo" rispettati.</td></tr>
+<tr><td><code>test/modelli-leggeri</code></td><td>03/09</td><td>Driver GUFFANTI parametrico sul modello (banco di prova).</td></tr>
+<tr><td><code>fix/tutela-descrizione-solo-ollama</code></td><td>03/09</td><td>Solo Ollama e descrizione al comando nei guardrail.</td></tr>
+<tr><td><code>bugfix/settings-tecniche</code></td><td>03/09</td><td>Batch context UI non forza piu' 24576; whitelist <code>polizzaBatchContext</code>.</td></tr>
+<tr><td><code>feat/bulk-folder-windowing-progress</code></td><td>02/09</td><td>Virtualizza elenco dossier bulk e throttla il progresso.</td></tr>
+<tr><td><code>feat/hide-excel-cells-save-profile</code></td><td>03/09</td><td>Nascondi celle Excel e salva campi sovrascrivendo il profilo.</td></tr>
+<tr><td><code>feat/gestione-profili-salvati</code></td><td>05/08</td><td>Elimina profili polizza; gestione profili salvati (contorno al motore).</td></tr>
+</tbody>
+</table>
+<p class="lead">Gli altri branch attivi nel periodo (comparatore, premio lordo, adesioni SFTP, auth, deploy) <b>non</b>
+appartengono alla sezione PD Extractor e sono esclusi dall'analisi.</p>
+
+<h2>8. Stima di sforzo a persona</h2>
+<p>Stima in <b>giorni-uomo</b> (giornata = 8h) dello sforzo <i>equivalente</i> di un singolo sviluppatore senior per
+produrre lo stesso risultato (codice + regole + misure + documentazione). Le fasce tengono conto dell'incertezza.</p>
+<table>
+<thead><tr><th>Area di lavoro</th><th class="num">Commit<br>stimati</th><th class="num">Giorni-uomo</th><th class="num">Ore-uomo<br>(centrale)</th><th>Categoria</th></tr></thead>
+<tbody>
+<tr><td>Cambi di direzione e rework dell'approccio (tassonomia&rarr;descrizione, un solo percorso testo, OCR visivo, motore a stadi+flag, riconciliazione dal contenuto, pre-check)</td><td class="num">20</td><td class="num">23</td><td class="num">168</td><td><span class="tag b-dir">A</span></td></tr>
+<tr><td>Bug e regressioni (fix, revert, flag bocciati, date/importi incoerenti, infrastruttura rotta)</td><td class="num">46</td><td class="num">17</td><td class="num">120</td><td><span class="tag b-bug">B</span></td></tr>
+<tr><td>Pertinenza profilo&harr;fascicolo</td><td class="num">18</td><td class="num">9</td><td class="num">60</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td>Estrazione per stadi, riga premio/copertura, riepilogo, A.7/A.8, coerenze</td><td class="num">45</td><td class="num">19</td><td class="num">136</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td>OCR e lettura documenti (griglia spaziale, modello visivo, tabelle scansioni, kerning)</td><td class="num">28</td><td class="num">11</td><td class="num">80</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td>Riconciliazione dossier e date</td><td class="num">16</td><td class="num">8</td><td class="num">52</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td>Infrastruttura di misura (eval/golden/calibrazione/diagnostica) e contesto/modelli</td><td class="num">15</td><td class="num">9</td><td class="num">60</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td>UI di contorno della sezione (Elaborazioni/bulk, rework job) e documentazione</td><td class="num">20</td><td class="num">6</td><td class="num">40</td><td><span class="tag b-proc">C</span></td></tr>
+<tr><td><b>Cicli di misura e verifica</b> (esecuzione run golden/calibrazione, deploy, analisi punteggi, rilanci) &mdash; <i>tempo presidiato</i></td><td class="num">40</td><td class="num">17</td><td class="num">120</td><td><span class="tag b-proc">C</span> <span class="tag b-bug">B</span></td></tr>
+<tr style="font-weight:700;background:#dce6f2"><td>TOTALE PD EXTRACTOR</td><td class="num">248</td><td class="num">103</td><td class="num">822</td><td></td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<b>Nota sulle giornate gi&agrave; fatturate e pagate.</b> Delle <b>103 giornate-uomo</b> complessive, <b>8 giornate-uomo</b>
+sono gi&agrave; state coperte dalla fattura <b>n. 0019/2026/INF del 14/09/2026</b> per <b>&euro; 1.428,56</b> (imponibile,
+senza IVA) &mdash; <b>&euro; 1.742,84</b> IVA inclusa &mdash; <b>gi&agrave; pagata</b>.
+Quelle 8 giornate rientrano <i>anche</i> in questo conteggio complessivo: sono pertanto da considerarsi
+<b>gi&agrave; regolate</b> e non vanno conteggiate una seconda volta come da fatturare.
+</div>
+
+<div class="box">
+<b>Perch&eacute; i test pesano cos&igrave; tanto.</b> Nel modello di lavoro adottato "il test &egrave; lavoro": una run non
+&egrave; un comando lanciato e dimenticato, ma un <b>ciclo presidiato</b> &mdash; deploy del codice atteso, esecuzione
+dell'estrazione su tutti i fascicoli golden, lettura del punteggio (giusti/N sul profilo), individuazione dei valori
+diventati sbagliati, correzione, nuovo deploy e rilancio. <b>Evidenza dal repository</b> (<code>.goldens-out</code>):
+<ul>
+<li><b>25 run di misura</b> con esito registrato (<code>summary.json</code>) nel solo sottoinsieme conservato, per un totale di
+<b>22 ore di pura esecuzione</b> (campo <code>secs</code> per fascicolo, 13 casi golden ciascuna); le run pi&ugrave; pesanti superano le 2 ore (es. qwen3:32b con cascata4: 2,1 h).</li>
+<li><b>43 cicli di deploy</b> (file <code>deploy-*.out</code>) verso l'app di produzione, ciascuno con attesa che la produzione sia libera.</li>
+<li>A ciascuna run vanno sommati il <b>tempo di analisi del punteggio</b> e i <b>rilanci</b> dopo la correzione; il tutto ripetuto decine di volte (62 flag introdotti e decine misurati uno alla volta).</li>
+</ul>
+Un test da 2 ore implica che qualcuno &egrave; stato dietro a quel test per 2 ore: &egrave; per questo che i cicli di
+misura sono conteggiati come <b>17 giorni-uomo</b> a s&eacute; stanti, e non come semplice "attesa".
+</div>
+
+<h3>8.1 Ripartizione per categoria</h3>
+<table>
+<thead><tr><th>Categoria</th><th class="num">Giorni-uomo</th><th class="num">% sul totale</th><th>Lettura</th></tr></thead>
+<tbody>
+<tr><td><span class="tag b-dir">A</span> Cambi di direzione completi</td><td class="num">23</td><td class="num">22%</td><td>Sforzo "una tantum" ma strategico: rifonda l'approccio.</td></tr>
+<tr><td><span class="tag b-bug">B</span> Bug / regressioni vs 25/07</td><td class="num">17</td><td class="num">17%</td><td>Debito tecnico e stabilizzazione; buona parte introdotta dentro il periodo.</td></tr>
+<tr><td><span class="tag b-proc">C</span> Procedura / miglioramenti <b>+ cicli di misura</b></td><td class="num">63</td><td class="num">61%</td><td>Il vero motore del lavoro: reazione ai contenuti reali delle polizze, con verifica continua sui golden.</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<b>Lettura del dato.</b> <b>2/3 dello sforzo</b> (categorie A+C) e' andato non a "riparare" ma a <b>estendere e
+rifondare</b> il motore: prima un cambio di paradigma (documenti tutti uguali, decide la descrizione), poi una lunga
+calibrazione guidata dai golden di produzione. La quota "bug" (17%) e' in buona parte <b>regressioni interne al
+periodo</b>, non difetti della versione del 25/07: segno di un ritmo di cambiamento molto alto con misura continua.
+<b>1/6 del totale (15%)</b> &egrave; rappresentato dai soli <b>cicli di misura</b>: tempo speso a eseguire,
+sorvegliare e rilanciare i test, che nel modello "il test &egrave; lavoro" &egrave; a pieno titolo lavoro produttivo.
+</div>
+
+<h3>8.2 Tempo-calendario vs sforzo equivalente</h3>
+<p>L'estrazione dei dati per i test e l'esecuzione dei test sono state effettuate dall'AI, poiche' serviva
+estrarre <i>ogni singola voce</i>; lo sviluppo ha avuto un responsabile principale, in <b>40 giorni di attivita'</b>
+distribuiti su 75 giorni di calendario. Il rapporto tra giorni-uomo
+stimati (103, <b>misure comprese</b>) e giorni con attivita' (40) e' un indicatore diretto della <b>compressione temporale</b> ottenuta:
+a parita' di risultato, il solo lavoro umano avrebbe richiesto il doppio/il triplo del tempo di calendario.</p>
+
+<h2>9. Conclusioni</h2>
+<ul>
+<li><b>Natura del periodo.</b> Non manutenzione ordinaria, ma una vera <b>rifondazione del motore di estrazione</b>
+seguita da calibrazione estensiva. Le tre categorie non si escludono: un cambio di direzione genera spesso i bug
+della fase successiva, e la copertura di nuove polizze genera nuove procedure.</li>
+<li><b>Cambi di direzione (A).</b> Pochi ma decisivi (13): il passaggio a "decide la descrizione / documenti tutti
+uguali", l'abolizione della tassonomia, l'OCR con modello visivo, il sistema di flag, la riconciliazione dal
+contenuto, il pre-check obbligatorio. Sono la spina dorsale architetturale attuale.</li>
+<li><b>Bug (B).</b> 46 fix: una minoranza sono difetti della baseline 25/07 (salvataggio switch strategia, valori
+sbagliati per descrizioni troncate); la maggioranza sono <b>regressioni interne</b> e flag misurati e bocciati.</li>
+<li><b>Procedura/miglioramenti (C).</b> La quota dominante (53%): 62 flag, regole per pertinenza, riepilogo,
+A.7/A.8, coerenze premio, OCR e date, tutte <b>in risposta a contenuti reali</b> emersi dalle polizze. E' un
+lavoro intrinsecamente iterativo e "a domanda".</li>
+<li><b>Efficienza (con i test conteggiati).</b> 103 giorni-uomo stimati in 40 giorni di attivita', includendo i cicli di misura: l'estrazione dei dati per i test e l'esecuzione dei test sono state affidate
+all'AI, con il processo "flag + golden-prod" che ha reso sistematico il ciclo <i>misura &rarr; promuovi/boccia</i>.</li>
+</ul>
+
+<div class="foot">
+Documento generato automaticamente il 12/10/2026 dall'analisi della cronologia Git del repository
+<code>pdf-data-extractor</code> (intervallo 30/07/2026&ndash;12/10/2026, tutti i branch).
+Le stime di sforzo sono elaborazioni ingegneristiche indicative, non consuntivi.
+</div>
+</body>
+</html>
+

@@ -1,0 +1,148 @@
+{
+  "result": {
+    "type": "deep-net",
+    "startedAt": "2026-06-15T14:36:33.003Z",
+    "finishedAt": "2026-06-15T14:36:33.781Z",
+    "provider": "Anthropic",
+    "host": "api.anthropic.com",
+    "layers": {
+      "dns": {
+        "status": "ok",
+        "ms": 3,
+        "host": "api.anthropic.com",
+        "ips": [
+          "2607:6bc0::10",
+          "160.79.104.10"
+        ],
+        "servers": [
+          "2620:134:b054:100::59",
+          "2620:134:b054:100::58",
+          "192.168.1.1"
+        ],
+        "error": null,
+        "code": null
+      },
+      "tcp": {
+        "status": "ok",
+        "ms": 29,
+        "error": null,
+        "code": null,
+        "peer": "2607:6bc0::10:443"
+      },
+      "tls": {
+        "status": "ok",
+        "ms": 66,
+        "protocol": "TLSv1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "alpn": "h2",
+        "authorized": true,
+        "authorizationError": null,
+        "chain": [
+          {
+            "subjectCN": "api.anthropic.com",
+            "subjectO": null,
+            "issuerCN": "WE1",
+            "issuerO": "Google Trust Services",
+            "fingerprint256": "19:0C:41:26:7E:20:EA:A5:CA:23:19:96:72:24:9C:9C:CC:90:D0:43:99:5E:22:63:31:1E:C3:81:68:55:B8:D9",
+            "validFrom": "May 26 17:45:54 2026 GMT",
+            "validTo": "Aug 24 18:45:51 2026 GMT",
+            "selfSigned": false
+          },
+          {
+            "subjectCN": "WE1",
+            "subjectO": "Google Trust Services",
+            "issuerCN": "GTS Root R4",
+            "issuerO": "Google Trust Services LLC",
+            "fingerprint256": "1D:FC:16:05:FB:AD:35:8D:8B:C8:44:F7:6D:15:20:3F:AC:9C:A5:C1:A7:9F:D4:85:7F:FA:F2:86:4F:BE:BF:96",
+            "validFrom": "Dec 13 09:00:00 2023 GMT",
+            "validTo": "Feb 20 14:00:00 2029 GMT",
+            "selfSigned": false
+          },
+          {
+            "subjectCN": "GTS Root R4",
+            "subjectO": "Google Trust Services LLC",
+            "issuerCN": "GlobalSign Root CA",
+            "issuerO": "GlobalSign nv-sa",
+            "fingerprint256": "76:B2:7B:80:A5:80:27:DC:3C:F1:DA:68:DA:C1:70:10:ED:93:99:7D:0B:60:3E:2F:AD:BE:85:01:24:93:B5:A7",
+            "validFrom": "Nov 15 03:43:21 2023 GMT",
+            "validTo": "Jan 28 00:00:42 2028 GMT",
+            "selfSigned": false
+          },
+          {
+            "subjectCN": "GlobalSign Root CA",
+            "subjectO": "GlobalSign nv-sa",
+            "issuerCN": "GlobalSign Root CA",
+            "issuerO": "GlobalSign nv-sa",
+            "fingerprint256": "EB:D4:10:40:E4:BB:3E:C7:42:C9:E3:81:D3:1E:F2:A4:1A:48:B6:68:5C:96:E7:CE:F3:C1:DF:6C:D4:33:1C:99",
+            "validFrom": "Sep  1 12:00:00 1998 GMT",
+            "validTo": "Jan 28 12:00:00 2028 GMT",
+            "selfSigned": true
+          }
+        ],
+        "intercepted": false,
+        "interceptionReason": null,
+        "suspicious": false,
+        "suspicionReason": null,
+        "rootIssuer": "GlobalSign nv-sa",
+        "leafSubject": "api.anthropic.com",
+        "rootIsKnownPublic": true,
+        "error": null,
+        "code": null
+      },
+      "http": {
+        "status": "ok",
+        "ms": 235,
+        "httpStatus": 404,
+        "error": null,
+        "code": null
+      }
+    },
+    "controls": [
+      {
+        "id": "generate_204",
+        "label": "Connettività neutra (HTTP 204)",
+        "status": "ok",
+        "httpStatus": 204,
+        "ms": 133,
+        "error": null
+      },
+      {
+        "id": "cloudflare",
+        "label": "Endpoint cloud alternativo (Cloudflare)",
+        "status": "ok",
+        "httpStatus": 200,
+        "ms": 129,
+        "error": null
+      },
+      {
+        "id": "second_cloud",
+        "label": "Secondo cloud API (OpenAI)",
+        "status": "ok",
+        "httpStatus": 401,
+        "ms": 440,
+        "error": null
+      }
+    ],
+    "proxy": {
+      "status": "ok",
+      "resolved": "DIRECT",
+      "env": {
+        "HTTP_PROXY": null,
+        "HTTPS_PROXY": null,
+        "NO_PROXY": null
+      },
+      "usingProxy": false
+    },
+    "verdict": "all-ok",
+    "verdictText": "Tutti gli strati di rete funzionano: DNS, TCP, TLS e HTTP verso api.anthropic.com sono OK (HTTP 404)."
+  },
+  "quickReport": "PDF Data Extractor — Report diagnostica\n15/6/2026, 16:37:13\nSistema: macOS arm64 · App v1.0.37 · Electron 28.3.3\nProvider AI: Anthropic\n\n[OK] Sistema e versione app — macOS arm64 · App v1.0.37 · Electron 28.3.3 · Chrome 120.0.6099.291\n[OK] Connessione a internet — Il sistema risulta online.\n[OK] Provider AI attivo — Provider configurato: Anthropic.\n[OK] API key impostata — API key presente.\n[OK] Rete / proxy / TLS verso api.anthropic.com — Endpoint raggiungibile: rete, proxy e TLS funzionano.\n[OK] Autenticazione (API key valida) — Credenziali accettate dal provider.\n[OK] Modello impostato — Modello: claude-haiku-4-5-20251001.",
+  "system": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "appVersion": "1.0.37",
+    "electron": "28.3.3",
+    "chrome": "120.0.6099.291",
+    "node": "18.18.2"
+  }
+}

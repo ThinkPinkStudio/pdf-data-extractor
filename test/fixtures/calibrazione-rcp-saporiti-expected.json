@@ -1,0 +1,19 @@
+{
+  "id": "rcp-saporiti",
+  "label": "Rc Professionale V3 — Saporiti Massimo (BL05002415)",
+  "fields": {
+    "polizza_numero": { "value": "BL05002415", "mode": "exact" },
+    "compagnia": { "value": "XL Insurance Company SE", "mode": "contains" },
+    "contraente": { "value": "Saporiti Massimo", "mode": "contains" },
+    "codice_fiscale_iva": { "value": "09935700154", "mode": "vat" },
+    "indirizzo": { "value": "Viale Papiniano", "mode": "contains" },
+    "decorrenza": { "value": "31/03/2022", "mode": "date" },
+    "scadenza": { "value": "31/03/2023", "mode": "date" },
+    "attivita": { "value": "Avvocato", "mode": "contains" },
+    "rcp_massimale_sinistro": { "value": "2.000.000,00", "mode": "amount" },
+    "rcp_massimale_annuo": { "value": "2.000.000,00", "mode": "amount" },
+    "rcp_premio_imponibile": { "value": "654,40", "mode": "amount" },
+    "rcp_imposta": { "value": "145,60", "mode": "amount" },
+    "rcp_premio_totale": { "value": "800,00", "mode": "amount" }
+  }
+}

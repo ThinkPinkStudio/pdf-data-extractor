@@ -28,60 +28,10 @@ const PROFILE_JSON = '/Volumes/Dock/francesco/Downloads/profili-polizza (3) CORR
 // inclusione moltiplicava i batch (24 pagine × gruppi) senza contribuire valori.
 
 async function extractPages(filePath) {
-  // Produce le pagine SPAZIALI (griglia a colonne) come il worker in
-  // produzione: pdfjs per l'estrazione del testo con coordinate → ricostruzione
-  // a colonne con buildSpatialPage (la stessa trasformazione che applica l'OCR
-  // tesseract, preservando l'allineamento "X → voce" dei Profili Cliente).
-  const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.js')
-  const pdfjs = pdfjsMod.default || pdfjsMod
-  if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = ''
-  const doc = await pdfjs.getDocument({
-    data: new Uint8Array(readFileSync(filePath)),
-    useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true, disableFontFace: true,
-  }).promise
-  const pageTexts = []
-  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
-    const page = await doc.getPage(pageNum)
-    const content = await page.getTextContent({ includeMarkedContent: false })
-    // Parole con bbox: spezza i run multi-parola in word level (come fa
-    // tesseract) distribuendo la larghezza sui caratteri.
-    const words = []
-    for (const item of content.items) {
-      if (!('str' in item)) continue
-      const str = item.str
-      if (!str) continue
-      const x0 = item.transform[4], y0 = item.transform[5]
-      const fs = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 10
-      const totW = (item.width !== undefined && item.width > 0) ? item.width : str.length * fs * 0.6
-      const parts = str.match(/\S+/g) || []
-      let pos = 0
-      const cw = totW / str.length
-      for (const p of parts) {
-        const idx = str.indexOf(p, pos)
-        pos = idx + p.length
-        const wpx = cw * (p.length + 1.5)
-        words.push({ text: p, x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs, cy: y0 + fs / 2, h: fs, bbox: { x0: x0 + idx, x1: x0 + idx + wpx, y0, y1: y0 + fs } })
-      }
-    }
-    if (!words.length) continue
-    // Ordina per centro-y → righe visive; buildSpatialPage si aspetta blocks.
-    words.sort((a, b) => a.cy - b.cy || a.x0 - b.x0)
-    const rows = []
-    let cur = null
-    const rowTol = Math.max(1, Math.abs(words[0].h) / 2 || 5)
-    for (const w of words) {
-      if (cur && Math.abs(w.cy - cur.cy) <= rowTol) { cur.words.push(w); cur.cy = (cur.cy + w.cy) / 2 }
-      else { cur = { cy: w.cy, h: w.h, words: [w] }; rows.push(cur) }
-    }
-    const lines = rows.map((r) => {
-      r.words.sort((a, b) => a.x0 - b.x0)
-      return { words: r.words.map((w) => ({ text: w.text, bbox: { x0: w.x0, x1: w.x1, y0: w.y0, y1: w.y1 } })), rowAttributes: { rowHeight: r.h } }
-    })
-    const blocks = [{ paragraphs: [{ lines }] }]
-    const spatial = buildSpatialPage(blocks)
-    if (spatial.trim()) pageTexts.push(spatial.trim())
-  }
-  return pageTexts
+  // Stesso codice del worker: src/services/pdfTextLayer.js (griglia spaziale
+  // pdfjs, pagine senza text layer = '').
+  const { spatialPagesFromPdf } = await import(join(root, 'src/services/pdfTextLayer.js'))
+  return spatialPagesFromPdf(readFileSync(filePath))
 }
 
 // importa i servizi condivisi

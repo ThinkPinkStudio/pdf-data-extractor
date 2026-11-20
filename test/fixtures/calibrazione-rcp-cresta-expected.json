@@ -1,0 +1,19 @@
+{
+  "id": "rcp-cresta",
+  "label": "Rc Professionale V3 — Cresta & Associati (BLUE053434)",
+  "fields": {
+    "polizza_numero": { "value": "BLUE053434", "mode": "exact" },
+    "compagnia": { "value": "AIG Europe Limited", "mode": "contains" },
+    "contraente": { "value": "Cresta & Associati", "mode": "contains" },
+    "codice_fiscale_iva": { "value": "11640070014", "mode": "vat" },
+    "indirizzo": { "value": "Via Principi D'Acaja", "mode": "contains" },
+    "decorrenza": { "value": "30/01/2017", "mode": "date" },
+    "scadenza": { "value": "30/01/2018", "mode": "date" },
+    "attivita": { "value": "Avvocato", "mode": "contains" },
+    "rcp_massimale_sinistro": { "value": "2.500.000,00", "mode": "amount" },
+    "rcp_massimale_annuo": { "value": "2.500.000,00", "mode": "amount" },
+    "rcp_premio_imponibile": { "value": "1.128,83", "mode": "amount" },
+    "rcp_imposta": { "value": "251,17", "mode": "amount" },
+    "rcp_premio_totale": { "value": "1.380,00", "mode": "amount" }
+  }
+}

@@ -1,0 +1,1688 @@
+// ANAGRAFICHE RSM (05/11/2026) — regole pure della polizza collettiva rimborso
+// spese mediche: date, codice fiscale, premi, pro-rata, stato a una data,
+// lettura dei file Excel del cliente, mail per i dati errati. Nessun DB, nessun
+// I/O: lo usano le route, le pagine (anteprima dei conteggi) e i test
+// (test/rsmRules.test.mjs).
+//
+// Regole confermate dal cliente il 05/11/2026 (CLAUDE.md «Anagrafiche RSM»):
+//  - entrata fino al 30/06 = 100% del premio annuo, dal 01/07 = 50%;
+//  - decorrenza = data richiesta se comunicata entro 30 giorni, altrimenti la
+//    data della comunicazione (forzabile a mano);
+//  - cessazione: nessun rimborso, copertura fino a fine periodo;
+//  - promozione: uscita ed entrata in pro-rata (a giorni, configurabile),
+//    rimborso al netto dell'imposta (2,5%), uno per nucleo dove il premio è a
+//    nucleo, per persona dove è a persona.
+// Ogni numero viene dalla configurazione del programma (tariffe e regole per
+// anno), mai dal codice: «se modifichiamo la formula possiamo poi
+// rimodificarla?» — sì, cambiando le impostazioni.
+
+import { evalValue, normValue } from '../configValue.js'
+
+/* ─── Date: sempre 'YYYY-MM-DD' ─────────────────────────────────────────── */
+
+const pad = (n) => String(n).padStart(2, '0')
+
+export function isoOf(y, m, d) {
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null
+  return `${y}-${pad(m)}-${pad(d)}`
+}
+
+/**
+ * Data da qualunque forma arrivi da Excel o da un campo: Date (componenti
+ * LOCALI, come le scrive SheetJS con cellDates), numero seriale Excel,
+ * 'gg/mm/aaaa', 'gg.mm.aa', 'gg-mm-aaaa', 'aaaa-mm-gg'. Anno a 2 cifre:
+ * > anno di riferimento + 1 → 1900.
+ */
+export function normDate(v, refYear = new Date().getFullYear()) {
+  if (v == null || v === '') return null
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null
+    return isoOf(v.getFullYear(), v.getMonth() + 1, v.getDate())
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    if (v < 1 || v > 80000) return null
+    const ms = Math.round((v - 25569) * 86400000)
+    const d = new Date(ms)
+    return isoOf(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())
+  }
+  const s = String(v).trim()
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s)
+  if (m) return isoOf(+m[1], +m[2], +m[3])
+  m = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2}|\d{4})$/.exec(s)
+  if (m) {
+    let y = +m[3]
+    if (m[3].length === 2) y = 2000 + y > refYear + 1 ? 1900 + y : 2000 + y
+    return isoOf(y, +m[2], +m[1])
+  }
+  return null
+}
+
+const dayNum = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86400000
+
+/** Giorni da a a b (b − a). */
+export function daysBetween(a, b) { return Math.round(dayNum(b) - dayNum(a)) }
+
+export function addDays(iso, n) {
+  const d = new Date((dayNum(iso) + n) * 86400000)
+  return isoOf(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())
+}
+
+export function fmtDate(iso) {
+  if (!iso) return ''
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+}
+
+/** Giorni da a a b col metodo 30/360 americano (YEARFRAC base 0 di Excel). */
+export function days360(a, b) {
+  let d1 = +a.slice(8, 10), d2 = +b.slice(8, 10)
+  const m1 = +a.slice(5, 7), m2 = +b.slice(5, 7), y1 = +a.slice(0, 4), y2 = +b.slice(0, 4)
+  const lastFeb = (y, m, d) => m === 2 && d === new Date(Date.UTC(y, 2, 0)).getUTCDate()
+  if (lastFeb(y1, m1, d1) && lastFeb(y2, m2, d2)) d2 = 30
+  if (lastFeb(y1, m1, d1)) d1 = 30
+  if (d2 === 31 && d1 >= 30) d2 = 30
+  if (d1 === 31) d1 = 30
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1)
+}
+
+export const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100
+
+/* ─── Codice fiscale ────────────────────────────────────────────────────── */
+
+const MONTHS = 'ABCDEHLMPRST'
+const OMO = 'LMNPQRSTUV'
+const ODD = { 0: 1, 1: 0, 2: 5, 3: 7, 4: 9, 5: 13, 6: 15, 7: 17, 8: 19, 9: 21, A: 1, B: 0, C: 5, D: 7, E: 9, F: 13, G: 15, H: 17, I: 19, J: 21, K: 2, L: 4, M: 18, N: 20, O: 11, P: 3, Q: 6, R: 8, S: 12, T: 14, U: 16, V: 10, W: 22, X: 25, Y: 24, Z: 23 }
+
+export function cleanCf(cf) { return String(cf || '').toUpperCase().replace(/[^A-Z0-9]/g, '') }
+
+/** Lettere di un nome o cognome: maiuscole senza accenti, apostrofi, spazi. */
+function letters(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '')
+}
+const splitLetters = (s) => {
+  const l = letters(s)
+  return { cons: l.replace(/[AEIOU]/g, ''), vow: l.replace(/[^AEIOU]/g, '') }
+}
+
+export function surnameCode(s) {
+  const { cons, vow } = splitLetters(s)
+  return (cons + vow + 'XXX').slice(0, 3)
+}
+
+export function nameCode(s) {
+  const { cons, vow } = splitLetters(s)
+  if (cons.length >= 4) return cons[0] + cons[2] + cons[3]
+  return (cons + vow + 'XXX').slice(0, 3)
+}
+
+function checkChar(first15) {
+  let sum = 0
+  for (let i = 0; i < 15; i++) {
+    const c = first15[i]
+    if (i % 2 === 0) sum += ODD[c]
+    else sum += /[0-9]/.test(c) ? +c : c.charCodeAt(0) - 65
+  }
+  return String.fromCharCode(65 + (sum % 26))
+}
+
+/**
+ * Legge un codice fiscale di persona: data di nascita, sesso, codici di
+ * cognome e nome, carattere di controllo (anche con omocodia).
+ * `refYear`: le date a due cifre oltre quest'anno sono del secolo scorso.
+ */
+export function decodeCf(cfRaw, refYear = new Date().getFullYear()) {
+  const cf = cleanCf(cfRaw)
+  const out = { cf, valid: false, checkOk: false, birthDate: null, sex: null, surname: '', name: '' }
+  if (!/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/.test(cf)) return out
+  out.valid = true
+  out.checkOk = checkChar(cf.slice(0, 15)) === cf[15]
+  out.surname = cf.slice(0, 3)
+  out.name = cf.slice(3, 6)
+  const digit = (c) => (/[0-9]/.test(c) ? c : String(OMO.indexOf(c)))
+  const yy = +(digit(cf[6]) + digit(cf[7]))
+  const mm = MONTHS.indexOf(cf[8]) + 1
+  let dd = +(digit(cf[9]) + digit(cf[10]))
+  out.sex = dd > 40 ? 'F' : 'M'
+  if (dd > 40) dd -= 40
+  const year = 2000 + yy > refYear ? 1900 + yy : 2000 + yy
+  out.birthDate = isoOf(year, mm, dd)
+  return out
+}
+
+/**
+ * Controlli di coerenza di una persona (richiesti dal cliente): cognome e nome
+ * contro il codice fiscale, data di nascita contro quella del codice fiscale.
+ * Restituisce { issues: [{ code, level: 'error'|'warning'|'info', text }],
+ * birthDate } — `birthDate` è quella del file o, se manca, quella ricavata.
+ */
+export function checkPerson({ cognome, nome, cf, birthDate }, refYear) {
+  const issues = []
+  const d = decodeCf(cf, refYear)
+  if (!d.cf) {
+    issues.push({ code: 'cf-mancante', level: 'error', text: 'Codice fiscale mancante.' })
+    return { issues, birthDate: birthDate || null, decoded: d }
+  }
+  if (!d.valid) {
+    issues.push({ code: 'cf-formato', level: 'error', text: `Codice fiscale «${d.cf}» non valido (deve avere 16 caratteri nel formato di una persona).` })
+    return { issues, birthDate: birthDate || null, decoded: d }
+  }
+  if (!d.checkOk) issues.push({ code: 'cf-controllo', level: 'error', text: `Codice fiscale «${d.cf}»: l'ultimo carattere di controllo non torna, probabile errore di battitura.` })
+  const sOk = surnameCode(cognome) === d.surname
+  const nOk = nameCode(nome) === d.name
+  if (!sOk || !nOk) {
+    const swapped = surnameCode(nome) === d.surname && nameCode(cognome) === d.name
+    if (swapped) issues.push({ code: 'cf-invertiti', level: 'error', text: `Cognome e nome sembrano invertiti rispetto al codice fiscale ${d.cf}.` })
+    else {
+      if (!sOk) issues.push({ code: 'cf-cognome', level: 'error', text: `Il cognome «${String(cognome || '').trim()}» non corrisponde al codice fiscale ${d.cf} (atteso «${d.surname}…»).` })
+      if (!nOk) issues.push({ code: 'cf-nome', level: 'error', text: `Il nome «${String(nome || '').trim()}» non corrisponde al codice fiscale ${d.cf} (atteso «…${d.name}»).` })
+    }
+  }
+  let bd = birthDate || null
+  if (!bd && d.birthDate) {
+    bd = d.birthDate
+    issues.push({ code: 'nascita-ricavata', level: 'info', text: `Data di nascita ricavata dal codice fiscale: ${fmtDate(d.birthDate)}.` })
+  } else if (bd && d.birthDate && bd !== d.birthDate) {
+    issues.push({ code: 'nascita', level: 'error', text: `La data di nascita ${fmtDate(bd)} non corrisponde al codice fiscale ${d.cf}, che indica il ${fmtDate(d.birthDate)}.` })
+  }
+  return { issues, birthDate: bd, decoded: d }
+}
+
+/* ─── Configurazione del programma (una polizza collettiva per anno) ───── */
+
+export const LEGAMI = { TI: 'Titolare', CO: 'Coniuge/convivente', FI: 'Figlio/a', FA: 'Altro familiare' }
+
+/**
+ * LEGAMI del programma (19/11/2026: «ogni lista deve potersi aggiungere
+ * elementi»): il titolare (TI, fisso: è il capo del nucleo) e i familiari,
+ * ognuno con il suo nome, la sua tariffa nelle categorie, le parole con cui lo
+ * scrivono i file e un'età massima (solo avviso). I programmi vecchi senza
+ * elenco hanno i quattro di sempre; l'età massima dei figli veniva da
+ * `rules.childMaxAge`.
+ */
+export function legamiOf(cfg) {
+  const list = cfg && Array.isArray(cfg.legami) && cfg.legami.length ? cfg.legami : null
+  const kid = Number(((cfg && cfg.rules) || {}).childMaxAge) || 0
+  const base = list || [
+    { key: 'TI', label: 'Titolare', tariff: 'titolare', words: 'TI, TITOLARE' },
+    { key: 'CO', label: 'Coniuge/convivente', tariff: 'coniuge', words: 'CO, CONIUGE, CONIUGI, CONVIVENTE, CONVIVENTI' },
+    { key: 'FI', label: 'Figlio/a', tariff: 'figlio', words: 'FI, FIGLIO, FIGLIA, FIGLI', maxAge: kid || null },
+    { key: 'FA', label: 'Altro familiare', tariff: 'familiare', words: 'FA, FAMILIARE, ALTRO FAMILIARE, ALTRI FAMILIARI' },
+  ]
+  const out = base.map((l) => ({
+    key: String(l.key || '').toUpperCase(),
+    label: String(l.label || l.key || ''),
+    tariff: l.key === 'TI' ? 'titolare' : String(l.tariff || String(l.key || '').toLowerCase()),
+    words: String(l.words || ''),
+    maxAge: l.maxAge == null || l.maxAge === '' ? null : Number(l.maxAge) || null,
+  })).filter((l) => l.key)
+  // il titolare c'è sempre, per primo
+  if (!out.some((l) => l.key === 'TI')) out.unshift({ key: 'TI', label: 'Titolare', tariff: 'titolare', words: 'TI, TITOLARE', maxAge: null })
+  return [...out.filter((l) => l.key === 'TI'), ...out.filter((l) => l.key !== 'TI')]
+}
+
+/** Nome di un legame («Coniuge/convivente»). */
+export const legameLabel = (cfg, key) => (legamiOf(cfg).find((l) => l.key === key) || {}).label || key
+
+/**
+ * Tracciato del file con i legami del programma: le funzioni di lettura lo
+ * passano ovunque già oggi, così le parole dei legami arrivano a normLegame.
+ */
+export const readLayout = (cfg) => ({ ...((cfg && cfg.fileLayout) || {}), legami: legamiOf(cfg), words: wordsOf(cfg) })
+
+/**
+ * PAROLE DEI FILE (19/11/2026): come il cliente scrive «sì», che cosa nelle
+ * note suggerisce una promozione o una cessazione, come si chiama il foglio
+ * delle variazioni e altre intestazioni per ogni colonna. Si aggiungono a
+ * quelle riconosciute da sempre (mai le tolgono). Parole separate da virgola,
+ * confrontate a inizio parola, senza accenti né maiuscole.
+ */
+export const DEFAULT_WORDS = {
+  yes: 'SI, SÌ',
+  promoNotes: 'PASSAGG, PROMOS, PROMOZ, NOMIN',
+  cessNotes: 'CESSAZ, DIMISS, LICENZ, PENSION',
+  varSheet: 'VARIAZ',
+  heads: {},
+}
+export function wordsOf(cfg) {
+  const w = (cfg && cfg.words) || {}
+  const pick = (k) => (typeof w[k] === 'string' && w[k].trim() ? w[k] : DEFAULT_WORDS[k])
+  return { yes: pick('yes'), promoNotes: pick('promoNotes'), cessNotes: pick('cessNotes'), varSheet: pick('varSheet'), heads: (w.heads && typeof w.heads === 'object') ? w.heads : {} }
+}
+export const wordList = (s) => String(s || '').split(',').map((x) => normHead(x)).filter(Boolean)
+/** Il testo contiene una delle parole (a inizio parola)? */
+export const hasWord = (text, list) => {
+  const t = ` ${normHead(text)} `
+  return wordList(list).some((w) => t.includes(` ${w}`))
+}
+
+/**
+ * TESTI DELLA MAIL per i dati errati, con i segnaposto {file} {data} {n}
+ * {altre}. I programmi vecchi hanno i testi di sempre.
+ */
+export const DEFAULT_MAIL_TEXTS = {
+  subject: 'Verifica dati – {file}',
+  greeting: 'Buongiorno,',
+  intro: 'nel file «{file}»{data} abbiamo riscontrato i seguenti dati da verificare:',
+  askAll: 'Vi chiediamo di controllarli e di inviarci il file corretto.',
+  askSome: 'Vi chiediamo di controllarli e di inviarci il file corretto per queste righe. {altre}',
+  closing: 'Grazie, cordiali saluti',
+}
+export function mailTextsOf(cfg) {
+  const m = (cfg && cfg.mail) || {}
+  const out = {}
+  for (const k of Object.keys(DEFAULT_MAIL_TEXTS)) out[k] = typeof m[k] === 'string' && m[k].trim() ? m[k] : DEFAULT_MAIL_TEXTS[k]
+  return out
+}
+const fill = (tpl, vars) => String(tpl).replace(/\{(\w+)\}/g, (x, k) => (k in vars ? vars[k] : x))
+
+/** Il foglio è un foglio di variazioni? (parole del programma, di default «VARIAZ…») */
+export const isVarSheet = (name, cfg) => { const n = normHead(name); return wordList(wordsOf(cfg).varSheet).some((w) => n.startsWith(w)) }
+/** Nome del foglio senza la parola delle variazioni: «Variazioni DIRIGENTI» → «DIRIGENTI». */
+const stripVarWord = (name, cfg) => { let n = normHead(name); for (const w of wordList(wordsOf(cfg).varSheet)) if (n.startsWith(w)) { n = n.slice(w.length).replace(/^[A-Z]*\s*/, ''); break } return n }
+
+/** Limite d'età della polizza (solo avviso): 0 = nessun limite; assente = 80. */
+export const maxAgeOf = (cfg) => { const v = ((cfg && cfg.rules) || {}).maxAge; return v == null || v === '' ? 80 : Number(v) || 0 }
+
+/** Chiavi delle tariffe di una categoria: titolare, quiescente e una per ogni familiare. */
+export const tariffKeys = (cfg) => ['titolare', 'quiescente', ...legamiOf(cfg).filter((l) => l.key !== 'TI').map((l) => l.tariff)]
+
+/**
+ * Legame dal testo del file. `layout` (config.fileLayout): i codici che quella
+ * società usa («C» = coniuge, «F» = figlio), indicati una volta all'import;
+ * poi le parole di ogni legame del programma (`cfg`), a inizio parola.
+ */
+export function normLegame(v, layout, cfg) {
+  const s = String(v || '').trim().toUpperCase()
+  if (!s) return null
+  const coded = layout && layout.legameCodes ? layout.legameCodes[normHead(s)] : null
+  if (coded) return coded
+  const n = normHead(s)
+  const legs = legamiOf(cfg || (layout && layout.legami ? { legami: layout.legami } : null))
+  for (const l of legs) if (n === normHead(l.key)) return l.key
+  for (const l of legs) {
+    const words = String(l.words || '').split(',').map((w) => normHead(w)).filter((w) => w.length > 2)
+    if (normHead(l.label).length > 2) words.push(normHead(l.label))
+    if (words.some((w) => n === w || n.startsWith(`${w} `) || (w.length >= 4 && n.startsWith(w.slice(0, Math.max(4, w.length - 2)))))) return l.key
+  }
+  return null
+}
+
+/** Categoria dal testo ('DIRIGENTI QUIESCENTI', 'Impiegato'…) → chiave e quiescenza. */
+export function normCategory(v, categories, layout) {
+  const s = String(v || '').trim().toUpperCase()
+  if (!s) return { key: null, quiescente: false }
+  // codici della società («QUADRO» = Funzionari, «DIR-Q» = Dirigenti quiescenti)
+  const coded = layout && layout.categoryCodes ? layout.categoryCodes[normHead(s)] : null
+  if (coded) {
+    const [key, q] = String(coded).split('|')
+    if ((categories || []).some((c) => c.key === key)) return { key, quiescente: q === 'Q' }
+  }
+  const quiescente = /QUIESC/.test(s)
+  const words = s.replace(/QUIESCENT[EI]/g, '').trim()
+  for (const c of categories || []) {
+    const lab = String(c.label || c.key).toUpperCase()
+    // radice comune: «IMPIEGATO» = «IMPIEGATI», «DIRIGENTE» = «DIRIGENTI»
+    const root = lab.slice(0, Math.max(5, lab.length - 2))
+    if (words.startsWith(root) || words === String(c.key).toUpperCase()) return { key: c.key, quiescente }
+  }
+  return { key: null, quiescente }
+}
+
+const catWords = (v) => normHead(v).split(' ').filter(Boolean)
+// stessa parola o stessa radice («DIPENDENTI» = «DIPENDENTE»)
+const sameWord = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && a.slice(0, Math.max(5, a.length - 2)) === b.slice(0, Math.max(5, a.length - 2)))
+/** Le parole del foglio sono quelle dell'etichetta, anche con le sigle («RE» = «Real Estate»)? */
+function alignWords(S, L) {
+  const go = (i, j) => {
+    if (i === S.length) return j === L.length
+    if (j < L.length && sameWord(S[i], L[j]) && go(i + 1, j + 1)) return true
+    for (let k = 2; j + k <= L.length && k <= S[i].length; k++) {
+      if (L.slice(j, j + k).map((w) => w[0]).join('') === S[i] && go(i + 1, j + k)) return true
+    }
+    return false
+  }
+  return S.length > 0 && go(0, 0)
+}
+
+/**
+ * Categoria di un FOGLIO del file («SGR Dipendenti», «Variazioni RE
+ * Dipendenti», «DIRIGENTI»): prima il nome intero contro l'etichetta e i nomi
+ * nei file della categoria (`words`), anche con le sigle; poi la regola di
+ * sempre (radice a inizio nome); poi senza le prime parole («SGR DIPENDENTI»
+ * → «DIPENDENTI») per un programma che ha solo «Dipendenti». `strict`: senza
+ * quest'ultimo passo (l'import guidato decide se proporre le categorie del file).
+ */
+export function sheetCategory(name, cfg, strict = false) {
+  const base = isVarSheet(name, cfg) ? stripVarWord(name, cfg) : normHead(name)
+  const cats = (cfg && cfg.categories) || []
+  const S = catWords(base)
+  for (const c of cats) {
+    for (const lab of [c.label, c.key, ...wordList(c.words)]) if (lab && alignWords(S, catWords(lab))) return { key: c.key, quiescente: false }
+  }
+  const n = normCategory(base, cats)
+  if (n.key || strict) return n
+  for (let d = 1; d < S.length; d++) { const r = normCategory(S.slice(d).join(' '), cats); if (r.key) return r }
+  return { key: null, quiescente: false }
+}
+
+export function defaultProgramConfig(year = new Date().getFullYear()) {
+  return {
+    periodStart: `${year}-01-01`,
+    periodEnd: `${year + 1}-01-01`, // escluso: la copertura termina il 31/12
+    categories: [
+      { key: 'dirigenti', label: 'Dirigenti', policy: '', mode: 'nucleo', rank: 3, tariffs: { titolare: 0, quiescente: 0 }, quota: 10 },
+      { key: 'funzionari', label: 'Funzionari', policy: '', mode: 'nucleo', rank: 2, tariffs: { titolare: 0, quiescente: 0 }, quota: 10 },
+      { key: 'impiegati', label: 'Impiegati', policy: '', mode: 'persona', rank: 1, tariffs: { titolare: 0, coniuge: 0, figlio: 0 }, quota: 10 },
+    ],
+    rules: {
+      firstSemesterEnd: '06-30', // entrata fino a questo giorno incluso = 100%
+      secondSemesterPct: 50,
+      prorata: 'giorni', // 'giorni' | 'mesi' (30/360)
+      refundTaxPct: 2.5, // rimborso al netto dell'imposta
+      notifyDays: 30, // inclusione comunicata entro N giorni: decorre dalla data richiesta
+      coverUntilPeriodEnd: true, // chi cessa resta coperto fino a fine periodo
+      maxAge: 80, // limite d'età della polizza: al rinnovo un avviso, mai un'esclusione
+    },
+    mail: { cc: '', signature: '' },
+  }
+}
+
+export function categoryOf(cfg, key) { return (cfg.categories || []).find((c) => c.key === key) || null }
+
+/**
+ * Tariffe della categoria per un'età: quelle uniche, o la fascia d'età che la
+ * comprende (`tariffBy: 'eta'`, fasce `ageBands` con «fino a» anni; l'ultima
+ * senza limite vale per tutti gli altri). Età sconosciuta = ultima fascia.
+ */
+export function tariffsFor(cat, age) {
+  if (!cat) return {}
+  if (cat.tariffBy === 'eta' && Array.isArray(cat.ageBands) && cat.ageBands.length) {
+    const bands = [...cat.ageBands].sort((a, b) => (a.upTo == null ? 1e9 : a.upTo) - (b.upTo == null ? 1e9 : b.upTo))
+    const last = bands[bands.length - 1]
+    if (age == null) return last
+    return bands.find((b) => b.upTo == null || age <= b.upTo) || last
+  }
+  return cat.tariffs || {}
+}
+
+/**
+ * Tariffe in euro di una riga (categoria o fascia): ogni tariffa è un importo
+ * fisso o una percentuale di altre tariffe della stessa riga («coniuge = 50%
+ * del titolare»). Si risolvono a giri finché non cambia più nulla, così una
+ * percentuale di una percentuale funziona; un giro circolare resta a 0.
+ */
+export function resolveTariffs(t) {
+  const out = {}
+  const keys = Object.keys(t || {})
+  for (const k of keys) { const v = normValue(t[k]); if (v.mode === 'fisso') out[k] = v.value }
+  for (let pass = 0; pass < keys.length; pass++) {
+    let changed = false
+    for (const k of keys) {
+      if (k in out) continue
+      const v = normValue(t[k])
+      if (v.mode === 'fisso' || !v.of.every((b) => b in out || !(b in t))) continue
+      out[k] = Math.round(evalValue(v, out) * 100) / 100
+      changed = true
+    }
+    if (!changed) break
+  }
+  for (const k of keys) if (!(k in out)) out[k] = 0
+  return out
+}
+
+/**
+ * Copertura scritta nel file per la persona («RSM + IPM», «SOLO IPM»): la
+ * colonna COPERTURA (o quella indicata come copertura nel tracciato), salvata
+ * fra le colonne della società. '' se il file non la dice.
+ */
+export function coverageOf(cfg, m) {
+  const ex = m && m.extra
+  if (!ex || typeof ex !== 'object') return ''
+  const heads = new Set(['COPERTURA', ...Object.entries((cfg && cfg.fileLayout && cfg.fileLayout.columns) || {}).filter(([, f]) => f === 'copertura').map(([h]) => h)])
+  for (const [k, v] of Object.entries(ex)) if (heads.has(normHead(k)) && v != null && String(v).trim()) return String(v).trim()
+  return ''
+}
+
+/**
+ * Copertura con un premio diverso (`category.variants`, 20/11/2026, Amundi:
+ * titolare «RSM + IPM» 3.640 €, «SOLO IPM» 744 €): la prima il cui nome o le
+ * cui parole nei file coincidono con la copertura della persona.
+ */
+export function variantFor(cat, coverage) {
+  const c = normHead(coverage)
+  if (!cat || !c || !Array.isArray(cat.variants)) return null
+  return cat.variants.find((v) => [...wordList(v.words), normHead(v.label)].some((w) => w && (c === w || c.startsWith(`${w} `)))) || null
+}
+
+/** Premio annuo di una persona nella sua categoria (0 per i familiari del premio a nucleo). */
+export function annualPremium(cfg, catKey, legame, quiescente, age, coverage) {
+  const cat = categoryOf(cfg, catKey)
+  if (!cat) return 0
+  const v = variantFor(cat, coverage)
+  // le tariffe della copertura sostituiscono solo quelle che indica
+  const own = v ? Object.fromEntries(Object.entries(v.tariffs || {}).filter(([, x]) => x != null && x !== '')) : {}
+  const t = resolveTariffs({ ...tariffsFor(cat, age), ...own })
+  const holder = () => Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
+  if (legame === 'TI') return holder()
+  if (cat.mode === 'nucleo') return 0
+  const leg = legamiOf(cfg).find((l) => l.key === legame)
+  return leg ? Number(t[leg.tariff]) || 0 : 0
+}
+
+/** Quota associativa di una categoria per un premio annuo (fissa o percentuale del premio). */
+export function quotaOf(cat, annuo) {
+  return Math.round(evalValue(cat ? cat.quota : 0, { premio: annuo }) * 100) / 100
+}
+
+/**
+ * Scaglioni d'entrata (modo «semestri»): fino a quale giorno, quanto si paga
+ * del premio annuo (percentuale del premio, o importo fisso). I programmi
+ * vecchi: fino a `firstSemesterEnd` il 100%, poi `secondSemesterPct`.
+ */
+export function entryStepsOf(cfg) {
+  const r = (cfg && cfg.rules) || {}
+  if (Array.isArray(r.entrySteps) && r.entrySteps.length) {
+    return [...r.entrySteps].map((x) => ({ until: /^\d{2}-\d{2}$/.test(String(x.until)) ? x.until : '12-31', value: normValue(x.value, { mode: 'percentuale', of: ['premio'] }) }))
+      .sort((a, b) => a.until.localeCompare(b.until))
+  }
+  return [
+    { until: r.firstSemesterEnd || '06-30', value: { mode: 'percentuale', value: 100, of: ['premio'] } },
+    { until: '12-31', value: { mode: 'percentuale', value: Number(r.secondSemesterPct ?? 50), of: ['premio'] } },
+  ]
+}
+
+/**
+ * Trattenuta sul rimborso: percentuale = imposta da scorporare (rimborso /
+ * (1 + p%), «al netto del 2,5%»), importo fisso = si toglie quella cifra.
+ */
+export function refundTaxOf(cfg) {
+  const r = (cfg && cfg.rules) || {}
+  return normValue(r.refundTax != null ? r.refundTax : r.refundTaxPct ?? 0, { mode: 'percentuale', of: ['rimborso'] })
+}
+
+/** Frazione del periodo da `date` (incluso) alla fine, col metodo scelto. */
+export function prorataFraction(cfg, date) {
+  const start = cfg.periodStart, end = cfg.periodEnd
+  if (!date || date <= start) return 1
+  if (date >= end) return 0
+  if ((cfg.rules || {}).prorata === 'mesi') return days360(date, end) / days360(start, end)
+  return daysBetween(date, end) / daysBetween(start, end)
+}
+
+/** Ultimo giorno del 1° semestre nell'anno del periodo. */
+export function firstSemesterEnd(cfg) {
+  const md = (cfg.rules || {}).firstSemesterEnd || '06-30'
+  return `${cfg.periodStart.slice(0, 4)}-${md}`
+}
+
+/**
+ * Decorrenza di un'inclusione: la data richiesta se comunicata entro
+ * `notifyDays` giorni da quella data (o prima), altrimenti la data della
+ * comunicazione. Una data forzata dall'operatore vince sempre.
+ */
+export function decorrenza(cfg, requested, communicated, forced) {
+  if (forced) return { date: forced, reason: 'forzata' }
+  const days = Number((cfg.rules || {}).notifyDays ?? 30)
+  /** @type {{ date: string | null, reason: string, shifted?: string }} */
+  let out
+  if (!requested) out = { date: communicated || null, reason: 'comunicazione' }
+  else if (!communicated) out = { date: requested, reason: 'richiesta' }
+  else if (daysBetween(requested, communicated) <= days) out = { date: requested, reason: 'richiesta' }
+  else out = { date: communicated, reason: 'tardiva' }
+  // «1° giorno del mese successivo»: una data che non è già il primo del mese slitta
+  if ((cfg.rules || {}).decorrenzaMode === 'mese' && out.date && out.date.slice(8) !== '01') {
+    const y = +out.date.slice(0, 4), m = +out.date.slice(5, 7)
+    out = { ...out, date: m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`, shifted: out.date }
+  }
+  return out
+}
+
+/** Chi cessa esce dalla data con un rimborso (invece di restare coperto fino a fine periodo). */
+export const refundsCessation = (cfg) => ((cfg && cfg.rules) || {}).exitMode === 'rimborso'
+
+/** Età di riferimento di una riga per la tariffa: alla decorrenza, o a inizio periodo. */
+export function memberAge(cfg, m) {
+  const ref = m.entryDate && m.entryDate > cfg.periodStart ? m.entryDate : cfg.periodStart
+  return ageAt(m.birthDate || decodeCf(m.cf, +cfg.periodStart.slice(0, 4) + 1).birthDate, ref)
+}
+
+/**
+ * Conteggi di una riga di copertura (persona in una categoria): premio annuo,
+ * frazione, quota associativa, dovuto, rimborso. Sempre ricalcolati dalla
+ * configurazione: i fatti salvati sono solo date, legami e categoria.
+ */
+export function computeMember(cfg, m) {
+  const r = cfg.rules || {}
+  const cat0 = categoryOf(cfg, m.category)
+  const byAge = cat0 && cat0.tariffBy === 'eta'
+  const annuo = annualPremium(cfg, m.category, m.legame, m.quiescente, byAge ? memberAge(cfg, m) : null, coverageOf(cfg, m))
+  let frazione = 1
+  let calc = ''
+  const entry = m.entryDate
+  const cat = categoryOf(cfg, m.category)
+  if (!entry || entry <= cfg.periodStart) {
+    calc = 'annuo intero'
+  } else if (m.entryKind === 'promozione' && r.promotionEntry !== 'comeEntrata') {
+    // promozione: pro-rata (di default) o come qualunque entrata (rules.promotionEntry)
+    frazione = prorataFraction(cfg, entry)
+    calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
+  } else if (r.entryMode === 'intero') {
+    calc = 'premio intero'
+  } else if (r.entryMode === 'prorata') {
+    frazione = prorataFraction(cfg, entry)
+    calc = r.prorata === 'mesi' ? 'pro-rata a mesi' : `pro-rata ${daysBetween(entry, cfg.periodEnd)}/${daysBetween(cfg.periodStart, cfg.periodEnd)} giorni`
+  } else {
+    // scaglioni d'entrata: il primo il cui «fino al» comprende la data
+    const md = entry.slice(5)
+    const steps = entryStepsOf(cfg)
+    const k = steps.findIndex((x) => md <= x.until)
+    const step = steps[k < 0 ? steps.length - 1 : k]
+    const v = step.value
+    const due = evalValue(v, { premio: annuo })
+    frazione = annuo > 0 ? due / annuo : 0
+    const it = (x) => String(x).replace('.', ',')
+    calc = steps.length === 2 && v.mode === 'percentuale' && v.of.length === 1 && v.of[0] === 'premio'
+      ? `${k === 0 ? '1°' : '2°'} semestre: ${it(v.value)}%`
+      : `entrata fino al ${step.until.split('-').reverse().join('/')}: ${v.mode === 'fisso' ? `${it(v.value)} €` : `${it(v.value)}${v.mode === 'permille' ? '‰' : '%'} del premio`}`
+  }
+  if (annuo === 0 && cat && cat.mode === 'nucleo' && m.legame !== 'TI') calc = 'compreso nel nucleo'
+  const rateo = round2(annuo * frazione)
+  // Quota associativa (regole configurabili): chi la paga (solo il titolare o
+  // chiunque abbia un premio), intera o con la stessa frazione del premio, e se
+  // torna col rimborso.
+  const payer = r.quotaWho === 'tutti' ? annuo > 0 : m.legame === 'TI' && annuo > 0
+  const quotaFull = payer ? quotaOf(cat, annuo) : 0
+  const quota = r.quotaMode === 'comePremio' ? round2(quotaFull * frazione) : quotaFull
+  let rimborso = 0
+  if ((m.exitKind === 'promozione' || (m.exitKind === 'cessazione' && refundsCessation(cfg))) && m.exitDate && annuo > 0) {
+    const tax = refundTaxOf(cfg)
+    const exitFrac = prorataFraction(cfg, m.exitDate)
+    const gross = annuo * exitFrac
+    rimborso = round2(tax.mode === 'fisso' ? Math.max(0, gross - tax.value)
+      : tax.mode === 'permille' ? gross / (1 + tax.value / 1000) : gross / (1 + tax.value / 100))
+    if (r.quotaRefund && quotaFull) rimborso = round2(rimborso + quotaFull * exitFrac)
+  }
+  const dovuto = round2(rateo + quota)
+  return { annuo, frazione, rateo, quota, dovuto, rimborso, saldo: round2(dovuto - rimborso), calc }
+}
+
+/**
+ * Stato di una riga a una data: 'futuro' (non ancora entrata), 'attivo',
+ * 'cessazione' (cessata ma coperta fino a fine periodo), 'uscito' (fuori:
+ * promozione o cessazione oltre la fine), 'promosso'.
+ */
+export function statusAt(cfg, m, date) {
+  if (m.entryDate && date < m.entryDate) return 'futuro'
+  if (m.exitDate && date >= m.exitDate) {
+    if (m.exitKind === 'promozione') return 'promosso'
+    if ((cfg.rules || {}).coverUntilPeriodEnd !== false && !refundsCessation(cfg) && date < cfg.periodEnd) return 'cessazione'
+    return 'uscito'
+  }
+  return 'attivo'
+}
+
+export const isCovered = (state) => state === 'attivo' || state === 'cessazione'
+
+/** Anni compiuti a una data ISO. */
+export function ageAt(birthISO, atISO) {
+  if (!birthISO || !atISO) return null
+  let a = +atISO.slice(0, 4) - +birthISO.slice(0, 4)
+  if (atISO.slice(5) < birthISO.slice(5)) a--
+  return a
+}
+
+/**
+ * Stato di rischio «pulito» per l'anno dopo (regole di CSA, 17/11/2026): chi è
+ * in copertura al primo giorno del nuovo periodo (`cfg.periodEnd`). Fuori i
+ * cessati dell'anno e le righe chiuse da una promozione (la persona c'è già
+ * nella categoria nuova); dentro chi entra entro il 31/12, col suo premio.
+ * Chi ha una decorrenza nel nuovo anno va nel PROMEMORIA in fondo all'elenco.
+ * Il limite d'età non esclude mai: è un avviso, si decide con la compagnia.
+ * → { keep: [{ m, alerts }], next: [{ m, alerts }], dropped: [{ m, reason }], at }
+ */
+export function renewalPlan(cfg, members) {
+  const at = cfg.periodEnd
+  const maxAge = maxAgeOf(cfg)
+  const keep = [], next = [], dropped = []
+  for (const m of members) {
+    if (m.entryDate && m.entryDate >= at) { next.push({ m, alerts: [] }); continue }
+    const st = statusAt(cfg, m, at)
+    if (st !== 'attivo') { dropped.push({ m, reason: st === 'promosso' ? 'promozione' : 'cessazione' }); continue }
+    keep.push({ m, alerts: [] })
+  }
+  const covered = new Set(keep.concat(next).filter((x) => x.m.legame === 'TI').map((x) => `${x.m.category}|${x.m.cf}`))
+  for (const x of keep.concat(next)) {
+    const a = ageAt(x.m.birthDate || decodeCf(x.m.cf).birthDate, at)
+    if (maxAge && a != null && a >= maxAge) x.alerts.push(`${a} anni al ${fmtDate(at)}: oltre il limite di ${maxAge} della polizza, da verificare con la compagnia`)
+    const leg = legamiOf(cfg).find((l) => l.key === x.m.legame)
+    if (leg && leg.key !== 'TI' && leg.maxAge && a != null && a > leg.maxAge) x.alerts.push(`${leg.label.toLowerCase()} di ${a} anni: oltre l'età massima di ${leg.maxAge}`)
+    if (x.m.exitDate && x.m.exitDate > at) x.alerts.push(`uscita comunicata dal ${fmtDate(x.m.exitDate)}`)
+    if (x.m.legame !== 'TI' && x.m.cfTitolare === x.m.cf) x.alerts.push('come capo nucleo ha il proprio codice fiscale: manca il titolare')
+    else if (x.m.legame !== 'TI' && x.m.cfTitolare && !covered.has(`${x.m.category}|${x.m.cfTitolare}`)) x.alerts.push('il titolare del nucleo non è più in copertura')
+  }
+  return { keep, next, dropped, at }
+}
+
+/* ─── Promozione ────────────────────────────────────────────────────────── */
+
+/**
+ * Anteprima di una promozione: il titolare e i familiari del nucleo (righe
+ * della categoria di partenza attive alla data) escono dalla categoria
+ * `from` ed entrano in `to` dal giorno della promozione.
+ */
+export function previewPromotion(cfg, nucleus, toKey, date) {
+  const exits = nucleus.map((m) => {
+    const after = { ...m, exitDate: date, exitKind: 'promozione' }
+    return { member: m, calc: computeMember(cfg, after) }
+  })
+  const entries = nucleus.map((m) => {
+    const neu = { ...m, id: undefined, category: toKey, entryDate: date, entryKind: 'promozione', exitDate: null, exitKind: null }
+    return { member: neu, calc: computeMember(cfg, neu) }
+  })
+  const rimborso = round2(exits.reduce((s, e) => s + e.calc.rimborso, 0))
+  const dovuto = round2(entries.reduce((s, e) => s + e.calc.dovuto, 0))
+  return { exits, entries, rimborso, dovuto, saldo: round2(dovuto - rimborso) }
+}
+
+/* ─── Lettura dei file Excel del cliente ────────────────────────────────── */
+
+const normHead = (v) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+
+const HEADS = [
+  ['cfAss', /^(C ?F ?(ASSICURATO|FAMILIARE)|CODICE FISCALE( ASSICURATO)?)$/],
+  ['cfTit', /^(C ?F ?(TITOLARE|CAPO NUCLEO)|CODICE FISCALE TITOLARE)$/],
+  ['societa', /^SOCIETA/],
+  ['categoria', /^CATEGORIA/],
+  ['azione', /^AZIONE/],
+  ['polizza', /^(N(UMERO)? ?POL|NR POLIZZA)/],
+  ['cognome', /^COGNOME/],
+  ['nome', /^NOME/],
+  ['nascita', /NASCITA/],
+  ['legame', /^LEGAME/],
+  ['entrata', /^(DATA (DI )?ENTRATA|DECORRENZA)/],
+  ['uscita', /^DATA (DI )?USCITA/],
+  ['promozione', /^PROMOZIONE/],
+  ['copertura', /^COPERTUR/],
+  ['quiescente', /^QUIESCENTE/],
+  ['note', /^NOTE/],
+]
+
+/**
+ * Riga d'intestazione (quella con COGNOME e NOME) e mappa colonna → campo.
+ * `layout` (config.fileLayout) è il tracciato della società: le sue colonne,
+ * indicate una volta all'import, valgono prima dei nomi riconosciuti da soli;
+ * «extra» = colonna che non serve al calcolo ma si riporta nell'Excel.
+ */
+export function findHeader(rows, layout) {
+  const lcols = (layout && layout.columns) || {}
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const cells = (rows[i] || []).map(normHead)
+    const mapped = cells.map((h) => lcols[h] || null)
+    const syn = (f) => wordList(((layout && layout.words && layout.words.heads) || {})[f])
+    const named = (cells.includes('COGNOME') || mapped.includes('cognome') || syn('cognome').some((w) => cells.includes(w)))
+      && (cells.includes('NOME') || mapped.includes('nome') || syn('nome').some((w) => cells.includes(w)))
+    if (!named) continue
+    const map = {}
+    const extras = []
+    const used = new Set()
+    cells.forEach((h, col) => {
+      const f = mapped[col]
+      if (!f) return
+      used.add(col)
+      if (f === 'extra') extras.push({ col, head: cellStr((rows[i] || [])[col]) })
+      else if (f !== 'skip' && !(f in map)) map[f] = col
+    })
+    const extraHeads = Object.entries((layout && layout.words && layout.words.heads) || {})
+    cells.forEach((h, col) => {
+      if (used.has(col) || !h) return
+      // intestazioni aggiunte nelle impostazioni (parole del programma), poi quelle di sempre
+      for (const [key, words] of extraHeads) if (!(key in map) && wordList(words).some((w) => h === w || h.startsWith(`${w} `))) { map[key] = col; used.add(col); return }
+      for (const [key, re] of HEADS) if (!(key in map) && re.test(h)) { map[key] = col; break }
+    })
+    return { row: i, map, extras }
+  }
+  return null
+}
+
+const cellStr = (v) => (v == null ? '' : v instanceof Date ? v.toISOString() : String(v)).replace(/\s+/g, ' ').trim()
+
+/**
+ * Le colonne di `map` reggono su un foglio SENZA riga d'intestazione? Si guardano
+ * le prime righe piene: dove la mappa dice «codice fiscale» deve esserci un codice
+ * fiscale e dove dice «legame» un legame riconoscibile. Serve per i fogli che il
+ * cliente manda senza intestazione (foglio IMPIEGATI del rinnovo 2026).
+ */
+export function headerFits(rows, map, layout) {
+  if (map == null || map.cfAss == null || map.cognome == null) return false
+  let seen = 0, ok = 0
+  for (let i = 0; i < rows.length && seen < 8; i++) {
+    const r = rows[i] || []
+    if (!r.some((c) => c != null && String(c).trim() !== '')) continue
+    seen++
+    const cf = cleanCf(r[map.cfAss])
+    const leg = map.legame == null ? 'TI' : normLegame(r[map.legame], layout)
+    if (/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST]/.test(cf) && leg) ok++
+  }
+  return seen > 0 && ok >= Math.max(1, Math.ceil(seen * 0.7))
+}
+
+/**
+ * Righe di un file di comunicazione («File per comunicazioni teste»):
+ * intestazione cercata per nome, righe senza cognome né codice fiscale
+ * saltate (legenda in fondo). Valori grezzi, normalizzati ma non controllati.
+ * `fallbackMap`: colonne di un altro foglio dello stesso file, usate quando la
+ * riga d'intestazione manca del tutto e il tracciato combacia.
+ */
+export function headerOrFallback(rows, fallbackMap, layout) {
+  const h = findHeader(rows, layout)
+  if (h) return h
+  if (fallbackMap && headerFits(rows, fallbackMap, layout)) return { row: -1, map: fallbackMap, fromFallback: true, extras: [] }
+  return null
+}
+
+/**
+ * Colonne del foglio con l'intestazione più completa: tracciato di riferimento del
+ * file. `only` limita la ricerca ai fogli dello stesso tipo (stato o variazioni),
+ * che nel file del cliente hanno colonne diverse.
+ */
+export function referenceHeader(sheets, only, layout) {
+  let map = null, sheet = ''
+  for (const name of Object.keys(sheets || {})) {
+    if (only && !only(name)) continue
+    const h = findHeader(sheets[name] || [], layout)
+    if (h && (!map || Object.keys(h.map).length > Object.keys(map).length)) { map = h.map; sheet = name }
+  }
+  return { map, sheet }
+}
+
+const withCoverage = (extra, head, value) => (head && value ? { ...(extra || {}), [head]: value } : extra)
+
+export function parseCommunicationRows(rows, refYear, fallbackMap, layout) {
+  const h = headerOrFallback(rows, fallbackMap, layout)
+  if (!h) return { error: 'Intestazione non trovata: serve una riga con COGNOME e NOME.', rows: [] }
+  const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
+  const coverHead = h.map.copertura == null ? '' : (h.row >= 0 && cellStr((rows[h.row] || [])[h.map.copertura])) || 'COPERTURA'
+  const out = []
+  for (let i = h.row + 1; i < rows.length; i++) {
+    const r = rows[i] || []
+    const cognome = cellStr(get(r, 'cognome'))
+    const cfAss = cleanCf(get(r, 'cfAss'))
+    const cfTit = cleanCf(get(r, 'cfTit'))
+    if (!cognome && !cfAss) continue
+    // riga di solo testo (totale, titolo, promemoria): nessun codice fiscale, nome né legame
+    if (!cfAss && !cfTit && !cellStr(get(r, 'nome')) && !cellStr(get(r, 'legame'))) continue
+    out.push({
+      rowNumber: i + 1,
+      societa: cellStr(get(r, 'societa')),
+      categoria: cellStr(get(r, 'categoria')),
+      azione: cellStr(get(r, 'azione')).toUpperCase(),
+      polizza: cellStr(get(r, 'polizza')),
+      cognome,
+      nome: cellStr(get(r, 'nome')),
+      birthDate: normDate(get(r, 'nascita'), refYear),
+      cf: cfAss,
+      cfTitolare: cfTit,
+      legame: normLegame(get(r, 'legame'), layout),
+      legameRaw: cellStr(get(r, 'legame')),
+      entryDate: normDate(get(r, 'entrata'), refYear),
+      exitDate: normDate(get(r, 'uscita'), refYear),
+      note: cellStr(get(r, 'note')),
+      // colonne della società che non servono al calcolo: tornano nell'Excel;
+      // la copertura sta con loro (decide la tariffa, `coverageOf`)
+      extra: withCoverage((h.extras || []).length ? Object.fromEntries(h.extras.map((x) => [x.head, cellStr(r[x.col])])) : null, coverHead, cellStr(get(r, 'copertura'))),
+    })
+  }
+  return { rows: out, header: h }
+}
+
+/**
+ * Prepara le righe di un file di comunicazione per la registrazione: eredità
+ * di categoria/data dal titolare, controlli, decorrenza e premio.
+ * `existing`: righe già registrate nel programma (per trovare il titolare e i
+ * doppioni). `communicated`: data di ricezione del file.
+ */
+export function prepareCommunication(cfg, parsed, existing, communicated) {
+  const refYear = +cfg.periodStart.slice(0, 4)
+  const layout = readLayout(cfg)
+  const byCfFile = new Map()
+  for (const r of parsed) {
+    if (r.legame === 'TI' && !r.cf && r.cfTitolare) r.cf = r.cfTitolare
+    if (r.legame === 'TI' && !r.cfTitolare && r.cf) r.cfTitolare = r.cf
+    if (r.legame === 'TI' && r.cf && !byCfFile.has(r.cf)) byCfFile.set(r.cf, r)
+  }
+  // Familiare col PROPRIO codice fiscale nella colonna del titolare e quella
+  // dell'assicurato vuota (CAV(12) del cliente): se il codice è suo per
+  // cognome e nome lo si sposta, e il titolare è l'unico del file.
+  const tis = parsed.filter((r) => r.legame === 'TI' && r.cf)
+  for (const r of parsed) {
+    if (r.cf || !r.cfTitolare || r.legame === 'TI') continue
+    const d = decodeCf(r.cfTitolare, refYear)
+    if (d.valid && surnameCode(r.cognome) === d.surname && nameCode(r.nome) === d.name) {
+      r.cf = r.cfTitolare
+      r.cfTitolare = tis.length === 1 ? tis[0].cf : ''
+      r.cfMoved = true
+    }
+  }
+  const cfCount = new Map()
+  for (const r of parsed) if (r.cf) cfCount.set(r.cf, (cfCount.get(r.cf) || 0) + 1)
+  const active = (existing || []).filter((m) => isCovered(statusAt(cfg, m, communicated || cfg.periodStart)) || statusAt(cfg, m, communicated || cfg.periodStart) === 'futuro')
+  return parsed.map((r) => {
+    const issues = []
+    const exit = r.azione === 'U' || r.azione.startsWith('USC') || (!!r.exitDate && !r.entryDate)
+    const tit = r.legame === 'TI' ? r : (byCfFile.get(r.cfTitolare) || null)
+    const titExisting = r.cfTitolare ? (existing || []).find((m) => m.cf === r.cfTitolare && m.legame === 'TI') : null
+    let { key: category, quiescente } = normCategory(r.categoria, cfg.categories, layout)
+    if (!category && tit && tit !== r) ({ key: category, quiescente } = normCategory(tit.categoria, cfg.categories, layout))
+    if (!category && titExisting) { category = titExisting.category; quiescente = !!titExisting.quiescente }
+    if (!category && exit && r.cf) {
+      const found = active.find((m) => m.cf === r.cf)
+      if (found) category = found.category
+    }
+    if (!r.legame) issues.push({ code: 'legame', level: 'error', text: `Legame «${r.legameRaw || 'vuoto'}» non riconosciuto (TI, CO, FI o FA).` })
+    if (!category) issues.push({ code: 'categoria', level: 'error', text: `Categoria mancante (${(cfg.categories || []).map((c) => c.label).join(', ')}).` })
+    const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
+    issues.push(...person.issues)
+    if (r.cfMoved) issues.push({ code: 'cf-colonna', level: 'warning', text: `Il codice fiscale ${r.cf} era nella colonna del titolare: è di questa persona${r.cfTitolare ? `, titolare ${r.cfTitolare}` : ''}.` })
+    if (r.cf && cfCount.get(r.cf) > 1) issues.push({ code: 'doppione-file', level: 'error', text: `Lo stesso codice fiscale ${r.cf} compare su più righe del file.` })
+    const entryDate = r.entryDate || (tit && tit !== r ? tit.entryDate : null)
+    if (!exit && !entryDate) issues.push({ code: 'entrata', level: 'error', text: 'Data di entrata mancante.' })
+    if (r.legame && r.legame !== 'TI') {
+      if (!r.cfTitolare) issues.push({ code: 'titolare', level: 'error', text: 'Codice fiscale del titolare mancante.' })
+      else if (!tit && !titExisting) issues.push({ code: 'titolare-assente', level: 'warning', text: `Il titolare ${r.cfTitolare} non è né nel file né tra gli assicurati.` })
+    }
+    const dup = r.cf ? active.find((m) => m.cf === r.cf && m.category === category) : null
+    if (!exit && dup) issues.push({ code: 'doppione', level: 'warning', text: 'Persona già assicurata in questa categoria.' })
+    // Già coperta in un'ALTRA categoria: non è un'inclusione ma (quasi sempre)
+    // una promozione, che va registrata come tale (uscita + entrata insieme).
+    // Errore interno: blocca la riga, ma non finisce nella mail a chi manda il file.
+    const other = !exit && r.cf && category ? active.find((m) => m.cf === r.cf && m.category !== category && !m.exitKind) : null
+    if (other) {
+      const tit = other.legame === 'TI' ? other : (existing || []).find((m) => m.category === other.category && m.cf === other.cfTitolare && m.legame === 'TI' && !m.exitKind) || other
+      issues.push({
+        code: 'altra-categoria', level: 'error', mail: false,
+        text: `Già assicurato/a come ${(categoryOf(cfg, other.category) || {}).label || other.category}: se è una promozione registrala da «Promozioni» (esce da una categoria ed entra nell'altra insieme al nucleo); se ha cessato, registra prima la cessazione.`,
+        promote: { memberId: tit.id, to: category, date: entryDate },
+      })
+    }
+    if (exit && r.cf) {
+      // si chiude solo una riga ancora aperta; una cessazione già registrata non si ripete
+      const openRow = (existing || []).find((m) => m.cf === r.cf && !m.exitKind)
+      const closed = (existing || []).find((m) => m.cf === r.cf && m.exitKind)
+      if (!openRow && closed) issues.push({ code: 'gia-uscito', level: 'error', mail: false, text: `Uscita già registrata dal ${fmtDate(closed.exitDate)}.` })
+      else if (!openRow) issues.push({ code: 'non-trovato', level: 'error', text: 'Uscita di una persona che non risulta tra gli assicurati.' })
+    }
+    if (exit && !r.exitDate && !r.entryDate) issues.push({ code: 'uscita-data', level: 'error', text: 'Data di uscita mancante.' })
+    if (r.polizza && category) {
+      const pol = (categoryOf(cfg, category) || {}).policy
+      if (pol && cleanCf(pol) !== cleanCf(r.polizza)) issues.push({ code: 'polizza', level: 'warning', text: `Numero di polizza ${r.polizza} diverso da quello della categoria (${pol}).` })
+    }
+    const legRule = legamiOf(cfg).find((l) => l.key === r.legame)
+    const kidMax = legRule && legRule.key !== 'TI' ? Number(legRule.maxAge) || 0 : 0
+    const kidAge = kidMax && !exit ? ageAt(person.birthDate, entryDate || communicated) : null
+    if (kidAge != null && kidAge > kidMax) issues.push({ code: 'figlio-eta', level: 'warning', text: `${legRule.label} di ${kidAge} anni: oltre l'età massima di ${kidMax}.` })
+    const dec = exit ? null : decorrenza(cfg, entryDate, communicated, null)
+    if (dec && dec.shifted) issues.push({ code: 'mese', level: 'info', text: `Decorre dal ${fmtDate(dec.date)}, 1° del mese successivo al ${fmtDate(dec.shifted)}.` })
+    if (dec && dec.reason === 'tardiva') issues.push({ code: 'tardiva', level: 'warning', text: `Comunicata oltre ${cfg.rules.notifyDays} giorni: decorre dal ${fmtDate(dec.date)} invece che dal ${fmtDate(entryDate)}.` })
+    if (dec && dec.date && (dec.date < cfg.periodStart || dec.date >= cfg.periodEnd)) issues.push({ code: 'periodo', level: 'error', text: `Data ${fmtDate(dec.date)} fuori dal periodo di polizza.` })
+    const member = {
+      category, quiescente: !!quiescente, cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(),
+      birthDate: person.birthDate, legame: r.legame, cfTitolare: r.legame === 'TI' ? r.cf : r.cfTitolare,
+      requestedDate: exit ? null : entryDate, communicatedDate: communicated || null,
+      entryDate: dec ? dec.date : null, entryKind: 'inclusione',
+      exitDate: exit ? (r.exitDate || entryDate) : null, exitKind: exit ? 'cessazione' : null,
+      extra: r.extra || null,
+    }
+    const calc = !exit && category && member.entryDate ? computeMember(cfg, member) : null
+    return { ...r, action: exit ? 'uscita' : 'entrata', member, calc, issues, hasError: issues.some((i) => i.level === 'error') }
+  })
+}
+
+/* ─── Mail per i dati errati ────────────────────────────────────────────── */
+
+/**
+ * Mail pronta da inviare a chi ha trasmesso il file, con le righe che hanno
+ * errori. Solo gli errori: gli avvisi restano a chi registra.
+ */
+export const mailIssues = (r) => r.issues.filter((i) => i.level === 'error' && i.mail !== false)
+
+export function buildErrorMail({ fileName, receivedOn, rows, to, cc, signature, cfg }) {
+  const T = mailTextsOf(cfg)
+  const bad = rows.filter((r) => mailIssues(r).length)
+  const lines = bad.map((r) => {
+    const who = `${String(r.cognome || '').toUpperCase()} ${String(r.nome || '').toUpperCase()}`.trim() || '(senza nome)'
+    const errs = mailIssues(r).map((i) => `   - ${i.text}`).join('\n')
+    return `• ${who} (riga ${r.rowNumber})\n${errs}`
+  })
+  const subject = fill(T.subject, { file: fileName || 'comunicazione inclusioni' })
+  const ok = rows.filter((r) => !r.hasError).length
+  const body = [
+    T.greeting,
+    '',
+    fill(T.intro, { file: fileName || '', data: receivedOn ? ` ricevuto il ${fmtDate(receivedOn)}` : '', n: bad.length }),
+    '',
+    ...lines,
+    '',
+    ok === 0
+      ? fill(T.askAll, { file: fileName || '', n: bad.length })
+      : fill(T.askSome, { file: fileName || '', n: bad.length, altre: `${ok === 1 ? 'L\'altra riga del file è stata registrata' : `Le altre ${ok} righe del file sono state registrate`} regolarmente.` }),
+    '',
+    T.closing,
+    ...(signature ? ['', signature] : []),
+  ].join('\n')
+  return { to: to || '', cc: cc || '', subject, body, count: bad.length }
+}
+
+/** File .eml (bozza da aprire nel programma di posta). */
+const base64Utf8 = (s) => (typeof Buffer !== 'undefined'
+  ? Buffer.from(s, 'utf8').toString('base64')
+  : btoa(Array.from(new TextEncoder().encode(s), (b) => String.fromCharCode(b)).join('')))
+
+export function buildEml({ to, cc, subject, body }) {
+  const enc = (s) => `=?UTF-8?B?${base64Utf8(s)}?=`
+  const b64 = base64Utf8(body.replace(/\n/g, '\r\n')).replace(/.{76}/g, '$&\r\n')
+  return [
+    `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    `Subject: ${enc(subject)}`,
+    'X-Unsent: 1',
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    b64,
+    '',
+  ].join('\r\n')
+}
+
+/* ─── Import dello stato di rischio (il loro Excel) ─────────────────────── */
+
+const yes = (v, cfg) => { const t = normHead(v); return !!t && wordList(wordsOf(cfg).yes).includes(t) }
+
+/**
+ * Stato di rischio del cliente: un foglio per categoria (situazione al 01/01)
+ * e «Variazioni <CATEGORIA>» (entrate e uscite dell'anno). Restituisce le
+ * righe di copertura da registrare e gli avvisi. Le promozioni si legano per
+ * codice fiscale e data tra l'uscita di una categoria e l'entrata in un'altra.
+ */
+export function parseStatoWorkbook(cfg, sheets, resolutions) {
+  const refYear = +cfg.periodStart.slice(0, 4)
+  const layout = readLayout(cfg)
+  const members = []
+  const warnings = []
+  const catOfSheet = (name) => sheetCategory(name, cfg).key
+  const names = Object.keys(sheets)
+  // Tracciato di riferimento: le colonne del foglio con l'intestazione più completa.
+  // Servono ai fogli che il cliente manda SENZA riga d'intestazione (IMPIEGATI del
+  // file di rinnovo 2026): stesse colonne, nello stesso ordine.
+  const isVar = (n) => isVarSheet(n, cfg)
+  const refStato = referenceHeader(sheets, (n) => !isVar(n), layout)
+  const refVar = referenceHeader(sheets, isVar, layout)
+  /**
+   * Categoria di ogni riga: quella del foglio («DIRIGENTI»), o la colonna
+   * categoria letta coi codici della società (file a un foglio solo). Un
+   * familiare senza categoria prende quella del suo titolare nel foglio.
+   */
+  const rowCategories = (name, p, sheetKey) => {
+    const byTit = new Map()
+    const out = new Map()
+    for (const r of p.rows) {
+      const c = sheetKey ? { key: sheetKey, quiescente: normCategory(r.categoria, cfg.categories, layout).quiescente } : normCategory(r.categoria, cfg.categories, layout)
+      if (r.legame === 'TI' && c.key) byTit.set(r.cf, c)
+      out.set(r, c)
+    }
+    for (const r of p.rows) {
+      const c = out.get(r)
+      if (c.key || r.legame === 'TI') continue
+      if (byTit.has(r.cfTitolare)) { out.set(r, { key: byTit.get(r.cfTitolare).key, quiescente: false }); continue }
+      // titolare in un altro foglio (il figlio nato in corso d'anno nelle variazioni, il titolare nello stato)
+      const tit = members.find((m) => m.cf === r.cfTitolare && m.legame === 'TI')
+      if (tit) out.set(r, { key: tit.category, quiescente: false })
+    }
+    return out
+  }
+  const usedFallback = (name, p, ref) => {
+    if (p.header && p.header.fromFallback) warnings.push(`Foglio «${name}»: manca la riga di intestazione, ho letto le colonne come nel foglio «${ref.sheet}». Controlla i nomi nell'anteprima.`)
+  }
+  // 1) fogli di stato al 01/01
+  for (const name of names.filter((n) => !isVar(n))) {
+    const key = catOfSheet(name)
+    // un foglio che non ha il nome di una categoria si legge solo se ha la colonna categoria
+    if (!key) {
+      const h = findHeader(sheets[name] || [], layout)
+      if (!h || h.map.categoria == null) continue
+    }
+    const p = parseCommunicationRows(sheets[name], refYear, key ? refStato.map : null, layout)
+    if (p.error) { if (key) warnings.push(`Foglio «${name}»: ${p.error}`); continue }
+    usedFallback(name, p, refStato)
+    const cats = rowCategories(name, p, key)
+    const quiescTit = new Map()
+    for (const r of p.rows) {
+      if (r.legame === 'TI') quiescTit.set(r.cf, cats.get(r).quiescente || yes(sheets[name][r.rowNumber - 1]?.[p.header.map.quiescente], cfg))
+    }
+    for (const r of p.rows) {
+      if (!r.legame) { warnings.push(`«${name}» riga ${r.rowNumber}: legame «${r.legameRaw || 'vuoto'}» non riconosciuto, riga saltata.`); continue }
+      const rowKey = cats.get(r).key
+      if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
+      const cfTit = r.legame === 'TI' ? r.cf : r.cfTitolare
+      const entry = r.entryDate && r.entryDate > cfg.periodStart ? r.entryDate : cfg.periodStart
+      const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
+      for (const i of person.issues.filter((x) => x.level === 'error')) warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: ${i.text}`)
+      members.push({
+        category: rowKey, quiescente: !!quiescTit.get(cfTit), cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(),
+        birthDate: person.birthDate, legame: r.legame, cfTitolare: cfTit,
+        entryDate: entry, entryKind: entry > cfg.periodStart ? 'inclusione' : 'iniziale', requestedDate: entry,
+        exitDate: null, exitKind: null, source: `Stato di rischio, foglio «${name}» riga ${r.rowNumber}`, note: r.note || '',
+        extra: r.extra || null,
+      })
+    }
+    // Numero di polizza diverso da quello della categoria: lo segnaliamo, non lo correggiamo.
+    const cat = key ? categoryOf(cfg, key) : null
+    const expected = cat && cat.policy ? String(cat.policy).trim() : ''
+    if (expected) {
+      const odd = new Map()
+      for (const r of p.rows) {
+        const num = String(r.polizza || '').trim()
+        if (!/^\d{5,}$/.test(num) || num === expected) continue
+        if (!odd.has(num)) odd.set(num, [])
+        odd.get(num).push(r.rowNumber)
+      }
+      for (const [num, rr] of odd) {
+        warnings.push(`«${name}»: ${rr.length === 1 ? 'una riga ha' : `${rr.length} righe hanno`} il numero di polizza ${num} invece di ${expected} (${cat.label}). ${rr.length === 1 ? 'Riga' : 'Righe'} ${rr.slice(0, 6).join(', ')}${rr.length > 6 ? '…' : ''}.`)
+      }
+    }
+  }
+  // 2) variazioni: prima le entrate, poi le uscite (chi esce può essere entrato in corso d'anno)
+  const varRows = []
+  let outOfPeriod = 0, datedRows = 0
+  for (const name of names.filter((n) => isVar(n))) {
+    const key = catOfSheet(name)
+    const p = parseCommunicationRows(sheets[name], refYear, key ? refVar.map : null, layout)
+    if (!key && (p.error || p.header.map.categoria == null)) continue
+    if (p.error) { warnings.push(`Foglio «${name}»: ${p.error}`); continue }
+    usedFallback(name, p, refVar)
+    const promoCol = p.header.map.promozione
+    const cats = rowCategories(name, p, key)
+    for (const r of p.rows) {
+      const rowKey = cats.get(r).key
+      if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
+      varRows.push({ ...r, key: rowKey, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol], cfg) })
+      for (const [d, isOut] of [[r.entryDate, false], [r.exitDate, true]].filter((x) => x[0])) {
+        datedRows++
+        // un'uscita il giorno di fine periodo è la fine naturale della copertura
+        if (d < cfg.periodStart || (isOut ? d > cfg.periodEnd : d >= cfg.periodEnd)) outOfPeriod++
+      }
+    }
+  }
+  const isExit = (r) => /USC/.test(r.azione) || r.azione === 'U' || (!!r.exitDate && !r.entryDate)
+  for (const r of varRows.filter((x) => !isExit(x))) {
+    if (!r.legame) { warnings.push(`«${r.sheet}» riga ${r.rowNumber}: legame non riconosciuto, riga saltata.`); continue }
+    const cfTit = r.legame === 'TI' ? r.cf : r.cfTitolare
+    const titQ = members.find((m) => m.category === r.key && m.cf === cfTit && m.legame === 'TI')
+    const person = checkPerson({ cognome: r.cognome, nome: r.nome, cf: r.cf, birthDate: r.birthDate }, refYear)
+    for (const i of person.issues.filter((x) => x.level === 'error')) warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: ${i.text}`)
+    members.push({
+      category: r.key, quiescente: normCategory(r.categoria, cfg.categories, layout).quiescente || !!(titQ && titQ.quiescente),
+      cf: r.cf, cognome: r.cognome.toUpperCase(), nome: r.nome.toUpperCase(), birthDate: person.birthDate,
+      legame: r.legame, cfTitolare: cfTit, entryDate: r.entryDate, requestedDate: r.entryDate,
+      entryKind: r.promo ? 'promozione' : 'inclusione', exitDate: null, exitKind: null,
+      source: `Stato di rischio, foglio «${r.sheet}» riga ${r.rowNumber}`, note: r.note || '',
+      extra: r.extra || null,
+    })
+    // entrata e uscita sulla stessa riga (entrato il 01/01, uscito il 30/04): anche l'uscita
+    if (r.exitDate && r.exitDate < cfg.periodEnd && (!r.entryDate || r.exitDate > r.entryDate)) {
+      const m = members[members.length - 1]
+      m.exitDate = r.exitDate
+      m.exitKind = r.promo ? 'promozione' : 'cessazione'
+    }
+  }
+  for (const r of varRows.filter(isExit)) {
+    const date = r.exitDate
+    if (date && date >= cfg.periodEnd) continue // fine naturale della copertura: niente da chiudere
+    if (!date) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza data, riga saltata (registrala dopo l'import).`); continue }
+    if (!r.cf) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza codice fiscale, riga saltata (non si sa chi chiudere).`); continue }
+    const target = members.filter((m) => m.category === r.key && m.cf === r.cf && !m.exitDate && (!date || !m.entryDate || m.entryDate <= date))
+      .sort((a, b) => (b.entryDate || '').localeCompare(a.entryDate || ''))[0]
+    if (!target) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita di una persona non presente in ${r.key}, riga saltata.`); continue }
+    target.exitDate = date
+    target.exitKind = r.promo ? 'promozione' : 'cessazione'
+    if (r.note) target.note = [target.note, r.note].filter(Boolean).join(' · ')
+  }
+  // Variazioni con date fuori dall'anno del programma: quasi sempre il file di
+  // un altro anno. Lo si dice per primo, prima delle conseguenze (uscite non
+  // trovate, promozioni zoppe).
+  if (outOfPeriod) {
+    warnings.unshift(`${outOfPeriod} date di entrata o uscita su ${datedRows} nelle variazioni sono fuori dal periodo del programma (${fmtDate(cfg.periodStart)} – ${fmtDate(addDays(cfg.periodEnd, -1))}): controlla che il file sia dell'anno giusto.`)
+  }
+  // 3) promozioni: uscita da una categoria ed entrata in un'altra della STESSA
+  // persona lo stesso giorno (o il giorno dopo). Se le due righe non dicono
+  // entrambe PROMOZIONE = SI è un errore del file: non si indovina, si chiede
+  // (`anomalies`) se è una promozione non segnata o una cessazione seguita da
+  // un'entrata. Lo stesso per una promozione senza la sua controparte.
+  const resolve = resolutions || {}
+  const catLabel = (k) => (categoryOf(cfg, k) || {}).label || k
+  const exits = members.filter((m) => m.exitDate)
+  const entries = members.filter((m) => m.entryKind !== 'iniziale' && m.entryDate)
+  const pairOf = new Map()
+  for (const e of exits) {
+    const i = entries.find((x) => x.cf === e.cf && x.category !== e.category && !pairOf.has(x)
+      && (x.entryDate === e.exitDate || x.entryDate === addDays(e.exitDate, 1)))
+    if (i) { pairOf.set(e, i); pairOf.set(i, e) }
+  }
+  const groups = new Map()
+  const add = (type, nucleusRow, row, info) => {
+    const key = `${type}|${info.from || ''}|${info.to || ''}|${nucleusRow.cfTitolare || nucleusRow.cf}|${info.date}`
+    if (!groups.has(key)) groups.set(key, { key, type, ...info, cf: nucleusRow.cfTitolare || nucleusRow.cf, rows: [] })
+    groups.get(key).rows.push(row)
+  }
+  for (const e of exits) {
+    const i = pairOf.get(e)
+    if (i) {
+      if (e.exitKind === 'promozione' && i.entryKind === 'promozione') continue
+      add('non-segnata', e, { exit: e, entry: i }, {
+        from: e.category, to: i.category, date: i.entryDate,
+        exitPromo: e.exitKind === 'promozione', entryPromo: i.entryKind === 'promozione',
+      })
+    } else if (e.exitKind === 'promozione') {
+      add('senza-entrata', e, { exit: e }, { from: e.category, to: null, date: e.exitDate })
+    }
+  }
+  for (const i of entries) {
+    if (i.entryKind === 'promozione' && !pairOf.has(i)) add('senza-uscita', i, { entry: i }, { from: null, to: i.category, date: i.entryDate })
+  }
+  const anomalies = []
+  for (const g of groups.values()) {
+    const choice = resolve[g.key]
+    const promo = choice === 'promozione'
+    if (g.type === 'non-segnata' && (choice === 'promozione' || choice === 'separati')) {
+      for (const r of g.rows) { r.exit.exitKind = promo ? 'promozione' : 'cessazione'; r.entry.entryKind = promo ? 'promozione' : 'inclusione' }
+    } else if (g.type === 'senza-entrata' && (choice === 'promozione' || choice === 'cessazione')) {
+      if (!promo) for (const r of g.rows) r.exit.exitKind = 'cessazione'
+    } else if (g.type === 'senza-uscita' && (choice === 'promozione' || choice === 'inclusione')) {
+      if (!promo) for (const r of g.rows) r.entry.entryKind = 'inclusione'
+    }
+    const people = g.rows.map((r) => r.exit || r.entry).map((m) => `${m.cognome} ${m.nome}`)
+    const head = g.rows.map((r) => r.exit || r.entry).find((m) => m.legame === 'TI') || (g.rows[0].exit || g.rows[0].entry)
+    let text
+    if (g.type === 'non-segnata') {
+      const side = !g.exitPromo && !g.entryPromo ? 'né l\'uscita né l\'entrata sono segnate'
+        : !g.exitPromo ? `l'uscita da ${catLabel(g.from)} non è segnata` : `l'entrata in ${catLabel(g.to)} non è segnata`
+      text = `${head.cognome} ${head.nome} esce da ${catLabel(g.from)} ed entra in ${catLabel(g.to)} dal ${fmtDate(g.date)}, ma ${side} come PROMOZIONE. È una promozione non aggiornata o una cessazione seguita da una nuova entrata?`
+    } else if (g.type === 'senza-entrata') {
+      text = `${head.cognome} ${head.nome} esce da ${catLabel(g.from)} dal ${fmtDate(g.date)} con PROMOZIONE = SI, ma non entra in nessun'altra categoria. È una cessazione segnata come promozione per errore?`
+    } else {
+      text = `${head.cognome} ${head.nome} entra in ${catLabel(g.to)} dal ${fmtDate(g.date)} con PROMOZIONE = SI, ma non esce da nessun'altra categoria. È una nuova inclusione segnata come promozione per errore?`
+    }
+    // Proposta dalle NOTE del file («ESCLUSO DAL 01/03/2026 PASSAGGIO IN POL.
+    // FUNZIONARI»): pre-seleziona la risposta, che l'operatore conferma o cambia.
+    const notes = [...new Set(g.rows.flatMap((r) => [r.exit && r.exit.note, r.entry && r.entry.note]).filter(Boolean))].join(' · ')
+    let suggest = null
+    const W = wordsOf(cfg)
+    if (hasWord(notes, W.promoNotes)) suggest = 'promozione'
+    else if (hasWord(notes, W.cessNotes) && g.type !== 'senza-uscita') suggest = g.type === 'non-segnata' ? 'separati' : 'cessazione'
+    anomalies.push({
+      key: g.key, type: g.type, from: g.from, to: g.to, date: g.date, cf: g.cf, people, text,
+      suggest, suggestNote: suggest ? notes : null,
+      options: g.type === 'non-segnata' ? ['promozione', 'separati'] : g.type === 'senza-entrata' ? ['cessazione', 'promozione'] : ['inclusione', 'promozione'],
+      choice: choice || null,
+    })
+  }
+  // legame delle promozioni (ora coerenti): una per NUCLEO, si annullano insieme.
+  // exitPromotionId sulla riga che esce, promotionId su quella che entra. Se
+  // l'uscita è il giorno PRIMA dell'entrata, l'uscita si allinea all'entrata:
+  // niente giorno scoperto e rimborso dallo stesso giorno del pro-rata.
+  const promoIds = new Map()
+  for (const out of members.filter((m) => m.exitKind === 'promozione')) {
+    const inn = pairOf.get(out)
+    if (inn && inn.entryKind === 'promozione' && inn.entryDate && out.exitDate !== inn.entryDate) out.exitDate = inn.entryDate
+    const key = `${out.category}|${out.cfTitolare || out.cf}|${out.exitDate}`
+    if (!promoIds.has(key)) promoIds.set(key, `promo-${promoIds.size + 1}`)
+    out.exitPromotionId = promoIds.get(key)
+    if (inn && inn.entryKind === 'promozione') inn.promotionId = out.exitPromotionId
+  }
+  for (const inn of members.filter((m) => m.entryKind === 'promozione' && !m.promotionId)) {
+    const key = `in|${inn.category}|${inn.cfTitolare || inn.cf}|${inn.entryDate}`
+    if (!promoIds.has(key)) promoIds.set(key, `promo-${promoIds.size + 1}`)
+    inn.promotionId = promoIds.get(key)
+  }
+  return { members, warnings, anomalies }
+}
+
+/** Valore numerico di una cella (numero di Excel o testo all'italiana). */
+const cellNum = (raw) => (typeof raw === 'number' ? raw : raw instanceof Date ? NaN : Number(String(raw ?? '').replace(/\./g, '').replace(',', '.')))
+const mostFrequent = (vals) => {
+  const f = new Map()
+  for (const v of vals) f.set(v, (f.get(v) || 0) + 1)
+  return [...f.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+}
+const slugKey = (label, taken) => {
+  const base = normHead(label).toLowerCase().replace(/ /g, '-') || 'categoria'
+  let k = base, i = 2
+  while (taken.has(k)) k = `${base}-${i++}`
+  taken.add(k)
+  return k
+}
+
+/**
+ * Cosa dice un foglio di stato sulle tariffe: numero di polizza più frequente,
+ * premio del titolare per copertura (colonna PREMIO delle righe dei titolari,
+ * colonna COPERTURA), premi dei familiari, e la tabellina delle tariffe
+ * (etichetta e importo due celle più a destra: in fondo al foglio, «DIRIGENTI
+ * 9146», o accanto ai dati, «ASSICURATI SOLO IPM 2 744»).
+ */
+function sheetFacts(rows, refMap, layout, cfg) {
+  const h = headerOrFallback(rows, refMap, layout)
+  const facts = { policy: '', table: [], titolari: new Map(), family: {}, coverOrder: [] }
+  const head = h && h.row >= 0 ? rows[h.row] || [] : []
+  const lastHead = head.reduce((m, c, i) => (c != null && String(c).trim() !== '' ? i : m), -1)
+  const premCol = head.findIndex((c) => /^(PREMIO|IMPORTO PREMIO)/.test(normHead(c)))
+  const isData = (r, i) => !!h && i > h.row && h.map.cfAss != null && /^[A-Z]{6}\d{2}/.test(cleanCf(r[h.map.cfAss]))
+  rows.forEach((r, i) => {
+    if (!r) return
+    const data = isData(r, i)
+    for (let c = 0; c + 2 < r.length; c++) {
+      if (data && c <= lastHead) continue // le celle dei dati non sono la tabellina
+      if (typeof r[c] !== 'string') continue
+      const label = normHead(r[c])
+      const v = cellNum(r[c + 2])
+      if (label && /[A-Z]/.test(label) && v > 0 && v <= 100000) facts.table.push({ label, value: v })
+    }
+    if (!data) return
+    const leg = h.map.legame == null ? 'TI' : normLegame(r[h.map.legame], layout, cfg)
+    const prem = premCol >= 0 ? cellNum(r[premCol]) : NaN
+    if (leg === 'TI') {
+      const cov = h.map.copertura == null ? '' : cellStr(r[h.map.copertura])
+      if (!facts.titolari.has(cov)) { facts.titolari.set(cov, []); facts.coverOrder.push(cov) }
+      facts.titolari.get(cov).push(prem)
+    } else if (leg && Number.isFinite(prem)) {
+      ;(facts.family[leg] ||= []).push(prem)
+    }
+  })
+  if (h && h.map.polizza != null) {
+    const nums = rows.slice(h.row + 1).map((r) => cellStr(r && r[h.map.polizza])).filter((p) => /^\d{5,}$/.test(p))
+    facts.policy = mostFrequent(nums) || ''
+  }
+  return facts
+}
+
+/**
+ * Tariffe, polizza, coperture con premio diverso e premio a nucleo o a persona
+ * di un foglio di categoria, letti dal file. `isCat(label)`: l'etichetta della
+ * tabellina è la categoria stessa («DIRIGENTI 9146»).
+ */
+function categoryFromFacts(f, cfg, isCat) {
+  const tariffs = {}
+  const legs = legamiOf(cfg)
+  // coperture dei titolari, la più frequente è quella di base
+  const covers = [...f.titolari.entries()].sort((a, b) => b[1].length - a[1].length).map(([c]) => c)
+  const base = covers[0] || ''
+  const premOf = (cov) => mostFrequent((f.titolari.get(cov) || []).filter((v) => v > 0))
+  const tableFor = (cov) => (cov ? f.table.find((t) => t.label.includes(normHead(cov)) && !normLegame(t.label, null, cfg)) : null)
+  for (const t of f.table) {
+    const leg = /^(DIRIGENT|FUNZIONAR|IMPIEGAT|QUADR)/.test(t.label) ? null : normLegame(t.label, null, cfg)
+    if (leg && leg !== 'TI') { const l = legs.find((x) => x.key === leg); if (l && tariffs[l.tariff] == null) tariffs[l.tariff] = t.value }
+    else if (isCat(t.label)) {
+      if (/QUIESC/.test(t.label)) tariffs.quiescente = t.value
+      else if (tariffs.titolare == null) tariffs.titolare = t.value
+    }
+  }
+  const baseTit = premOf(base) || (tableFor(base) || {}).value
+  if (baseTit && tariffs.titolare == null) tariffs.titolare = baseTit
+  // premi dei familiari scritti riga per riga (premio a persona)
+  for (const [leg, vals] of Object.entries(f.family)) {
+    const l = legs.find((x) => x.key === leg)
+    const v = mostFrequent(vals.filter((x) => x > 0))
+    if (l && v && tariffs[l.tariff] == null) tariffs[l.tariff] = v
+  }
+  const variants = []
+  for (const cov of covers.slice(1)) {
+    if (!cov) continue
+    const tit = premOf(cov) || (tableFor(cov) || {}).value
+    if (tit) variants.push({ key: normHead(cov).toLowerCase().replace(/ /g, '-'), label: cov, words: cov, tariffs: { titolare: tit } })
+  }
+  const family = legs.filter((l) => l.key !== 'TI').some((l) => Number(tariffs[l.tariff]) > 0)
+  return { tariffs, policy: f.policy, variants, mode: family ? 'persona' : 'nucleo' }
+}
+
+/**
+ * Tariffe e numeri di polizza scritti nel file dello stato di rischio, per
+ * categoria del programma: in ogni foglio di categoria la tabellina
+ * («DIRIGENTI 9146», «DIRIGENTI QUIESCENTI 10123», «CONIUGI/CONVIVENTI 646»),
+ * il premio scritto sulle righe dei titolari e il numero di polizza più
+ * frequente della colonna NR. POLIZZA. `variants`: coperture dei titolari con
+ * un premio diverso («SOLO IPM 744»). Solo valori trovati; l'operatore li conferma.
+ */
+export function tariffsFromWorkbook(cfg, sheets) {
+  const out = {}
+  const layout = readLayout(cfg)
+  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg), layout)
+  for (const name of Object.keys(sheets).filter((n) => !isVarSheet(n, cfg))) {
+    const key = sheetCategory(name, cfg).key
+    if (!key || out[key]) continue
+    const f = sheetFacts(sheets[name] || [], ref.map, layout, cfg)
+    const c = categoryFromFacts(f, cfg, (label) => normCategory(label, cfg.categories).key === key || sheetCategory(label, cfg).key === key)
+    if (Object.keys(c.tariffs).length || c.policy || c.variants.length) out[key] = { tariffs: c.tariffs, policy: c.policy, ...(c.variants.length ? { variants: c.variants } : {}) }
+  }
+  return out
+}
+
+/**
+ * Categorie proposte dal file (20/11/2026, Amundi: «SGR Dipendenti», «Real
+ * Estate Dirigenti»…): un foglio di stato con assicurati = una categoria, col
+ * nome del foglio, la sua polizza, le tariffe e le coperture lette dal file,
+ * premio a persona se i familiari hanno un premio proprio. L'ordine di
+ * carriera (per le promozioni) dal nome: dirigenti in alto, poi quadri e
+ * funzionari, poi gli altri.
+ */
+export function categoriesFromWorkbook(sheets, cfg0) {
+  const cfg = cfg0 || defaultProgramConfig()
+  const layout = readLayout(cfg)
+  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg), layout)
+  const taken = new Set()
+  const out = []
+  for (const name of Object.keys(sheets).filter((n) => !isVarSheet(n, cfg))) {
+    const rows = sheets[name] || []
+    const f = sheetFacts(rows, ref.map, layout, cfg)
+    const n = [...f.titolari.values()].reduce((s, v) => s + v.length, 0)
+    if (!n) continue
+    const label = String(name).replace(/\s+/g, ' ').trim()
+    const L = normHead(label)
+    const c = categoryFromFacts(f, cfg, (t) => alignWords(catWords(t), catWords(label)) || normCategory(t, [{ key: 'x', label }]).key === 'x')
+    out.push({
+      key: slugKey(label, taken), label, policy: c.policy, mode: c.mode,
+      rank: /DIRIG/.test(L) ? 3 : /(QUADR|FUNZION)/.test(L) ? 2 : 1,
+      tariffs: c.tariffs, quota: 0, ...(c.variants.length ? { variants: c.variants } : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * Società scritta nel file (colonna AZIENDA o SOCIETÀ dei fogli di stato e
+ * variazioni): il valore più frequente, '' se il file non ce l'ha. Serve
+ * all'import guidato per proporre la società giusta (17/11/2026: col file di
+ * un'altra società del gruppo proponeva di caricarlo in quella aperta).
+ */
+export function workbookCompany(sheets) {
+  const freq = new Map()
+  for (const name of Object.keys(sheets)) {
+    const rows = sheets[name] || []
+    const h = findHeader(rows)
+    if (!h) continue
+    const col = (rows[h.row] || []).map(normHead).findIndex((x) => /^(AZIENDA|SOCIETA)$/.test(x))
+    if (col < 0) continue
+    for (const r of rows.slice(h.row + 1)) {
+      const v = cellStr(r && r[col])
+      if (v && !/^(AZIENDA|SOCIETA)$/i.test(normHead(v))) freq.set(v, (freq.get(v) || 0) + 1)
+    }
+  }
+  const top = [...freq.entries()].sort((a, b) => b[1] - a[1])
+  // più società dello stesso gruppo nel file («AMUNDI SGR», «AMUNDI R.E.»): il nome comune
+  const big = top.filter(([, n]) => n >= 3)
+  if (big.length >= 2) {
+    const W = big.map(([v]) => v.split(/\s+/))
+    let k = 0
+    while (W.every((w) => w[k] && normHead(w[k]) === normHead(W[0][k]))) k++
+    if (k > 0) return W[0].slice(0, k).join(' ')
+  }
+  return top[0]?.[0] || ''
+}
+
+/** Stessa società scritta in due modi («C.A. VITA» / «c.a. vita »). */
+export const sameFileCompany = (a, b) => !!a && !!b && normHead(a) === normHead(b)
+
+/**
+ * Anno di polizza del file dello stato di rischio, prima di avere un
+ * programma: la data d'inizio scritta in testa ai fogli «Variazioni …»
+ * («Regolazione Premio 1/1/26 – 1/1/27»), altrimenti l'anno più frequente
+ * delle date di entrata e uscita delle variazioni, altrimenti quello delle
+ * entrate dei fogli di stato. null se il file non ha date.
+ */
+export function workbookYear(sheets) {
+  // Il file del rinnovo (export «Stato per il <anno>») lo dice in chiaro: le
+  // entrate sono dell'anno prima, ma il file è dell'anno nuovo.
+  for (const rows of Object.values(sheets || {})) {
+    for (const r of rows || []) {
+      const m = /STATO DI RISCHIO PER IL ((?:19|20)\d{2})\b/.exec(normHead(r && r[0]))
+      if (m) return +m[1]
+    }
+  }
+  const mode = (ys) => {
+    const f = new Map()
+    for (const y of ys) f.set(y, (f.get(y) || 0) + 1)
+    return [...f.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? null
+  }
+  const names = Object.keys(sheets)
+  const vars = names.filter((n) => /^VARIAZ/i.test(n.trim()))
+  const heads = []
+  for (const n of vars) {
+    const h = findHeader(sheets[n] || [])
+    for (const row of (sheets[n] || []).slice(0, h ? h.row : 1)) {
+      const first = (row || []).map((c) => normDate(c)).find(Boolean)
+      if (first) { heads.push(+first.slice(0, 4)); break }
+    }
+  }
+  if (heads.length) return mode(heads)
+  const years = (list) => list.flatMap((n) => parseCommunicationRows(sheets[n] || []).rows || [])
+    .flatMap((r) => [r.entryDate, r.exitDate]).filter(Boolean).map((d) => +d.slice(0, 4))
+  return mode(years(vars)) ?? mode(years(names.filter((n) => !vars.includes(n))))
+}
+
+/* ─── Mail di cessazione ─────────────────────────────────────────────────── */
+
+const decodeB64 = (s) => (typeof Buffer !== 'undefined'
+  ? Buffer.from(s, 'base64').toString('utf8')
+  : new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s+/g, '')), (c) => c.charCodeAt(0))))
+
+function decodeQP(s) {
+  const bytes = []
+  const src = s.replace(/=\r?\n/g, '')
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === '=' && /^[0-9A-F]{2}$/i.test(src.slice(i + 1, i + 3))) { bytes.push(parseInt(src.slice(i + 1, i + 3), 16)); i += 2 }
+    else bytes.push(src.charCodeAt(i) & 0xff)
+  }
+  return new TextDecoder().decode(Uint8Array.from(bytes))
+}
+
+const stripHtml = (h) => h.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n')
+  .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
+  .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/[ \t]+/g, ' ')
+
+/**
+ * Testo leggibile e data di una mail salvata (.eml): la prima parte di testo
+ * (o l'HTML ripulito), decodificata da base64 o quoted-printable.
+ */
+export function emlToText(raw) {
+  const src = String(raw || '').replace(/\r\n/g, '\n')
+  const headEnd = src.indexOf('\n\n')
+  const head = headEnd >= 0 ? src.slice(0, headEnd) : src
+  const dateHdr = /^Date:\s*(.+)$/mi.exec(head)?.[1]
+  let date = null
+  if (dateHdr) { const d = new Date(dateHdr); if (!isNaN(d.getTime())) date = isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate()) }
+  const subject = /^Subject:\s*(.+)$/mi.exec(head)?.[1] || ''
+  // parti MIME: la prima text/plain, altrimenti la prima text/html
+  const parts = []
+  const re = /Content-Type:\s*text\/(plain|html)[^\n]*\n((?:[^\n]+\n)*?)\n([\s\S]*?)(?=\n--[^\n]+|$)/gi
+  let m
+  while ((m = re.exec(src))) parts.push({ kind: m[1].toLowerCase(), headers: m[2], body: m[3] })
+  const pick = parts.find((p) => p.kind === 'plain') || parts.find((p) => p.kind === 'html')
+  let body = pick ? pick.body : (headEnd >= 0 ? src.slice(headEnd + 2) : '')
+  const enc = pick ? /Content-Transfer-Encoding:\s*([\w-]+)/i.exec(pick.headers)?.[1]?.toLowerCase() : /^Content-Transfer-Encoding:\s*([\w-]+)/mi.exec(head)?.[1]?.toLowerCase()
+  try {
+    if (enc === 'base64') body = decodeB64(body)
+    else if (enc === 'quoted-printable') body = decodeQP(body)
+  } catch { /* testo com'è */ }
+  if ((pick && pick.kind === 'html') || /<html|<div|<p[\s>]/i.test(body)) body = stripHtml(body)
+  return { text: `${subject}\n${body}`.replace(/\n{3,}/g, '\n\n').trim(), date }
+}
+
+const CF_RE = /\b[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]\b/gi
+
+/**
+ * Persone e date di cessazione in un testo di mail: ogni codice fiscale con
+ * la data più vicina che lo segue (o lo precede) nello stesso paragrafo;
+ * date anche senza anno («in data 4.10» = anno del programma). Se c'è un solo
+ * codice e una sola data nel testo, vanno insieme.
+ */
+export function parseCessationText(text, refYear) {
+  const src = String(text || '')
+  const dates = []
+  const dre = /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/g
+  let m
+  while ((m = dre.exec(src))) {
+    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : refYear
+    const iso = y ? isoOf(y, +m[2], +m[1]) : null
+    // niente orari («06:58») né pezzi di codice fiscale o telefoni
+    if (iso && !/\d/.test(src[m.index - 1] || '') && !/[:\d]/.test(src[m.index + m[0].length] || '')) dates.push({ at: m.index, iso })
+  }
+  const out = []
+  const seen = new Set()
+  for (const c of src.matchAll(CF_RE)) {
+    const cf = cleanCf(c[0])
+    if (seen.has(cf)) continue
+    seen.add(cf)
+    const at = c.index
+    const paraStart = Math.max(src.lastIndexOf('\n\n', at), src.lastIndexOf('>', at), 0)
+    const nextCf = src.slice(at + 16).search(CF_RE)
+    const paraEnd = nextCf >= 0 ? at + 16 + nextCf : src.length
+    const after = dates.find((d) => d.at > at && d.at < paraEnd)
+    const before = [...dates].reverse().find((d) => d.at < at && d.at >= paraStart)
+    out.push({ cf, date: (after || before || null)?.iso || null })
+  }
+  if (out.length === 1 && !out[0].date && dates.length === 1) out[0].date = dates[0].iso
+  return out
+}
+
+/* ─── Tracciato del file di una società (config.fileLayout) ─────────────── */
+
+/** Campi che una colonna del file può essere, nell'ordine in cui si propongono. */
+export const LAYOUT_FIELDS = ['cognome', 'nome', 'cfAss', 'cfTit', 'legame', 'categoria', 'nascita', 'entrata', 'uscita', 'azione', 'polizza', 'quiescente', 'promozione', 'copertura', 'note', 'societa']
+
+const DERIVED_HEAD = /^(ETA|SESSO|TITOLARE( DEL)? NUCLEO|NUCLEO|NOMINATIVO TITOLARE|PREMIO|IMPORTO PREMIO|Q A|QUOTA|TOTALE|RATEO|RIMBORSO|SALDO)\b/
+const looksLikeData = (v) => /^[A-Z]{6}\d{2}/i.test(cleanCf(v)) || normDate(v) != null || typeof v === 'number'
+
+/**
+ * Colonne del file per l'import guidato: per ognuna l'intestazione, alcuni
+ * esempi, i valori distinti (per i codici di categoria e legame) e il campo
+ * che il programma riconosce da solo — o quello già indicato nel tracciato
+ * della società. Foglio di riferimento: quello con più righe sotto
+ * un'intestazione riconoscibile.
+ */
+export function inspectColumns(sheets, layout) {
+  let best = null
+  for (const name of Object.keys(sheets || {})) {
+    const rows = sheets[name] || []
+    let h = findHeader(rows, layout)
+    if (!h) {
+      // intestazione non riconosciuta: la prima riga di sole scritte (≥ 4 celle, niente dati)
+      for (let i = 0; i < Math.min(rows.length, 15); i++) {
+        const cells = (rows[i] || []).filter((c) => c != null && String(c).trim() !== '')
+        if (cells.length >= 4 && !cells.some(looksLikeData)) {
+          // le intestazioni che si riconoscono da sole («DATA DI NASCITA») sono già scelte
+          const map = {}
+          ;(rows[i] || []).map(normHead).forEach((hh, col) => { for (const [key, re] of HEADS) if (!(key in map) && re.test(hh)) { map[key] = col; break } })
+          h = { row: i, map, extras: [], guessed: true }
+          break
+        }
+      }
+    }
+    if (!h) continue
+    const dataRows = rows.slice(h.row + 1).filter((r) => r && r.some((c) => c != null && String(c).trim() !== ''))
+    if (!best || dataRows.length > best.dataRows.length) best = { name, h, rows, dataRows }
+  }
+  if (!best) return { sheet: null, columns: [] }
+  const head = best.rows[best.h.row] || []
+  const byCol = new Map(Object.entries(best.h.map).map(([f, c]) => [c, f]))
+  const lcols = (layout && layout.columns) || {}
+  const columns = []
+  head.forEach((cell, col) => {
+    const text = cellStr(cell)
+    if (!text) return
+    const norm = normHead(text)
+    const values = new Map()
+    for (const r of best.dataRows) {
+      const v = r[col] instanceof Date ? fmtDate(normDate(r[col])) : cellStr(r[col])
+      if (v) values.set(v, (values.get(v) || 0) + 1)
+    }
+    const samples = best.dataRows.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '').slice(0, 3)
+      .map((v) => (v instanceof Date || (typeof v === 'number' && v > 20000 && v < 80000) ? fmtDate(normDate(v)) : cellStr(v)))
+    // colonna che il programma non legge: quelle che sa ricalcolare (età, sesso,
+    // nucleo, premi) non servono; le altre (AZIENDA, PRODOTTO) si riportano nell'Excel
+    const unread = best.h.guessed ? null : DERIVED_HEAD.test(norm) ? 'skip' : 'extra'
+    columns.push({
+      col, head: text, norm,
+      field: lcols[norm] || byCol.get(col) || unread,
+      saved: !!lcols[norm],
+      samples,
+      values: [...values.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([v]) => v),
+    })
+  })
+  return { sheet: best.name, columns, guessed: !!best.h.guessed }
+}
+
+/**
+ * Tracciato da salvare: colonne (intestazione normalizzata → campo, «extra»
+ * o «skip»), codici di categoria e legame, ordine delle intestazioni del
+ * cliente (per l'Excel in uscita), nome del foglio.
+ */
+export function buildLayout({ sheet, columns, categoryCodes, legameCodes }) {
+  const cols = {}
+  for (const c of columns || []) if (c.field) cols[c.norm || normHead(c.head)] = c.field
+  const clean = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k, v]) => k && v).map(([k, v]) => [normHead(k), v]))
+  return { sheet: sheet || '', columns: cols, categoryCodes: clean(categoryCodes), legameCodes: clean(legameCodes), order: (columns || []).map((c) => c.head) }
+}
+
+/** Codice della società per una categoria o un legame (il primo indicato), per l'Excel in uscita. */
+export function layoutCode(layout, kind, value) {
+  const codes = layout && (kind === 'legame' ? layout.legameCodes : layout.categoryCodes)
+  if (!codes) return null
+  const hit = Object.entries(codes).find(([, v]) => v === value)
+  return hit ? hit[0] : null
+}
+
+/* ─── Prova delle regole prima di salvarle ─────────────────────────────── */
+
+/**
+ * Cosa cambia passando dalla configurazione `a` alla `b` sugli assicurati
+ * registrati: premio dovuto e rimborsi per categoria, persone il cui importo
+ * cambia, avvisi del rinnovo prima e dopo. Niente si salva: è l'anteprima del
+ * pulsante Salva.
+ */
+export function compareConfigs(a, b, members) {
+  const cats = new Map()
+  const changed = []
+  const tot = { before: 0, after: 0, refundBefore: 0, refundAfter: 0, n: 0 }
+  for (const m of members || []) {
+    const ca = computeMember(a, m), cb = computeMember(b, m)
+    const cat = categoryOf(b, m.category) || categoryOf(a, m.category)
+    if (!cats.has(m.category)) cats.set(m.category, { key: m.category, label: cat ? cat.label : m.category, n: 0, before: 0, after: 0, refundBefore: 0, refundAfter: 0 })
+    const c = cats.get(m.category)
+    c.n++; c.before += ca.dovuto; c.after += cb.dovuto; c.refundBefore += ca.rimborso; c.refundAfter += cb.rimborso
+    tot.n++; tot.before += ca.dovuto; tot.after += cb.dovuto; tot.refundBefore += ca.rimborso; tot.refundAfter += cb.rimborso
+    if (ca.dovuto !== cb.dovuto || ca.rimborso !== cb.rimborso) changed.push({ m, before: ca, after: cb })
+  }
+  const r2 = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' && k !== 'n' ? round2(v) : v]))
+  const alerts = (cfg) => renewalPlan(cfg, members || []).keep.concat(renewalPlan(cfg, members || []).next).reduce((s, x) => s + x.alerts.length, 0)
+  const order = (b.categories || []).map((c) => c.key)
+  return {
+    categories: [...cats.values()].map(r2).sort((x, y) => order.indexOf(x.key) - order.indexOf(y.key)),
+    totals: r2(tot),
+    changed: changed.sort((x, y) => Math.abs(y.after.dovuto - y.before.dovuto) - Math.abs(x.after.dovuto - x.before.dovuto)),
+    alertsBefore: alerts(a), alertsAfter: alerts(b),
+  }
+}
+
+/**
+ * Esempio di calcolo per le Impostazioni: una persona di `age` anni nella
+ * categoria, con la data richiesta e quella di comunicazione. Restituisce la
+ * decorrenza e i conti come li farebbe il programma.
+ */
+export function exampleCalc(cfg, { category, legame = 'TI', quiescente = false, age = 45, requested, communicated }) {
+  const dec = decorrenza(cfg, requested, communicated, null)
+  const y = +cfg.periodStart.slice(0, 4)
+  const birthDate = `${y - age - 1}-12-31`
+  const m = { category, legame, quiescente, cf: '', birthDate, entryDate: dec.date, entryKind: dec.date && dec.date > cfg.periodStart ? 'inclusione' : 'iniziale', exitDate: null, exitKind: null }
+  return { dec, member: m, calc: computeMember(cfg, m), age: memberAge(cfg, m) }
+}
+
+/** Intestazione o codice normalizzati come li confronta il programma (maiuscole, senza accenti né segni). */
+export const normHeadText = (v) => normHead(v)

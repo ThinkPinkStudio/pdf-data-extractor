@@ -17,7 +17,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
-  if (isPublic || pathname.startsWith('/_next') || pathname.startsWith('/favicon')) {
+  // Icone (favicon SVG/PNG, apple-icon): pubbliche, altrimenti la pagina di
+  // login riceve come icona il redirect al login.
+  if (isPublic || pathname.startsWith('/_next') || pathname.startsWith('/favicon') || pathname.startsWith('/icon') || pathname.startsWith('/apple-icon')) {
     return NextResponse.next()
   }
 

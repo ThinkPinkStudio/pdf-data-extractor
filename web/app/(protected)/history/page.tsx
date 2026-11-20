@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { useRouter } from 'next/navigation'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 
@@ -20,6 +21,7 @@ export default function HistoryPage() {
   const [rows, setRows] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState<number | null>(null)
+  const { ask: askConfirm, panel: confirmPanel } = useConfirmPanel()
   const router = useRouter()
   const { t, lang } = useI18n()
   const locale = lang === 'en' ? 'en-GB' : 'it-IT'
@@ -44,13 +46,14 @@ export default function HistoryPage() {
     setRows((p) => p.filter((r) => r.id !== id))
   }
   async function clearAll() {
-    if (!confirm(t('hist.confirmClear'))) return
+    if (!(await askConfirm(t('hist.confirmClear'), { danger: true }))) return
     await fetch('/api/history', { method: 'DELETE' })
     setRows([])
   }
 
   return (
     <>
+      {confirmPanel}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1 className="page-title" style={{ margin: 0 }}>{t('hist.title')}</h1>
         {rows.length > 0 && <button className="btn btn-secondary" onClick={clearAll}>{t('hist.clearAll')}</button>}
