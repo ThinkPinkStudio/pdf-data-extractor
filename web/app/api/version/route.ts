@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
 const BUILD_FEATURES = [
   'configurabile-excel', // RSM e Vita: testi e fogli degli Excel rinominabili, fasce sanitarie come elenco, colonne dei file Vita (19/11/2026)
   'rsm-categorie-dal-file', // RSM: categorie proposte dal file, sigle nei fogli, coperture con premio diverso (20/11/2026)
+  'rsm-avviso-salvataggio', // RSM: chiavi di categoria uniche, salvataggio rifiutato spiegato in un pannello di avviso (20/11/2026)
   'vita-configurabile', // Vita: giorni del pro-rata, regola dell'età, diritti fissi o %, check-up, compagnia, testi e parole del file mensile (19/11/2026)
   'rsm-parole-testi', // RSM: parole dei file, testi della mail, limite d'età spegnibile, quota e promozione configurabili (19/11/2026)
   'rsm-configurabile', // RSM: legami come elenco, tariffe/quota/scaglioni/trattenuta come valore fisso o % di altri campi (19/11/2026)

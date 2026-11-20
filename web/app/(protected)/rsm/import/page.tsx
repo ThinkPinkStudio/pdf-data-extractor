@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
+import SaveErrorDrawer, { saveErrorOf, type SaveError } from '@/components/rsm/SaveErrorDrawer'
 import NumInput from '@/components/rsm/NumInput'
 import ValueInput from '@/components/ValueInput'
 import { describeValue } from '@/lib/configValue.js'
@@ -60,6 +61,7 @@ export default function RsmImportPage() {
   const [existing, setExisting] = useState(0)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [saveErr, setSaveErr] = useState<SaveError | null>(null)
   const [done, setDone] = useState<Dry | null>(null)
   const { setFlash, node: flashNode } = useFlash(rsm)
   const programs = rsm.programs || []
@@ -258,6 +260,9 @@ export default function RsmImportPage() {
   async function toCheck() {
     if (!cfg || !file) return
     setBusy(true); setErr(null)
+    // fase raggiunta, per dire nell'avviso che cosa resta salvato
+    let stage: 'create' | 'save' | 'check' = 'create'
+    let created: string | null = null
     try {
       let id = target
       const shift = (iso: string) => `${year}${iso.slice(4)}`
@@ -270,11 +275,24 @@ export default function RsmImportPage() {
       if (target === 'new') {
         const j = await api('/api/rsm/programs', 'POST', { company: newCompany.trim(), name: newName.trim() || `RSM ${year}`, year })
         id = j.program.id
-        await api(`/api/rsm/programs/${id}`, 'PUT', { company: j.program.company, name: j.program.name, year, config })
+        created = id
+        stage = 'save'
+        try {
+          await api(`/api/rsm/programs/${id}`, 'PUT', { company: j.program.company, name: j.program.name, year, config })
+        } catch (e) {
+          // il programma appena creato senza le sue impostazioni non deve restare
+          // (20/11/2026: restava vuoto, con le categorie di partenza, e sembrava
+          // che i dati fossero spariti)
+          await api(`/api/rsm/programs/${id}`, 'DELETE').catch(() => null)
+          await rsm.reload().catch(() => null)
+          throw e
+        }
       } else {
         const p = programs.find((x) => x.id === id)!
+        stage = 'save'
         await api(`/api/rsm/programs/${id}`, 'PUT', { name: p.name, year: p.year, config })
       }
+      stage = 'check'
       rsm.setProgramId(id)
       setTarget(id)
       const cur = await api(`/api/rsm/programs/${id}`, 'GET')
@@ -282,7 +300,11 @@ export default function RsmImportPage() {
       await runDry(id, {})
       await rsm.reload()
       setStep(3)
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    } catch (e) {
+      setErr((e as Error).message)
+      const lost = stage === 'check' ? t('rsm.err.checkKept') : created ? t('rsm.err.importKept') : t('rsm.err.importKept2')
+      setSaveErr(saveErrorOf(e, stage === 'check' ? t('rsm.err.checkTitle') : stage === 'create' ? t('rsm.err.createTitle') : t('rsm.err.importTitle'), lost))
+    } finally { setBusy(false) }
   }
 
   async function runDry(id: string, res: Record<string, string>, confirm = false) {
@@ -553,6 +575,7 @@ export default function RsmImportPage() {
           </div>
         </div></div>
       )}
+      <SaveErrorDrawer error={saveErr} onClose={() => setSaveErr(null)} />
     </div>
   )
 }

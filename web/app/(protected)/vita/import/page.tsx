@@ -139,7 +139,9 @@ export default function VitaImportPage() {
         if (used.has(f.sheet)) continue
         if (base.companies.some((c) => c.policy && c.policy === f.policy)) continue
         if (base.companies.length >= ins.companies.length) break
-        base.companies.push({ key: `c${base.companies.length + 1}`, name: f.name, policy: f.policy })
+        let n = base.companies.length + 1
+        while (base.companies.some((c) => c.key === `c${n}`)) n++
+        base.companies.push({ key: `c${n}`, name: f.name, policy: f.policy })
       }
     }
     // Tassi dal file: senza, restano quelli copiati o quelli di base

@@ -183,10 +183,25 @@ export function saveBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 
+/** Errore di una chiamata: il messaggio, il codice e, se il server li dà, i motivi con cosa correggere. */
+export class ApiError extends Error {
+  code: string
+  status: number
+  problems: { text: string; fix: string }[]
+  constructor(message: string, code: string, status: number, problems: { text: string; fix: string }[]) {
+    super(message); this.code = code; this.status = status; this.problems = problems
+  }
+}
+
 export async function api(url: string, method: string, body?: unknown) {
-  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) })
+  let r: Response
+  try {
+    r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) })
+  } catch {
+    throw new ApiError('Il server non risponde.', 'network', 0, [{ text: 'La richiesta non è arrivata al server (connessione assente o server in riavvio).', fix: 'Controlla la connessione, aspetta un minuto e riprova.' }])
+  }
   const j = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(j.error || 'Errore')
+  if (!r.ok) throw new ApiError(j.error || `Errore ${r.status}`, j.code || 'error', r.status, Array.isArray(j.problems) ? j.problems : [])
   return j
 }
 

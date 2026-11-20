@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
+import SaveErrorDrawer, { saveErrorOf, type SaveError } from '@/components/rsm/SaveErrorDrawer'
 import ValueInput from '@/components/ValueInput'
 import { AddVariant, AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, MailTexts, RuleChoices, Variants, WordsBox, tariffColumns } from '@/components/rsm/SettingsParts'
 import { addDays, legamiOf, refundTaxOf } from '@/lib/rsm/rules.js'
@@ -14,6 +15,17 @@ import Link from 'next/link'
 import { programName } from '@/lib/rsm/types'
 import type { ConfigValue, RsmCategory, RsmConfig } from '@/lib/rsm/types'
 
+
+/**
+ * Chiave di una categoria nuova, mai uguale a una già presente: col numero
+ * delle categorie, togliendone una e aggiungendone due nascevano due «cat4» e
+ * ogni Salva veniva rifiutato (20/11/2026, programma Amundi di Lidia).
+ */
+function newCategoryKey(cats: { key: string }[]) {
+  let i = cats.length + 1
+  while (cats.some((c) => c.key === `cat${i}`)) i++
+  return `cat${i}`
+}
 
 export default function RsmSettingsPage() {
   const { t } = useI18n()
@@ -23,6 +35,7 @@ export default function RsmSettingsPage() {
   const [name, setName] = useState('')
   const [year, setYear] = useState(0)
   const [cfg, setCfg] = useState<RsmConfig | null>(null)
+  const [saveErr, setSaveErr] = useState<SaveError | null>(null)
   const [editors, setEditors] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -74,9 +87,9 @@ export default function RsmSettingsPage() {
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
   const setTariff = (i: number, k: string, v: ConfigValue) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, tariffs: { ...x.tariffs, [k]: v } } : x)) })
 
-  async function run(fn: () => Promise<unknown>, ok: string) {
+  async function run(fn: () => Promise<unknown>, ok: string, title = t('rsm.err.saveTitle')) {
     setBusy(true); setMsg(null)
-    try { await fn(); setMsg({ ok: true, text: ok }); await rsm.reload() } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+    try { await fn(); setMsg({ ok: true, text: ok }); await rsm.reload() } catch (e) { setMsg({ ok: false, text: (e as Error).message }); setSaveErr(saveErrorOf(e, title)) } finally { setBusy(false) }
   }
 
   const fullConfig = (): RsmConfig => ({ ...cfg!, editors: editors.split(/[\s,;]+/).filter(Boolean) })
@@ -102,7 +115,7 @@ export default function RsmSettingsPage() {
       setNw({ ...nw, company: '', name: '' }); setNwTouched(false)
       setMsg({ ok: true, text: t('rsm.set.created') })
       await rsm.reload()
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); setSaveErr(saveErrorOf(e, t('rsm.err.createTitle'))) } finally { setBusy(false) }
   }
 
 
@@ -177,7 +190,7 @@ export default function RsmSettingsPage() {
               {cfg.categories.map((c, i) => c.tariffBy === 'eta' ? <AgeBands key={`ab${i}`} cfg={cfg} cat={c} ro={ro} onChange={(ageBands) => setCat(i, { ageBands })} /> : null)}
               {cfg.categories.map((c, i) => c.variants && c.variants.length ? <Variants key={`cv${i}`} cfg={cfg} cat={c} ro={ro} onChange={(variants) => setCat(i, { variants })} /> : null)}
               <AddVariant cfg={cfg} ro={ro} onAdd={(i) => setCat(i, { variants: [...(cfg.categories[i].variants || []), { key: `cop${Date.now().toString(36)}`, label: '', words: '', tariffs: {} }] })} />
-              {!ro && <div><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, categories: [...cfg.categories, { key: `cat${cfg.categories.length + 1}`, label: '', policy: '', mode: 'persona', rank: cfg.categories.length + 1, tariffs: {}, quota: 0 }] })}>{t('rsm.set.addCat')}</button></div>}
+              {!ro && <div><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, categories: [...cfg.categories, { key: newCategoryKey(cfg.categories), label: '', policy: '', mode: 'persona', rank: cfg.categories.length + 1, tariffs: {}, quota: 0 }] })}>{t('rsm.set.addCat')}</button></div>}
             </div>
           </div>
 
@@ -265,6 +278,7 @@ export default function RsmSettingsPage() {
         <div className="rsm-row"><button className="btn btn-secondary" style={{ color: 'var(--c-error)' }} onClick={remove}>{t('rsm.set.delete')}</button></div>
       )}
       {panel}
+      <SaveErrorDrawer error={saveErr} onClose={() => setSaveErr(null)} />
     </div>
   )
 }

@@ -83,7 +83,17 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
       tariffs: Object.fromEntries(tKeys.filter((k) => v.tariffs && v.tariffs[k] != null && (v.tariffs[k] as unknown) !== '').map((k) => [k, cval(v.tariffs[k])])),
     })).filter((v) => v.label || v.words),
   }))
-  if (!categories.length || new Set(categories.map((x) => x.key)).size !== categories.length) return null
+  if (!categories.length) return null
+  // chiavi doppie (categoria aggiunta con la chiave di un'altra): la PRIMA tiene
+  // la chiave, che è quella delle righe già registrate; le altre, nuove, la
+  // cambiano. Prima il salvataggio si rifiutava e non si salvava più nulla.
+  const seen = new Set<string>()
+  for (const x of categories) {
+    let k = x.key, n = 2
+    while (seen.has(k)) k = `${x.key}-${n++}`
+    x.key = k
+    seen.add(k)
+  }
   const r = c.rules || ({} as RsmConfig['rules'])
   return {
     periodStart, periodEnd, categories,
@@ -120,12 +130,35 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
   }
 }
 
+/**
+ * Perché una configurazione non si può salvare, in parole dell'operatore: cosa
+ * non va e dove si corregge. Il pannello di avviso della pagina li mostra uno
+ * per uno (20/11/2026: un rifiuto senza spiegazione sembrava una perdita di dati).
+ */
+function configProblems(c: RsmConfig): { text: string; fix: string }[] {
+  const out: { text: string; fix: string }[] = []
+  const ps = iso(c?.periodStart), pe = iso(c?.periodEnd)
+  if (!ps || !pe) out.push({ text: 'Mancano le date del periodo di polizza.', fix: 'In alto nelle Impostazioni compila «Copertura dal» e «al».' })
+  else if (pe <= ps) out.push({ text: `La fine del periodo non viene dopo l'inizio (${ps.split('-').reverse().join('/')}).`, fix: 'In alto nelle Impostazioni metti in «al» una data successiva a «Copertura dal».' })
+  const legs = (Array.isArray(c?.legami) ? c.legami : []).map((l) => ({ key: legKey(l.key), label: String(l.label || l.key || '').trim(), tariff: String(l.tariff || '').trim().toLowerCase() }))
+  const dupKey = legs.filter((l, i) => l.key && legs.findIndex((x) => x.key === l.key) !== i)
+  for (const l of dupKey) out.push({ text: `Due legami del nucleo hanno la stessa sigla «${l.key}».`, fix: 'In «Legami del nucleo» dai a ogni legame una sigla diversa.' })
+  const dupTar = legs.filter((l, i) => l.tariff && legs.findIndex((x) => x.tariff === l.tariff) !== i)
+  for (const l of dupTar) out.push({ text: `Due legami del nucleo usano la stessa colonna di tariffa («${l.label || l.tariff}»).`, fix: 'In «Legami del nucleo» togli il legame doppio o cambiagli il nome.' })
+  if (!Array.isArray(c?.categories) || !c.categories.length) out.push({ text: 'Il programma non ha nessuna categoria.', fix: 'In «Categorie, polizze e tariffe» premi «Aggiungi categoria» e dagli un nome.' })
+  return out
+}
+
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id, true)
   if (!g.ok) return g.res
   const body = (await req.json().catch(() => ({}))) as { company?: string; name?: string; year?: number; config?: RsmConfig }
   const config = cleanConfig(body.config as RsmConfig)
-  if (!config) return fail(400, 'Configurazione non valida: periodo, categorie con chiavi diverse.', 'invalid')
+  if (!config) {
+    const problems = configProblems(body.config as RsmConfig)
+    if (!problems.length) problems.push({ text: 'Le impostazioni inviate non sono leggibili.', fix: 'Ricarica la pagina e rifai le modifiche; se succede ancora, scrivi a info@omeganodes.ai.' })
+    return NextResponse.json({ error: 'Le impostazioni non sono state salvate.', code: 'invalid', problems }, { status: 400 })
+  }
   // chi salva non può togliersi da solo il diritto di modifica
   if (config.editors && config.editors.length && !config.editors.includes(g.email.toLowerCase())) config.editors.push(g.email.toLowerCase())
   const name = String(body.name || g.program.name).trim()

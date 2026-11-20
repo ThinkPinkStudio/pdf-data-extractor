@@ -2254,6 +2254,18 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   340.374 / 18.200 / 14.382), rinnovo esportato e reimportato identico.
   Da chiedere: le loro entrate usano 3.165 € × 70% (formula con la data
   30/06/2025 non aggiornata), non la tariffa 3.640.
+  **Salvataggio rifiutato = pannello di avviso (20/11/2026, «ha perso tutti
+  i dati» di Lidia)**: «Aggiungi categoria» dava la chiave `cat<numero di
+  categorie>`; togliendone una e aggiungendone due nascevano due chiavi uguali
+  e ogni Salva era rifiutato (400 «chiavi diverse», messaggio in cima alla
+  pagina, fuori schermo): niente salvato, sembrava una perdita. Ora chiave
+  sempre nuova (`newCategoryKey`), il server rinomina le doppie (la PRIMA tiene
+  la chiave delle righe già registrate) e ogni rifiuto arriva con `problems`
+  (cosa non va + dove si corregge: periodo, legami doppi, nessuna categoria);
+  `api()` lancia `ApiError` e Impostazioni e import guidato aprono
+  `SaveErrorDrawer` (nulla salvato, modifiche ancora nella pagina, motivi).
+  L'import guidato, se il salvataggio del programma appena creato fallisce, lo
+  TOGLIE: prima restava un programma vuoto con le categorie di partenza.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,
