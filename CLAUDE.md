@@ -2024,6 +2024,21 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   operanti): nei 143 dossier di Lipari A-I controllati a mano le auto hanno 11-12
   valori veri su 23, il massimo assoluto è 18.
 
+- **RC Professionale V3, verifica di Maurizio Ratti (19-20/11/2026)**:
+  «Tacito rinnovo» = 144,14 e «Frazionamento» = 647,86 su Dell'Oro venivano
+  dalle DESCRIZIONI (chiedevano imposte e imponibile; label fuorvianti). Il
+  profilo di produzione ha ora le descrizioni giuste (Sì/No con citazione;
+  una tra Annuale, Semestrale…), corrette il 20/11 mattina; le verità degli 8
+  golden RC seguono quelle descrizioni. Flag promossi di default:
+  `citazionicolonne` (citazione cucita tra le due colonne della griglia:
+  elenco delle attività Lloyd's su due colonne, le verifiche Sì/No restavano
+  vuote) e `questionariodati` (date, importi e condizioni della polizza mai da
+  una pagina di questionario per titolo: Dell'Oro «Precedenti Coperture» a
+  pag. 26 dava scadenza, franchigia 1.500 e retroattività della polizza
+  precedente). Golden RC 234 → 245/309, TL3 invariato. `filtrocontesto`
+  (voci di elenco al filtro col testo del documento) BOCCIATO e tolto: RC 242
+  con lui contro 245 senza, TL3 −3. Misure in `.goldens-out/catalog/rc-cliente/`
+  (ab.mjs, cmp-golden.mjs, runs-*.json).
 - **Sezione ANAGRAFICHE RSM (05/11/2026, preventivo 10 giornate accettato)**:
   polizza collettiva rimborso spese mediche di Crédit Agricole Vita (cliente CSA).
   Sezione separata `/rsm` (sidebar `rsm`, scheda nell'hub): Stato di rischio,

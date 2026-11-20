@@ -35,18 +35,17 @@
       "mode": "date"
     },
     "Tacito Rinnovo": {
-      "value": "145,60",
-      "mode": "amount",
-      "note": "descrizione del campo = imposte"
+      "value": "Sì",
+      "mode": "yes",
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — art. 5.1 «si rinnoverà tacitamente di anno in anno»"
     },
     "Premio lordo": {
       "value": "800,00",
       "mode": "amount"
     },
     "Frazionamento": {
-      "value": "654,40",
-      "mode": "amount",
-      "note": "descrizione del campo = premio imponibile"
+      "value": null,
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — nessuna parola di frazionamento nel fascicolo"
     },
     "Professione dichiarata": {
       "value": "Avvocato",

@@ -35,18 +35,16 @@
       "mode": "date"
     },
     "Tacito Rinnovo": {
-      "value": "137,67",
-      "mode": "amount",
-      "note": "descrizione = imposte"
+      "value": null,
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — il fascicolo non ne parla"
     },
     "Premio lordo": {
       "value": "756,42",
       "mode": "amount"
     },
     "Frazionamento": {
-      "value": "618,75",
-      "mode": "amount",
-      "note": "descrizione = premio imponibile"
+      "value": null,
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — il fascicolo non ne parla"
     },
     "Professione dichiarata": {
       "value": "ARCHITETTO",

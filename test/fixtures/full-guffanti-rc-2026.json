@@ -31,18 +31,18 @@
       "mode": "date"
     },
     "Tacito Rinnovo": {
-      "value": "3.276,07",
-      "mode": "amount",
-      "note": "descrizione = imposte"
+      "value": "No",
+      "mode": "exact",
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — scheda p3 «Periodo assicurativo, tacito rinnovo escluso»"
     },
     "Premio lordo": {
       "value": "18.000,00",
       "mode": "amount"
     },
     "Frazionamento": {
-      "value": "14.723,93",
-      "mode": "amount",
-      "note": "descrizione = imponibile"
+      "value": "Annuale",
+      "mode": "contains",
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — scheda p4 «Ripartizione premio: ANNUALE»"
     },
     "Massimale per sinistro": {
       "value": "5.000.000",

@@ -35,18 +35,17 @@
       "mode": "date"
     },
     "Tacito Rinnovo": {
-      "value": "200,20",
-      "mode": "amount",
-      "note": "descrizione = imposte (appendice 2026)"
+      "value": "No",
+      "mode": "exact",
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — appendice di rinnovo p1 «senza tacito rinnovo»"
     },
     "Premio lordo": {
       "value": "1.100,00",
       "mode": "amount"
     },
     "Frazionamento": {
-      "value": "899,80",
-      "mode": "amount",
-      "note": "descrizione = imponibile (appendice 2026)"
+      "value": null,
+      "note": "descrizione del 20/11/2026 (Sì/No con citazione; una tra Annuale, Semestrale, …) — nessuna parola di frazionamento nel fascicolo"
     },
     "Professione dichiarata": {
       "value": "Avvocato",

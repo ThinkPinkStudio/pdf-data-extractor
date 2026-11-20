@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { evidenceInContext, segmentAcrossColumns, normForMatch, passesStagedEvidence } from '../src/services/polizzaValidation.js'
 import { isQuestionnairePageTitle } from '../src/services/polizzaFactsRegistry.js'
-import { isQuestionnaireSourced, listItemContext } from '../src/services/polizzaService.js'
+import { isQuestionnaireSourced } from '../src/services/polizzaService.js'
 import { KNOWN_FLAGS } from '../src/services/engineFlags.js'
 
 // Pag. 15 della polizza Lloyd's «RC Professionale Area Tecnica» (griglia pdf.js):
@@ -91,28 +91,11 @@ test('questionariodati: date, importi e condizioni della polizza mai dal questio
   assert.equal(isQuestionnaireSourced(FRANCHIGIA, 'Questionario.pdf', 2, qp, new Set(['Questionario.pdf'])), true)
 })
 
-test('filtrocontesto: il testo attorno alla voce si trova nella pagina della fonte', () => {
-  const appendix = {
-    name: 'Appendice.pdf',
-    pages: [''],
-    spatialPages: [[
-      '      A) Con la presente appendice, di comune accordo tra le parti e con effetto dalle ore 24:00 del 20 maggio 2026, si conviene di',
-      '         abrogare e sostituire in polizza la seguente condizione aggiuntiva, come segue:',
-      '         10.2 Attività di Consigliere di Amministrazione in società di capitali o Enti',
-      '         Di comune accordo tra le Parti, si da e si prende atto che la condizione aggiuntiva a seguire non è operante per gli incarichi',
-      '         1. Fermi restando i limiti, le condizioni, le esclusioni e le limitazioni di cui alla presente Polizza , a parziale modifica',
-      "         dell'esclusione di cui all'Art. 4.16 del testo di polizza, la copertura si intende estesa a quanto l' Assicurato , nella qualità",
-    ].join('\n')],
-  }
-  const c = listItemContext([appendix], 'Attività di Consigliere di Amministrazione in società di capitali o Enti', 'Appendice.pdf', 1)
-  assert.ok(c && /condizione aggiuntiva/.test(c) && /10\.2 Attività di Consigliere/.test(c))
-  assert.equal(listItemContext([appendix], 'Kasko collisione veicoli', 'Appendice.pdf', 1), null)
-})
-
-test('i tre flag sono registrati e spenti di default', async () => {
+test('citazionicolonne e questionariodati di default; filtrocontesto tolto', async () => {
   const { DEFAULT_FLAGS } = await import('../src/services/engineFlags.js')
-  for (const f of ['citazionicolonne', 'questionariodati', 'filtrocontesto']) {
+  for (const f of ['citazionicolonne', 'questionariodati']) {
     assert.ok(KNOWN_FLAGS[f], f)
-    assert.ok(!DEFAULT_FLAGS.includes(f), f)
+    assert.ok(DEFAULT_FLAGS.includes(f), f)
   }
+  assert.ok(!KNOWN_FLAGS.filtrocontesto)
 })

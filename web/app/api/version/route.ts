@@ -17,6 +17,7 @@ const BUILD_FEATURES = [
   'rsm-parole-testi', // RSM: parole dei file, testi della mail, limite d'età spegnibile, quota e promozione configurabili (19/11/2026)
   'rsm-configurabile', // RSM: legami come elenco, tariffe/quota/scaglioni/trattenuta come valore fisso o % di altri campi (19/11/2026)
   'rsm-familiare', // RSM: legame «Altro familiare» (FA) con la sua tariffa (19/11/2026, richiesta di Lidia)
+  'flag-rc-default', // citazionicolonne e questionariodati di default, filtrocontesto tolto (golden RC 234 → 245, TL3 invariato; 20/11/2026)
   'flag-rc-filtri-v2', // filtrocontesto salta le risposte prescritte e mostra più testo; questionariodati guarda la testa positiva della descrizione (19/11/2026 sera)
   'flag-rc-filtri', // flag citazionicolonne, questionariodati, filtrocontesto (spenti, da misurare): citazioni su due colonne, dati della polizza mai dalle pagine di questionario, filtro elenchi col testo della voce (19/11/2026)
   'vita-mensile-opzioni', // Vita: decorrenza dei passaggi del file mensile configurabile, file mensile di un solo contraente (19/11/2026)

@@ -5293,49 +5293,6 @@ export const LIST_FILTER_SYSTEM = 'Ricevi la DESCRIZIONE di un campo e le VOCI t
   'Tieni SOLO le voci che la descrizione ammette, rispettando le sue esclusioni (le frasi "NON ..."). Non aggiungere voci, non riscriverle. ' +
   'FORMATO: un oggetto JSON {"tenere": [indici delle voci da tenere]}; {"tenere": []} se nessuna voce corrisponde alla descrizione.'
 
-export const LIST_FILTER_SYSTEM_CTX = LIST_FILTER_SYSTEM +
-  ' Sotto ogni voce c\'è il TESTO DEL DOCUMENTO dove compare: giudica la voce da quel testo (che cosa è nel documento), non solo dal suo nome.'
-
-/**
- * [flag filtrocontesto] Righe della griglia attorno a una voce di elenco: la
- * riga con più parole della voce (≥ 4 lettere, almeno il 60%), nella pagina
- * della fonte se c'è, altrimenti in tutto il fascicolo; tre righe sopra e otto
- * sotto (la frase che dice cosa è la voce può stare qualche riga dopo: «la
- * copertura si intende estesa…» della 10.2 Casella), al massimo 1400 caratteri.
- */
-export function listItemContext(analyzed, item, file = null, page = null) {
-  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const toks = [...new Set(norm(item).split(/[^a-z0-9]+/).filter((w) => w.length >= 4))]
-  if (!toks.length) return null
-  const need = Math.max(Math.min(2, toks.length), Math.ceil(toks.length * 0.6))
-  const pick = (lines) => {
-    let bestI = -1
-    let bestN = 0
-    for (let i = 0; i < lines.length; i++) {
-      const l = norm(lines[i] + ' ' + (lines[i + 1] || ''))
-      const n = toks.filter((t) => l.includes(t)).length
-      if (n > bestN) { bestN = n; bestI = i }
-    }
-    return bestN >= need ? bestI : -1
-  }
-  const out = (lines, i) => lines.slice(Math.max(0, i - 3), i + 9).map((l) => l.replace(/\s{2,}/g, '  ').trim()).filter(Boolean).join('\n').slice(0, 1400)
-  const docs = analyzed || []
-  const src = file ? docs.find((d) => d.name === file) : null
-  if (src && page) {
-    const lines = String(gridPagesOf(src)[page - 1] || '').split('\n')
-    const i = pick(lines)
-    if (i !== -1) return out(lines, i)
-  }
-  for (const d of docs) {
-    for (const pg of gridPagesOf(d)) {
-      const lines = String(pg || '').split('\n')
-      const i = pick(lines)
-      if (i !== -1) return out(lines, i)
-    }
-  }
-  return null
-}
-
 /** Il campo chiede un ELENCO? Lo dice la testa della descrizione (prima dei due punti). */
 export function isListDescription(description) {
   const head = String(description || '').split(':')[0]
@@ -9583,24 +9540,10 @@ export async function extractPolizzaStaged(docs, settings, onProgress = null) {
       if (e.gridRow === true) { diag.push(`Elenco[${f.label}]: dalla struttura della tabella, non filtrato`); continue }
       const items = splitListItems(e.valore)
       if (!items.length) continue
-      // Una RISPOSTA PRESCRITTA dalla descrizione («scrivi 'Nessuna'») non è un
-      // elenco di voci del documento: non si filtra (col testo della voce il
-      // modello non la ritrovava e la toglieva, Dell'Oro).
-      if (engineFlag(settings, 'filtrocontesto') && isPrescribedAnswer(f, e.valore)) { diag.push(`Elenco[${f.label}]: "${e.valore}" è una risposta prescritta dalla descrizione, non filtrata`); continue }
       try {
-        // [flag filtrocontesto] ogni voce col TESTO del documento dove compare:
-        // senza, il modello giudicava il solo nome («Attività di Consigliere di
-        // Amministrazione in società di capitali o Enti», la condizione
-        // aggiuntiva 10.2 che l'appendice Casella dichiara estesa) e toglieva
-        // un'estensione vera dalle Estensioni operative.
-        const ctxOn = engineFlag(settings, 'filtrocontesto')
-        const itemLines = items.map((t, i) => {
-          if (!ctxOn) return `${i}. ${t}`
-          const c = listItemContext(analyzed, t, e.file, e.page)
-          return c ? `${i}. ${t}\n   TESTO DEL DOCUMENTO DOVE COMPARE:\n${c.split('\n').map((l) => `   | ${l}`).join('\n')}` : `${i}. ${t}\n   (voce non ritrovata nel testo dei documenti)`
-        })
+        const itemLines = items.map((t, i) => `${i}. ${t}`)
         const user = `DESCRIZIONE DEL CAMPO:\n${stripFieldExamples(f.description || '')}\n\nVOCI TROVATE NEI DOCUMENTI (numerate):\n${itemLines.join('\n')}\n\nRispondi SOLO con l'oggetto JSON {"tenere": [...]}.`
-        const raw = await callOllamaRolling(s2, ctxOn ? LIST_FILTER_SYSTEM_CTX : LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
+        const raw = await callOllamaRolling(s2, LIST_FILTER_SYSTEM, user, { numCtx: batchCtx, timeoutMs: 120000, diag, fields: [f], shape: 'staged', format: 'json' })
         let parsed = null
         try { parsed = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || 'null') } catch { parsed = null }
         const keep = parsed && Array.isArray(parsed.tenere)
