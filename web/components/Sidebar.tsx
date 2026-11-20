@@ -164,7 +164,9 @@ const NAV_ADESIONI: NavItem[] = [
 const NAV_INFORTUNI: NavItem[] = [
   { href: '/infortuni', key: 'nav.infNew', icon: <IconForm /> },
   { href: '/infortuni/archivio', key: 'nav.infArchive', icon: <IconHistory /> },
-  { href: '/infortuni/scadenze', key: 'nav.infScadenze', icon: <IconCalendar /> },
+  // Scadenze (20/11/2026): pagina pronta ma nascosta dal menu per scelta
+  // dell'utente; per mostrarla basta togliere il commento.
+  // { href: '/infortuni/scadenze', key: 'nav.infScadenze', icon: <IconCalendar /> },
   { href: '/infortuni/settings', key: 'nav.infSettings', icon: <IconSettings /> },
 ]
 
