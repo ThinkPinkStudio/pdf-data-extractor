@@ -17,7 +17,13 @@ export interface RsmCategory {
   // Tariffe per fascia d'età (17/11/2026): 'eta' usa `ageBands` al posto di `tariffs`.
   tariffBy?: 'unica' | 'eta'
   ageBands?: (RsmTariffs & { upTo: number | null })[] // «fino a» anni; null = oltre l'ultima
+  // Nomi del foglio o della categoria nei file (20/11/2026): «SGR Dipendenti, RE Dipendenti»
+  words?: string
+  // Coperture con un premio diverso (colonna COPERTURA del file: «SOLO IPM»); tariffe vuote = come la categoria
+  variants?: RsmVariant[]
 }
+
+export interface RsmVariant { key: string; label: string; words: string; tariffs: RsmTariffs }
 
 /** Tariffe di una categoria: titolare, quiescente e una per legame; ognuna fissa o percentuale di altre. */
 export type RsmTariffs = { [k: string]: ConfigValue | null | undefined }

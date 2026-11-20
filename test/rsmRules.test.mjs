@@ -664,3 +664,63 @@ test('parole dei file, testi della mail, quota e promozione configurabili', asyn
   const pr = R.computeMember(cfg, { category: imp.key, legame: 'TI', quiescente: false, entryDate: '2026-08-01', entryKind: 'promozione' })
   assert.equal(pr.rateo, 500)
 })
+
+test('file di gruppo come Amundi: categorie dal file, sigle nei fogli, coperture con premio diverso', async () => {
+  const R = await import('../web/lib/rsm/rules.js')
+  const head = ['AZIENDA', 'CATEGORIA', 'NR. POLIZZA', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'PREMIO ANNUO', 'COPERTURA', 'NOTE']
+  const varHead = ['AZIENDA', 'CATEGORIA', 'NR. POLIZZA', 'AZIONE', 'COGNOME', 'NOME', 'DATA DI NASCITA', 'C.F. ASSICURATO', 'C.F. TITOLARE', 'LEGAME', 'DATA ENTRATA', 'DATA USCITA', 'PROMOZIONE']
+  const d = (s) => new Date(`${s}T00:00:00Z`)
+  const sheets = {
+    RIEPILOGO: [['GRUPPO', d('2026-01-01')]],
+    'SGR Dipendenti': [
+      [...head, null, 'QUADRI E IMPIEGATI', 'NR', 'PREMIO PROCAPITE'],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ROSSI', 'MARIO', d('1985-12-10'), 'RSSMRA85T10A562S', 'RSSMRA85T10A562S', 'TI', d('2026-01-01'), 3640, 'RSM + IPM', null, null, 'ASSICURATI RSM + IPM', 2, 3640],
+      ['ALFA SGR', '', 40014648, 'ROSSI', 'ANNA', d('1987-01-01'), 'RSSNNA87A41F205X', 'RSSMRA85T10A562S', 'CO', d('2026-01-01'), 0, 'RSM', null, null, 'ASSICURATI SOLO IPM', 1, 744],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'VERDI', 'GIUSEPPE', d('1970-01-01'), 'VRDGPP70A01H501S', 'VRDGPP70A01H501S', 'TI', d('2026-01-01'), 744, 'SOLO IPM', null],
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'BIANCHI', 'LUCA', d('1980-01-01'), 'BNCLCU80A01F205Z', 'BNCLCU80A01F205Z', 'TI', d('2026-01-01'), 3640, 'RSM + IPM', null],
+    ],
+    'Variazioni SGR Dipendenti': [['ALFA SGR', null, 'Regolazione', 'Premio', d('2026-01-01'), '-', d('2027-01-01')], varHead,
+      // figlio nato in corso d'anno: il titolare è nel foglio dello stato
+      ['ALFA SGR', '', 40014648, 'ENTRATA', 'ROSSI', 'LUCA', d('2026-03-01'), 'RSSLCU26C01F205X', 'RSSMRA85T10A562S', 'FI', d('2026-03-01'), null, 'NO'],
+      // entrato e uscito sulla stessa riga
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ENTRATA', 'NERI', 'PAOLO', d('1990-01-01'), 'NREPLA90A01F205Q', 'NREPLA90A01F205Q', 'TI', d('2026-01-01'), d('2026-04-30'), 'NO'],
+      // uscita il giorno della fine del periodo: fine naturale, niente da chiudere né da segnalare
+      ['ALFA SGR', 'DIPENDENTE', 40014648, 'ENTRATA', 'GIALLI', 'ANNA', d('1990-01-01'), 'GLLNNA90A41F205P', 'GLLNNA90A41F205P', 'TI', d('2026-08-01'), d('2027-01-01'), 'NO'],
+    ],
+    'Real Estate Dirigenti': [head,
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'BLU', 'MARCO', d('1975-01-01'), 'BLUMRC75A01F205K', 'BLUMRC75A01F205K', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'ROSA', 'ELENA', d('1976-01-01'), 'RSOLNE76A41F205Z', 'RSOLNE76A41F205Z', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'GRIGI', 'ALDO', d('1977-01-01'), 'GRGLDA77A01F205T', 'GRGLDA77A01F205T', 'TI', d('2026-01-01'), 4794, 'RSM + IPM', null],
+    ],
+    'Variazioni RE Dirigenti': [varHead,
+      ['ALFA R.E.', 'DIRIGENTE', 40014647, 'USCITA', 'BLU', 'MARCO', d('1975-01-01'), 'BLUMRC75A01F205K', 'BLUMRC75A01F205K', 'TI', null, d('2026-06-30'), 'NO']],
+  }
+  assert.equal(R.workbookCompany(sheets), 'ALFA') // nome comune delle società del gruppo
+  const cats = R.categoriesFromWorkbook(sheets)
+  assert.deepEqual(cats.map((c) => [c.key, c.label, c.policy, c.mode, c.rank]), [
+    ['sgr-dipendenti', 'SGR Dipendenti', '40014648', 'nucleo', 1],
+    ['real-estate-dirigenti', 'Real Estate Dirigenti', '40014647', 'nucleo', 3],
+  ])
+  assert.deepEqual(cats[0].tariffs, { titolare: 3640 })
+  assert.deepEqual(cats[0].variants, [{ key: 'solo-ipm', label: 'SOLO IPM', words: 'SOLO IPM', tariffs: { titolare: 744 } }])
+  const cfg = R.defaultProgramConfig(2026)
+  cfg.categories = cats
+  // «RE» = «Real Estate»; «SGR Dipendenti» anche in un programma che ha solo «Dipendenti»
+  assert.equal(R.sheetCategory('Variazioni RE Dirigenti', cfg).key, 'real-estate-dirigenti')
+  assert.equal(R.sheetCategory('SGR Dipendenti', { categories: [{ key: 'dip', label: 'Dipendenti' }] }).key, 'dip')
+  assert.equal(R.sheetCategory('SGR Dipendenti', { categories: [{ key: 'x', label: 'Impiegati', words: 'SGR Dipendenti' }] }).key, 'x')
+  const res = R.parseStatoWorkbook(cfg, sheets, {})
+  assert.deepEqual(res.warnings.filter((w) => !/carattere di controllo/.test(w)), []) // codici fiscali inventati
+  const by = (cf) => res.members.find((m) => m.cf === cf)
+  assert.equal(by('RSSLCU26C01F205X').category, 'sgr-dipendenti')
+  assert.equal(by('NREPLA90A01F205Q').exitDate, '2026-04-30')
+  assert.equal(by('GLLNNA90A41F205P').exitDate, null)
+  assert.equal(by('BLUMRC75A01F205K').exitDate, '2026-06-30')
+  // la copertura scritta nel file decide la tariffa del titolare
+  assert.equal(R.coverageOf(cfg, by('VRDGPP70A01H501S')), 'SOLO IPM')
+  assert.equal(R.computeMember(cfg, by('VRDGPP70A01H501S')).annuo, 744)
+  assert.equal(R.computeMember(cfg, by('RSSMRA85T10A562S')).annuo, 3640)
+  assert.equal(R.computeMember(cfg, by('RSSNNA87A41F205X')).annuo, 0) // a nucleo
+  // tariffe lette dal file anche per un programma che le categorie le ha già
+  assert.deepEqual(R.tariffsFromWorkbook(cfg, sheets)['sgr-dipendenti'], { tariffs: { titolare: 3640 }, policy: '40014648', variants: cats[0].variants })
+})

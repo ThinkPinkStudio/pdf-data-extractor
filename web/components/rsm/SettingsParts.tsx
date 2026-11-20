@@ -10,7 +10,7 @@ import ValueInput from '@/components/ValueInput'
 import { eur } from '@/components/rsm/useRsm'
 import { DEFAULT_MAIL_TEXTS, DEFAULT_WORDS, LAYOUT_FIELDS, compareConfigs, entryStepsOf, exampleCalc, fmtDate, legamiOf, refundTaxOf, legameLabel } from '@/lib/rsm/rules.js'
 import { describeValue } from '@/lib/configValue.js'
-import type { ConfigValue, RsmCategory, RsmConfig, RsmLegame, RsmMember, RsmTariffs } from '@/lib/rsm/types'
+import type { ConfigValue, RsmCategory, RsmConfig, RsmLegame, RsmMember, RsmTariffs, RsmVariant } from '@/lib/rsm/types'
 
 type Band = RsmTariffs & { upTo: number | null }
 type T = (k: string, p?: Record<string, string | number>) => string
@@ -155,6 +155,62 @@ export function AgeBands({ cfg, cat, ro, onChange }: { cfg: RsmConfig; cat: RsmC
           <span className="rsm-note">{t('rsm.ab.hint')}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Coperture con un premio diverso di una categoria (colonna COPERTURA del
+ * file: «SOLO IPM» 744 € invece di 3.640 €). Una tariffa vuota resta quella
+ * della categoria: per questo uno 0 fisso si toglie invece di salvarlo.
+ */
+export function Variants({ cfg, cat, ro, onChange }: { cfg: RsmConfig; cat: RsmCategory; ro: boolean; onChange: (v: RsmVariant[]) => void }) {
+  const { t } = useI18n()
+  const cols = tariffColumns(cfg, t)
+  const vs = cat.variants || []
+  const set = (i: number, p: Partial<RsmVariant>) => onChange(vs.map((v, j) => (j === i ? { ...v, ...p } : v)))
+  const setTariff = (i: number, k: string, val: ConfigValue) => {
+    const tariffs = { ...vs[i].tariffs }
+    if (typeof val === 'number' ? !val : val.mode === 'fisso' && !val.value) delete tariffs[k]
+    else tariffs[k] = val
+    set(i, { tariffs })
+  }
+  return (
+    <div className="rsm-bands">
+      <div className="rsm-box-title" style={{ fontSize: 13 }}>{t('rsm.cv.title', { c: cat.label })}</div>
+      <div className="rsm-note">{t('rsm.cv.hint')}</div>
+      <table className="rsm-cats">
+        <thead><tr><th>{t('rsm.cv.name')}</th><th>{t('rsm.cv.words')}</th>{cols.map((c) => <th key={c.key}>{c.label}</th>)}<th /></tr></thead>
+        <tbody>
+          {vs.map((v, i) => (
+            <tr key={i}>
+              <td><input value={v.label} disabled={ro} onChange={(e) => set(i, { label: e.target.value })} style={{ width: 120 }} aria-label={t('rsm.cv.name')} /></td>
+              <td><input value={v.words} disabled={ro} onChange={(e) => set(i, { words: e.target.value })} style={{ width: 140 }} placeholder="SOLO IPM" aria-label={t('rsm.cv.words')} /></td>
+              {cols.map((col) => (
+                <td key={col.key}><ValueInput value={v.tariffs[col.key]} disabled={ro || (cat.mode === 'nucleo' && col.family)} onChange={(val) => setTariff(i, col.key, val)} width={70}
+                  bases={cols.filter((o) => o.key !== col.key).map((o) => ({ key: o.key, label: o.label }))} label={`${v.label} ${col.label}`} /></td>
+              ))}
+              <td>{!ro && <button className="rsm-mini danger" aria-label={t('rsm.delete')} onClick={() => onChange(vs.filter((_, j) => j !== i))}>×</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Pulsante per aggiungere una copertura con premio diverso a una categoria. */
+export function AddVariant({ cfg, ro, onAdd }: { cfg: RsmConfig; ro: boolean; onAdd: (catIndex: number) => void }) {
+  const { t } = useI18n()
+  const [i, setI] = useState(0)
+  if (ro || !cfg.categories.length) return null
+  return (
+    <div className="rsm-row" style={{ alignItems: 'center' }}>
+      <button className="btn btn-secondary" onClick={() => onAdd(Math.min(i, cfg.categories.length - 1))}>{t('rsm.cv.add')}</button>
+      <span className="rsm-note">{t('rsm.cv.addTo')}</span>
+      <select value={Math.min(i, cfg.categories.length - 1)} onChange={(e) => setI(Number(e.target.value))} aria-label={t('rsm.cv.add')} style={{ height: 34, width: 'auto', fontSize: 12.5, padding: '0 8px' }}>
+        {cfg.categories.map((c, j) => <option key={j} value={j}>{c.label || c.key}</option>)}
+      </select>
     </div>
   )
 }

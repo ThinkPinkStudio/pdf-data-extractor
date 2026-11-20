@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 import { useConfirmPanel } from '@/components/ConfirmPanel'
 import { RsmHeader, api, useRsm } from '@/components/rsm/useRsm'
 import ValueInput from '@/components/ValueInput'
-import { AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, MailTexts, RuleChoices, WordsBox, tariffColumns } from '@/components/rsm/SettingsParts'
+import { AddVariant, AgeBands, ComparePanel, EntrySteps, ExampleBox, LayoutSummary, LegamiBox, MailTexts, RuleChoices, Variants, WordsBox, tariffColumns } from '@/components/rsm/SettingsParts'
 import { addDays, legamiOf, refundTaxOf } from '@/lib/rsm/rules.js'
 import Link from 'next/link'
 import { programName } from '@/lib/rsm/types'
@@ -154,7 +154,8 @@ export default function RsmSettingsPage() {
                 <tbody>
                   {cfg.categories.map((c, i) => (
                     <tr key={i}>
-                      <td><input value={c.label} disabled={ro} onChange={(e) => setCat(i, { label: e.target.value })} style={{ width: 130 }} /></td>
+                      <td><input value={c.label} disabled={ro} onChange={(e) => setCat(i, { label: e.target.value })} style={{ width: 130 }} />
+                        <input value={c.words || ''} disabled={ro} onChange={(e) => setCat(i, { words: e.target.value })} placeholder={t('rsm.set.words')} aria-label={`${c.label} ${t('rsm.set.words')}`} style={{ width: 130, marginTop: 4, height: 26, fontSize: 11.5 }} /></td>
                       <td><input value={c.policy} disabled={ro} onChange={(e) => setCat(i, { policy: e.target.value })} style={{ width: 100 }} /></td>
                       <td><select value={c.mode} disabled={ro} onChange={(e) => setCat(i, { mode: e.target.value as RsmCategory['mode'] })} style={{ width: 120 }}>
                         <option value="nucleo">{t('rsm.set.nucleo')}</option><option value="persona">{t('rsm.set.persona')}</option>
@@ -174,6 +175,8 @@ export default function RsmSettingsPage() {
                 </tbody>
               </table>
               {cfg.categories.map((c, i) => c.tariffBy === 'eta' ? <AgeBands key={`ab${i}`} cfg={cfg} cat={c} ro={ro} onChange={(ageBands) => setCat(i, { ageBands })} /> : null)}
+              {cfg.categories.map((c, i) => c.variants && c.variants.length ? <Variants key={`cv${i}`} cfg={cfg} cat={c} ro={ro} onChange={(variants) => setCat(i, { variants })} /> : null)}
+              <AddVariant cfg={cfg} ro={ro} onAdd={(i) => setCat(i, { variants: [...(cfg.categories[i].variants || []), { key: `cop${Date.now().toString(36)}`, label: '', words: '', tariffs: {} }] })} />
               {!ro && <div><button className="btn btn-secondary" onClick={() => setCfg({ ...cfg, categories: [...cfg.categories, { key: `cat${cfg.categories.length + 1}`, label: '', policy: '', mode: 'persona', rank: cfg.categories.length + 1, tariffs: {}, quota: 0 }] })}>{t('rsm.set.addCat')}</button></div>}
             </div>
           </div>

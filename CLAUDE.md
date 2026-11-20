@@ -2211,6 +2211,34 @@ Fatti d'ambiente e decisioni prese. NON richiederli all'utente: sono già qui.
   sempre = testo nuovo», `web/lib/excelLabels.ts` applicato sul file finito:
   nomi dei fogli anche come inizio, celle col testo esatto). Il sovrappremio
   è un dato della persona, non una regola.
+  **File di gruppo come Amundi (20/11/2026, file di Lidia «Anagrafiche RSM +
+  IPM rinnovo 2026»)**: un foglio per società E categoria («SGR Dipendenti»,
+  «Real Estate Dirigenti», polizze diverse) e variazioni con le sigle
+  («Variazioni RE Dipendenti»). Lidia non riusciva a caricarlo: l'import
+  guidato proponeva sempre Dirigenti/Funzionari/Impiegati. Ora
+  `categoriesFromWorkbook` propone le categorie del FILE (un foglio di
+  assicurati = una categoria: nome, polizza, premio a nucleo o a persona dai
+  premi dei familiari, tariffe, ordine di carriera dal nome) e un programma
+  nuovo le adotta da solo se un foglio non combacia esattamente o due fogli
+  cadono sulla stessa categoria; per un programma esistente «Aggiungi le
+  categorie del file». `sheetCategory`: nome intero contro etichetta e «altri
+  nomi nei file» (`category.words`) anche con le SIGLE (RE = Real Estate),
+  poi la radice di sempre, poi senza le prime parole. COPERTURE con premio
+  diverso (`category.variants`: colonna COPERTURA, campo di tracciato
+  `copertura` salvato fra le colonne della società; «SOLO IPM» 744 € invece
+  di 3.640 €; tariffe vuote = come la categoria; `coverageOf`, `variantFor`),
+  nelle Impostazioni e nell'import. Tariffe lette anche dalla tabellina
+  accanto ai dati («ASSICURATI SOLO IPM 2 744») e dalla colonna PREMIO dei
+  titolari. Righe di variazione con entrata E uscita (entrato 01/01, uscito
+  30/04) = entrata chiusa; uscita il giorno di fine periodo ignorata e non
+  «fuori periodo»; figlio nelle variazioni col titolare nel foglio dello
+  stato. Colonne non lette: ETÀ/SESSO/NUCLEO/PREMIO «non serve» (si
+  ricalcolano), le altre (AZIENDA, PRODOTTO) riportate nell'Excel. Società
+  proposta = nome comune delle società del file («AMUNDI»). Misura sul file:
+  995 righe, premi a inizio anno uguali al loro riepilogo (1.006.128 /
+  340.374 / 18.200 / 14.382), rinnovo esportato e reimportato identico.
+  Da chiedere: le loro entrate usano 3.165 € × 70% (formula con la data
+  30/06/2025 non aggiornata), non la tariffa 3.640.
   **Configurazioni per le società (18/11/2026, preventivo 3 giornate)**:
   (1) regole componibili in `rules.js`, default = comportamento di prima:
   tariffe per fascia d'età (`category.tariffBy: 'eta'`, `ageBands` «fino a»,

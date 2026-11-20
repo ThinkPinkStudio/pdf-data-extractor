@@ -12,7 +12,7 @@ import ExcelJS from 'exceljs'
 import { applyLabels } from '../excelLabels'
 import { describeValue } from '../configValue.js'
 import { maxAgeOf, quotaOf, refundTaxOf } from './rules.js'
-import { addDays, annualPremium, categoryOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
+import { addDays, annualPremium, categoryOf, coverageOf, computeMember, decodeCf, fmtDate, layoutCode, memberAge, renewalPlan, statusAt, round2 } from './rules.js'
 import type { RsmMember, RsmProgram } from './types'
 
 const FMT_DATE = 'dd/mm/yyyy'
@@ -80,7 +80,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
       { h: 'LEGAME', w: 8 }, { h: 'DATA ENTRATA', w: 13, fmt: FMT_DATE }, { h: `PREMIO ANNUO (TARIFFE ${program.year})`, w: 14, fmt: FMT_EUR },
       { h: 'QUIESCENTE', w: 10 }, { h: 'AVVISI', w: 50 }, { h: 'NOTE', w: 40 },
     ]
-    const premium = (m: RsmMember) => annualPremium(cfg, m.category, m.legame, m.quiescente, categoryOf(cfg, m.category)?.tariffBy === 'eta' ? memberAge(cfg, m) : null) || null
+    const premium = (m: RsmMember) => annualPremium(cfg, m.category, m.legame, m.quiescente, categoryOf(cfg, m.category)?.tariffBy === 'eta' ? memberAge(cfg, m) : null, coverageOf(cfg, m)) || null
     const row = (m: RsmMember, alerts: string[], first: boolean) => [
       m.legame === 'TI' && first ? label(m.category).toUpperCase() : '', policy(m.category), m.cognome, m.nome, toDate(m.birthDate),
       age(m.birthDate, start), decodeCf(m.cf).sex || '', m.cf, m.cfTitolare || '', titName(m), m.legame, toDate(m.entryDate),
@@ -141,7 +141,7 @@ export async function rsmWorkbook(program: RsmProgram, members: RsmMember[], kin
           case 'quiescente': return m.quiescente ? 'SI' : 'NO'
           case 'note': return m.note || ''
           case 'societa': return cfg.fileCompany || program.company
-          case 'extra': {
+          case 'extra': case 'copertura': {
             const v = m.extra && m.extra[head]
             if (v != null && v !== '') return v
             return derived(m, h) ?? ''

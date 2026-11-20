@@ -328,6 +328,43 @@ export function normCategory(v, categories, layout) {
   return { key: null, quiescente }
 }
 
+const catWords = (v) => normHead(v).split(' ').filter(Boolean)
+// stessa parola o stessa radice («DIPENDENTI» = «DIPENDENTE»)
+const sameWord = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && a.slice(0, Math.max(5, a.length - 2)) === b.slice(0, Math.max(5, a.length - 2)))
+/** Le parole del foglio sono quelle dell'etichetta, anche con le sigle («RE» = «Real Estate»)? */
+function alignWords(S, L) {
+  const go = (i, j) => {
+    if (i === S.length) return j === L.length
+    if (j < L.length && sameWord(S[i], L[j]) && go(i + 1, j + 1)) return true
+    for (let k = 2; j + k <= L.length && k <= S[i].length; k++) {
+      if (L.slice(j, j + k).map((w) => w[0]).join('') === S[i] && go(i + 1, j + k)) return true
+    }
+    return false
+  }
+  return S.length > 0 && go(0, 0)
+}
+
+/**
+ * Categoria di un FOGLIO del file («SGR Dipendenti», «Variazioni RE
+ * Dipendenti», «DIRIGENTI»): prima il nome intero contro l'etichetta e i nomi
+ * nei file della categoria (`words`), anche con le sigle; poi la regola di
+ * sempre (radice a inizio nome); poi senza le prime parole («SGR DIPENDENTI»
+ * → «DIPENDENTI») per un programma che ha solo «Dipendenti». `strict`: senza
+ * quest'ultimo passo (l'import guidato decide se proporre le categorie del file).
+ */
+export function sheetCategory(name, cfg, strict = false) {
+  const base = isVarSheet(name, cfg) ? stripVarWord(name, cfg) : normHead(name)
+  const cats = (cfg && cfg.categories) || []
+  const S = catWords(base)
+  for (const c of cats) {
+    for (const lab of [c.label, c.key, ...wordList(c.words)]) if (lab && alignWords(S, catWords(lab))) return { key: c.key, quiescente: false }
+  }
+  const n = normCategory(base, cats)
+  if (n.key || strict) return n
+  for (let d = 1; d < S.length; d++) { const r = normCategory(S.slice(d).join(' '), cats); if (r.key) return r }
+  return { key: null, quiescente: false }
+}
+
 export function defaultProgramConfig(year = new Date().getFullYear()) {
   return {
     periodStart: `${year}-01-01`,
@@ -393,11 +430,38 @@ export function resolveTariffs(t) {
   return out
 }
 
+/**
+ * Copertura scritta nel file per la persona («RSM + IPM», «SOLO IPM»): la
+ * colonna COPERTURA (o quella indicata come copertura nel tracciato), salvata
+ * fra le colonne della società. '' se il file non la dice.
+ */
+export function coverageOf(cfg, m) {
+  const ex = m && m.extra
+  if (!ex || typeof ex !== 'object') return ''
+  const heads = new Set(['COPERTURA', ...Object.entries((cfg && cfg.fileLayout && cfg.fileLayout.columns) || {}).filter(([, f]) => f === 'copertura').map(([h]) => h)])
+  for (const [k, v] of Object.entries(ex)) if (heads.has(normHead(k)) && v != null && String(v).trim()) return String(v).trim()
+  return ''
+}
+
+/**
+ * Copertura con un premio diverso (`category.variants`, 20/11/2026, Amundi:
+ * titolare «RSM + IPM» 3.640 €, «SOLO IPM» 744 €): la prima il cui nome o le
+ * cui parole nei file coincidono con la copertura della persona.
+ */
+export function variantFor(cat, coverage) {
+  const c = normHead(coverage)
+  if (!cat || !c || !Array.isArray(cat.variants)) return null
+  return cat.variants.find((v) => [...wordList(v.words), normHead(v.label)].some((w) => w && (c === w || c.startsWith(`${w} `)))) || null
+}
+
 /** Premio annuo di una persona nella sua categoria (0 per i familiari del premio a nucleo). */
-export function annualPremium(cfg, catKey, legame, quiescente, age) {
+export function annualPremium(cfg, catKey, legame, quiescente, age, coverage) {
   const cat = categoryOf(cfg, catKey)
   if (!cat) return 0
-  const t = resolveTariffs(tariffsFor(cat, age))
+  const v = variantFor(cat, coverage)
+  // le tariffe della copertura sostituiscono solo quelle che indica
+  const own = v ? Object.fromEntries(Object.entries(v.tariffs || {}).filter(([, x]) => x != null && x !== '')) : {}
+  const t = resolveTariffs({ ...tariffsFor(cat, age), ...own })
   const holder = () => Number((quiescente && t.quiescente) ? t.quiescente : t.titolare) || 0
   if (legame === 'TI') return holder()
   if (cat.mode === 'nucleo') return 0
@@ -491,7 +555,7 @@ export function computeMember(cfg, m) {
   const r = cfg.rules || {}
   const cat0 = categoryOf(cfg, m.category)
   const byAge = cat0 && cat0.tariffBy === 'eta'
-  const annuo = annualPremium(cfg, m.category, m.legame, m.quiescente, byAge ? memberAge(cfg, m) : null)
+  const annuo = annualPremium(cfg, m.category, m.legame, m.quiescente, byAge ? memberAge(cfg, m) : null, coverageOf(cfg, m))
   let frazione = 1
   let calc = ''
   const entry = m.entryDate
@@ -638,6 +702,7 @@ const HEADS = [
   ['entrata', /^(DATA (DI )?ENTRATA|DECORRENZA)/],
   ['uscita', /^DATA (DI )?USCITA/],
   ['promozione', /^PROMOZIONE/],
+  ['copertura', /^COPERTUR/],
   ['quiescente', /^QUIESCENTE/],
   ['note', /^NOTE/],
 ]
@@ -730,10 +795,13 @@ export function referenceHeader(sheets, only, layout) {
   return { map, sheet }
 }
 
+const withCoverage = (extra, head, value) => (head && value ? { ...(extra || {}), [head]: value } : extra)
+
 export function parseCommunicationRows(rows, refYear, fallbackMap, layout) {
   const h = headerOrFallback(rows, fallbackMap, layout)
   if (!h) return { error: 'Intestazione non trovata: serve una riga con COGNOME e NOME.', rows: [] }
   const get = (r, k) => (h.map[k] == null ? null : r[h.map[k]])
+  const coverHead = h.map.copertura == null ? '' : (h.row >= 0 && cellStr((rows[h.row] || [])[h.map.copertura])) || 'COPERTURA'
   const out = []
   for (let i = h.row + 1; i < rows.length; i++) {
     const r = rows[i] || []
@@ -759,8 +827,9 @@ export function parseCommunicationRows(rows, refYear, fallbackMap, layout) {
       entryDate: normDate(get(r, 'entrata'), refYear),
       exitDate: normDate(get(r, 'uscita'), refYear),
       note: cellStr(get(r, 'note')),
-      // colonne della società che non servono al calcolo: tornano nell'Excel
-      extra: (h.extras || []).length ? Object.fromEntries(h.extras.map((x) => [x.head, cellStr(r[x.col])])) : null,
+      // colonne della società che non servono al calcolo: tornano nell'Excel;
+      // la copertura sta con loro (decide la tariffa, `coverageOf`)
+      extra: withCoverage((h.extras || []).length ? Object.fromEntries(h.extras.map((x) => [x.head, cellStr(r[x.col])])) : null, coverHead, cellStr(get(r, 'copertura'))),
     })
   }
   return { rows: out, header: h }
@@ -940,7 +1009,7 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   const layout = readLayout(cfg)
   const members = []
   const warnings = []
-  const catOfSheet = (name) => normCategory(isVarSheet(name, cfg) ? stripVarWord(name, cfg) : String(name), cfg.categories).key
+  const catOfSheet = (name) => sheetCategory(name, cfg).key
   const names = Object.keys(sheets)
   // Tracciato di riferimento: le colonne del foglio con l'intestazione più completa.
   // Servono ai fogli che il cliente manda SENZA riga d'intestazione (IMPIEGATI del
@@ -963,7 +1032,11 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
     }
     for (const r of p.rows) {
       const c = out.get(r)
-      if (!c.key && r.legame !== 'TI' && byTit.has(r.cfTitolare)) out.set(r, { key: byTit.get(r.cfTitolare).key, quiescente: false })
+      if (c.key || r.legame === 'TI') continue
+      if (byTit.has(r.cfTitolare)) { out.set(r, { key: byTit.get(r.cfTitolare).key, quiescente: false }); continue }
+      // titolare in un altro foglio (il figlio nato in corso d'anno nelle variazioni, il titolare nello stato)
+      const tit = members.find((m) => m.cf === r.cfTitolare && m.legame === 'TI')
+      if (tit) out.set(r, { key: tit.category, quiescente: false })
     }
     return out
   }
@@ -1033,9 +1106,10 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
       const rowKey = cats.get(r).key
       if (!rowKey) { warnings.push(`«${name}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: categoria «${r.categoria || 'vuota'}» non riconosciuta, riga saltata.`); continue }
       varRows.push({ ...r, key: rowKey, sheet: name, promo: promoCol != null && yes(sheets[name][r.rowNumber - 1]?.[promoCol], cfg) })
-      for (const d of [r.entryDate, r.exitDate].filter(Boolean)) {
+      for (const [d, isOut] of [[r.entryDate, false], [r.exitDate, true]].filter((x) => x[0])) {
         datedRows++
-        if (d < cfg.periodStart || d >= cfg.periodEnd) outOfPeriod++
+        // un'uscita il giorno di fine periodo è la fine naturale della copertura
+        if (d < cfg.periodStart || (isOut ? d > cfg.periodEnd : d >= cfg.periodEnd)) outOfPeriod++
       }
     }
   }
@@ -1054,9 +1128,16 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
       source: `Stato di rischio, foglio «${r.sheet}» riga ${r.rowNumber}`, note: r.note || '',
       extra: r.extra || null,
     })
+    // entrata e uscita sulla stessa riga (entrato il 01/01, uscito il 30/04): anche l'uscita
+    if (r.exitDate && r.exitDate < cfg.periodEnd && (!r.entryDate || r.exitDate > r.entryDate)) {
+      const m = members[members.length - 1]
+      m.exitDate = r.exitDate
+      m.exitKind = r.promo ? 'promozione' : 'cessazione'
+    }
   }
   for (const r of varRows.filter(isExit)) {
     const date = r.exitDate
+    if (date && date >= cfg.periodEnd) continue // fine naturale della copertura: niente da chiudere
     if (!date) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza data, riga saltata (registrala dopo l'import).`); continue }
     if (!r.cf) { warnings.push(`«${r.sheet}» riga ${r.rowNumber} ${r.cognome} ${r.nome}: uscita senza codice fiscale, riga saltata (non si sa chi chiudere).`); continue }
     const target = members.filter((m) => m.category === r.key && m.cf === r.cf && !m.exitDate && (!date || !m.entryDate || m.entryDate <= date))
@@ -1166,43 +1247,151 @@ export function parseStatoWorkbook(cfg, sheets, resolutions) {
   return { members, warnings, anomalies }
 }
 
+/** Valore numerico di una cella (numero di Excel o testo all'italiana). */
+const cellNum = (raw) => (typeof raw === 'number' ? raw : raw instanceof Date ? NaN : Number(String(raw ?? '').replace(/\./g, '').replace(',', '.')))
+const mostFrequent = (vals) => {
+  const f = new Map()
+  for (const v of vals) f.set(v, (f.get(v) || 0) + 1)
+  return [...f.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+}
+const slugKey = (label, taken) => {
+  const base = normHead(label).toLowerCase().replace(/ /g, '-') || 'categoria'
+  let k = base, i = 2
+  while (taken.has(k)) k = `${base}-${i++}`
+  taken.add(k)
+  return k
+}
+
 /**
- * Tariffe e numeri di polizza scritti nel file dello stato di rischio: in ogni
- * foglio di categoria la tabellina in fondo («DIRIGENTI 9146», «DIRIGENTI
- * QUIESCENTI 10123», «CONIUGI/CONVIVENTI 646», «FIGLI 558»: etichetta nella
- * prima colonna, importo nella terza) e il numero di polizza più frequente
- * della colonna NR. POLIZZA. Solo valori trovati; l'operatore li conferma.
+ * Cosa dice un foglio di stato sulle tariffe: numero di polizza più frequente,
+ * premio del titolare per copertura (colonna PREMIO delle righe dei titolari,
+ * colonna COPERTURA), premi dei familiari, e la tabellina delle tariffe
+ * (etichetta e importo due celle più a destra: in fondo al foglio, «DIRIGENTI
+ * 9146», o accanto ai dati, «ASSICURATI SOLO IPM 2 744»).
+ */
+function sheetFacts(rows, refMap, layout, cfg) {
+  const h = headerOrFallback(rows, refMap, layout)
+  const facts = { policy: '', table: [], titolari: new Map(), family: {}, coverOrder: [] }
+  const head = h && h.row >= 0 ? rows[h.row] || [] : []
+  const lastHead = head.reduce((m, c, i) => (c != null && String(c).trim() !== '' ? i : m), -1)
+  const premCol = head.findIndex((c) => /^(PREMIO|IMPORTO PREMIO)/.test(normHead(c)))
+  const isData = (r, i) => !!h && i > h.row && h.map.cfAss != null && /^[A-Z]{6}\d{2}/.test(cleanCf(r[h.map.cfAss]))
+  rows.forEach((r, i) => {
+    if (!r) return
+    const data = isData(r, i)
+    for (let c = 0; c + 2 < r.length; c++) {
+      if (data && c <= lastHead) continue // le celle dei dati non sono la tabellina
+      if (typeof r[c] !== 'string') continue
+      const label = normHead(r[c])
+      const v = cellNum(r[c + 2])
+      if (label && /[A-Z]/.test(label) && v > 0 && v <= 100000) facts.table.push({ label, value: v })
+    }
+    if (!data) return
+    const leg = h.map.legame == null ? 'TI' : normLegame(r[h.map.legame], layout, cfg)
+    const prem = premCol >= 0 ? cellNum(r[premCol]) : NaN
+    if (leg === 'TI') {
+      const cov = h.map.copertura == null ? '' : cellStr(r[h.map.copertura])
+      if (!facts.titolari.has(cov)) { facts.titolari.set(cov, []); facts.coverOrder.push(cov) }
+      facts.titolari.get(cov).push(prem)
+    } else if (leg && Number.isFinite(prem)) {
+      ;(facts.family[leg] ||= []).push(prem)
+    }
+  })
+  if (h && h.map.polizza != null) {
+    const nums = rows.slice(h.row + 1).map((r) => cellStr(r && r[h.map.polizza])).filter((p) => /^\d{5,}$/.test(p))
+    facts.policy = mostFrequent(nums) || ''
+  }
+  return facts
+}
+
+/**
+ * Tariffe, polizza, coperture con premio diverso e premio a nucleo o a persona
+ * di un foglio di categoria, letti dal file. `isCat(label)`: l'etichetta della
+ * tabellina è la categoria stessa («DIRIGENTI 9146»).
+ */
+function categoryFromFacts(f, cfg, isCat) {
+  const tariffs = {}
+  const legs = legamiOf(cfg)
+  // coperture dei titolari, la più frequente è quella di base
+  const covers = [...f.titolari.entries()].sort((a, b) => b[1].length - a[1].length).map(([c]) => c)
+  const base = covers[0] || ''
+  const premOf = (cov) => mostFrequent((f.titolari.get(cov) || []).filter((v) => v > 0))
+  const tableFor = (cov) => (cov ? f.table.find((t) => t.label.includes(normHead(cov)) && !normLegame(t.label, null, cfg)) : null)
+  for (const t of f.table) {
+    const leg = /^(DIRIGENT|FUNZIONAR|IMPIEGAT|QUADR)/.test(t.label) ? null : normLegame(t.label, null, cfg)
+    if (leg && leg !== 'TI') { const l = legs.find((x) => x.key === leg); if (l && tariffs[l.tariff] == null) tariffs[l.tariff] = t.value }
+    else if (isCat(t.label)) {
+      if (/QUIESC/.test(t.label)) tariffs.quiescente = t.value
+      else if (tariffs.titolare == null) tariffs.titolare = t.value
+    }
+  }
+  const baseTit = premOf(base) || (tableFor(base) || {}).value
+  if (baseTit && tariffs.titolare == null) tariffs.titolare = baseTit
+  // premi dei familiari scritti riga per riga (premio a persona)
+  for (const [leg, vals] of Object.entries(f.family)) {
+    const l = legs.find((x) => x.key === leg)
+    const v = mostFrequent(vals.filter((x) => x > 0))
+    if (l && v && tariffs[l.tariff] == null) tariffs[l.tariff] = v
+  }
+  const variants = []
+  for (const cov of covers.slice(1)) {
+    if (!cov) continue
+    const tit = premOf(cov) || (tableFor(cov) || {}).value
+    if (tit) variants.push({ key: normHead(cov).toLowerCase().replace(/ /g, '-'), label: cov, words: cov, tariffs: { titolare: tit } })
+  }
+  const family = legs.filter((l) => l.key !== 'TI').some((l) => Number(tariffs[l.tariff]) > 0)
+  return { tariffs, policy: f.policy, variants, mode: family ? 'persona' : 'nucleo' }
+}
+
+/**
+ * Tariffe e numeri di polizza scritti nel file dello stato di rischio, per
+ * categoria del programma: in ogni foglio di categoria la tabellina
+ * («DIRIGENTI 9146», «DIRIGENTI QUIESCENTI 10123», «CONIUGI/CONVIVENTI 646»),
+ * il premio scritto sulle righe dei titolari e il numero di polizza più
+ * frequente della colonna NR. POLIZZA. `variants`: coperture dei titolari con
+ * un premio diverso («SOLO IPM 744»). Solo valori trovati; l'operatore li conferma.
  */
 export function tariffsFromWorkbook(cfg, sheets) {
   const out = {}
-  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg))
+  const layout = readLayout(cfg)
+  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg), layout)
   for (const name of Object.keys(sheets).filter((n) => !isVarSheet(n, cfg))) {
-    const key = normCategory(name, cfg.categories).key
-    if (!key) continue
+    const key = sheetCategory(name, cfg).key
+    if (!key || out[key]) continue
+    const f = sheetFacts(sheets[name] || [], ref.map, layout, cfg)
+    const c = categoryFromFacts(f, cfg, (label) => normCategory(label, cfg.categories).key === key || sheetCategory(label, cfg).key === key)
+    if (Object.keys(c.tariffs).length || c.policy || c.variants.length) out[key] = { tariffs: c.tariffs, policy: c.policy, ...(c.variants.length ? { variants: c.variants } : {}) }
+  }
+  return out
+}
+
+/**
+ * Categorie proposte dal file (20/11/2026, Amundi: «SGR Dipendenti», «Real
+ * Estate Dirigenti»…): un foglio di stato con assicurati = una categoria, col
+ * nome del foglio, la sua polizza, le tariffe e le coperture lette dal file,
+ * premio a persona se i familiari hanno un premio proprio. L'ordine di
+ * carriera (per le promozioni) dal nome: dirigenti in alto, poi quadri e
+ * funzionari, poi gli altri.
+ */
+export function categoriesFromWorkbook(sheets, cfg0) {
+  const cfg = cfg0 || defaultProgramConfig()
+  const layout = readLayout(cfg)
+  const ref = referenceHeader(sheets, (n) => !isVarSheet(n, cfg), layout)
+  const taken = new Set()
+  const out = []
+  for (const name of Object.keys(sheets).filter((n) => !isVarSheet(n, cfg))) {
     const rows = sheets[name] || []
-    const tariffs = {}
-    for (const r of rows) {
-      const label = normHead(r && r[0])
-      const v = r && typeof r[2] === 'number' ? r[2] : Number(String((r && r[2]) ?? '').replace(/\./g, '').replace(',', '.'))
-      if (!label || !(v > 0) || v > 100000) continue
-      const leg = /^(DIRIGENT|FUNZIONAR|IMPIEGAT|QUADR)/.test(label) ? null : normLegame(label, null, cfg)
-      if (leg && leg !== 'TI') tariffs[legamiOf(cfg).find((l) => l.key === leg).tariff] = v
-      else if (normCategory(label, cfg.categories).key === key) {
-        if (/QUIESC/.test(label)) tariffs.quiescente = v
-        else tariffs.titolare = v
-      }
-    }
-    const h = headerOrFallback(rows, ref.map)
-    let policy = ''
-    if (h && h.map.polizza != null) {
-      const freq = new Map()
-      for (const r of rows.slice(h.row + 1)) {
-        const p = cellStr(r && r[h.map.polizza])
-        if (/^\d{5,}$/.test(p)) freq.set(p, (freq.get(p) || 0) + 1)
-      }
-      policy = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
-    }
-    if (Object.keys(tariffs).length || policy) out[key] = { tariffs, policy }
+    const f = sheetFacts(rows, ref.map, layout, cfg)
+    const n = [...f.titolari.values()].reduce((s, v) => s + v.length, 0)
+    if (!n) continue
+    const label = String(name).replace(/\s+/g, ' ').trim()
+    const L = normHead(label)
+    const c = categoryFromFacts(f, cfg, (t) => alignWords(catWords(t), catWords(label)) || normCategory(t, [{ key: 'x', label }]).key === 'x')
+    out.push({
+      key: slugKey(label, taken), label, policy: c.policy, mode: c.mode,
+      rank: /DIRIG/.test(L) ? 3 : /(QUADR|FUNZION)/.test(L) ? 2 : 1,
+      tariffs: c.tariffs, quota: 0, ...(c.variants.length ? { variants: c.variants } : {}),
+    })
   }
   return out
 }
@@ -1226,7 +1415,16 @@ export function workbookCompany(sheets) {
       if (v && !/^(AZIENDA|SOCIETA)$/i.test(normHead(v))) freq.set(v, (freq.get(v) || 0) + 1)
     }
   }
-  return [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+  const top = [...freq.entries()].sort((a, b) => b[1] - a[1])
+  // più società dello stesso gruppo nel file («AMUNDI SGR», «AMUNDI R.E.»): il nome comune
+  const big = top.filter(([, n]) => n >= 3)
+  if (big.length >= 2) {
+    const W = big.map(([v]) => v.split(/\s+/))
+    let k = 0
+    while (W.every((w) => w[k] && normHead(w[k]) === normHead(W[0][k]))) k++
+    if (k > 0) return W[0].slice(0, k).join(' ')
+  }
+  return top[0]?.[0] || ''
 }
 
 /** Stessa società scritta in due modi («C.A. VITA» / «c.a. vita »). */
@@ -1357,8 +1555,9 @@ export function parseCessationText(text, refYear) {
 /* ─── Tracciato del file di una società (config.fileLayout) ─────────────── */
 
 /** Campi che una colonna del file può essere, nell'ordine in cui si propongono. */
-export const LAYOUT_FIELDS = ['cognome', 'nome', 'cfAss', 'cfTit', 'legame', 'categoria', 'nascita', 'entrata', 'uscita', 'azione', 'polizza', 'quiescente', 'promozione', 'note', 'societa']
+export const LAYOUT_FIELDS = ['cognome', 'nome', 'cfAss', 'cfTit', 'legame', 'categoria', 'nascita', 'entrata', 'uscita', 'azione', 'polizza', 'quiescente', 'promozione', 'copertura', 'note', 'societa']
 
+const DERIVED_HEAD = /^(ETA|SESSO|TITOLARE( DEL)? NUCLEO|NUCLEO|NOMINATIVO TITOLARE|PREMIO|IMPORTO PREMIO|Q A|QUOTA|TOTALE|RATEO|RIMBORSO|SALDO)\b/
 const looksLikeData = (v) => /^[A-Z]{6}\d{2}/i.test(cleanCf(v)) || normDate(v) != null || typeof v === 'number'
 
 /**
@@ -1406,9 +1605,12 @@ export function inspectColumns(sheets, layout) {
     }
     const samples = best.dataRows.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '').slice(0, 3)
       .map((v) => (v instanceof Date || (typeof v === 'number' && v > 20000 && v < 80000) ? fmtDate(normDate(v)) : cellStr(v)))
+    // colonna che il programma non legge: quelle che sa ricalcolare (età, sesso,
+    // nucleo, premi) non servono; le altre (AZIENDA, PRODOTTO) si riportano nell'Excel
+    const unread = best.h.guessed ? null : DERIVED_HEAD.test(norm) ? 'skip' : 'extra'
     columns.push({
       col, head: text, norm,
-      field: lcols[norm] || byCol.get(col) || null,
+      field: lcols[norm] || byCol.get(col) || unread,
       saved: !!lcols[norm],
       samples,
       values: [...values.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([v]) => v),

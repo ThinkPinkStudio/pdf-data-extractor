@@ -74,6 +74,14 @@ function cleanConfig(c: RsmConfig): RsmConfig | null {
       upTo: b.upTo == null || (b.upTo as unknown) === '' ? null : Math.max(0, Math.round(Number(b.upTo) || 0)),
       ...cleanTariffs(b, tKeys),
     })),
+    words: str(x.words, 400),
+    // coperture con premio diverso: solo le tariffe indicate (le altre restano quelle della categoria)
+    variants: (Array.isArray(x.variants) ? x.variants : []).slice(0, 20).map((v, j) => ({
+      key: String(v.key || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || `cop${j + 1}`,
+      label: str(v.label, 120).trim(),
+      words: str(v.words, 400),
+      tariffs: Object.fromEntries(tKeys.filter((k) => v.tariffs && v.tariffs[k] != null && (v.tariffs[k] as unknown) !== '').map((k) => [k, cval(v.tariffs[k])])),
+    })).filter((v) => v.label || v.words),
   }))
   if (!categories.length || new Set(categories.map((x) => x.key)).size !== categories.length) return null
   const r = c.rules || ({} as RsmConfig['rules'])

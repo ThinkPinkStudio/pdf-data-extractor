@@ -12,15 +12,15 @@ import { RsmHeader, api, eur, useFlash, useRsm } from '@/components/rsm/useRsm'
 import NumInput from '@/components/rsm/NumInput'
 import ValueInput from '@/components/ValueInput'
 import { describeValue } from '@/lib/configValue.js'
-import { tariffColumns } from '@/components/rsm/SettingsParts'
-import { buildLayout, defaultProgramConfig, legamiOf, normCategory, normHeadText, normLegame, sameFileCompany, tariffKeys, refundTaxOf } from '@/lib/rsm/rules.js'
+import { AddVariant, Variants, tariffColumns } from '@/components/rsm/SettingsParts'
+import { buildLayout, defaultProgramConfig, legamiOf, normCategory, normHeadText, normLegame, sameFileCompany, sheetCategory, tariffKeys, refundTaxOf } from '@/lib/rsm/rules.js'
 import { ColumnMap, missingFields, type MapCol } from '@/components/rsm/ColumnMap'
 import { programName } from '@/lib/rsm/types'
 import type { RsmAnomaly, RsmCategory, RsmConfig, RsmFileLayout } from '@/lib/rsm/types'
 
 type FileTariffs = Record<string, { tariffs: RsmCategory['tariffs']; policy: string }>
 interface InspectCols { sheet: string | null; guessed?: boolean; columns: { col: number; head: string; norm: string; field: string | null; saved: boolean; samples: string[]; values: string[] }[] }
-interface Inspect { year: number | null; company: string; categories: string[]; tariffs: FileTariffs; columns: InspectCols }
+interface Inspect { year: number | null; company: string; categories: string[]; fileCategories: RsmCategory[]; tariffs: FileTariffs; sheets: string[]; columns: InspectCols }
 interface Dry {
   total: number
   counts: Record<string, { righe: number; titolari: number; entrate: number; uscite: number }>
@@ -99,17 +99,37 @@ export default function RsmImportPage() {
     if (legCol) setLegCodes(Object.fromEntries(legCol.values.map((v) => [v, legCodes[v] ?? (normLegame(v, null, cfg) || '')])))
   }
 
-  /** Configurazione di partenza per il programma scelto, con le tariffe del file dove mancano. */
-  function draftFor(targetId: string, y: number, ft: FileTariffs) {
+  /**
+   * Categoria del file (un foglio di assicurati) che corrisponde a una
+   * categoria del programma: nome del foglio contro etichetta e nomi nei file.
+   */
+  const fileFor = (c: RsmCategory, conf: RsmConfig | null = cfg, ins: Inspect | null = insp) =>
+    (ins?.fileCategories || []).find((fc) => conf && sheetCategory(fc.label, conf).key === c.key) || null
+
+  /**
+   * Configurazione di partenza per il programma scelto, con le tariffe del file
+   * dove mancano. Un programma NUOVO le cui categorie di partenza non
+   * corrispondono a nessun foglio del file prende le categorie del file
+   * (Amundi: «SGR Dipendenti», «Real Estate Dirigenti»…).
+   */
+  function draftFor(targetId: string, y: number, ins: Inspect) {
     const base: RsmConfig = targetId === 'new'
       ? (defaultProgramConfig(y) as RsmConfig)
       : clone(programs.find((p) => p.id === targetId)!.config)
+    // file con categorie sue: un foglio senza corrispondenza esatta, o due fogli
+    // sulla stessa categoria («SGR Dirigenti» e «Real Estate Dirigenti» su «Dirigenti»)
+    const fc = ins.fileCategories || []
+    const strictKeys = fc.map((x) => sheetCategory(x.label, base, true).key)
+    if (targetId === 'new' && fc.length && (strictKeys.some((k) => !k) || new Set(strictKeys).size < strictKeys.length)) {
+      base.categories = fc.map((x) => ({ ...clone(x), words: x.words || x.label }))
+      return base
+    }
     base.categories = base.categories.map((c) => {
-      const f = ft[c.key]
+      const f = fileFor(c, base, ins)
       if (!f) return c
       const tariffs = { ...c.tariffs }
       for (const k of tariffKeys(base) as string[]) if (!tariffs[k] && f.tariffs[k]) tariffs[k] = f.tariffs[k]
-      return { ...c, tariffs, policy: c.policy || f.policy || '' }
+      return { ...c, tariffs, policy: c.policy || f.policy || '', variants: c.variants && c.variants.length ? c.variants : f.variants }
     })
     return base
   }
@@ -142,7 +162,7 @@ export default function RsmImportPage() {
       setNewCompany(co); setNameTouched(false); setCopied(null)
       setNewName(co ? programName(co, y) : `RSM ${y}`)
       setCopySrc(defaultSource(tgt, co, y))
-      const draft = draftFor(tgt, y, j.tariffs)
+      const draft = draftFor(tgt, y, j)
       setCfg(draft)
       initMap(j.columns || { sheet: null, columns: [] }, layoutFor(tgt, co), draft.categories)
       setStep(2)
@@ -156,7 +176,7 @@ export default function RsmImportPage() {
     if (p) setYear(p.year)
     setCopySrc(defaultSource(id, p ? p.company : newCompany, p ? p.year : year))
     if (insp) {
-      const draft = draftFor(id, p ? p.year : year, insp.tariffs)
+      const draft = draftFor(id, p ? p.year : year, insp)
       setCfg(draft)
       initMap(insp.columns || { sheet: null, columns: [] }, layoutFor(id, p ? p.company : newCompany), draft.categories)
     }
@@ -206,15 +226,31 @@ export default function RsmImportPage() {
   function useFile() {
     if (!cfg || !insp) return
     setCfg({ ...cfg, categories: cfg.categories.map((c) => {
-      const f = insp.tariffs[c.key]
-      return f ? { ...c, tariffs: { ...c.tariffs, ...f.tariffs }, policy: f.policy || c.policy } : c
+      const f = fileFor(c)
+      return f ? { ...c, tariffs: { ...c.tariffs, ...f.tariffs }, policy: f.policy || c.policy, variants: f.variants && f.variants.length ? f.variants : c.variants } : c
     }) })
+  }
+
+  /** Categorie del file che il programma non ha: si aggiungono (o, per un programma nuovo, sostituiscono quelle di partenza). */
+  function addFileCategories(replace: boolean) {
+    if (!cfg) return
+    const taken = new Set(replace ? [] : cfg.categories.map((c) => c.key))
+    const add = missingCats.map((x) => {
+      let key = x.key, n = 2
+      while (taken.has(key)) key = `${x.key}-${n++}`
+      taken.add(key)
+      return { ...clone(x), key, words: x.words || x.label }
+    })
+    setCfg({ ...cfg, categories: replace ? add : [...cfg.categories, ...add] })
   }
 
   const setCat = (i: number, p: Partial<RsmCategory>) => setCfg((c) => c && { ...c, categories: c.categories.map((x, j) => (j === i ? { ...x, ...p } : x)) })
   const codedCats = new Set(Object.values(catCodes).filter(Boolean).map((v) => v.split('|')[0]))
-  const usedCats = cfg ? cfg.categories.filter((c) => !insp || insp.categories.includes(c.key) || codedCats.has(c.key)) : []
-  const categorySheets = !!insp && insp.categories.length > 0
+  // categorie del programma che hanno un foglio nel file (con le regole del programma: nomi, sigle, nomi nei file)
+  const sheetKeys = new Set(cfg && insp ? (insp.sheets || []).map((n) => sheetCategory(n, cfg).key).filter(Boolean) as string[] : [])
+  const missingCats = cfg && insp ? (insp.fileCategories || []).filter((fc) => !sheetCategory(fc.label, cfg, true).key) : []
+  const usedCats = cfg ? cfg.categories.filter((c) => !insp || sheetKeys.has(c.key) || codedCats.has(c.key)) : []
+  const categorySheets = sheetKeys.size > 0
   const colsMissing = cols.length ? missingFields(cols, categorySheets) : []
   const missingTariff = usedCats.some((c) => !c.tariffs.titolare)
 
@@ -315,7 +351,7 @@ export default function RsmImportPage() {
       {step === 2 && cfg && insp && (
         <>
           <div className="rsm-box"><div className="rsm-box-body">
-            <div className="rsm-muted">{t('rsm.imp.fileIs', { f: file?.name || '', y: insp.year ?? '—', c: [...new Set([...insp.categories, ...codedCats])].map(label).join(', ') || '—' })}</div>
+            <div className="rsm-muted">{t('rsm.imp.fileIs', { f: file?.name || '', y: insp.year ?? '—', c: [...new Set([...sheetKeys, ...codedCats])].map(label).join(', ') || '—' })}</div>
             <div className="rsm-row">
               <label className="rsm-field">{t('rsm.imp.into')}
                 <select value={target} onChange={(e) => changeTarget(e.target.value)} style={{ width: 300 }}>
@@ -369,10 +405,20 @@ export default function RsmImportPage() {
             <div className="rsm-box-head">
               <div><div className="rsm-box-title">{t('rsm.imp.tariffs')}</div><span className="rsm-note">{t('rsm.imp.tariffsHint')}</span></div>
               <div className="rsm-row" style={{ alignItems: 'center' }}>
-                {Object.keys(insp.tariffs).length > 0 && <button className="btn btn-secondary" onClick={useFile}>{t('rsm.set.useFileTariffs')}</button>}
+                {cfg.categories.some((c) => fileFor(c)) && <button className="btn btn-secondary" onClick={useFile}>{t('rsm.set.useFileTariffs')}</button>}
               </div>
             </div>
             <div className="rsm-box-body rsm-scroll">
+              {missingCats.length > 0 && (
+                <div className="rsm-issue warning" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span>{t('rsm.imp.fileCats', { c: missingCats.map((x) => x.label).join(', ') })}</span>
+                  <button className="rsm-mini" onClick={() => addFileCategories(false)}>{t('rsm.imp.fileCatsAdd')}</button>
+                  {target === 'new' && <button className="rsm-mini" onClick={() => addFileCategories(true)}>{t('rsm.imp.fileCatsUse')}</button>}
+                </div>
+              )}
+              {!missingCats.length && target === 'new' && (insp.fileCategories || []).length > 0 && cfg.categories.every((c) => (insp.fileCategories || []).some((x) => x.label === c.label)) && (
+                <div className="rsm-note">{t('rsm.imp.fileCatsAuto', { c: cfg.categories.map((c) => c.label).join(', ') })}</div>
+              )}
               <table className="rsm-cats">
                 <thead><tr>
                   <th>{t('rsm.set.label')}</th><th>{t('rsm.set.policy')}</th><th>{t('rsm.set.mode')}</th>
@@ -380,8 +426,8 @@ export default function RsmImportPage() {
                 </tr></thead>
                 <tbody>
                   {cfg.categories.map((c, i) => {
-                    const f = insp.tariffs[c.key]
-                    const inFile = insp.categories.includes(c.key) || codedCats.has(c.key)
+                    const f = fileFor(c)
+                    const inFile = sheetKeys.has(c.key) || codedCats.has(c.key)
                     const cols = tariffColumns(cfg, t)
                     const cell = (k: TKey, disabled = false) => {
                       const v = c.tariffs[k]
@@ -412,6 +458,8 @@ export default function RsmImportPage() {
                   })}
                 </tbody>
               </table>
+              {cfg.categories.map((c, i) => c.variants && c.variants.length ? <Variants key={`cv${i}`} cfg={cfg} cat={c} ro={false} onChange={(variants) => setCat(i, { variants })} /> : null)}
+              <AddVariant cfg={cfg} ro={false} onAdd={(i) => setCat(i, { variants: [...(cfg.categories[i].variants || []), { key: `cop${Date.now().toString(36)}`, label: '', words: '', tariffs: {} }] })} />
               {missingTariff && <div className="rsm-issue error" style={{ marginTop: 8 }}>{t('rsm.imp.missingTariff')}</div>}
               <div className="rsm-note" style={{ marginTop: 8 }}>{t('rsm.imp.rulesNote', { m: cfg.rules.prorata === 'mesi' ? t('rsm.pr.months') : t('rsm.pr.days'), tax: describeValue(refundTaxOf(cfg), { rimborso: t('rsm.set.refundGross') }) })}</div>
             </div>
